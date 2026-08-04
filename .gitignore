@@ -1,0 +1,42 @@
+# Build outputs
+build/
+out/
+cmake-build-*/
+*.obj
+*.lib
+*.pdb
+*.ilk
+*.exp
+*.dll
+*.exe
+
+# vcpkg artifacts
+vcpkg_installed/
+vcpkg-manifest-install.log
+.vcpkg-root
+
+# CMake
+CMakeUserPresets.json
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+compile_commands.json
+
+# IDE
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.sln
+*.vcxproj*
+
+# Screenshots / captures in the repo root (procedural assets only — no binaries in git)
+/*.png
+/*.bmp
+shot*.png
+
+# OS
+Thumbs.db
+desktop.ini
+.DS_Store

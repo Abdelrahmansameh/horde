@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "name": "smoke_spawn_and_persist",
+  "seed": 20260804,
+  "ticks": 120,
+  "max_chaff": 20000,
+  "actions": [
+    { "tick": 0, "type": "spawn_chaff", "family": "virus", "count": 500, "pos": [16, 72], "radius": 4 },
+    { "tick": 30, "type": "spawn_chaff", "family": "bacteria", "count": 250, "pos": [16, 72], "radius": 4 }
+  ],
+  "assertions": [
+    { "tick": 0, "metric": "chaff_count", "op": "==", "value": 500 },
+    { "tick": 30, "metric": "chaff_count", "op": "==", "value": 750 },
+    { "tick": 120, "metric": "chaff_count", "op": "==", "value": 750 },
+    { "tick": 120, "metric": "chaff_leaked_total", "op": "==", "value": 0 },
+    { "tick": 120, "metric": "objective_integrity", "op": ">", "value": 0 },
+    { "tick": 120, "metric": "tick", "op": "==", "value": 120 }
+  ]
+}

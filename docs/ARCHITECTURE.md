@@ -1,0 +1,477 @@
+# IMMUNE — Architecture
+
+This document is the contract between waves. Every interface header listed here
+is **frozen**: Waves 1–4 implement *against* these headers, in parallel, and an
+agent that needs a signature changed requests it from the orchestrator rather
+than editing another agent's header.
+
+`DESIGN.md` is the authority on *what* the game is. This document is the
+authority on *how the code is shaped*, and every section states the rationale so
+a later agent can tell an intentional constraint from an accident.
+
+---
+
+## 0. The three forces that shape everything
+
+1. **10,000 agents at 60 FPS.** DESIGN.md §8.2 makes data-oriented design in the
+   hot path a hard constraint, not a preference. The chaff store is SoA, damage
+   is aggregate, movement is field-sampled, and rendering is instanced. Any
+   design that introduces a per-agent object, a per-agent virtual call, or a
+   per-agent heap allocation is wrong by construction.
+2. **Agents build this game, not humans at a screen.** The executable ships three
+   headless modes from Wave 0 (`--bench`, `--sim-test`, `--screenshot`). They are
+   the only way a sub-agent can prove its work. Their output formats are public
+   API.
+3. **Determinism.** Fixed 60 Hz tick, explicit seeded PRNG, no wall-clock reads
+   inside the sim. Determinism is not a nicety here — it is the precondition for
+   (2). If the sim is not reproducible, `--sim-test` and `--screenshot` are
+   worthless.
+
+---
+
+## 1. Module map and ownership
+
+One CMake library target per module. Directory ownership is exclusive.
+
+| Target | Directory | Owner wave | Depends on |
+|---|---|---|---|
+| `immune_core` | `src/core/` | 0 | — |
+| `immune_platform` | `src/platform/` | 0 | core, SDL2, glad |
+| `immune_sim` | `src/sim/` | 1A/1B/1D, 2A | core, EnTT |
+| `immune_render` | `src/render/` | 1C, 3D | core, platform, sim |
+| `immune_game` | `src/game/` | 2B/2C/2D, 3A, 4A/4B | core, sim, render, json |
+| `immune_ui` | `src/ui/` | 3B | core, platform, render, game, imgui |
+| `immune_audio` | `src/audio/` | 3C | core, SDL2 |
+| `immune_app` | `src/app/` | 0 | everything |
+
+Dependencies point one way only: `core → platform → sim → render → game → ui →
+app`. `sim` never includes `render`; `render` never mutates `sim`.
+
+---
+
+## 2. `core` — foundations
+
+### `Types.h`
+Scalar aliases, `Vec2/3/4` (glm), `Rect`, `EntityId`, and the two frozen enums
+`PathogenFamily` and `TowerType`. **`PathogenFamily`'s enum order is the
+renderer's draw-batch order** — reordering it silently changes rendering.
+
+`kTicksPerSecond = 60`. Note the deliberate pair:
+- `kFixedDt` (f32) — what sim math uses.
+- `kFixedDtSeconds` (f64) — what the clock accumulator uses.
+
+Accumulating in f32 loses one tick per simulated second to rounding. This bit us
+during Wave 0 and is now covered by a test.
+
+### `Rng.h` — PCG32
+Trivially copyable, 16 bytes of state. `fork(stream_id)` produces an independent
+deterministic sub-stream **without advancing the parent**, which is how parallel
+work stays reproducible: a `parallel_for` body forks by range index rather than
+sharing a generator.
+
+> **Rule:** sim code never calls `rand()`, `std::random_device`, or a global
+> generator. It takes an `Rng&`, sourced from `SimWorld::rng()`.
+
+### `Clock.h`
+`WallClock` / `ScopedTimer` for profiling (non-deterministic, never in sim
+logic). `FixedClock` is the sim/render decoupler:
+
+```
+clock.begin_frame();
+while (clock.consume_tick()) sim.tick();   // fixed 60 Hz
+renderer.draw(clock.alpha());              // variable rate
+```
+
+The accumulator is stored **in tick units, not seconds**, so consuming a tick is
+an exact `-= 1.0`. `max_frame_seconds` (default 0.25 s) caps catch-up so a
+debugger pause cannot trigger a death spiral of ticks.
+
+### `Arena.h`
+Bump allocator. Reset is O(1); it never runs destructors, so `T` must be
+trivially destructible (static_assert enforced). Per-tick scratch memory comes
+from a frame arena so the hot path performs zero `malloc`s. `allocate()` returns
+`nullptr` on overflow rather than growing — a hot-path caller must size the arena
+so this cannot happen. Alignment is applied to the **absolute address**, not the
+offset, because `malloc` only guarantees `max_align_t`.
+
+### `JobSystem.h`
+Deliberately narrow: `parallel_for` over index ranges plus fire-and-forget
+`dispatch` + `wait_idle`. No task graph, no dependencies, no cross-frame stealing
+— every parallel workload in this game is "split N items across K workers".
+
+The calling thread executes range 0, so `thread_count() == worker_count() + 1`.
+`JobSystem(0)` is **explicitly serial**; auto-sizing uses the `kAutoWorkers`
+sentinel. That distinction matters: headless modes pass 0 to get a reproducible
+serial run.
+
+> **Determinism rule for `parallel_for` bodies:** do not accumulate into shared
+> floats (FP addition is not associative), and do not draw from a shared `Rng`.
+> Fork per range index.
+
+### `Profiler.h`
+The `--bench` JSON schema lives here. The five canonical keys — `chaff_update`,
+`spatial_hash`, `ecs_tick`, `render_submit`, `frame_total` — map directly onto
+DESIGN.md §8.6's budget lines. Keys are always emitted, zero-filled if unsampled,
+and in a fixed order, so the document is byte-stable and diffable across commits.
+**Adding a key is a contract change.**
+
+---
+
+## 3. `platform`
+
+`Window` (SDL2 + GL 4.5 core + glad), `InputState`, `FileIO`.
+
+- `Window::create` requests a 4.5 core-profile context and loads glad. It never
+  throws; check `ok()` / `error()`.
+- `create_headless_gl()` makes a hidden-window GL context. This is what
+  `--screenshot` uses: real GL, no visible window, no compositor.
+- `InputState` maps SDL scancodes onto an abstract `Action` enum. Game code never
+  mentions physical keys. Input is a **render-rate** concern; the sim never reads
+  it (that would break determinism). Player actions reach the sim as explicit
+  commands, which is also how `--sim-test` scripts drive the game.
+- `FileIO::asset_root()` walks up from the executable looking for `assets/`,
+  overridable via `$IMMUNE_ASSET_ROOT`. No exceptions cross this boundary.
+
+---
+
+## 4. `sim` — the deterministic simulation
+
+### 4.1 `SimWorld` — one object, one canonical tick order
+
+Everything a tick touches hangs off `SimWorld`, and the tick order is fixed:
+
+```
+1. spatial hash rebuild        [prof: spatial_hash]
+2. chaff update                [prof: chaff_update]
+3. ECS systems                 [prof: ecs_tick]
+4. damage fields apply
+5. chaff compact + kill accounting
+6. flow-field incremental rebake pump (budgeted)
+7. tick counter advance
+```
+
+Changing this order is a contract change. `state_hash()` is an FNV-1a over the
+chaff streams plus counters; `--sim-test` asserts on it to catch determinism
+regressions that don't show up in aggregate counts.
+
+### 4.2 `sim/chaff` — SoA storage (**the most important contract in the project**)
+
+There is no `ChaffAgent` class and there must never be one. Ten thousand agents
+are parallel flat arrays:
+
+```
+pos_x, pos_y      f32   position, split per axis
+vel_x, vel_y      f32   velocity, split per axis
+family            u8    PathogenFamily; also the render batch key
+density           f32   HP expressed as a density contribution
+flags             u8    chaff_flags bitset
+generation        u32   backs ChaffHandle across compaction
+```
+
+**Why SoA, in order of weight:**
+
+1. The per-tick movement kernel touches only pos/vel/flags. In SoA those streams
+   are contiguous, so every cache line fetched is 100% useful. An AoS struct
+   would drag family, density, and padding through L1 for nothing — that is the
+   difference between hitting and missing the 4 ms budget.
+2. Contiguous f32 streams auto-vectorize under MSVC, and hand-SIMD later is a
+   drop-in because the layout already matches.
+3. The renderer memcpys spans of these arrays into a mapped GPU instance buffer.
+   No gather, no per-agent transform construction.
+4. The spatial hash and damage fields both want to stream a dense `f32` position
+   array, which is exactly what they get.
+
+Position is split into `pos_x`/`pos_y` rather than a `Vec2` array on purpose:
+separation and damage-field tests early-out on a single axis, and SoA-of-scalars
+is what SIMD wants.
+
+**Identity.** An index is not stable — `compact()` swap-removes dead agents.
+Anything that must name a specific agent across ticks uses `ChaffHandle`
+(index + generation). In practice almost nothing does; chaff is fought as a mass.
+
+**Damage.** `apply_density_loss()` is the *only* way chaff takes damage. There is
+no per-unit hit path. Density reaching zero sets `kPendingKill`; removal happens
+in the once-per-tick `compact()`, so indices are stable within a tick.
+
+**Capacity.** All streams are reserved once at level load. Spawning past capacity
+fails and is reported; it never reallocates mid-tick.
+
+**Invariants** (asserted in debug, checked by tests):
+- I1 every index in `[0, count)` has `kAlive`
+- I2 all streams have equal size, `>= count`
+- I3 `count <= capacity` always; `spawn()` never grows an array
+- I4 `density[i] > 0` for every live agent after `compact()`
+
+`ChaffSystem` is the movement kernel. Per agent per tick, the entire "AI" is:
+
+```
+v += flow.sample(p) * speed          // one bilinear field fetch
+v += separation(p) * k               // 3x3 spatial-hash cell scan
+v  = clamp_length(v, max_speed)
+p += v * dt
+```
+
+Family behaviour (replication, clumping, drift, hiding) is a variation on those
+four lines gated by a flag bit — never a subclass.
+
+### 4.3 `sim/spatial` — uniform grid
+
+The only spatial queries the game makes are short-range over roughly uniform 2D
+density: separation neighbours, "which chaff overlap this field", and tower
+targeting. A uniform grid beats a tree: O(n) build in two linear passes, O(1)
+arithmetic lookup, two flat integer arrays, no pointers, no per-frame allocation.
+
+Layout is CSR-style counting sort: `cell_start` has `cell_count+1` entries, and
+cell `c` owns `indices[cell_start[c] .. cell_start[c+1])`. Explicitly **not** a
+per-cell `std::vector` — that would allocate thousands of times a frame.
+
+Cell size should be ~2× the separation radius so a 3×3 block covers every
+possible separation partner. Queries are conservative at cell granularity; the
+caller does the exact distance test. `occupancy()` is exposed because the
+renderer's density-LOD pass and the Mast Cell trigger both need it and neither
+should pay for a second counting pass.
+
+The hash stores **indices into the chaff SoA**, so `compact()` invalidates it.
+Rebuild before use; never cache indices across ticks.
+
+### 4.4 `sim/flowfield` — three-stage bake
+
+```
+TissueMask  ──►  DistanceField  ──►  FlowField
+(walkable +      (clearance,          (cost-to-goal sweep,
+ per-cell cost)   placement rules)     then negative gradient)
+```
+
+10,000 agents cannot each run A*. Baking a vector field once turns an agent's
+entire pathfinding cost into one bilinear sample. Vessels get organic width and
+branching for free because the field comes from a rasterized mask, not a corridor
+graph.
+
+**Incremental rebake is the load-bearing requirement.** Placing a tower must
+reroute the horde visibly and immediately, but a full-level bake is far too slow
+for a frame. `mark_dirty(rect)` records the region; `rebake_pending()` re-solves
+it correctness-first (tests, `--sim-test`); `pump_rebake(budget_ms)` is the
+gameplay path, spending a fixed millisecond budget per frame.
+
+The dirty region is expanded by `rebake_margin_cells` and seeded from the
+*existing* boundary costs. This is correct as long as the true shortest path from
+any changed cell leaves and re-enters the region at most once — the margin is
+what buys that. Agents flowing on a one-or-two-tick stale field read as momentum,
+not as a bug.
+
+`sample()` returns `(0,0)` outside the field or in an unreachable pocket. Callers
+must treat zero as **"no guidance"**, not as "standing still is fine".
+
+### 4.5 `sim/damage` — aggregate damage
+
+Chaff is never hit individually. A tower publishes a `DamageField`: a region plus
+a `kill_rate`. Each tick the field asks the spatial hash which cells it overlaps
+and thins the chaff inside.
+
+This is simultaneously the performance answer (cost scales with fields and the
+cells they cover, not with 10,000 × towers pair tests) and the art direction
+(mass removed at a field boundary *is* the "edge erosion" language of DESIGN.md
+§7). The visual is the mechanic.
+
+DESIGN.md §10 leaves the exact formula open, so both are implemented behind one
+switch and the feel pass picks by playing:
+
+- `DensityThinning` (default) — deterministic; subtracts `kill_rate * dt` from
+  every overlapped agent's density. Smooth, predictable, reads as dissolving.
+- `ProbabilisticRemoval` — each overlapped agent rolls to be removed whole.
+  Grainier, cheaper per agent, order-sensitive, so it draws from a per-field
+  forked stream to stay deterministic.
+
+Field shape supports Circle / Rect / Cone / Chain (the Complement Cascade
+resolves to a sequence of circle links at evaluation time). `family_mask` lets NK
+Cells hit only hidden targets and Cytotoxic T favour elites. `friendly_fire`
+carries the allergen overreaction mechanic.
+
+Removed density is attributed to the owning tower and to the economy via
+`DamageStats`. **Nothing may infer kills by diffing agent counts** — under
+aggregate damage, only the damage system knows when a density threshold was
+crossed.
+
+### 4.6 `sim/ecs` — the small half
+
+EnTT registry for named agents (≤200) and towers. Chaff never enters the
+registry; adding a chaff entity violates §8.2.
+
+The wrapper exists for exactly one reason: **explicit, stable system ordering**.
+Systems declare a `SystemPhase` (PreUpdate → AI → Movement → Combat →
+PostUpdate) and a sort key; the scheduler runs them in that order, always, on
+every machine. Registration order never leaks into behaviour. The raw registry
+stays reachable — this is a convenience layer, not an abstraction wall.
+
+Components are plain trivially-copyable structs with no methods and no virtuals
+so EnTT keeps them in dense pools.
+
+---
+
+## 5. `render`
+
+Two facts drive the entire renderer interface:
+
+**1. One instanced draw call per family.** The CPU never builds per-agent
+geometry or per-agent draw calls. `submit_chaff` walks the chaff SoA once and
+memcpys contiguous spans into a persistently-mapped instance buffer, one range
+per `PathogenFamily`. Six draw calls cover ten thousand agents. This is why the
+`PathogenFamily` enum order is frozen.
+
+`ChaffInstance` is 32 bytes — half a cache line each, 320 KB/frame at 10k. Its
+layout is mirrored exactly in `assets/shaders/chaff.vert`; changing one without
+the other is a contract break.
+
+**2. LOD by density, not distance.** The camera is fixed-ish, so distance LOD is
+meaningless (DESIGN.md §8.5). Instead, where cell occupancy exceeds
+`lod_blob_threshold`, agents are not drawn as instances at all — they accumulate
+into a low-resolution density texture drawn by a shader-driven blob pass. A
+crossfade band up to `lod_blob_full` makes the switch invisible: an agent near the
+boundary draws at partial instance alpha *and* contributes partial blob density,
+conserving apparent mass. Without this a floodplain level would try to draw
+10,000 overlapping sprites into a few hundred pixels.
+
+`Camera` is a fixed tilted-topdown (15–25°, no rotation). Because tilt is fixed,
+world↔screen is affine and `screen_to_world` is exact — which is precisely what
+grid-free continuous tower placement needs. World Y is foreshortened by
+`cos(tilt)`; height above the plane is a constant vertical offset plus a drop
+shadow. No 3D geometry anywhere.
+
+`ShaderManager` hot-reloads from `assets/shaders/*.glsl`. Since the project ships
+zero binary assets, shader source is the *only* on-disk art, so hot reload is the
+entire art iteration loop. A failed recompile logs the GLSL error and **keeps the
+previous working program**, so a typo never blanks the screen.
+
+`Screenshot` writes PNGs via `stb_image_write` and handles the GL bottom-up →
+PNG top-down flip. This is the project's primary visual verification channel.
+
+---
+
+## 6. `game`
+
+- **`towers/`** — grid-free continuous placement validated against the distance
+  field (clearance) and reachability (a placement that walls off every lane is
+  rejected, not allowed-then-exploited). A successful placement edits the tissue
+  mask and marks the flow field dirty over the footprint only. Targeting goes
+  through the spatial hash; a tower asks the grid for cells in range and never
+  iterates agents. Anti-chaff towers don't target at all — they publish a
+  `DamageField`.
+- **`enemies/`** — the DESIGN.md §6 readability rule (colour = family, silhouette
+  size = threat tier, tempo = speed tier) is enforced *structurally*: those are
+  three separate fields sourced from tables, so no archetype can quietly break the
+  visual language. `render::family_color()` is the single source of truth for
+  pathogen colour, shared by UI, VFX, and instance tints.
+- **`level/`** — levels are **splines with per-point width in JSON**, not painted
+  masks. Agents can author and diff text; nobody can author a mask PNG without a
+  visual editor, and this project ships no binary assets. At load, splines
+  rasterize into TissueMask → DistanceField → FlowField. Schema v1 is documented
+  in `Level.h`; a missing `"schema"` is an error, not a default.
+- **`wave/`** — the director is a pure function of (tick, wave table, RNG). No
+  wall-clock, no background spawning, so a wave sequence replays identically.
+- **`economy/`** — ATP ledger with fractional carry so income is exact. Kill
+  income is credited from `DamageStats`, never inferred from count deltas.
+- **`meta/`** — versioned JSON save. Loading an older version must migrate;
+  loading a *newer* version must fail loudly rather than silently drop fields.
+
+---
+
+## 7. `ui` and `audio`
+
+`ui` emits **intents**, it does not mutate the sim. `app/` translates intents
+into sim commands so every state change goes through one auditable path — which
+is also the path `--sim-test` scripts drive. At 10k agents the player cannot read
+individual units, so the HUD carries the readability load via per-lane threat
+indicators computed from aggregate data (occupancy + family counts), never by
+iterating agents.
+
+`audio` synthesizes everything at runtime (no WAV files). The SDL2 audio callback
+runs on its own thread and must never allocate, lock, or call into the sim;
+gameplay pushes immutable `AudioEvent` values through a lock-free ring buffer.
+Dropping a sound when the queue is full is always preferable to stalling the sim.
+Mass events (`ChaffDissolve`) scale one voice by intensity rather than triggering
+one voice per agent.
+
+---
+
+## 8. `app` — the loop and the three modes
+
+```
+clock.begin_frame();
+input.poll();
+while (clock.consume_tick()) sim.tick();   // fixed 60 Hz
+renderer.draw(clock.alpha());              // variable rate
+```
+
+The sim's tick count over a wall-clock span is identical regardless of frame
+rate, so a 144 Hz machine and a 30 Hz machine play the same game.
+
+`GameStateMachine` keeps exactly one state live with explicit transitions applied
+at the top of a frame, so a state never destroys itself mid-update — and so the
+headless modes can construct just `InLevel` without dragging in menus, an audio
+device, or a window.
+
+### `--bench <scenario> --ticks N`
+
+Runs the sim headless and prints the `Profiler` JSON to stdout. Logging goes to
+stderr so stdout stays machine-parsable. Scenarios are registered in
+`app/Modes.cpp`; `--list-scenarios` prints them as JSON.
+
+| Scenario | Content | Purpose |
+|---|---|---|
+| `empty` | nothing | fixed per-tick overhead |
+| `chaff1k` | 1,000 chaff | smoke scale |
+| `chaff10k` | 10,000 chaff | **the Wave 1 gate** (<4 ms) |
+| `chaff10k_towers` | + 16 damage fields | Wave 2 gate |
+| `named200` | 200 named agents | the <2 ms §8.6 budget |
+| `mixed` | 10k + 200 + 16 fields | floodplain-like worst case |
+
+### `--sim-test <script.json>`
+
+Runs a scripted scenario and asserts invariants. Exit 0 pass / 1 fail. Every
+assertion is evaluated (no early exit) so one run reports every failure. Script
+schema v1 is documented at the top of the `--sim-test` section in
+`app/Modes.cpp`; assertable metrics are `chaff_count`, `named_count`,
+`total_density`, `objective_integrity`, `chaff_killed_total`,
+`chaff_leaked_total`, `tick`, `state_hash`.
+
+### `--screenshot <level> --tick N --out <file.png>`
+
+Advances the deterministic sim to tick N, creates a headless GL 4.5 context,
+renders one frame, and writes a PNG. Also prints a JSON metadata block including
+`state_hash`, so a visual diff can be correlated with a sim-state diff.
+
+---
+
+## 9. Performance budgets (DESIGN.md §8.6) — acceptance criteria
+
+| Subsystem | Bench key | Budget @ 10k |
+|---|---|---|
+| Chaff: flow sample + separation + instanced render | `chaff_update` + `render_submit` | **< 4 ms** |
+| ≤200 named agents, ECS tick | `ecs_tick` | **< 2 ms** |
+| Spatial hash rebuild | `spatial_hash` | **< 1 ms** |
+| Whole frame | `frame_total` | **< 16.6 ms** |
+
+These are pass/fail, not aspirations. If a change pushes `--bench` over budget,
+that is a failure to report, not a footnote.
+
+---
+
+## 10. Wave 0 status — what is real vs. stubbed
+
+**Real and tested:** `core` (clock, RNG, arena, job system, profiler),
+`platform` (window/GL/input/file IO), `render::Camera`, `render::Screenshot`,
+`ChaffBuffers` SoA storage semantics, the ECS scheduler's ordering guarantee,
+`Economy`'s ledger, the CLI, and all three headless modes end to end.
+
+**Stubbed (compiling, returning defaults), pending their owning wave:**
+`FlowField` / `DistanceField` bake and sampling (1A), `SpatialHash::rebuild` and
+queries (1B), `ChaffSystem::update` (1B), `Renderer`'s draw passes and
+`ShaderManager` (1C), ECS behaviour systems (1D), `DamageSystem::apply` (2A),
+`TowerSystem` (2B), `EnemyRoster` spawning (2C), `LevelLoader` JSON parsing (2D),
+`WaveDirector` (3A), `Hud` (3B), `AudioEngine` (3C), `MetaProgression`
+save/load (4B).
+
+A Wave 0 `--screenshot` therefore produces a correctly-formed, uniformly cleared
+frame in the warm tissue-substrate colour. That is the expected result, not a
+bug: the clear path, the GL context, the readback, the flip, and the PNG encode
+are all proven, and Wave 1C only has to add draws.

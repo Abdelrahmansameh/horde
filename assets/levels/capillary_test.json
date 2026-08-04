@@ -1,0 +1,29 @@
+{
+  "schema": 1,
+  "name": "capillary_test",
+  "region": "capillary",
+  "world": { "min": [0, 0], "max": [256, 144], "cell_size": 0.5 },
+  "vessels": [
+    {
+      "id": "main",
+      "points": [
+        { "p": [8, 72],   "w": 8.0 },
+        { "p": [72, 60],  "w": 7.0 },
+        { "p": [140, 84], "w": 5.0 },
+        { "p": [200, 72], "w": 6.0 },
+        { "p": [248, 72], "w": 8.0 }
+      ],
+      "children": []
+    }
+  ],
+  "portals": [
+    { "id": "p0", "pos": [8, 72], "radius": 4.0 }
+  ],
+  "objectives": [
+    { "id": "organ", "pos": [248, 72], "radius": 5.0, "integrity": 100 }
+  ],
+  "placement_zones": [
+    { "min": [16, 40], "max": [240, 110] }
+  ],
+  "ambient_drift": [0.0, 0.0]
+}
