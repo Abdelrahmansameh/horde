@@ -40,3 +40,6 @@ shot*.png
 Thumbs.db
 desktop.ini
 .DS_Store
+
+# Local per-machine Claude Code settings
+.claude/settings.local.json

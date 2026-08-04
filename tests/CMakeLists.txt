@@ -1,14 +1,9 @@
-add_executable(immune_tests
-  test_main.cpp
-  test_rng.cpp
-  test_arena.cpp
-  test_clock.cpp
-  test_jobsystem.cpp
-  test_profiler.cpp
-  test_chaff_soa.cpp
-  test_camera.cpp
-  test_cli.cpp
-  test_ecs_scheduler.cpp)
+# Globbed so that parallel module agents can add test_<module>.cpp files without
+# all contending for an edit to this one file. CONFIGURE_DEPENDS makes the build
+# re-glob when a new test file appears.
+file(GLOB IMMUNE_TEST_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/test_*.cpp")
+
+add_executable(immune_tests ${IMMUNE_TEST_SOURCES})
 
 target_link_libraries(immune_tests PRIVATE
   immune_app
