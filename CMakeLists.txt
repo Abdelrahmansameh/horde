@@ -67,7 +67,9 @@ add_library(immune_sim STATIC
   src/sim/chaff/ChaffBuffers.cpp
   src/sim/chaff/ChaffSystem.cpp
   src/sim/damage/DamageField.cpp
+  src/sim/ecs/AiStateMachine.cpp
   src/sim/ecs/EcsWorld.cpp
+  src/sim/ecs/NamedAgents.cpp
   src/sim/flowfield/FlowField.cpp
   src/sim/spatial/SpatialHash.cpp)
 target_link_libraries(immune_sim PUBLIC immune_core EnTT::EnTT)

@@ -33,7 +33,7 @@ enum class Mode : u8 {
 struct Options {
     Mode mode = Mode::Play;
 
-    std::string scenario;       ///< --bench <scenario>
+    std::string scenario;       ///< --bench <scenario> / --scenario <scenario> (screenshot-only)
     std::string script_path;    ///< --sim-test <script.json>
     std::string level;          ///< --screenshot <level> / --level <path>
     std::string out_path = "shot.png";  ///< --out

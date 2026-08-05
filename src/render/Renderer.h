@@ -27,6 +27,7 @@
 
 #include "core/Types.h"
 
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -94,7 +95,10 @@ struct FrameStats {
 
 class Renderer {
 public:
-    Renderer() = default;
+    // Both defined out-of-line in Renderer.cpp (even though defaulted): the
+    // pimpl'd Impl type is incomplete here, and MSVC needs it complete
+    // wherever unique_ptr<Impl>'s special members are actually emitted.
+    Renderer();
     ~Renderer();
 
     Renderer(const Renderer&) = delete;
@@ -154,6 +158,14 @@ private:
     FrameStats stats_{};
     bool ready_ = false;
     std::string error_;
+
+    // GL objects, the shader manager, and per-frame scratch (persistently
+    // mapped instance buffers, the density grid, etc.) all live behind a
+    // pimpl. This keeps GL/shader headers out of every translation unit that
+    // merely calls into the renderer (app/, game/), and keeps this frozen
+    // header stable while the pass implementations iterate underneath it.
+    struct Impl;
+    std::unique_ptr<Impl> impl_;
 };
 
 /// Canonical family colours (DESIGN.md §6). The single source of truth for

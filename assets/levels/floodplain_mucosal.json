@@ -1,0 +1,56 @@
+{
+  "schema": 1,
+  "name": "floodplain_mucosal",
+  "region": "mucosal",
+  "world": { "min": [0, 0], "max": [256, 144], "cell_size": 0.5 },
+  "vessels": [
+    {
+      "id": "branch_north",
+      "points": [
+        { "p": [8, 28],   "w": 18.0 },
+        { "p": [50, 40],  "w": 18.0 },
+        { "p": [100, 72], "w": 22.0 }
+      ],
+      "children": ["trunk"]
+    },
+    {
+      "id": "branch_mid",
+      "points": [
+        { "p": [8, 72],   "w": 22.0 },
+        { "p": [50, 72],  "w": 22.0 },
+        { "p": [100, 72], "w": 22.0 }
+      ],
+      "children": ["trunk"]
+    },
+    {
+      "id": "branch_south",
+      "points": [
+        { "p": [8, 116],  "w": 18.0 },
+        { "p": [50, 104], "w": 18.0 },
+        { "p": [100, 72], "w": 22.0 }
+      ],
+      "children": ["trunk"]
+    },
+    {
+      "id": "trunk",
+      "points": [
+        { "p": [100, 72], "w": 24.0 },
+        { "p": [170, 72], "w": 24.0 },
+        { "p": [248, 72], "w": 24.0 }
+      ],
+      "children": []
+    }
+  ],
+  "portals": [
+    { "id": "p_north", "pos": [8, 28],  "radius": 9.0 },
+    { "id": "p_mid",   "pos": [8, 72],  "radius": 11.0 },
+    { "id": "p_south", "pos": [8, 116], "radius": 9.0 }
+  ],
+  "objectives": [
+    { "id": "organ", "pos": [248, 72], "radius": 8.0, "integrity": 100 }
+  ],
+  "placement_zones": [
+    { "min": [16, 18], "max": [240, 126] }
+  ],
+  "ambient_drift": [0.0, 0.0]
+}

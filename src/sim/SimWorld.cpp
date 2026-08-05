@@ -1,6 +1,7 @@
 #include "sim/SimWorld.h"
 
 #include "core/JobSystem.h"
+#include "core/Math.h"
 
 namespace immune::sim {
 
@@ -39,7 +40,15 @@ void SimWorld::tick(Profiler* profiler) {
     // 2. Chaff movement.
     {
         WallClock t;
-        chaff_system_.update(chaff_, flow_, spatial_, rng_, kFixedDt, jobs_);
+        const ChaffUpdateStats chaff_stats =
+            chaff_system_.update(chaff_, flow_, spatial_, rng_, kFixedDt, jobs_);
+        // Each pathogen that reaches the objective chips its integrity. 1% of
+        // max per leaked agent is a placeholder pending the economy pass
+        // (Wave 3A) — it empties a 100-agent breach in ~1 simulated second,
+        // which is enough for --sim-test to assert integrity actually moves.
+        leaked_total_ += chaff_stats.despawned_at_goal;
+        objective_integrity_ = math::max(
+            0.0f, objective_integrity_ - static_cast<f32>(chaff_stats.despawned_at_goal));
         if (profiler) profiler->record(prof_key::kChaffUpdate, t.elapsed_ms());
     }
 

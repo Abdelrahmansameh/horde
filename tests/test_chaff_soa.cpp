@@ -2,7 +2,12 @@
 // must keep these passing while it adds the movement kernel.
 #include "sim/chaff/ChaffBuffers.h"
 
+#include "core/Rng.h"
+
+#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
+
+#include <vector>
 
 using namespace immune;
 using namespace immune::sim;
@@ -121,4 +126,135 @@ TEST_CASE("clear resets counts without dropping capacity", "[sim][chaff][soa]") 
     REQUIRE(b.capacity() == 32);
     REQUIRE(b.total_density() == 0.0f);
     REQUIRE(b.family_count(PathogenFamily::Virus) == 0);
+}
+
+// ---------------------------------------------------------------------------
+// Wave 1B additions: handle resolution across compaction, and invariants under
+// heavy spawn/kill/compact churn.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("a handle resolves to its agent's new slot after compaction moves it",
+          "[sim][chaff][soa][handle]") {
+    ChaffBuffers b;
+    b.reserve(8);
+    std::vector<ChaffHandle> handles;
+    for (int i = 0; i < 6; ++i) handles.push_back(b.spawn(make(static_cast<f32>(i), 0.0f)));
+    for (const auto& h : handles) REQUIRE(h.valid());
+
+    // Kill everything except the last agent, forcing compact() to swap it all
+    // the way down to slot 0.
+    for (int i = 0; i < 5; ++i) b.kill(static_cast<usize>(i));
+    REQUIRE(b.compact() == 5);
+    REQUIRE(b.count() == 1);
+
+    // The survivor's handle must resolve to its NEW index (0), not its old one (5).
+    const usize resolved = b.resolve(handles[5]);
+    REQUIRE(resolved == 0);
+    REQUIRE(b.pos_x[resolved] == 5.0f);
+
+    // Every dead agent's handle must now resolve to npos.
+    for (int i = 0; i < 5; ++i) {
+        REQUIRE(b.resolve(handles[static_cast<usize>(i)]) == ChaffBuffers::npos);
+    }
+}
+
+TEST_CASE("handles stay uniquely resolvable across many spawn/kill/compact cycles",
+          "[sim][chaff][soa][handle]") {
+    ChaffBuffers b;
+    b.reserve(64);
+    Rng rng(123);
+
+    // A parallel record of which handles we believe are currently alive.
+    std::vector<ChaffHandle> alive;
+
+    for (int round = 0; round < 200; ++round) {
+        // Spawn a few.
+        for (int s = 0; s < 3; ++s) {
+            if (b.full()) break;
+            ChaffHandle h = b.spawn(make(rng.range_f(-100.0f, 100.0f), 0.0f,
+                                        PathogenFamily::Virus, 1.0f));
+            if (h.valid()) alive.push_back(h);
+        }
+        // Every surviving handle must still resolve to a live, correctly-flagged slot.
+        for (const auto& h : alive) {
+            const usize idx = b.resolve(h);
+            REQUIRE(idx != ChaffBuffers::npos);
+            REQUIRE((b.flags[idx] & chaff_flags::kAlive) != 0);
+        }
+        // Kill roughly a third of them, by resolved index.
+        std::vector<ChaffHandle> next_alive;
+        for (const auto& h : alive) {
+            const usize idx = b.resolve(h);
+            if (idx != ChaffBuffers::npos && rng.chance(0.33f)) {
+                b.kill(idx);
+            } else if (idx != ChaffBuffers::npos) {
+                next_alive.push_back(h);
+            }
+        }
+        b.compact();
+        alive = next_alive;
+
+        // No two currently-alive handles may resolve to the same slot, and no
+        // two live slots may share a generation (I1 + handle uniqueness).
+        for (usize i = 0; i < alive.size(); ++i) {
+            for (usize j = i + 1; j < alive.size(); ++j) {
+                REQUIRE(alive[i].generation != alive[j].generation);
+            }
+        }
+    }
+}
+
+TEST_CASE("heavy spawn/kill/compact churn preserves I1-I4", "[sim][chaff][soa][invariants]") {
+    ChaffBuffers b;
+    b.reserve(500);
+    Rng rng(9001);
+
+    for (int round = 0; round < 500; ++round) {
+        // Random spawns.
+        const int to_spawn = static_cast<int>(rng.next_below(5));
+        for (int s = 0; s < to_spawn; ++s) {
+            if (b.full()) break;
+            b.spawn(make(rng.range_f(-50.0f, 50.0f), rng.range_f(-50.0f, 50.0f),
+                        static_cast<PathogenFamily>(rng.next_below(kFamilyCount)),
+                        rng.range_f(0.5f, 5.0f)));
+        }
+        // Random kills and density damage.
+        for (usize i = 0; i < b.count(); ++i) {
+            if (rng.chance(0.05f)) b.kill(i);
+            else if (rng.chance(0.1f)) b.apply_density_loss(i, rng.range_f(0.1f, 2.0f));
+        }
+        b.compact();
+
+        // I1: every live slot is flagged alive and not pending-kill.
+        // I4: every live slot has positive density.
+        for (usize i = 0; i < b.count(); ++i) {
+            REQUIRE((b.flags[i] & chaff_flags::kAlive) != 0);
+            REQUIRE((b.flags[i] & chaff_flags::kPendingKill) == 0);
+            REQUIRE(b.density[i] > 0.0f);
+        }
+        // I2: streams stay parallel.
+        REQUIRE(b.pos_x.size() == b.capacity());
+        REQUIRE(b.pos_y.size() == b.capacity());
+        REQUIRE(b.vel_x.size() == b.capacity());
+        REQUIRE(b.vel_y.size() == b.capacity());
+        REQUIRE(b.family.size() == b.capacity());
+        REQUIRE(b.density.size() == b.capacity());
+        REQUIRE(b.flags.size() == b.capacity());
+        REQUIRE(b.generation.size() == b.capacity());
+        // I3: never over capacity.
+        REQUIRE(b.count() <= b.capacity());
+
+        // total_density() and family_count() must match a from-scratch scan —
+        // they are maintained incrementally and must never drift.
+        f32 sum = 0.0f;
+        u32 fam_counts[kFamilyCount] = {};
+        for (usize i = 0; i < b.count(); ++i) {
+            sum += b.density[i];
+            ++fam_counts[b.family[i]];
+        }
+        REQUIRE(b.total_density() == Catch::Approx(sum).margin(0.01f));
+        for (u32 f = 0; f < kFamilyCount; ++f) {
+            REQUIRE(b.family_count(static_cast<PathogenFamily>(f)) == fam_counts[f]);
+        }
+    }
 }

@@ -157,6 +157,27 @@ public:
     const RebakeStats& stats() const { return stats_; }
 
 private:
+    // --- Wave 1A implementation detail. Private only; no public signature or
+    // documented layout above this line was changed. ------------------------
+    struct HeapNode {
+        f32 key = 0.0f;
+        u32 cell = 0;
+    };
+
+    static bool heap_less(const HeapNode& a, const HeapNode& b);
+    void heap_push(u32 cell, f32 key);
+    HeapNode heap_pop();
+
+    f32 edge_cost(const TissueMask& mask, i32 ax, i32 ay, i32 bx, i32 by, i32 dir) const;
+    static bool diagonal_ok(const TissueMask& mask, i32 x, i32 y, i32 dir);
+    bool is_goal_cell(i32 x, i32 y) const;
+    bool in_dirty(u32 cell) const { return dirty_mark_[cell] == dirty_gen_; }
+    void touch(i32 x, i32 y);
+
+    void sweep(const TissueMask& mask, bool restricted);
+    void compute_directions(const TissueMask& mask, i32 x0, i32 y0, i32 x1, i32 y1);
+    void rebake_region(const TissueMask& mask, const Rect& world_region);
+
     i32 width_ = 0, height_ = 0;
     f32 cell_size_ = 1.0f;
     Vec2 origin_{0.0f, 0.0f};
@@ -165,6 +186,14 @@ private:
     std::vector<Rect> dirty_;
     FlowFieldBakeDesc desc_{};
     RebakeStats stats_{};
+
+    // Sweep scratch, owned so a rebake performs no allocation once warm.
+    std::vector<HeapNode> heap_;
+    std::vector<u32> scan_;
+    std::vector<u32> dirty_mark_;
+    u32 dirty_gen_ = 0;
+    IVec2 touch_min_{0, 0};
+    IVec2 touch_max_{0, 0};
 };
 
 } // namespace immune::sim

@@ -128,9 +128,15 @@ public:
     void clear();
 
 private:
+    /// Debug-only check of I1-I4. Compiles to nothing under NDEBUG.
+    void assert_invariants() const;
+
     usize count_ = 0;
     usize capacity_ = 0;
     f32 total_density_ = 0.0f;
+    /// Monotonic agent-id source backing ChaffHandle::generation. See the note
+    /// at the top of ChaffBuffers.cpp for why this is not a per-slot counter.
+    u32 next_generation_ = 1;
     u32 family_counts_[kFamilyCount] = {};
 };
 

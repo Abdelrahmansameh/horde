@@ -5,13 +5,16 @@
 #include "core/Log.h"
 #include "core/Profiler.h"
 #include "core/Rng.h"
+#include "game/enemies/EnemyRoster.h"
 #include "game/level/Level.h"
+#include "game/towers/TowerSystem.h"
 #include "platform/FileIO.h"
 #include "platform/Window.h"
 #include "render/Camera.h"
 #include "render/Renderer.h"
 #include "render/Screenshot.h"
 #include "sim/SimWorld.h"
+#include "sim/ecs/NamedAgents.h"
 
 #include <nlohmann/json.hpp>
 
@@ -51,6 +54,13 @@ bool build_world(sim::SimWorld& world, const Options& opt, usize max_chaff,
     desc.world_bounds = level.world_bounds;
     // Cell size ~= 2x the default separation radius, per SpatialHashDesc.
     desc.spatial_cell_size = 4.0f;
+    // Without this, chaff runs on all-default ChaffFamilyParams: no viral
+    // replication, no fungal drift, generic speed for every family. The
+    // roster is the single source of truth so the sim kernel and the roster
+    // table can never disagree (EnemyRoster.h's own rationale).
+    game::EnemyRoster roster;
+    roster.load_defaults();
+    roster.apply_to_tuning(desc.chaff_tuning);
     world.init(desc, jobs);
 
     const auto res = loader.instantiate(level, world);
@@ -58,11 +68,23 @@ bool build_world(sim::SimWorld& world, const Options& opt, usize max_chaff,
         error = res.error;
         return false;
     }
+    // Elite/enemy behavior (tumor growth, biofilm clumping, etc.) needs its
+    // systems registered to run at all. Safe to call from every headless
+    // mode: idempotent per EnemyRoster's own design, and a no-op if nothing
+    // ever spawns an elite.
+    roster.register_systems(world);
     return true;
 }
 
 /// Populates a world for a bench scenario at t=0.
 void populate_scenario(sim::SimWorld& world, const BenchScenario& s) {
+    // Named agents: owned by Wave 1D's sim/ecs module. install() registers
+    // the named-agent systems and spawn_bench_population() scatters the
+    // placeholder elite deterministically across the world bounds.
+    if (s.named_count > 0) {
+        sim::named::setup_bench_scenario(world, s.named_count);
+    }
+
     if (s.chaff_count == 0) return;
     const Rect b = world.desc().world_bounds;
     Rng& rng = world.rng();
@@ -184,20 +206,59 @@ int run_bench(const Options& opt) {
     Profiler profiler;
     profiler.reserve(static_cast<usize>(opt.ticks) + 1u);
 
-    IMMUNE_LOG_INFO("bench '%s': %llu ticks, %llu chaff, %u threads",
+    // Render submission is part of the §8.6 combined budget for chaff (flow
+    // sample + separation + instanced render), so bench measures the real
+    // submit path via a headless GL context rather than recording zero.
+    // Failure here degrades to the old zero-recording behavior rather than
+    // failing the whole bench run — a machine with no usable GL context
+    // should still be able to measure the sim-side numbers.
+    platform::Window render_window;
+    render::Renderer renderer;
+    render::Camera camera;
+    bool have_renderer = false;
+    if (platform::create_headless_gl(render_window, opt.width, opt.height)) {
+        render::RendererDesc rd;
+        rd.framebuffer_width = render_window.width();
+        rd.framebuffer_height = render_window.height();
+        rd.max_chaff_instances = static_cast<u32>(world.desc().max_chaff);
+        if (renderer.init(rd)) {
+            camera.set_viewport(render_window.width(), render_window.height());
+            camera.set_bounds(world.desc().world_bounds);
+            camera.set_center(world.desc().world_bounds.center());
+            camera.set_view_height(world.desc().world_bounds.size().y);
+            camera.clamp_to_bounds();
+            have_renderer = true;
+        } else {
+            IMMUNE_LOG_WARN("bench: renderer init failed (%s); render_submit will read 0",
+                            renderer.error().c_str());
+        }
+    } else {
+        IMMUNE_LOG_WARN("bench: headless GL context failed (%s); render_submit will read 0",
+                        render_window.error().c_str());
+    }
+
+    IMMUNE_LOG_INFO("bench '%s': %llu ticks, %llu chaff, %u threads, renderer %s",
                     scenario->name.c_str(),
                     static_cast<unsigned long long>(opt.ticks),
                     static_cast<unsigned long long>(world.chaff().count()),
-                    jobs->thread_count());
+                    jobs->thread_count(),
+                    have_renderer ? "on" : "off");
 
     for (u64 i = 0; i < opt.ticks; ++i) {
         WallClock frame;
         world.tick(&profiler);
-        // Render submission is measured even headlessly: the CPU-side cost of
-        // walking the SoA and building instance ranges is a sim-side cost and
-        // belongs in the budget. With no GL context it records ~0 today, and
-        // Wave 1C replaces this with the real submit path.
-        profiler.record(prof_key::kRenderSubmit, 0.0);
+        if (have_renderer) {
+            WallClock submit;
+            renderer.begin_frame(camera, 0.0f);
+            renderer.submit_tissue(world.tissue(), world.sdf(), 0.0f);
+            renderer.submit_chaff(world.chaff(), world.spatial());
+            renderer.submit_entities(world.ecs());
+            renderer.submit_fields(world.damage().fields().data(), world.damage().fields().size());
+            renderer.end_frame();
+            profiler.record(prof_key::kRenderSubmit, submit.elapsed_ms());
+        } else {
+            profiler.record(prof_key::kRenderSubmit, 0.0);
+        }
         profiler.record(prof_key::kFrameTotal, frame.elapsed_ms());
     }
 
@@ -274,6 +335,9 @@ int run_sim_test(const Options& opt) {
     json results = json::array();
     u32 passed = 0, failed = 0;
 
+    game::TowerSystem towers;
+    towers.register_systems(world);
+
     auto run_actions_for_tick = [&](u64 tick) {
         for (const auto& a : actions) {
             if (a.value("tick", u64{0}) != tick) continue;
@@ -295,8 +359,20 @@ int run_sim_test(const Options& opt) {
                     Vec2{pos.size() > 0 ? pos[0] : 0.0f, pos.size() > 1 ? pos[1] : 0.0f},
                     radius, count, world.rng());
             } else if (type == "place_tower") {
-                // Wave 2B wires this through TowerSystem::place.
-                IMMUNE_LOG_WARN("sim-test action 'place_tower' is not implemented until Wave 2B");
+                const std::string tname = a.value("tower", std::string{});
+                TowerType ttype{};
+                if (!game::parse_tower_type(tname, ttype)) {
+                    IMMUNE_LOG_WARN("sim-test: unknown tower type '%s'", tname.c_str());
+                } else {
+                    const auto pos = a.value("pos", std::vector<f32>{0.0f, 0.0f});
+                    const Vec2 world_pos{pos.size() > 0 ? pos[0] : 0.0f,
+                                         pos.size() > 1 ? pos[1] : 0.0f};
+                    const EntityId placed = towers.place(world, ttype, world_pos);
+                    if (!placed.valid()) {
+                        IMMUNE_LOG_WARN("sim-test: place_tower '%s' at (%.1f,%.1f) failed validation",
+                                        tname.c_str(), world_pos.x, world_pos.y);
+                    }
+                }
             } else {
                 IMMUNE_LOG_WARN("sim-test: unknown action type '%s'", type.c_str());
             }
@@ -369,6 +445,18 @@ int run_screenshot(const Options& opt) {
     if (!build_world(world, opt, 16384, jobs.get(), error)) {
         IMMUNE_LOG_ERROR("screenshot setup failed: %s", error.c_str());
         return 1;
+    }
+
+    // Optional: --scenario populates chaff/named agents from a bench_scenarios()
+    // entry before capture, so a screenshot can show a live horde rather than
+    // bare tissue. Independent of --level, which only picks the vessel geometry.
+    if (!opt.scenario.empty()) {
+        const BenchScenario* scenario = find_bench_scenario(opt.scenario);
+        if (scenario == nullptr) {
+            IMMUNE_LOG_ERROR("unknown --scenario '%s' (see --list-scenarios)", opt.scenario.c_str());
+            return 1;
+        }
+        populate_scenario(world, *scenario);
     }
 
     // Advance the deterministic sim to the requested tick before rendering.

@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "name": "macrophage_measurably_thins_a_horde",
+  "seed": 20260805,
+  "ticks": 300,
+  "max_chaff": 20000,
+  "actions": [
+    { "tick": 0,  "type": "spawn_chaff", "family": "virus", "count": 400, "pos": [12, 72], "radius": 3 },
+    { "tick": 1,  "type": "place_tower", "tower": "macrophage", "pos": [12, 72] }
+  ],
+  "assertions": [
+    { "tick": 1,   "metric": "chaff_count",       "op": "==", "value": 400 },
+    { "tick": 1,   "metric": "chaff_killed_total", "op": "==", "value": 0 },
+    { "tick": 300, "metric": "chaff_killed_total", "op": ">",  "value": 0 },
+    { "tick": 300, "metric": "total_density",       "op": "<", "value": 400 }
+  ]
+}

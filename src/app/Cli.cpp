@@ -90,6 +90,10 @@ Options parse_args(int argc, char** argv) {
             if (!next_value(argc, argv, i, a, o.out_path, o.error)) break;
         } else if (a == "--level") {
             if (!next_value(argc, argv, i, a, o.level, o.error)) break;
+        } else if (a == "--scenario") {
+            // Unlike --bench, does not force Mode::Bench — lets --screenshot
+            // populate agents from a bench_scenarios() entry before capture.
+            if (!next_value(argc, argv, i, a, o.scenario, o.error)) break;
         } else if (a == "--seed") {
             if (!next_u64(argc, argv, i, a, o.seed, o.error)) break;
         } else if (a == "--width") {

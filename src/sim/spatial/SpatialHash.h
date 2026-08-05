@@ -61,6 +61,14 @@ public:
     /// Agents in cells overlapping the rectangle (exact test NOT applied).
     void query_rect(const Rect& rect, std::vector<u32>& out_indices) const;
 
+    /// Agents in cells overlapping the cone (origin, unit `direction`, `radius`,
+    /// `half_angle` in radians). ADDITIVE, Wave 1B: FieldShape::Cone otherwise
+    /// has to fall back to query_circle and discard most candidates. Like every
+    /// other query it is conservative — the caller still applies the exact
+    /// angle+distance test.
+    void query_cone(Vec2 origin, Vec2 direction, f32 radius, f32 half_angle,
+                    std::vector<u32>& out_indices) const;
+
     /// Agents in the 3x3 cell block around `p` — the separation query. This is
     /// the hottest path in the game; prefer the raw cell accessors below inside
     /// a per-agent loop to avoid touching a std::vector 10,000 times a tick.
@@ -87,6 +95,11 @@ public:
     const u32* occupancy() const { return occupancy_.data(); }
 
 private:
+    /// Appends every agent in the inclusive cell rectangle [lo, hi]. Clamps to
+    /// the grid. Cells within a row are contiguous in the CSR array, so one row
+    /// is one range insert.
+    void gather_cells(IVec2 lo, IVec2 hi, std::vector<u32>& out) const;
+
     Rect bounds_{};
     f32 cell_size_ = 4.0f;
     f32 inv_cell_size_ = 0.25f;
@@ -94,6 +107,8 @@ private:
     std::vector<u32> cell_start_;  ///< size = cell_count + 1
     std::vector<u32> occupancy_;   ///< size = cell_count
     std::vector<u32> indices_;     ///< size = agent count
+    std::vector<u32> cursor_;      ///< scatter write heads, size = cell_count
+    std::vector<u32> cell_of_;     ///< cell id per agent, cached by pass 1
     u32 max_occupancy_ = 0;
 };
 

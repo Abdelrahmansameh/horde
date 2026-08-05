@@ -9,7 +9,7 @@
     {
       "name": "windows-base",
       "hidden": true,
-      "generator": "Ninja",
+      "generator": "Visual Studio 17 2022",
       "binaryDir": "$env{LOCALAPPDATA}/horde-build/${presetName}",
       "installDir": "$env{LOCALAPPDATA}/horde-build/${presetName}/install",
       "cacheVariables": {
@@ -40,6 +40,7 @@
       "name": "windows-release",
       "displayName": "Windows x64 Release",
       "inherits": "windows-base",
+      "generator": "Ninja",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "RelWithDebInfo"
       }

@@ -102,6 +102,15 @@ ctest --preset windows-release
 Build output: `%LOCALAPPDATA%\horde-build\windows-release\`
 Binaries:     `%LOCALAPPDATA%\horde-build\windows-release\bin\immune.exe`
 
+If a build fails with `C1041: cannot open program database ... immune_X.pdb`, a
+stale `mspdbsrv.exe` left over from an earlier (possibly unrelated) build session
+is almost always the cause — it's the helper process `/FS` relies on to
+serialize concurrent PDB writes, and an orphaned one can't coordinate new
+compiles. Kill it and retry:
+```bat
+taskkill /IM mspdbsrv.exe /F
+```
+
 For convenience:
 
 ```bat

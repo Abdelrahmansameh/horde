@@ -21,6 +21,8 @@
 
 #include "core/Types.h"
 
+#include <vector>
+
 namespace immune { class JobSystem; class Rng; }
 
 namespace immune::sim {
@@ -96,6 +98,30 @@ public:
     void set_goal(Vec2 goal, f32 radius) { goal_ = goal; goal_radius_ = radius; }
 
 private:
+    // ---- Per-tick scratch (Wave 1B). Sized to buffers.capacity() on first use
+    // and never after: reserved-once, no-alloc-in-tick per docs/CONVENTIONS.md.
+    // Private implementation detail; does not change the public contract.
+    //
+    // old_pos_{x,y}_: a snapshot of positions taken before this tick's movement
+    // pass. Separation reads neighbours through this snapshot, never through the
+    // live pos_x/pos_y arrays, because those are being written in place by
+    // whichever range owns each index — reading a neighbour's *live* slot would
+    // make the result depend on which range happened to run first. This is what
+    // "read the previous tick's positions" (see file header) actually requires.
+    std::vector<f32> old_pos_x_;
+    std::vector<f32> old_pos_y_;
+    /// Per-agent effective max speed for this tick (family base, kSlowed-scaled),
+    /// written by the accumulate pass and consumed by the branch-free clamp+
+    /// integrate pass so that pass never has to touch flags or the tuning table.
+    std::vector<f32> scratch_max_speed_;
+    /// Replication rolls are deferred here instead of spawning inline: spawn()
+    /// mutates the shared count/arrays, so doing it from multiple job-system
+    /// ranges concurrently would race. Resolved by one deterministic serial pass
+    /// in index order after the parallel step joins.
+    std::vector<u8> replicate_wanted_;
+
+    void ensure_scratch(usize capacity);
+
     ChaffTuning tuning_{};
     Rect bounds_{};
     Vec2 goal_{0.0f, 0.0f};

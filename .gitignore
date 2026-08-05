@@ -43,3 +43,6 @@ desktop.ini
 
 # Local per-machine Claude Code settings
 .claude/settings.local.json
+
+# Scratch output (screenshots, ad-hoc dumps) from VS Code tasks
+/scratch/
