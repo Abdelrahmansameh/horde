@@ -17,11 +17,18 @@ As of commit `bba6429`, the game **launches, loads a level, spawns real waves, l
 - **There is no win or lose.** Objective integrity can hit 0%, every wave can clear — nothing transitions the game state. It just keeps running. `GameStateId::LevelComplete`/`LevelFailed` exist as enum values and are never requested.
 - **Combat is nearly invisible.** The simulation is honest and correct (towers really do submit damage fields, elites really do have wind-up timers), but almost none of it renders. See §5.
 
+**Read `DESIGN.md` again if you last read it before this handoff was updated** — §§2, 4, 7, and 8.3 were substantially refined since Wave 0 wrote the original version: lanes are now specified as discrete, hard-walled, named corridors (not the free-form vessel-spline mesh the current implementation actually builds), the horde's movement is specified as an explicit "fluid feel" — pile-up, splash-around, rejoin, bow waves — with the exact mechanism that should produce it (§8.3), and visual design is tied concretely to both lane identity and combat readability (§7). **The current implementation predates this refinement and does not yet match it** — see §3 and §6 below for exactly where they diverge.
+
 ## 3. Design decisions made during implementation (not in DESIGN.md — read before contradicting them)
 
 DESIGN.md is the vision; these are calls made while building it, by sub-agents and the orchestrating session, where the design doc was silent or ambiguous. Treat them as the current default, not as immutable — but know they're *intentional*, not accidental, and changing them has ripple effects noted below.
 
-- **Levels are vessel splines, not lanes.** DESIGN.md talks about "lanes"; the implementation has centerline splines with per-point width (`assets/levels/*.json`), rasterized into a tissue mask → flow field. A single winding vessel functions as an implicit lane. There is **no explicit multi-lane data model** — no per-lane identity, no per-lane threat readout. If "readable per-lane threat indicators" (DESIGN.md §2) matters, this needs a real design pass: what *is* a lane when the geometry is a free-form spline network with bifurcations, not a fixed set of parallel corridors? This is a design question, not just an implementation gap.
+- **Levels are single vessel splines, not the multi-lane structure DESIGN.md §4 now specifies. This is the single largest design-vs-implementation gap in the project.** The implementation has one centerline spline per level with per-point width (`assets/levels/*.json`), rasterized into a tissue mask → flow field. There is **no multi-lane data model at all** — no discrete named lanes, no per-lane identity/hue (§7.2), no per-lane threat readout. This used to be an open design question ("what even is a lane here?"); **it no longer is** — DESIGN.md §4.1 now specifies lanes as discrete, hard-walled, named corridors, 2-4 per level, each a distinct vessel-type with its own visual identity. Closing this gap means:
+  - Extending the level JSON schema (`Level.h`/`Level.cpp`) to author multiple named lane splines per level, each tagged with a vessel-type (for §7.2's hue) and its own portal, rather than one spline per level file.
+  - The flow-field/tissue-mask pipeline already supports multiple splines rasterized into one mask (`rasterize_vessels()` takes a vector) — the missing piece is *lane identity* surviving past rasterization (today all splines in a file just merge into one undifferentiated walkable mask with no memory of which lane a given cell belongs to), which per-lane hue and per-lane threat readout both need.
+  - All 3 existing content levels (`capillary_test`, `chokepoint_pinch`, `floodplain_mucosal`) are single-lane and need either reauthoring as true multi-lane levels or explicit acceptance as single-lane special cases (DESIGN.md §4.4 does allow 1-lane levels for onboarding/capillary regions, so this isn't automatically wrong for all three — just worth an explicit per-level decision).
+
+- **The horde's movement does not yet produce the "fluid feel" DESIGN.md §4.2/§8.3 now specifies.** Current chaff movement (flow-field sample + separation impulse) is real and performant, but nobody has tuned it for the specific pile-up/splash-around/rejoin/bow-wave look — DESIGN.md §8.3 argues this should fall out of the existing flow-field-plus-separation architecture with the right tuning (specifically: an SDF-aware cost gradient near walls, rather than a binary walkable/blocked cost, so agents curl along an obstruction instead of just slowing at it) rather than needing a new subsystem. **This is un-prototyped and flagged in DESIGN.md §10 as the highest-risk "does it actually feel right" open item** — worth validating on one chokepoint and one floodplain lane before content production assumes it's correct everywhere.
 
 - **Chaff death has two damage modes, both implemented, no verdict yet.** `DensityThinning` (deterministic, smooth erosion) and `ProbabilisticRemoval` (grainier, whole-agent pops) both exist behind one switch exactly as DESIGN.md §10 asked for. **Nobody has done the "feel pass" to pick a default or per-tower assignment.** `DensityThinning` is currently the code default everywhere.
 
@@ -73,16 +80,22 @@ From DESIGN.md §10, still genuinely open:
 - Co-op?
 - Precise input/targeting scheme for continuous placement — a build-menu-and-click MVP exists now (see technical handoff), never play-tested for feel.
 
-New ones surfaced by implementation:
-- **What is a "lane" when levels are free-form vessel splines with bifurcations, not fixed corridors?** Blocks the per-lane threat overlay (§2's readability pillar) until answered.
-- **DensityThinning vs. ProbabilisticRemoval — pick one, or assign per-tower?** Both work; nobody has played them side by side.
-- **What should the objective-integrity formula actually be?** Current 1-point-flat-per-leak is a placeholder, untested against real difficulty curves.
-- **How aggressive should the allergen risk/reward be**, once it's wired up at all?
+~~What is a "lane" when levels are free-form vessel splines with bifurcations, not fixed corridors?~~ **Resolved** — see DESIGN.md §4.1: lanes are now specified as discrete, hard-walled, named corridors. Closing the *implementation* gap this leaves (current levels don't yet have that structure) is tracked in §3 above, not here.
+
+Still genuinely open, now imported directly from DESIGN.md §10 (kept in sync there, not duplicated in full here):
+- Exact lane count per level/region, and how strict the "forks/merges at most once" rule should be.
+- Tuning the fluid-feel parameters to actually hit each region's intended pile-up/splash/rejoin intensity — flagged in DESIGN.md as the single highest-risk unproven item in the whole design.
+- Whether lane vessel-type (§7.2) should carry a gameplay-affecting passive modifier (e.g. arterial lanes running faster) or stay purely a recognition cue.
+- `DensityThinning` vs. `ProbabilisticRemoval` — pick one, or assign per-tower? Both work; nobody has played them side by side.
+- What should the objective-integrity formula actually be? Current 1-point-flat-per-leak is a placeholder, untested against real difficulty curves.
+- How aggressive should the allergen risk/reward be, once it's wired up at all?
 
 ## 7. Recommended next priorities, roughly in order of "unlocks the most"
 
 1. **Win/lose state transitions.** Small, sharp, and nothing else can really be *played* (as opposed to poked at) until the game can end. See `HANDOFF_TECHNICAL.md` for the exact hook points.
 2. **Damage field + telegraph rendering.** Even a minimal circle-and-fade would transform how the game reads, and the data to draw from already exists correctly on the sim side.
-3. **A feel pass**: play a level start-to-finish once win/lose and basic visual feedback exist, then tune objective-integrity loss, wave pacing, and pick a thinning-mode default.
-4. Fungal hazard + allergen wiring (both small, well-scoped).
-5. First real designed level (pick one region, make it actually teach something per §4's table) once the above makes "playing a level" a meaningful test.
+3. **Prototype the fluid-feel tuning** (DESIGN.md §8.3/§10) on one existing chokepoint level before committing to it everywhere — this is the highest-risk "does it actually feel right" unknown in the refined design, and it's cheap to test in isolation (tune the flow-field bake's wall-cost gradient and the separation impulse against one obstacle, watch it in `--screenshot` or Play mode) before either content production or the multi-lane rework below assumes it's solved.
+4. **Multi-lane level structure** (DESIGN.md §4.1, gap detailed in §3 above) — the schema/rasterization extension needed to author real discrete lanes with per-lane identity, which the per-lane threat readout (§7.2) and the region table's lane-count targets (§4.4) both depend on. Worth sequencing after #3 so lane authoring isn't done twice if the fluid-feel tuning changes how wide/shaped a lane needs to be to read well.
+5. **A feel pass**: play a level start-to-finish once win/lose and basic visual feedback exist, then tune objective-integrity loss, wave pacing, and pick a thinning-mode default.
+6. Fungal hazard + allergen wiring (both small, well-scoped).
+7. First real designed multi-lane level (pick one region, make it actually teach something per §4.4's table) once the above makes "playing a level" a meaningful test.
