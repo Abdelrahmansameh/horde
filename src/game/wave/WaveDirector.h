@@ -75,6 +75,14 @@ public:
     /// Preview of the next wave's composition, for the HUD.
     const WaveDef* next_wave() const;
 
+    /// Returns and clears whatever WaveDef::atp_reward has accrued from waves
+    /// that finished Clearing since the last call, so the caller (app/, which
+    /// owns the Economy reference this class deliberately doesn't have) can
+    /// credit it. Poll once per tick; 0 most ticks. Orchestrator amendment,
+    /// not Wave 3A's original stub -- see WaveDirector.cpp's tick() for where
+    /// it accrues.
+    u32 take_pending_atp_reward();
+
 private:
     std::vector<WaveDef> waves_;
     WaveStatus status_{};
@@ -86,6 +94,9 @@ private:
     /// Seconds spent in the current wave's Clearing phase, so a few
     /// unreachable/leaked stragglers can never stall the sequence forever.
     f32 clearing_elapsed_ = 0.0f;
+    /// Accrued by tick() when a wave finishes Clearing; drained by
+    /// take_pending_atp_reward().
+    u32 pending_atp_reward_ = 0;
 };
 
 } // namespace immune::game

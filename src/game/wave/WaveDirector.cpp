@@ -104,6 +104,12 @@ const WaveDef* WaveDirector::next_wave() const {
     return next < waves_.size() ? &waves_[next] : nullptr;
 }
 
+u32 WaveDirector::take_pending_atp_reward() {
+    const u32 r = pending_atp_reward_;
+    pending_atp_reward_ = 0;
+    return r;
+}
+
 void WaveDirector::tick(sim::SimWorld& world, Rng& rng, f32 dt) {
     if (waves_.empty() || status_.wave_index >= waves_.size()) {
         status_.all_waves_complete = true;
@@ -193,6 +199,7 @@ void WaveDirector::tick(sim::SimWorld& world, Rng& rng, f32 dt) {
             const bool horde_gone = world.chaff().total_density() <= 0.0f;
             constexpr f32 kClearingTimeout = 60.0f;
             if (horde_gone || clearing_elapsed_ >= kClearingTimeout) {
+                pending_atp_reward_ += wave.atp_reward;
                 const usize next_index = static_cast<usize>(status_.wave_index) + 1u;
                 if (next_index < waves_.size()) {
                     status_.wave_index = static_cast<u32>(next_index);

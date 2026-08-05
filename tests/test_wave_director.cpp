@@ -169,3 +169,40 @@ TEST_CASE("request_early_start() skips the remaining prep countdown", "[wave][li
     waves.tick(world, rng, 1.0f / 60.0f);
     REQUIRE(waves.status().phase == WavePhase::Spawning);
 }
+
+TEST_CASE("take_pending_atp_reward() accrues WaveDef::atp_reward when a wave finishes clearing, "
+          "and drains to zero",
+          "[wave][economy]") {
+    SimWorld world = make_world_with_portal();
+    WaveDirector waves;
+    WaveDef w;
+    w.prep_time = 0.1f;
+    w.atp_reward = 77;
+    SpawnEntry e;
+    e.family = PathogenFamily::Virus;
+    e.count = 3;
+    e.start_time = 0.0f;
+    e.duration = 0.1f;
+    w.spawns.push_back(e);
+    waves.set_waves({w});
+    waves.start(world);
+
+    // Nothing accrued before the wave has even started clearing.
+    REQUIRE(waves.take_pending_atp_reward() == 0);
+
+    Rng rng; rng.reseed(5);
+    const f32 dt = 1.0f / 60.0f;
+    bool completed = false;
+    for (int i = 0; i < 3600 && !completed; ++i) {
+        waves.tick(world, rng, dt);
+        for (usize a = 0; a < world.chaff().count(); ++a) world.chaff().kill(a);
+        world.chaff().compact();
+        if (waves.status().all_waves_complete) completed = true;
+    }
+    REQUIRE(completed);
+
+    // The reward from the single wave clearing should have accrued exactly
+    // once, and draining it resets to zero (not re-earned on the next poll).
+    REQUIRE(waves.take_pending_atp_reward() == 77);
+    REQUIRE(waves.take_pending_atp_reward() == 0);
+}

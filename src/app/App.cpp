@@ -173,6 +173,7 @@ void App::tick_sim() {
     sim_.tick(&profiler_);
     economy_.tick(kFixedDt);
     economy_.credit_kills(sim_.last_damage_stats().density_removed);
+    economy_.credit_bounty(waves_.take_pending_atp_reward());
     abilities_.tick(kFixedDt);
 
     // Win/lose: checked every tick so the transition fires the moment either
