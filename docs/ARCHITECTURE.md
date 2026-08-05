@@ -458,6 +458,12 @@ that is a failure to report, not a footnote.
 
 ## 10. Wave 0 status — what is real vs. stubbed
 
+*(Historical — this section describes the project immediately after Wave 0,*
+*kept for context on how the contracts were bootstrapped. For the current,*
+*up-to-date real-vs-stubbed status, see*
+*[`HANDOFF_TECHNICAL.md` §4](HANDOFF_TECHNICAL.md#4-whats-real-vs-stubbed--module-by-module)*
+*— nearly everything listed as stubbed below is real now.)*
+
 **Real and tested:** `core` (clock, RNG, arena, job system, profiler),
 `platform` (window/GL/input/file IO), `render::Camera`, `render::Screenshot`,
 `ChaffBuffers` SoA storage semantics, the ECS scheduler's ordering guarantee,
