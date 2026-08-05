@@ -166,6 +166,23 @@ void App::tick_sim() {
     sim_.tick(&profiler_);
     economy_.tick(kFixedDt);
     economy_.credit_kills(sim_.last_damage_stats().density_removed);
+
+    // Win/lose: checked every tick so the transition fires the moment either
+    // condition becomes true, not on some later poll. Fail takes priority --
+    // an integrity breach on the same tick the last wave clears is still a
+    // loss, not a photo-finish win.
+    const sim::SimSnapshot snap = sim_.snapshot();
+    if (state_.current() == GameStateId::InLevel && snap.objective_integrity <= 0.0f) {
+        IMMUNE_LOG_INFO("level failed: objective integrity depleted at tick %llu",
+                        static_cast<unsigned long long>(snap.tick));
+        state_.set_outcome(LevelOutcome::ObjectiveDestroyed);
+        state_.request(GameStateId::LevelFailed);
+    } else if (state_.current() == GameStateId::InLevel && waves_.status().all_waves_complete &&
+              snap.chaff_count == 0) {
+        IMMUNE_LOG_INFO("level cleared at tick %llu", static_cast<unsigned long long>(snap.tick));
+        state_.set_outcome(LevelOutcome::Cleared);
+        state_.request(GameStateId::LevelComplete);
+    }
 }
 
 void App::render_frame() {
