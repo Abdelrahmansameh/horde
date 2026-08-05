@@ -43,7 +43,7 @@ void SimWorld::tick(Profiler* profiler) {
     {
         WallClock t;
         const ChaffUpdateStats chaff_stats =
-            chaff_system_.update(chaff_, flow_, spatial_, rng_, kFixedDt, jobs_);
+            chaff_system_.update(chaff_, flow_, sdf_, spatial_, rng_, kFixedDt, jobs_);
         // Each pathogen that reaches the objective chips its integrity. 1% of
         // max per leaked agent is a placeholder pending the economy pass
         // (Wave 3A) — it empties a 100-agent breach in ~1 simulated second,

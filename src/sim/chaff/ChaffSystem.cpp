@@ -147,8 +147,8 @@ void ChaffSystem::ensure_scratch(usize capacity) {
 }
 
 ChaffUpdateStats ChaffSystem::update(ChaffBuffers& buffers, const FlowField& flow,
-                                     const SpatialHash& hash, Rng& rng, f32 dt,
-                                     JobSystem* jobs) {
+                                     const DistanceField& sdf, const SpatialHash& hash,
+                                     Rng& rng, f32 dt, JobSystem* jobs) {
     ChaffUpdateStats stats{};
     const usize count = buffers.count();
     if (count == 0) return stats;
@@ -199,7 +199,19 @@ ChaffUpdateStats ChaffSystem::update(ChaffBuffers& buffers, const FlowField& flo
             const bool slowed = (flags_i & chaff_flags::kSlowed) != 0;
 
             const Vec2 p{old_px[i], old_py[i]};
-            const Vec2 dir = drifting ? tuning.ambient_drift : flow.sample(p);
+            Vec2 dir;
+            if (drifting) {
+                dir = tuning.ambient_drift;
+            } else {
+                dir = flow.sample(p);
+                if (math::length_sq(dir) <= math::kEpsilon) {
+                    // Off the baked walkable region (or a genuine dead
+                    // pocket): recover toward higher tissue clearance instead
+                    // of leaving the agent with zero net guidance. See this
+                    // file's header comment for why this exists.
+                    dir = sdf.gradient(p);
+                }
+            }
 
             Vec2 v{vx[i], vy[i]};
             v += dir * fp.acceleration * dt;

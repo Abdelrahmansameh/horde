@@ -1,15 +1,35 @@
 // sim/chaff/ChaffSystem.h — batch chaff movement kernel. FROZEN CONTRACT.
-// Owner: Wave 1B.
+// Owner: Wave 1B. `sdf` parameter added post-Wave-2 (orchestrator amendment,
+// see below) to fix a real bug, not a style change.
 //
-// RATIONALE (DESIGN.md §8.3)
+// RATIONALE (DESIGN.md §8.3, §12.3)
 // Per agent, per tick, the entire "AI" is:
-//     v += flow.sample(p) * speed        // one bilinear field fetch
-//     v += separation(p) * k             // 3x3 spatial-hash cell scan
-//     v  = clamp_length(v, max_speed)
-//     p += v * dt
+//     dir = flow.sample(p)                          // one bilinear field fetch
+//     if dir is (0,0): dir = sdf.gradient(p)         // recovery, see below
+//     v  += dir * speed
+//     v  += separation(p) * k                        // 3x3 spatial-hash cell scan
+//     v   = clamp_length(v, max_speed)
+//     p  += v * dt
 // No A*, no per-agent state machine, no virtual call. Everything else the horde
 // does (replication, clumping, drift) is a family-specific variation on those
-// four lines, gated by a flag bit — never by a subclass.
+// lines, gated by a flag bit — never by a subclass.
+//
+// WHY THE SDF FALLBACK EXISTS (found by live-testing, not by inspection)
+// `FlowField::sample()` returns (0,0) once a point is outside the baked
+// walkable region — by design, per FlowField.h. Without a fallback, an agent
+// nudged past the tissue-mask edge by separation/jitter permanently loses all
+// directional guidance: nothing pulls it back, so it random-walks on jitter
+// alone until it happens to cross the level's outer world bounds and gets
+// despawned there, tens of seconds later, never having threatened the
+// objective. Measured: ~95% of chaff spawned at a real portal never reached
+// the goal before this fix (tests/scripts/portal_spawn_reaches_goal.json).
+// `DistanceField::gradient()` — "direction of increasing clearance" — is
+// exactly the recovery vector needed: it points back into the tissue from
+// anywhere outside it. This is a *safety net*, not a replacement for a
+// smoother wall-cost gradient in the bake itself (DESIGN.md §12.3/§14 still
+// flags that as the real, remaining fluid-feel tuning target) — it guarantees
+// no agent can get permanently lost, independent of how well-tuned the bake
+// is.
 //
 // PARALLELISM & DETERMINISM
 // The update splits [0, count) across JobSystem ranges. Agents read the
@@ -29,6 +49,7 @@ namespace immune::sim {
 
 class ChaffBuffers;
 class FlowField;
+class DistanceField;
 class SpatialHash;
 
 /// Per-family movement tuning. Loaded from data by Wave 2C; the layout is
@@ -76,8 +97,14 @@ public:
     /// `jobs` may be null for a serial update. `rng` is the sim's generator and
     /// is forked per range — it is advanced deterministically by exactly one
     /// fork call per range, so tick results do not depend on thread count.
+    /// `sdf` is the same level's DistanceField, used only as the off-mask
+    /// recovery fallback described above — a default-constructed (never
+    /// baked) DistanceField is safe to pass (its sample()/gradient() both
+    /// return zero), so callers that don't care about recovery behavior
+    /// (most unit tests) don't need to bake one.
     ChaffUpdateStats update(ChaffBuffers& buffers,
                             const FlowField& flow,
+                            const DistanceField& sdf,
                             const SpatialHash& hash,
                             Rng& rng,
                             f32 dt,

@@ -73,6 +73,7 @@ TEST_CASE("flow acceleration steers an agent toward the goal", "[sim][chaff][mov
     const Rect bounds{Vec2{0.0f, 0.0f}, Vec2{50.0f, 50.0f}};
     const Vec2 goal{40.0f, 25.0f};
     FlowField flow = make_radial_flow(bounds, goal);
+    DistanceField sdf;
     SpatialHash hash = make_hash(bounds);
 
     ChaffBuffers buffers;
@@ -90,7 +91,7 @@ TEST_CASE("flow acceleration steers an agent toward the goal", "[sim][chaff][mov
     Rng rng(1);
     for (int i = 0; i < 30; ++i) {
         rebuild(hash, buffers);
-        sys.update(buffers, flow, hash, rng, kFixedDt, nullptr);
+        sys.update(buffers, flow, sdf, hash, rng, kFixedDt, nullptr);
     }
 
     REQUIRE(buffers.count() == 1);
@@ -102,6 +103,7 @@ TEST_CASE("kDrifting agents ignore the flow field and follow ambient drift",
     const Rect bounds{Vec2{0.0f, 0.0f}, Vec2{50.0f, 50.0f}};
     const Vec2 goal{45.0f, 25.0f};   // strongly to the +x
     FlowField flow = make_radial_flow(bounds, goal);
+    DistanceField sdf;
     SpatialHash hash = make_hash(bounds);
 
     ChaffBuffers buffers;
@@ -121,7 +123,7 @@ TEST_CASE("kDrifting agents ignore the flow field and follow ambient drift",
     Rng rng(2);
     for (int i = 0; i < 20; ++i) {
         rebuild(hash, buffers);
-        sys.update(buffers, flow, hash, rng, kFixedDt, nullptr);
+        sys.update(buffers, flow, sdf, hash, rng, kFixedDt, nullptr);
     }
 
     REQUIRE(buffers.count() == 1);
@@ -132,6 +134,7 @@ TEST_CASE("kDrifting agents ignore the flow field and follow ambient drift",
 TEST_CASE("kClumped disables separation", "[sim][chaff][movement][flags]") {
     const Rect bounds{Vec2{0.0f, 0.0f}, Vec2{50.0f, 50.0f}};
     FlowField flow = make_radial_flow(bounds, Vec2{25.0f, 25.0f});
+    DistanceField sdf;
     SpatialHash hash = make_hash(bounds, 4.0f);
 
     auto dist = [](const ChaffBuffers& b) {
@@ -176,9 +179,9 @@ TEST_CASE("kClumped disables separation", "[sim][chaff][movement][flags]") {
 
     Rng rng_a(3), rng_b(3);
     rebuild(hash, clumped);
-    sys.update(clumped, flow, hash, rng_a, kFixedDt, nullptr);
+    sys.update(clumped, flow, sdf, hash, rng_a, kFixedDt, nullptr);
     rebuild(hash, free_pair);
-    sys.update(free_pair, flow, hash, rng_b, kFixedDt, nullptr);
+    sys.update(free_pair, flow, sdf, hash, rng_b, kFixedDt, nullptr);
 
     REQUIRE(dist(clumped) == Catch::Approx(before_clumped).margin(1e-5f));  // unchanged
     REQUIRE(dist(free_pair) > before_free + 1e-4f);                          // pushed apart
@@ -187,6 +190,7 @@ TEST_CASE("kClumped disables separation", "[sim][chaff][movement][flags]") {
 TEST_CASE("kSlowed lowers the effective max speed", "[sim][chaff][movement][flags]") {
     const Rect bounds{Vec2{0.0f, 0.0f}, Vec2{200.0f, 200.0f}};
     FlowField flow = make_radial_flow(bounds, Vec2{190.0f, 100.0f}, 2.0f);
+    DistanceField sdf;
     SpatialHash hash = make_hash(bounds, 4.0f);
 
     ChaffBuffers buffers;
@@ -210,7 +214,7 @@ TEST_CASE("kSlowed lowers the effective max speed", "[sim][chaff][movement][flag
 
     Rng rng(4);
     rebuild(hash, buffers);
-    sys.update(buffers, flow, hash, rng, kFixedDt, nullptr);
+    sys.update(buffers, flow, sdf, hash, rng, kFixedDt, nullptr);
 
     const f32 speed_normal = std::sqrt(buffers.vel_x[0] * buffers.vel_x[0] +
                                        buffers.vel_y[0] * buffers.vel_y[0]);
@@ -225,6 +229,7 @@ TEST_CASE("kSlowed lowers the effective max speed", "[sim][chaff][movement][flag
 TEST_CASE("kHidden agents do not move", "[sim][chaff][movement][flags]") {
     const Rect bounds{Vec2{0.0f, 0.0f}, Vec2{50.0f, 50.0f}};
     FlowField flow = make_radial_flow(bounds, Vec2{45.0f, 25.0f});
+    DistanceField sdf;
     SpatialHash hash = make_hash(bounds);
 
     ChaffBuffers buffers;
@@ -243,7 +248,7 @@ TEST_CASE("kHidden agents do not move", "[sim][chaff][movement][flags]") {
     Rng rng(5);
     for (int i = 0; i < 10; ++i) {
         rebuild(hash, buffers);
-        sys.update(buffers, flow, hash, rng, kFixedDt, nullptr);
+        sys.update(buffers, flow, sdf, hash, rng, kFixedDt, nullptr);
         REQUIRE(buffers.pos_x[0] == Catch::Approx(25.0f));
         REQUIRE(buffers.pos_y[0] == Catch::Approx(25.0f));
         REQUIRE(buffers.vel_x[0] == 0.0f);
@@ -254,6 +259,7 @@ TEST_CASE("kHidden agents do not move", "[sim][chaff][movement][flags]") {
 TEST_CASE("replication respects the per-tick global cap", "[sim][chaff][replication]") {
     const Rect bounds{Vec2{0.0f, 0.0f}, Vec2{50.0f, 50.0f}};
     FlowField flow = make_radial_flow(bounds, Vec2{25.0f, 25.0f});
+    DistanceField sdf;
     SpatialHash hash = make_hash(bounds);
 
     ChaffBuffers buffers;
@@ -276,7 +282,7 @@ TEST_CASE("replication respects the per-tick global cap", "[sim][chaff][replicat
 
     Rng rng(6);
     rebuild(hash, buffers);
-    const ChaffUpdateStats stats = sys.update(buffers, flow, hash, rng, kFixedDt, nullptr);
+    const ChaffUpdateStats stats = sys.update(buffers, flow, sdf, hash, rng, kFixedDt, nullptr);
 
     REQUIRE(stats.replicated == 3);
     REQUIRE(buffers.count() == 53);
@@ -285,6 +291,7 @@ TEST_CASE("replication respects the per-tick global cap", "[sim][chaff][replicat
 TEST_CASE("agents leaving the world bounds are flagged for despawn", "[sim][chaff][despawn]") {
     const Rect bounds{Vec2{0.0f, 0.0f}, Vec2{20.0f, 20.0f}};
     FlowField flow = make_radial_flow(bounds, Vec2{10.0f, 10.0f});
+    DistanceField sdf;
     SpatialHash hash = make_hash(bounds);
 
     ChaffBuffers buffers;
@@ -301,7 +308,7 @@ TEST_CASE("agents leaving the world bounds are flagged for despawn", "[sim][chaf
 
     Rng rng(7);
     rebuild(hash, buffers);
-    const ChaffUpdateStats stats = sys.update(buffers, flow, hash, rng, kFixedDt, nullptr);
+    const ChaffUpdateStats stats = sys.update(buffers, flow, sdf, hash, rng, kFixedDt, nullptr);
 
     REQUIRE(stats.despawned_out_of_bounds == 1);
     REQUIRE((buffers.flags[0] & chaff_flags::kPendingKill) != 0);
@@ -313,6 +320,7 @@ TEST_CASE("agents reaching the goal are flagged for despawn", "[sim][chaff][desp
     const Rect bounds{Vec2{0.0f, 0.0f}, Vec2{50.0f, 50.0f}};
     const Vec2 goal{25.0f, 25.0f};
     FlowField flow = make_radial_flow(bounds, goal);
+    DistanceField sdf;
     SpatialHash hash = make_hash(bounds);
 
     ChaffBuffers buffers;
@@ -328,7 +336,7 @@ TEST_CASE("agents reaching the goal are flagged for despawn", "[sim][chaff][desp
 
     Rng rng(8);
     rebuild(hash, buffers);
-    const ChaffUpdateStats stats = sys.update(buffers, flow, hash, rng, kFixedDt, nullptr);
+    const ChaffUpdateStats stats = sys.update(buffers, flow, sdf, hash, rng, kFixedDt, nullptr);
 
     REQUIRE(stats.despawned_at_goal == 1);
     REQUIRE((buffers.flags[0] & chaff_flags::kPendingKill) != 0);
@@ -338,6 +346,7 @@ TEST_CASE("same seed reproduces identical results across repeated serial runs",
           "[sim][chaff][determinism]") {
     const Rect bounds{Vec2{0.0f, 0.0f}, Vec2{80.0f, 60.0f}};
     FlowField flow = make_radial_flow(bounds, Vec2{70.0f, 30.0f}, 2.0f);
+    DistanceField sdf;
 
     auto run = [&]() {
         SpatialHash hash = make_hash(bounds, 4.0f);
@@ -362,7 +371,7 @@ TEST_CASE("same seed reproduces identical results across repeated serial runs",
         Rng rng(4242);
         for (int t = 0; t < 60; ++t) {
             hash.rebuild(buffers.pos_x.data(), buffers.pos_y.data(), buffers.count(), &jobs);
-            sys.update(buffers, flow, hash, rng, kFixedDt, &jobs);
+            sys.update(buffers, flow, sdf, hash, rng, kFixedDt, &jobs);
             buffers.compact();
         }
         return buffers;
@@ -397,6 +406,7 @@ TEST_CASE("below the parallel_for grain, serial and multi-worker results match e
     const usize kAgents = 120;   // well under the 256 default grain
     const Rect bounds{Vec2{0.0f, 0.0f}, Vec2{80.0f, 60.0f}};
     FlowField flow = make_radial_flow(bounds, Vec2{70.0f, 30.0f}, 2.0f);
+    DistanceField sdf;
 
     auto run = [&](JobSystem* jobs) {
         SpatialHash hash = make_hash(bounds, 4.0f);
@@ -420,7 +430,7 @@ TEST_CASE("below the parallel_for grain, serial and multi-worker results match e
         Rng rng(555);
         for (int t = 0; t < 40; ++t) {
             hash.rebuild(buffers.pos_x.data(), buffers.pos_y.data(), buffers.count(), jobs);
-            sys.update(buffers, flow, hash, rng, kFixedDt, jobs);
+            sys.update(buffers, flow, sdf, hash, rng, kFixedDt, jobs);
             buffers.compact();
         }
         return buffers;
