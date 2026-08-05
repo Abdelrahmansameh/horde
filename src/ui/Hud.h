@@ -14,6 +14,7 @@
 #pragma once
 
 #include "core/Types.h"
+#include "game/abilities/ActiveAbilities.h"
 
 #include <string>
 #include <vector>
@@ -34,6 +35,7 @@ enum class IntentKind : u8 {
     UpgradeTower,
     SellTower,
     TriggerAbility,
+    CastAbility,     ///< A DESIGN.md §5.6 active ability, distinct from a tower's own TriggerAbility.
     SetTimeScale,
     StartWaveEarly,
     OpenMenu,
@@ -46,6 +48,7 @@ struct Intent {
     Vec2 world_position{0.0f, 0.0f};
     EntityId entity{};
     f32 value = 0.0f;   ///< SetTimeScale payload.
+    game::AbilityId ability_id = game::AbilityId::ComplementCascadeBurst; ///< CastAbility payload.
 };
 
 /// One lane's summarized threat, rendered as a single indicator.

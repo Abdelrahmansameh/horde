@@ -45,6 +45,7 @@ bool App::init(const Options& options) {
     enemies_.load_defaults();
     meta_.reset_to_new_game();
     economy_.configure(game::EconomyConfig{});
+    abilities_.load_defaults();
 
     if (!load_level(options.level)) return false;
 
@@ -153,6 +154,12 @@ void App::apply_intents(const std::vector<ui::Intent>& intents) {
                 economy_.credit_bounty(towers_.sell(sim_, in.entity));
                 break;
             case ui::IntentKind::TriggerAbility: towers_.trigger_ability(sim_, in.entity); break;
+            case ui::IntentKind::CastAbility: {
+                if (!abilities_.cast(sim_, in.ability_id, in.world_position)) {
+                    audio_.post(audio::AudioEvent{audio::SoundId::UiInvalid, in.world_position});
+                }
+                break;
+            }
             case ui::IntentKind::SetTimeScale: clock_.set_time_scale(in.value); break;
             case ui::IntentKind::StartWaveEarly: waves_.request_early_start(); break;
             case ui::IntentKind::QuitToMenu: state_.request(GameStateId::MainMenu); break;
@@ -166,6 +173,7 @@ void App::tick_sim() {
     sim_.tick(&profiler_);
     economy_.tick(kFixedDt);
     economy_.credit_kills(sim_.last_damage_stats().density_removed);
+    abilities_.tick(kFixedDt);
 
     // Win/lose: checked every tick so the transition fires the moment either
     // condition becomes true, not on some later poll. Fail takes priority --

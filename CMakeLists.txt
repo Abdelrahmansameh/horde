@@ -82,6 +82,7 @@ add_library(immune_render STATIC
 target_link_libraries(immune_render PUBLIC immune_core immune_platform immune_sim)
 
 add_library(immune_game STATIC
+  src/game/abilities/ActiveAbilities.cpp
   src/game/economy/Economy.cpp
   src/game/enemies/EnemyRoster.cpp
   src/game/level/Level.cpp

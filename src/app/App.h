@@ -17,6 +17,7 @@
 #include "core/Clock.h"
 #include "core/JobSystem.h"
 #include "core/Profiler.h"
+#include "game/abilities/ActiveAbilities.h"
 #include "game/economy/Economy.h"
 #include "game/enemies/EnemyRoster.h"
 #include "game/meta/MetaProgression.h"
@@ -71,6 +72,7 @@ private:
     game::WaveDirector waves_;
     game::Economy economy_;
     game::MetaProgression meta_;
+    game::ActiveAbilitySystem abilities_;
 
     std::vector<ui::Intent> intents_;
     bool running_ = false;
