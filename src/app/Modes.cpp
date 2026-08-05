@@ -85,9 +85,30 @@ void populate_scenario(sim::SimWorld& world, const BenchScenario& s) {
         sim::named::setup_bench_scenario(world, s.named_count);
     }
 
-    if (s.chaff_count == 0) return;
+    // Damage fields: `s.damage_fields` was recorded into the bench-JSON
+    // metadata but never actually submitted (found by Wave 4G verifying its
+    // own VFX work -- no --screenshot-reachable scenario ever exercised
+    // submit_fields() with live data). Scattered Circle fields, deterministic
+    // via world.rng(). A huge lifetime rather than <=0 ("persistent") on
+    // purpose: DamageField.h requires persistent fields be *resubmitted every
+    // tick by their owner*, but populate_scenario() only runs once at t=0 --
+    // nothing here ticks to resubmit them. A field that outlives any
+    // realistic bench/screenshot run behaves identically for this purpose
+    // without violating that contract.
     const Rect b = world.desc().world_bounds;
     Rng& rng = world.rng();
+    for (u32 i = 0; i < s.damage_fields; ++i) {
+        sim::DamageField field;
+        field.shape = sim::FieldShape::Circle;
+        field.origin = Vec2{rng.range_f(b.min.x, b.max.x), rng.range_f(b.min.y, b.max.y)};
+        field.radius = rng.range_f(6.0f, 14.0f);
+        field.kill_rate = rng.range_f(8.0f, 20.0f);
+        field.falloff = 1.0f;
+        field.lifetime = 1.0e6f;
+        world.damage().submit(field);
+    }
+
+    if (s.chaff_count == 0) return;
     // Spread agents across the world rect so the spatial hash sees realistic
     // occupancy rather than one degenerate cell.
     for (u32 i = 0; i < s.chaff_count; ++i) {

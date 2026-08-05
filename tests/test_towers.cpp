@@ -140,6 +140,75 @@ TEST_CASE("tower_type_name/parse_tower_type round-trip for all 8 types", "[tower
 }
 
 // ---------------------------------------------------------------------------
+// Wave 4A deliverable 2: upgrade-over-expand cost curve (DESIGN.md §5.3/§7.1).
+//
+// Each tower type uses a different stat as its actual "output" in combat
+// (system_macrophage/system_neutrophil/etc. — see TowerSystem.cpp): most
+// combat towers spend damage/fire_interval (dps) and/or kill_rate (chaff
+// density removed per second); Dendritic deals no damage at all, so its only
+// power lever is coverage area (range^2). tower_output() below mirrors
+// exactly what each type's Combat-phase system reads, rather than inventing
+// one unified metric that wouldn't mean anything for a support tower.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+f32 tower_output(TowerType type, const TowerStats& s) {
+    if (type == TowerType::Dendritic) return s.range * s.range; // only lever: coverage area
+    // Neutrophil, Mast Cell, Complement Cascade: field kill_rate is the whole
+    // story (their combat systems never read `damage`). Everything else
+    // (Macrophage mixes both; Cytotoxic T/B-Cell/NK Cell are named-agent dps
+    // only) folds in damage/fire_interval too — it's simply 0 for the
+    // kill_rate-only types, so the sum is exact for both groups.
+    return s.kill_rate + (s.fire_interval > 0.0f ? s.damage / s.fire_interval : 0.0f);
+}
+
+} // namespace
+
+TEST_CASE("upgrading is a better ATP-per-output deal than a fresh tower, for every tower type",
+          "[towers][economy][cost_curve]") {
+    TowerSystem ts;
+    for (u32 t = 0; t < kTowerTypeCount; ++t) {
+        const auto type = static_cast<TowerType>(t);
+        INFO("tower type " << tower_type_name(type));
+        const TowerStats& s1 = ts.stats(type, 1);
+        const TowerStats& s2 = ts.stats(type, 2);
+        const TowerStats& s3 = ts.stats(type, 3);
+
+        // Structural cost-curve shape (DESIGN.md §5.3): each upgrade step
+        // costs noticeably less than a fresh tier-1 build, and the curve
+        // decelerates further up the tree.
+        REQUIRE(s1.upgrade_cost < s1.build_cost);
+        REQUIRE(s2.upgrade_cost < s1.upgrade_cost);
+        REQUIRE(s2.upgrade_cost > 0);
+
+        const f32 o1 = tower_output(type, s1);
+        const f32 o2 = tower_output(type, s2);
+        const f32 o3 = tower_output(type, s3);
+        REQUIRE(o1 > 0.0f);
+
+        // Accelerating value: tier 2 pushes output well above 2x tier 1's,
+        // and tier 3 pulls further ahead still (the absolute gap grows).
+        REQUIRE(o2 > 2.0f * o1);
+        REQUIRE((o3 - o2) > (o2 - o1));
+
+        // The actual economic claim: ATP spent all the way up the upgrade
+        // tree buys strictly more output-per-ATP than stopping at tier 1 (and
+        // therefore than spending the same total ATP on N fresh tier-1
+        // towers, which nets exactly tier 1's own output-per-ATP — spreading
+        // thin is a visible tax, not the efficient move).
+        const f32 cost_to_t1 = static_cast<f32>(s1.build_cost);
+        const f32 cost_to_t2 = cost_to_t1 + static_cast<f32>(s1.upgrade_cost);
+        const f32 cost_to_t3 = cost_to_t2 + static_cast<f32>(s2.upgrade_cost);
+        const f32 eff1 = o1 / cost_to_t1;
+        const f32 eff2 = o2 / cost_to_t2;
+        const f32 eff3 = o3 / cost_to_t3;
+        REQUIRE(eff2 > eff1);
+        REQUIRE(eff3 > eff2);
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Deliverable 2: validate()/place()/upgrade()/sell().
 // ---------------------------------------------------------------------------
 
@@ -238,10 +307,10 @@ TEST_CASE("upgrade() advances tier and stats, caps at 3; sell() refunds ATP and 
     REQUIRE(world.ecs().registry().get<comp::Tower>(e).tier == 3);
     REQUIRE(ts.upgrade(world, id) == 0); // already maxed
 
-    // invested = tier1 build_cost (80) + upgrade to tier2 (60) + upgrade to
-    // tier3 (90) = 230; refund at the documented 0.7 fraction = 161.
+    // invested = tier1 build_cost (80) + upgrade to tier2 (45) + upgrade to
+    // tier3 (30) = 155; refund at the documented 0.7 fraction = 108 (truncated).
     const u32 refund = ts.sell(world, id);
-    REQUIRE(refund == 161);
+    REQUIRE(refund == 108);
 
     REQUIRE_FALSE(world.ecs().registry().valid(e));
     const IVec2 c = world.tissue().world_to_cell(kRoomCenterLeft);

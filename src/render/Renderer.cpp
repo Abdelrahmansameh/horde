@@ -19,12 +19,14 @@
 #include "sim/damage/DamageField.h"
 #include "sim/ecs/Components.h"
 #include "sim/ecs/EcsWorld.h"
+#include "sim/ecs/NamedAgents.h"
 #include "sim/flowfield/FlowField.h"
 #include "sim/spatial/SpatialHash.h"
 
 #include <glad/glad.h>
 #include <glm/gtc/type_ptr.hpp>
 
+#include <cmath>
 #include <cstddef>
 #include <vector>
 
@@ -64,6 +66,52 @@ struct FlowDebugVertex {
 /// extra memory (a few MB at 10k agents).
 constexpr u32 kInstanceRegions = 3;
 
+/// Per-instance data for the field-VFX pass (Wave 4G). NOT a shared contract —
+/// mirrored only in assets/shaders/field.vert, since no other consumer reads
+/// it (unlike ChaffInstance/EntityInstance, this struct is a private
+/// implementation detail of this .cpp).
+///
+/// Shape-specific field meaning (see field.vert's header comment):
+///   Circle/Chain: scale = diameter, rotation = 0.
+///   Rect:         scale = full width/height, rotation = 0 (sim::Rect is
+///                 always axis-aligned).
+///   Cone:         scale = diameter, rotation = direction angle, arc_cos =
+///                 cos(arc_radians).
+struct FieldGpuInstance {
+    f32 x, y;
+    f32 scale_x, scale_y;
+    f32 rotation;
+    f32 arc_cos;
+    f32 falloff;
+    f32 intensity;
+    u32 tint_rgba8;
+    u32 shape_id;
+};
+
+/// Bound generously above SimWorld's default `max_damage_fields` (512, see
+/// sim/SimWorld.h) so a full load never silently truncates; excess is dropped
+/// with a warning, same policy as the chaff batcher.
+constexpr u32 kMaxFieldInstances = 1024;
+
+/// Elite death-burst timing. The renderer has no access to the spawning
+/// entity's archetype's `ArchetypeBehavior::death_fade` (sim/ecs internals,
+/// not exposed through the frozen Components.h/NamedAgents.h contracts this
+/// file may include) so this is a fixed approximation shared by every
+/// archetype rather than an exact match: the burst always fades over this
+/// many seconds of `AiBrain::state_timer`, regardless of when the entity is
+/// actually destroyed. Harmless either way — if the real death_fade is
+/// shorter the entity (and its burst) simply disappears mid-fade; if longer,
+/// the burst finishes fading a little before the entity is destroyed.
+constexpr f32 kDeathBurstWindow = 0.5f;
+constexpr f32 kDeathBurstScale = 2.4f;
+
+/// Burst (lifetime > 0) DamageFields fade as their remaining lifetime runs
+/// out. DamageField only exposes *remaining* lifetime, not elapsed/total
+/// duration (frozen contract, sim/damage/DamageField.h), so a true fade-in at
+/// spawn can't be reconstructed here — this fixed window shapes the fade-out
+/// near expiry instead, which is what actually reads as "the nova is ending".
+constexpr f32 kFieldBurstFadeWindow = 0.35f;
+
 } // namespace
 
 struct Renderer::Impl {
@@ -81,6 +129,15 @@ struct Renderer::Impl {
     gl::Buffer entity_instances;
     gl::FenceRing<kInstanceRegions> entity_fence;
     u32 entity_region = 0;
+
+    // Field-VFX pass (Wave 4G). Small instance count (bounded by
+    // max_damage_fields, in the hundreds at most) so a single triple-buffered
+    // region is plenty; reuses the same persistent-mapping pattern as chaff/
+    // entities purely for consistency, not because it's perf-critical here.
+    gl::VertexArray field_vao;
+    gl::Buffer field_instances;
+    gl::FenceRing<kInstanceRegions> field_fence;
+    u32 field_region = 0;
 
     // Blob + tissue passes both just need the shared quad's position attrib.
     gl::VertexArray screen_quad_vao;
@@ -170,6 +227,27 @@ bool Renderer::init(const RendererDesc& desc) {
     imp.entity_vao.attrib_float(6, 1, 1, GL_FLOAT, false, offsetof(EntityInstance, anim_phase));
     imp.entity_vao.attrib_float(7, 1, 1, GL_FLOAT, false, offsetof(EntityInstance, pad));
 
+    // ---- Field-VFX instanced pass (Wave 4G) --------------------------------
+    if (!imp.field_vao.create()) { error_ = "failed to create the field VAO"; return false; }
+    imp.field_vao.bind_vertex_buffer(0, imp.quad_vbo, sizeof(Vec2), 0, 0);
+    imp.field_vao.attrib_float(0, 0, 2, GL_FLOAT, false, 0);
+
+    const usize field_bytes =
+        static_cast<usize>(kMaxFieldInstances) * sizeof(FieldGpuInstance) * kInstanceRegions;
+    if (!imp.field_instances.create_persistent(field_bytes)) {
+        error_ = "failed to allocate the persistently-mapped field instance buffer";
+        return false;
+    }
+    imp.field_vao.bind_vertex_buffer(1, imp.field_instances, sizeof(FieldGpuInstance), 0, 1);
+    imp.field_vao.attrib_float(1, 1, 2, GL_FLOAT, false, offsetof(FieldGpuInstance, x));
+    imp.field_vao.attrib_float(2, 1, 2, GL_FLOAT, false, offsetof(FieldGpuInstance, scale_x));
+    imp.field_vao.attrib_float(3, 1, 1, GL_FLOAT, false, offsetof(FieldGpuInstance, rotation));
+    imp.field_vao.attrib_float(4, 1, 1, GL_FLOAT, false, offsetof(FieldGpuInstance, arc_cos));
+    imp.field_vao.attrib_float(5, 1, 1, GL_FLOAT, false, offsetof(FieldGpuInstance, falloff));
+    imp.field_vao.attrib_float(6, 1, 1, GL_FLOAT, false, offsetof(FieldGpuInstance, intensity));
+    imp.field_vao.attrib_float(7, 1, 4, GL_UNSIGNED_BYTE, true, offsetof(FieldGpuInstance, tint_rgba8));
+    imp.field_vao.attrib_int(8, 1, 1, GL_UNSIGNED_INT, offsetof(FieldGpuInstance, shape_id));
+
     // ---- Blob / tissue shared screen quad -----------------------------------
     if (!imp.screen_quad_vao.create()) { error_ = "failed to create the screen-quad VAO"; return false; }
     imp.screen_quad_vao.bind_vertex_buffer(0, imp.quad_vbo, sizeof(Vec2), 0, 0);
@@ -203,6 +281,7 @@ bool Renderer::init(const RendererDesc& desc) {
     imp.shaders.load_graphics("blob", "blob.vert", "blob.frag");
     imp.shaders.load_graphics("tissue", "tissue.vert", "tissue.frag");
     imp.shaders.load_graphics("entity", "entity.vert", "entity.frag");
+    imp.shaders.load_graphics("field", "field.vert", "field.frag");
     imp.shaders.load_graphics("flow_debug", "flow_debug.vert", "flow_debug.frag");
     if (!imp.shaders.get("chaff").valid()) {
         IMMUNE_LOG_ERROR("chaff shader failed to load: %s", imp.shaders.last_error().c_str());
@@ -274,7 +353,18 @@ void Renderer::submit_tissue(const sim::TissueMask& mask, const sim::DistanceFie
     const Rect mb = mask.world_bounds();
     glUniform2f(3, mb.min.x, mb.min.y);
     glUniform2f(4, mb.size().x, mb.size().y);
-    glUniform1f(5, heartbeat_phase);
+    // DESIGN.md §7.1/§9.1: "subtle heartbeat pulse" on the substrate layer.
+    // tissue.frag already turns a phase into a low-amplitude brightness pulse
+    // (`1.0 + 0.025*sin(phase)`); the current callers (app/Modes.cpp,
+    // app/App.cpp) always pass a static 0.0f, which would otherwise freeze the
+    // pulse at a constant brightness every frame. Driving it off the
+    // renderer's own wall-clock `time` (the same clock chaff/entity animation
+    // phases already use) is what actually makes it pulse; `heartbeat_phase`
+    // stays additive so a future caller can still offset it per-lane (DESIGN.md
+    // §9.2's "arterial lanes pulse faster") without this renderer-side default
+    // going away.
+    constexpr f32 kHeartbeatRate = 2.1f; // radians/sec; a relaxed resting pulse
+    glUniform1f(5, heartbeat_phase + imp.time * kHeartbeatRate);
 
     imp.tissue_sdf_tex.bind_unit(0);
     imp.screen_quad_vao.bind();
@@ -401,6 +491,81 @@ void Renderer::submit_entities(const sim::EcsWorld& ecs) {
         inst.anim_phase =
             static_cast<f32>(h & 0xFFFFu) * (math::kTwoPi / 65536.0f) + imp.time * tempo * math::kTwoPi;
         inst.pad = 0.0f;
+
+        // Elite death burst (DESIGN.md §9.5 tier 2: "individual pop/burst
+        // VFX"). Detected generically off AiBrain::state == Dying rather than
+        // a dedicated death event — none exists in the frozen NamedAgents.h
+        // contract, and this reads the same state system_named_cleanup
+        // (sim/ecs/NamedAgents.cpp) already uses to decide when to destroy the
+        // entity, so it needs no new sim-side plumbing. Tier-agnostic on
+        // purpose: a future boss (comp::NamedAgent::tier == 2) gets the same
+        // hook, just scaled up, so Wave 5B's boss death has something to plug
+        // into already.
+        if (const auto* brain = registry.try_get<const sim::comp::AiBrain>(entity)) {
+            if (brain->state == sim::comp::AiState::Dying && count < cap) {
+                f32 burst_scale = kDeathBurstScale;
+                if (const auto* na = registry.try_get<const sim::comp::NamedAgent>(entity)) {
+                    if (na->tier >= 2) burst_scale *= 1.8f; // boss-tier: bigger pop
+                }
+                EntityInstance& burst = region_base[count++];
+                burst.x = t.position.x;
+                burst.y = t.position.y;
+                burst.scale = sp.size * burst_scale;
+                burst.rotation = 0.0f;
+                // Flash the family colour toward white rather than reusing it
+                // flat, so the burst still reads as "impact" and not just a
+                // bigger silhouette of the same sprite.
+                const Vec4 hot{sp.tint.r + (1.0f - sp.tint.r) * 0.35f,
+                               sp.tint.g + (1.0f - sp.tint.g) * 0.35f,
+                               sp.tint.b + (1.0f - sp.tint.b) * 0.35f, sp.tint.a};
+                burst.tint_rgba8 = pack_rgba8(hot);
+                burst.shape_id = 4; // entity.frag: death burst
+                burst.anim_phase = math::saturate(brain->state_timer / kDeathBurstWindow);
+                burst.pad = 0.0f;
+            }
+        }
+    }
+
+    // Telegraph overlay (DESIGN.md §9.5 tier 2: "a clearly telegraphed wind-up
+    // beforehand... so an elite's attack is anticipated, not just suffered").
+    // Reads NamedFrame::telegraphs directly rather than mutating comp::Sprite
+    // on the source entity: that keeps this fully decoupled from the named-
+    // agent sim code (sim/ecs/NamedAgents.cpp, Wave 1D's territory) at the
+    // cost of one extra registry-context lookup per frame. frame_if_any
+    // returns null when no named-agent systems are installed (bench scenarios
+    // with named_count == 0, most sim-tests) — handled gracefully below.
+    //
+    // Two overlay instances per active telegraph: the pre-built diamond shape
+    // (shape_id 2, already documented in entity.frag as "telegraphed/alert"
+    // but never wired up before this) as a pulsing alert glyph, plus a new
+    // closing countdown ring (shape_id 3) whose radius shrinks and flashes as
+    // ActiveTelegraph::progress approaches 1.
+    if (const sim::named::NamedFrame* frame = sim::named::frame_if_any(registry)) {
+        const Vec4 diamond_tint{1.0f, 0.25f, 0.20f, 0.85f};
+        const Vec4 ring_tint{1.0f, 0.55f, 0.15f, 0.9f};
+        for (const sim::named::ActiveTelegraph& tg : frame->telegraphs) {
+            if (count + 2 > cap) break;
+
+            EntityInstance& diamond = region_base[count++];
+            diamond.x = tg.point.x;
+            diamond.y = tg.point.y;
+            diamond.scale = tg.radius * 0.9f;
+            diamond.rotation = 0.0f;
+            diamond.tint_rgba8 = pack_rgba8(diamond_tint);
+            diamond.shape_id = 2;
+            diamond.anim_phase = imp.time * 6.0f; // fast alert pulse (shape 2's own sin pulse)
+            diamond.pad = 0.0f;
+
+            EntityInstance& ring = region_base[count++];
+            ring.x = tg.point.x;
+            ring.y = tg.point.y;
+            ring.scale = tg.radius * 2.0f; // scale == diameter, matches entity.vert's convention
+            ring.rotation = 0.0f;
+            ring.tint_rgba8 = pack_rgba8(ring_tint);
+            ring.shape_id = 3; // entity.frag: telegraph countdown ring
+            ring.anim_phase = math::saturate(tg.progress); // repurposed as progress, not a phase
+            ring.pad = 0.0f;
+        }
     }
 
     const ShaderProgram prog = imp.shaders.get("entity");
@@ -422,14 +587,145 @@ void Renderer::submit_entities(const sim::EcsWorld& ecs) {
 }
 
 void Renderer::submit_fields(const sim::DamageField* fields, usize count) {
-    // Wave 3D owns the actual toxin-cloud / histamine-bloom / antibody-tide
-    // shaders (DESIGN.md §7's field VFX). This wave only plumbs the count
-    // through so FrameStats and the HUD have a real number before that pass
-    // exists, per the brief: "build the pass plumbing, do not implement the
-    // VFX themselves."
-    (void)fields;
-    if (!ready_) return;
+    // DESIGN.md §9.5: tower AoEs render as literal fluid/chemical fields that
+    // visibly reshape the pathogen river. See field.vert/field.frag for the
+    // shape-specific SDF treatment; this function's job is purely the CPU-side
+    // per-instance parameterization (persistent-vs-burst intensity, tint,
+    // shape-specific transform) plus the single instanced draw call.
     stats_.vfx_fields_drawn = static_cast<u32>(count);
+    if (!ready_ || !impl_) return;
+    Impl& imp = *impl_;
+    WallClock timer;
+
+    if (count > 0 && fields == nullptr) count = 0;
+    const u32 draw_count = math::min(static_cast<u32>(count), kMaxFieldInstances);
+    if (count > draw_count) {
+        IMMUNE_LOG_WARN("field VFX: dropped %zu fields (exceeds kMaxFieldInstances=%u)",
+                        count - draw_count, kMaxFieldInstances);
+    }
+
+    imp.field_fence.wait(imp.field_region);
+    FieldGpuInstance* region_base = imp.field_instances.mapped_as<FieldGpuInstance>() +
+        static_cast<usize>(imp.field_region) * kMaxFieldInstances;
+
+    // Cool blue/violet base palette per shape category (DESIGN.md §9.3: towers
+    // and their effects are the "not part of the flow" temperature family),
+    // distinct enough per shape that a standing toxin cloud (Circle), an
+    // antibody wall (Rect), a directional spray (Cone), and a complement
+    // cascade (Chain) don't all read as the same generic glow. friendly_fire
+    // fields (the allergen overreaction mechanic) override to a hot warning
+    // colour regardless of shape, since those damage the player, not the horde.
+    const Vec4 kCircleTint{0.30f, 0.80f, 0.88f, 1.0f};
+    const Vec4 kRectTint{0.58f, 0.46f, 0.95f, 1.0f};
+    const Vec4 kConeTint{0.92f, 0.38f, 0.58f, 1.0f};
+    const Vec4 kChainTint{0.78f, 0.95f, 1.0f, 1.0f};
+    const Vec4 kFriendlyFireTint{1.0f, 0.32f, 0.15f, 1.0f};
+
+    for (u32 i = 0; i < draw_count; ++i) {
+        const sim::DamageField& f = fields[i];
+        FieldGpuInstance inst{};
+
+        switch (f.shape) {
+        case sim::FieldShape::Rect: {
+            const Vec2 c = f.rect.center();
+            const Vec2 sz = f.rect.size();
+            inst.x = c.x;
+            inst.y = c.y;
+            inst.scale_x = math::max(sz.x, 0.05f);
+            inst.scale_y = math::max(sz.y, 0.05f);
+            inst.rotation = 0.0f; // sim::Rect is always axis-aligned
+            inst.arc_cos = -1.0f;
+            inst.shape_id = 1;
+            break;
+        }
+        case sim::FieldShape::Cone: {
+            inst.x = f.origin.x;
+            inst.y = f.origin.y;
+            const f32 diameter = math::max(f.radius, 0.05f) * 2.0f;
+            inst.scale_x = diameter;
+            inst.scale_y = diameter;
+            inst.rotation = std::atan2(f.direction.y, f.direction.x);
+            inst.arc_cos = std::cos(math::max(f.arc_radians, 0.001f));
+            inst.shape_id = 2;
+            break;
+        }
+        case sim::FieldShape::Chain: {
+            inst.x = f.origin.x;
+            inst.y = f.origin.y;
+            const f32 diameter = math::max(f.radius, 0.05f) * 2.0f;
+            inst.scale_x = diameter;
+            inst.scale_y = diameter;
+            inst.rotation = 0.0f;
+            inst.arc_cos = -1.0f;
+            inst.shape_id = 3;
+            break;
+        }
+        case sim::FieldShape::Circle:
+        default: {
+            inst.x = f.origin.x;
+            inst.y = f.origin.y;
+            const f32 diameter = math::max(f.radius, 0.05f) * 2.0f;
+            inst.scale_x = diameter;
+            inst.scale_y = diameter;
+            inst.rotation = 0.0f;
+            inst.arc_cos = -1.0f;
+            inst.shape_id = 0;
+            break;
+        }
+        }
+
+        inst.falloff = f.falloff;
+
+        // Persistent (lifetime <= 0, refreshed every tick by its owning
+        // tower): a steady mid-brightness toxin-cloud read, with a slow
+        // shader-driven breathing pulse. Per-field phase offset (hashed from
+        // its array slot) keeps a bank of towers from breathing in lockstep,
+        // same rationale as ChaffInstance::anim_phase.
+        //
+        // Burst (lifetime > 0, one-shot Histamine Flare / Complement Cascade
+        // style effects): DamageField only exposes *remaining* lifetime, not
+        // elapsed or total duration, so a true spawn-flash can't be
+        // reconstructed here. Instead the burst starts bright and fades as it
+        // approaches expiry, which reads correctly as "the nova is ending"
+        // even without knowing when it began.
+        if (f.lifetime <= 0.0f) {
+            const u32 h = (i * 2654435761u) ^ 0x9E3779B9u;
+            const f32 phase = static_cast<f32>(h & 0xFFFFu) * (math::kTwoPi / 65536.0f);
+            const f32 breathe = 0.5f + 0.5f * std::sin(imp.time * 1.4f + phase);
+            inst.intensity = 0.35f + 0.30f * breathe;
+        } else {
+            inst.intensity = math::saturate(f.lifetime / kFieldBurstFadeWindow);
+        }
+
+        Vec4 tint = kCircleTint;
+        switch (f.shape) {
+        case sim::FieldShape::Rect:  tint = kRectTint;  break;
+        case sim::FieldShape::Cone:  tint = kConeTint;  break;
+        case sim::FieldShape::Chain: tint = kChainTint; break;
+        case sim::FieldShape::Circle: default: tint = kCircleTint; break;
+        }
+        if (f.friendly_fire) tint = kFriendlyFireTint;
+        inst.tint_rgba8 = pack_rgba8(tint);
+
+        region_base[i] = inst;
+    }
+
+    const ShaderProgram prog = imp.shaders.get("field");
+    if (prog.valid() && draw_count > 0) {
+        glUseProgram(prog.gl_id);
+        glUniformMatrix4fv(0, 1, GL_FALSE, glm::value_ptr(imp.view_projection));
+        glUniform1f(1, imp.time);
+        imp.field_vao.bind();
+        const u32 base_instance = imp.field_region * kMaxFieldInstances;
+        glDrawArraysInstancedBaseInstance(GL_TRIANGLE_FAN, 0, 4, static_cast<GLsizei>(draw_count),
+                                          base_instance);
+        ++stats_.draw_calls;
+    }
+
+    imp.field_fence.signal(imp.field_region);
+    imp.field_region = (imp.field_region + 1) % kInstanceRegions;
+
+    stats_.submit_ms += timer.elapsed_ms();
 }
 
 void Renderer::submit_flow_debug(const sim::FlowField& flow) {

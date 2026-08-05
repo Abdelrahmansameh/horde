@@ -20,6 +20,7 @@
 #include "game/abilities/ActiveAbilities.h"
 #include "game/economy/Economy.h"
 #include "game/enemies/EnemyRoster.h"
+#include "game/level/Level.h"
 #include "game/meta/MetaProgression.h"
 #include "game/towers/TowerSystem.h"
 #include "game/wave/WaveDirector.h"
@@ -68,6 +69,7 @@ private:
 
     sim::SimWorld sim_;
     game::TowerSystem towers_;
+    game::LaneOwnershipMap lane_map_;
     game::EnemyRoster enemies_;
     game::WaveDirector waves_;
     game::Economy economy_;

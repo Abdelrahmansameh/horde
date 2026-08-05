@@ -114,48 +114,70 @@ TowerStats make_stats(f32 range, f32 fire_interval, f32 damage, f32 kill_rate, f
     return s;
 }
 
+// ---------------------------------------------------------------------------
+// Cost-curve design goal (DESIGN.md §5.3/§7.1, deliverable 2): upgrading one
+// tier must be a reliably better ATP-per-output deal than placing a fresh
+// tower of equivalent total output, so reinforcing a concentrated position
+// beats spreading thin. Concretely, for every tower type below: if tier 1
+// costs `C` and produces output `O` (its per-second damage/kill_rate,
+// whichever the type actually uses — see tests/test_towers.cpp's
+// tower_output() for the exact per-type metric), tier 2's upgrade_cost is
+// noticeably less than `C` again while tier 2's output pushes well past `2O`,
+// and tier 3's upgrade_cost is smaller still while its output pulls further
+// ahead — an accelerating-value, decelerating-cost curve up the tree. Tier 1
+// numbers are deliberately left exactly as they were (several existing tests
+// hardcode them, e.g. Mast Cell's density-threshold test relies on
+// range*kill_rate == 15); only tier 2/3 damage-or-kill_rate and every tier's
+// upgrade_cost move. See tests/test_towers.cpp's
+// "upgrading is a better ATP-per-output deal than a fresh tower" test for the
+// numeric proof, across all 8 types.
+// ---------------------------------------------------------------------------
+
 void load_default_stats(TowerSystem& self) {
     // Macrophage: melee sink. Big kill_rate self-field + slow single-target DPS.
-    self.set_stats(TowerType::Macrophage, 1, make_stats(4.0f, 1.0f, 6.0f, 3.0f, 1.0f, 80, 60, 0.0f));
-    self.set_stats(TowerType::Macrophage, 2, make_stats(4.5f, 1.0f, 10.0f, 5.0f, 1.0f, 80, 90, 0.0f));
-    self.set_stats(TowerType::Macrophage, 3, make_stats(5.0f, 1.0f, 16.0f, 8.0f, 1.0f, 80, 0, 0.0f));
+    self.set_stats(TowerType::Macrophage, 1, make_stats(4.0f, 1.0f, 6.0f, 3.0f, 1.0f, 80, 45, 0.0f));
+    self.set_stats(TowerType::Macrophage, 2, make_stats(4.5f, 0.9f, 16.0f, 7.0f, 1.0f, 80, 30, 0.0f));
+    self.set_stats(TowerType::Macrophage, 3, make_stats(5.0f, 0.75f, 30.0f, 12.0f, 1.0f, 80, 0, 0.0f));
 
     // Neutrophil: swarm. Modest self-field; NET + micro-units is the ability.
-    self.set_stats(TowerType::Neutrophil, 1, make_stats(5.0f, 0.6f, 2.0f, 2.0f, 0.8f, 90, 70, 6.0f));
-    self.set_stats(TowerType::Neutrophil, 2, make_stats(5.5f, 0.5f, 2.0f, 3.5f, 0.8f, 90, 100, 5.0f));
-    self.set_stats(TowerType::Neutrophil, 3, make_stats(6.0f, 0.4f, 2.0f, 5.5f, 0.8f, 90, 0, 4.0f));
+    self.set_stats(TowerType::Neutrophil, 1, make_stats(5.0f, 0.6f, 2.0f, 2.0f, 0.8f, 90, 50, 6.0f));
+    self.set_stats(TowerType::Neutrophil, 2, make_stats(5.5f, 0.5f, 2.0f, 8.5f, 0.8f, 90, 32, 5.0f));
+    self.set_stats(TowerType::Neutrophil, 3, make_stats(6.0f, 0.4f, 2.0f, 15.5f, 0.8f, 90, 0, 4.0f));
 
-    // Dendritic: support, no damage — kill_rate stays 0 for every tier.
-    self.set_stats(TowerType::Dendritic, 1, make_stats(6.0f, 0.5f, 0.0f, 0.0f, 0.75f, 70, 50, 0.0f));
-    self.set_stats(TowerType::Dendritic, 2, make_stats(7.0f, 0.5f, 0.0f, 0.0f, 0.75f, 70, 70, 0.0f));
-    self.set_stats(TowerType::Dendritic, 3, make_stats(8.5f, 0.5f, 0.0f, 0.0f, 0.75f, 70, 0, 0.0f));
+    // Dendritic: support, no damage — kill_rate stays 0 for every tier. Its
+    // only power lever is coverage (range), so tier growth pushes range hard.
+    self.set_stats(TowerType::Dendritic, 1, make_stats(5.0f, 0.5f, 0.0f, 0.0f, 0.75f, 70, 40, 0.0f));
+    self.set_stats(TowerType::Dendritic, 2, make_stats(7.5f, 0.5f, 0.0f, 0.0f, 0.75f, 70, 25, 0.0f));
+    self.set_stats(TowerType::Dendritic, 3, make_stats(10.0f, 0.5f, 0.0f, 0.0f, 0.75f, 70, 0, 0.0f));
 
     // Cytotoxic T: precision named-agent burst, bonus vs elite/boss applied in system_cytotoxic_t.
-    self.set_stats(TowerType::CytotoxicT, 1, make_stats(6.0f, 1.2f, 22.0f, 0.0f, 0.8f, 110, 90, 0.0f));
-    self.set_stats(TowerType::CytotoxicT, 2, make_stats(6.5f, 1.0f, 34.0f, 0.0f, 0.8f, 110, 120, 0.0f));
-    self.set_stats(TowerType::CytotoxicT, 3, make_stats(7.0f, 0.8f, 50.0f, 0.0f, 0.8f, 110, 0, 0.0f));
+    self.set_stats(TowerType::CytotoxicT, 1, make_stats(6.0f, 1.2f, 22.0f, 0.0f, 0.8f, 110, 65, 0.0f));
+    self.set_stats(TowerType::CytotoxicT, 2, make_stats(6.5f, 0.9f, 46.0f, 0.0f, 0.8f, 110, 42, 0.0f));
+    self.set_stats(TowerType::CytotoxicT, 3, make_stats(7.0f, 0.65f, 80.0f, 0.0f, 0.8f, 110, 0, 0.0f));
 
     // B-Cell: homing tag & chase (see system_bcell for the Marked-application simplification).
-    self.set_stats(TowerType::BCell, 1, make_stats(7.0f, 1.0f, 8.0f, 0.0f, 0.7f, 100, 80, 0.0f));
-    self.set_stats(TowerType::BCell, 2, make_stats(8.0f, 0.8f, 12.0f, 0.0f, 0.7f, 100, 100, 0.0f));
-    self.set_stats(TowerType::BCell, 3, make_stats(9.0f, 0.6f, 18.0f, 0.0f, 0.7f, 100, 0, 0.0f));
+    self.set_stats(TowerType::BCell, 1, make_stats(7.0f, 1.0f, 8.0f, 0.0f, 0.7f, 100, 55, 0.0f));
+    self.set_stats(TowerType::BCell, 2, make_stats(8.0f, 0.75f, 18.0f, 0.0f, 0.7f, 100, 35, 0.0f));
+    self.set_stats(TowerType::BCell, 3, make_stats(9.0f, 0.55f, 34.0f, 0.0f, 0.7f, 100, 0, 0.0f));
 
     // NK Cell: anti-stealth precision (find_target with require_detect_hidden=true).
-    self.set_stats(TowerType::NKCell, 1, make_stats(6.0f, 1.0f, 20.0f, 0.0f, 0.8f, 120, 100, 0.0f));
-    self.set_stats(TowerType::NKCell, 2, make_stats(6.5f, 0.9f, 30.0f, 0.0f, 0.8f, 120, 130, 0.0f));
-    self.set_stats(TowerType::NKCell, 3, make_stats(7.0f, 0.7f, 44.0f, 0.0f, 0.8f, 120, 0, 0.0f));
+    self.set_stats(TowerType::NKCell, 1, make_stats(6.0f, 1.0f, 20.0f, 0.0f, 0.8f, 120, 68, 0.0f));
+    self.set_stats(TowerType::NKCell, 2, make_stats(6.5f, 0.85f, 44.0f, 0.0f, 0.8f, 120, 44, 0.0f));
+    self.set_stats(TowerType::NKCell, 3, make_stats(7.0f, 0.6f, 85.0f, 0.0f, 0.8f, 120, 0, 0.0f));
 
     // Mast Cell: reactive nova. TowerStats has no dedicated "trigger threshold"
     // field (frozen struct); system_mastcell() reuses range * kill_rate as a
-    // per-tier-tunable density threshold — see that function's comment.
-    self.set_stats(TowerType::MastCell, 1, make_stats(5.0f, 1.0f, 0.0f, 3.0f, 0.9f, 130, 110, 8.0f));
-    self.set_stats(TowerType::MastCell, 2, make_stats(5.5f, 1.0f, 0.0f, 4.0f, 0.9f, 130, 140, 6.0f));
-    self.set_stats(TowerType::MastCell, 3, make_stats(6.0f, 1.0f, 0.0f, 5.5f, 0.9f, 130, 0, 4.5f));
+    // per-tier-tunable density threshold — see that function's comment. Tier 1
+    // range/kill_rate are untouched (threshold stays 15, matching the existing
+    // combat test), only tiers 2/3 move.
+    self.set_stats(TowerType::MastCell, 1, make_stats(5.0f, 1.0f, 0.0f, 3.0f, 0.9f, 130, 75, 8.0f));
+    self.set_stats(TowerType::MastCell, 2, make_stats(5.5f, 1.0f, 0.0f, 7.0f, 0.9f, 130, 48, 6.0f));
+    self.set_stats(TowerType::MastCell, 3, make_stats(6.0f, 1.0f, 0.0f, 15.0f, 0.9f, 130, 0, 4.5f));
 
     // Complement Cascade: ultimate chain nova.
-    self.set_stats(TowerType::ComplementCascade, 1, make_stats(6.0f, 1.0f, 0.0f, 6.0f, 1.2f, 220, 160, 10.0f));
-    self.set_stats(TowerType::ComplementCascade, 2, make_stats(6.5f, 1.0f, 0.0f, 9.0f, 1.2f, 220, 190, 8.0f));
-    self.set_stats(TowerType::ComplementCascade, 3, make_stats(7.0f, 1.0f, 0.0f, 13.0f, 1.2f, 220, 0, 6.0f));
+    self.set_stats(TowerType::ComplementCascade, 1, make_stats(6.0f, 1.0f, 0.0f, 6.0f, 1.2f, 220, 130, 10.0f));
+    self.set_stats(TowerType::ComplementCascade, 2, make_stats(6.5f, 1.0f, 0.0f, 14.0f, 1.2f, 220, 85, 8.0f));
+    self.set_stats(TowerType::ComplementCascade, 3, make_stats(7.0f, 1.0f, 0.0f, 30.0f, 1.2f, 220, 0, 6.0f));
 }
 
 /// TowerSystem.h forbids adding a constructor, so there is no natural hook to

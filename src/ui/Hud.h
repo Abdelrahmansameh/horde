@@ -80,6 +80,7 @@ public:
                const game::Economy& economy,
                const game::WaveDirector& waves,
                const game::TowerSystem& towers,
+               const game::ActiveAbilitySystem& abilities,
                const render::Camera& camera,
                platform::InputState& input,
                std::vector<Intent>& out_intents);

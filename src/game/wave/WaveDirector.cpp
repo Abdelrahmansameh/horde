@@ -38,11 +38,56 @@ bool resolve_portal(const sim::SimWorld& world, const std::string& portal_id,
 
 f32 spawn_entry_end(const SpawnEntry& e) { return e.start_time + math::max(e.duration, 0.0f); }
 
-} // namespace
+// ---------------------------------------------------------------------------
+// Per-region wave tables (DESIGN.md §4.6, §6.5). generate() used to be a
+// single flat escalation regardless of region string; each region now gets
+// its own composition, matching the region table's "design role" column, so
+// difficulty growth across regions reads as "a new thing to learn" rather
+// than "the same thing, more of it" (§6.5). Unknown/unhandled region strings
+// (including "", used by headless --bench/--sim-test paths with no real
+// level) fall back to generate_flat(), the original region-agnostic body,
+// verbatim -- see its own comment.
+// ---------------------------------------------------------------------------
 
-void WaveDirector::set_waves(std::vector<WaveDef> waves) { waves_ = std::move(waves); }
+enum class RegionKind : u8 { Skin, Capillary, Lymphatic, Mucosal, OrganChamber, Unknown };
 
-std::vector<WaveDef> WaveDirector::generate(const std::string& region, u32 wave_count, Rng& rng) {
+RegionKind classify_region(const std::string& region) {
+    if (region == "skin" || region == "epidermis") return RegionKind::Skin;
+    if (region == "capillary") return RegionKind::Capillary;
+    if (region == "lymphatic") return RegionKind::Lymphatic;
+    if (region == "mucosal") return RegionKind::Mucosal;
+    if (region == "organ_chamber" || region == "organ-chamber") return RegionKind::OrganChamber;
+    return RegionKind::Unknown;
+}
+
+/// DESIGN.md §4.5: "A generous first-wave prep window ... subsequent
+/// inter-wave prep windows shrink slightly as the level progresses, pushing
+/// the player from 'plan calmly' toward 'react decisively'" -- an explicit
+/// per-level *curve*, long to progressively shorter, not a flat value. Linear
+/// from `first` (wave 0) down to `floor` (the last wave); each region picks
+/// its own generosity/floor but every region shares this same downward shape
+/// (deliverable 3).
+f32 prep_curve(u32 i, u32 wave_count, f32 first, f32 floor) {
+    if (wave_count <= 1) return first;
+    const f32 t = static_cast<f32>(i) / static_cast<f32>(wave_count - 1);
+    return first - (first - floor) * t;
+}
+
+SpawnEntry make_spawn(PathogenFamily family, u32 count, f32 start_time, f32 duration) {
+    SpawnEntry e;
+    e.family = family;
+    e.count = count;
+    e.start_time = start_time;
+    e.duration = duration;
+    return e;
+}
+
+/// Region-agnostic fallback: virus, +bacteria from wave 2, +fungal from wave
+/// 4, base count 40 + i*25, flat 8s/15s prep. This is the *original*
+/// generate() body, kept byte-for-byte in shape so anything that generates
+/// with an unrecognized region string (headless --bench scenarios, tests that
+/// don't pass a real level region) doesn't regress.
+std::vector<WaveDef> generate_flat(const std::string& region, u32 wave_count, Rng& rng) {
     std::vector<WaveDef> waves;
     waves.reserve(wave_count);
     for (u32 i = 0; i < wave_count; ++i) {
@@ -53,34 +98,159 @@ std::vector<WaveDef> WaveDirector::generate(const std::string& region, u32 wave_
         w.atp_reward = 50 + i * 10;
 
         const u32 base = 40 + i * 25;
-
-        SpawnEntry virus;
-        virus.family = PathogenFamily::Virus;
-        virus.count = base + static_cast<u32>(rng.range_f(0.0f, 10.0f));
-        virus.start_time = 0.0f;
-        virus.duration = 6.0f;
-        w.spawns.push_back(virus);
-
-        if (i >= 1) {
-            SpawnEntry bacteria;
-            bacteria.family = PathogenFamily::Bacteria;
-            bacteria.count = base / 3;
-            bacteria.start_time = 3.0f;
-            bacteria.duration = 5.0f;
-            w.spawns.push_back(bacteria);
-        }
-        if (i >= 3) {
-            SpawnEntry fungal;
-            fungal.family = PathogenFamily::FungalSpore;
-            fungal.count = base / 4;
-            fungal.start_time = 2.0f;
-            fungal.duration = 8.0f;
-            w.spawns.push_back(fungal);
-        }
+        w.spawns.push_back(make_spawn(PathogenFamily::Virus,
+                                       base + static_cast<u32>(rng.range_f(0.0f, 10.0f)), 0.0f, 6.0f));
+        if (i >= 1) w.spawns.push_back(make_spawn(PathogenFamily::Bacteria, base / 3, 3.0f, 5.0f));
+        if (i >= 3) w.spawns.push_back(make_spawn(PathogenFamily::FungalSpore, base / 4, 2.0f, 8.0f));
 
         waves.push_back(std::move(w));
     }
     return waves;
+}
+
+/// Skin / epidermis (§4.6): onboarding. One lane, one family, short table,
+/// gentle escalation -- "teach that obstacles cause crowding before teaching
+/// splash-around", per the region table's fluid-behavior emphasis.
+std::vector<WaveDef> generate_skin(const std::string& region, u32 wave_count, Rng& rng) {
+    std::vector<WaveDef> waves;
+    waves.reserve(wave_count);
+    for (u32 i = 0; i < wave_count; ++i) {
+        WaveDef w;
+        w.index = i;
+        w.name = region + "_wave_" + std::to_string(i + 1);
+        w.prep_time = prep_curve(i, wave_count, 12.0f, 9.0f);
+        w.atp_reward = 40 + i * 8;
+
+        const u32 base = 20 + i * 6;
+        w.spawns.push_back(make_spawn(PathogenFamily::Virus,
+                                       base + static_cast<u32>(rng.range_f(0.0f, 4.0f)), 0.0f, 7.0f));
+
+        waves.push_back(std::move(w));
+    }
+    return waves;
+}
+
+/// Capillary network (§4.6): chokepoint/precision teaching. Close to the
+/// original flat table (it already matched this region's role reasonably
+/// well) -- virus base, bacteria joining at wave 2, fungal spore drift
+/// joining late as a light preview of the mucosal region -- but with a real
+/// downward prep-time curve instead of the old flat-after-wave-1 value.
+std::vector<WaveDef> generate_capillary(const std::string& region, u32 wave_count, Rng& rng) {
+    std::vector<WaveDef> waves;
+    waves.reserve(wave_count);
+    for (u32 i = 0; i < wave_count; ++i) {
+        WaveDef w;
+        w.index = i;
+        w.name = region + "_wave_" + std::to_string(i + 1);
+        w.prep_time = prep_curve(i, wave_count, 8.0f, 4.0f);
+        w.atp_reward = 50 + i * 10;
+
+        const u32 base = 40 + i * 25;
+        w.spawns.push_back(make_spawn(PathogenFamily::Virus,
+                                       base + static_cast<u32>(rng.range_f(0.0f, 10.0f)), 0.0f, 6.0f));
+        if (i >= 1) w.spawns.push_back(make_spawn(PathogenFamily::Bacteria, base / 3, 3.0f, 5.0f));
+        if (i >= 3) w.spawns.push_back(make_spawn(PathogenFamily::FungalSpore, base / 4, 2.0f, 8.0f));
+
+        waves.push_back(std::move(w));
+    }
+    return waves;
+}
+
+/// Lymphatic corridors (§4.6): "home turf", AoE/DoT teaching. Bacteria
+/// clumping pressure appears from wave 1 (not wave 2, like capillary) and at
+/// a heavier share of the wave every time -- the wide, slow-flow lane is
+/// exactly where a biofilm clump reads clearly, per the region's design role.
+std::vector<WaveDef> generate_lymphatic(const std::string& region, u32 wave_count, Rng& rng) {
+    std::vector<WaveDef> waves;
+    waves.reserve(wave_count);
+    for (u32 i = 0; i < wave_count; ++i) {
+        WaveDef w;
+        w.index = i;
+        w.name = region + "_wave_" + std::to_string(i + 1);
+        w.prep_time = prep_curve(i, wave_count, 9.0f, 5.0f);
+        w.atp_reward = 55 + i * 12;
+
+        const u32 base = 35 + i * 20;
+        w.spawns.push_back(make_spawn(PathogenFamily::Virus,
+                                       base + static_cast<u32>(rng.range_f(0.0f, 8.0f)), 0.0f, 6.0f));
+        w.spawns.push_back(make_spawn(PathogenFamily::Bacteria, base / 2, 1.5f, 6.0f)); // clumping, every wave
+        if (i >= 4) w.spawns.push_back(make_spawn(PathogenFamily::FungalSpore, base / 5, 3.0f, 7.0f));
+
+        waves.push_back(std::move(w));
+    }
+    return waves;
+}
+
+/// Mucosal surfaces (§4.6): floodplain, agent count peaks here. Fungal
+/// spore's wide lateral drift is the star from wave 1 -- "full fluid
+/// spectacle at agent-count peak" is this region's entire design role.
+std::vector<WaveDef> generate_mucosal(const std::string& region, u32 wave_count, Rng& rng) {
+    std::vector<WaveDef> waves;
+    waves.reserve(wave_count);
+    for (u32 i = 0; i < wave_count; ++i) {
+        WaveDef w;
+        w.index = i;
+        w.name = region + "_wave_" + std::to_string(i + 1);
+        w.prep_time = prep_curve(i, wave_count, 9.0f, 5.0f);
+        w.atp_reward = 60 + i * 15;
+
+        const u32 base = 60 + i * 35; // highest agent counts of any region
+        w.spawns.push_back(make_spawn(PathogenFamily::Virus,
+                                       base + static_cast<u32>(rng.range_f(0.0f, 12.0f)), 0.0f, 7.0f));
+        w.spawns.push_back(make_spawn(PathogenFamily::FungalSpore, base / 2, 1.0f, 9.0f)); // drift, every wave
+        if (i >= 1) w.spawns.push_back(make_spawn(PathogenFamily::Bacteria, base / 3, 2.5f, 6.0f));
+
+        waves.push_back(std::move(w));
+    }
+    return waves;
+}
+
+/// Organ chamber (§4.6): region finale. Longest table, most family variety
+/// (every family present from wave 0), and the final wave is explicitly
+/// boosted in both count and an added WaveModifier -- no boss entity exists
+/// yet (that's Wave 5B's job), so per §4.5's rule ("the final wave is always
+/// the hardest wave of the level") this is how the table ends escalated
+/// without one.
+std::vector<WaveDef> generate_organ_chamber(const std::string& region, u32 wave_count, Rng& rng) {
+    std::vector<WaveDef> waves;
+    waves.reserve(wave_count);
+    for (u32 i = 0; i < wave_count; ++i) {
+        WaveDef w;
+        w.index = i;
+        w.name = region + "_wave_" + std::to_string(i + 1);
+        w.prep_time = prep_curve(i, wave_count, 10.0f, 4.0f);
+
+        const bool is_final = (i + 1 == wave_count);
+        const f32 final_mult = is_final ? 1.75f : 1.0f;
+        w.atp_reward = static_cast<u32>(static_cast<f32>(70 + i * 15) * (is_final ? 1.5f : 1.0f));
+
+        const u32 base = static_cast<u32>(static_cast<f32>(45 + i * 22) * final_mult);
+        w.spawns.push_back(make_spawn(PathogenFamily::Virus,
+                                       base + static_cast<u32>(rng.range_f(0.0f, 12.0f)), 0.0f, 6.0f));
+        w.spawns.push_back(make_spawn(PathogenFamily::Bacteria, base / 2, 1.5f, 6.0f));
+        w.spawns.push_back(make_spawn(PathogenFamily::FungalSpore, base / 3, 2.5f, 7.0f));
+        if (is_final) w.modifier = WaveModifier::Swarm; // §6 allergen/curveball framework's Swarm case
+
+        waves.push_back(std::move(w));
+    }
+    return waves;
+}
+
+} // namespace
+
+void WaveDirector::set_waves(std::vector<WaveDef> waves) { waves_ = std::move(waves); }
+
+std::vector<WaveDef> WaveDirector::generate(const std::string& region, u32 wave_count, Rng& rng) {
+    switch (classify_region(region)) {
+        case RegionKind::Skin: return generate_skin(region, wave_count, rng);
+        case RegionKind::Capillary: return generate_capillary(region, wave_count, rng);
+        case RegionKind::Lymphatic: return generate_lymphatic(region, wave_count, rng);
+        case RegionKind::Mucosal: return generate_mucosal(region, wave_count, rng);
+        case RegionKind::OrganChamber: return generate_organ_chamber(region, wave_count, rng);
+        case RegionKind::Unknown:
+        default:
+            return generate_flat(region, wave_count, rng);
+    }
 }
 
 void WaveDirector::start(sim::SimWorld& world) {

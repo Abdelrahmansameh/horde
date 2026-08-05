@@ -35,5 +35,19 @@ void main() {
     float rim = (1.0 - smoothstep(0.0, 1.1, abs(d))) * 0.06;
     base -= rim;
 
+    // DESIGN.md §9.1: "ambient particulate (drifting cytokines/dust,
+    // parallax-scrolls for depth, purely decorative, never occludes gameplay-
+    // critical info)". Cheap hash-noise specks, confined to walkable tissue,
+    // drifting slowly by reusing u_heartbeat_phase as a general time driver.
+    // Amplitude is tiny and additive-only so it can never darken or occlude —
+    // worst case it's invisible, never in the way.
+    vec2 drift = v_uv * 46.0 + vec2(u_heartbeat_phase * 0.06, u_heartbeat_phase * 0.04);
+    vec2 cell = floor(drift);
+    vec2 f = fract(drift);
+    float h = fract(sin(dot(cell, vec2(127.1, 311.7))) * 43758.5453);
+    float speck_dist = length(f - vec2(h, fract(h * 7.0)));
+    float speck = (1.0 - smoothstep(0.05, 0.14, speck_dist)) * step(0.93, h);
+    base += speck * 0.05 * inside;
+
     o_color = vec4(max(base, vec3(0.0)), 1.0);
 }

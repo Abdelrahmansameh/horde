@@ -1,10 +1,13 @@
-// game/level/Level.cpp — spline JSON loader + sim wiring. Owner: Wave 2D.
+// game/level/Level.cpp — spline JSON loader + sim wiring. Owner: Wave 2D,
+// extended by Wave 4D for the multi-lane schema (see Level.h's header comment
+// for the rationale and the JSON shape).
 //
 // Parses the JSON schema documented in Level.h, validates it, and rasterizes
 // it into a SimWorld's TissueMask/DistanceField/FlowField. See TissueRaster.h
 // and FlowField.h (Wave 1A) for the geometry -> grid pipeline this drives.
 #include "game/level/Level.h"
 
+#include "core/Math.h"
 #include "platform/FileIO.h"
 #include "sim/SimWorld.h"
 #include "sim/ecs/Components.h"
@@ -13,10 +16,44 @@
 
 #include <nlohmann/json.hpp>
 
+#include <cmath>
+#include <limits>
 #include <stdexcept>
 #include <utility>
 
 namespace immune::game {
+
+const char* vessel_type_to_string(VesselType t) {
+    switch (t) {
+        case VesselType::Artery: return "artery";
+        case VesselType::Vein: return "vein";
+        case VesselType::Lymphatic: return "lymphatic";
+        case VesselType::NerveAdjacent: return "nerve_adjacent";
+        case VesselType::MucosalFold: return "mucosal_fold";
+    }
+    return "artery";
+}
+
+VesselType vessel_type_from_string(const std::string& s) {
+    if (s == "artery") return VesselType::Artery;
+    if (s == "vein") return VesselType::Vein;
+    if (s == "lymphatic") return VesselType::Lymphatic;
+    if (s == "nerve_adjacent") return VesselType::NerveAdjacent;
+    if (s == "mucosal_fold") return VesselType::MucosalFold;
+    return VesselType::Artery; // unknown or omitted -> documented default.
+}
+
+IVec2 LaneOwnershipMap::world_to_cell(Vec2 p) const {
+    const Vec2 local = (p - world_origin) / cell_size;
+    return IVec2{static_cast<i32>(std::floor(local.x)), static_cast<i32>(std::floor(local.y))};
+}
+
+i32 LaneOwnershipMap::lane_at(Vec2 p) const {
+    const IVec2 c = world_to_cell(p);
+    if (!in_range(c.x, c.y)) return -1;
+    const u8 o = owner[index(c.x, c.y)];
+    return o == kNoLane ? -1 : static_cast<i32>(o);
+}
 
 namespace {
 
@@ -38,6 +75,11 @@ Vessel parse_vessel(const json& j, usize index) {
     Vessel v;
     if (!j.contains("id")) throw std::runtime_error(ctx + ": missing 'id'");
     v.id = j.at("id").get<std::string>();
+    // lane_id defaults to id: every pre-existing single-vessel level JSON
+    // (no "lane_id" field at all) is automatically a well-formed single-lane
+    // level with no content changes required.
+    v.lane_id = j.value("lane_id", v.id);
+    v.type = vessel_type_from_string(j.value("vessel_type", std::string{}));
     if (!j.contains("points")) throw std::runtime_error(ctx + " ('" + v.id + "'): missing 'points'");
     const json& pts = j.at("points");
     if (!pts.is_array()) throw std::runtime_error(ctx + " ('" + v.id + "'): 'points' must be an array");
@@ -63,6 +105,10 @@ SpawnPortal parse_portal(const json& j, usize index) {
     if (!j.contains("pos")) throw std::runtime_error(ctx + " ('" + p.id + "'): missing 'pos'");
     p.position = parse_vec2(j.at("pos"), "portals[].pos");
     p.radius = j.value("radius", 3.0f);
+    // Empty is a valid, expected value here (legacy/single-lane levels never
+    // set it); callers resolve the effective lane via
+    // LevelLoader::resolve_portal_lane_id() rather than reading this raw.
+    p.lane_id = j.value("lane_id", std::string{});
     return p;
 }
 
@@ -87,6 +133,16 @@ Rect parse_rect(const json& j, usize index) {
     r.min = parse_vec2(j.at("min"), "placement_zones[].min");
     r.max = parse_vec2(j.at("max"), "placement_zones[].max");
     return r;
+}
+
+/// DESIGN.md §4.3/§4.7 authoring hint, index-aligned with the Rect above.
+/// Both default fields are the same as PlacementZoneTag's in-struct defaults,
+/// so an existing placement_zones entry with neither field is unaffected.
+PlacementZoneTag parse_placement_zone_tag(const json& j) {
+    PlacementZoneTag tag;
+    tag.concentrated = j.value("concentrated", false);
+    tag.priority = j.value("priority", 1.0f);
+    return tag;
 }
 
 } // namespace
@@ -152,7 +208,11 @@ LevelLoadResult LevelLoader::load_string(const std::string& text, LevelDef& out)
             const json& arr = j.at("placement_zones");
             if (!arr.is_array()) throw std::runtime_error("'placement_zones' must be an array");
             def.placement_zones.reserve(arr.size());
-            for (usize i = 0; i < arr.size(); ++i) def.placement_zones.push_back(parse_rect(arr[i], i));
+            def.placement_zone_tags.reserve(arr.size());
+            for (usize i = 0; i < arr.size(); ++i) {
+                def.placement_zones.push_back(parse_rect(arr[i], i));
+                def.placement_zone_tags.push_back(parse_placement_zone_tag(arr[i]));
+            }
         }
         if (j.contains("ambient_drift")) {
             def.ambient_drift = parse_vec2(j.at("ambient_drift"), "ambient_drift");
@@ -253,6 +313,8 @@ LevelDef LevelLoader::default_test_level() {
 
     Vessel v;
     v.id = "main";
+    v.lane_id = "main";
+    v.type = VesselType::Artery;
     v.points = {
         VesselPoint{Vec2{8.0f, 72.0f}, 8.0f},
         VesselPoint{Vec2{72.0f, 60.0f}, 7.0f},
@@ -261,10 +323,104 @@ LevelDef LevelLoader::default_test_level() {
         VesselPoint{Vec2{248.0f, 72.0f}, 8.0f},
     };
     d.vessels.push_back(v);
-    d.portals.push_back(SpawnPortal{"p0", Vec2{8.0f, 72.0f}, 4.0f});
+    d.portals.push_back(SpawnPortal{"p0", Vec2{8.0f, 72.0f}, 4.0f, "main"});
     d.objectives.push_back(ObjectivePoint{"organ", Vec2{248.0f, 72.0f}, 5.0f, 100.0f});
     d.placement_zones.push_back(Rect{Vec2{16.0f, 40.0f}, Vec2{240.0f, 110.0f}});
+    d.placement_zone_tags.push_back(PlacementZoneTag{});
     return d;
+}
+
+std::string LevelLoader::resolve_portal_lane_id(const LevelDef& def, const SpawnPortal& portal) const {
+    if (!portal.lane_id.empty()) return portal.lane_id;
+
+    std::string best;
+    f32 best_d2 = std::numeric_limits<f32>::max();
+    for (const Vessel& v : def.vessels) {
+        if (v.points.empty()) continue;
+        const f32 d2 = math::length_sq(v.points.front().position - portal.position);
+        if (d2 < best_d2) {
+            best_d2 = d2;
+            best = v.lane_id.empty() ? v.id : v.lane_id;
+        }
+    }
+    return best;
+}
+
+LaneOwnershipMap LevelLoader::build_lane_ownership_map(const LevelDef& def) const {
+    LaneOwnershipMap out;
+    const f32 cell = def.cell_size > 0.0f ? def.cell_size : 0.5f;
+    const Vec2 extent = def.world_bounds.size();
+    out.width = static_cast<i32>(extent.x / cell);
+    out.height = static_cast<i32>(extent.y / cell);
+    out.cell_size = cell;
+    out.world_origin = def.world_bounds.min;
+
+    const usize cell_count = static_cast<usize>(out.width) * static_cast<usize>(out.height);
+    if (out.width <= 0 || out.height <= 0) return out;
+    out.owner.assign(cell_count, LaneOwnershipMap::kNoLane);
+
+    // Stable lane index per distinct lane_id, in first-appearance order.
+    // kNoLane (0xFF) is the sentinel, so cap at 254 real lanes -- DESIGN.md
+    // §4.1 wants 2-4, so this is far from a practical limit.
+    for (const Vessel& v : def.vessels) {
+        const std::string& lid = v.lane_id.empty() ? v.id : v.lane_id;
+        bool known = false;
+        for (const std::string& seen : out.lane_ids) {
+            if (seen == lid) { known = true; break; }
+        }
+        if (!known && out.lane_ids.size() < LaneOwnershipMap::kNoLane) {
+            out.lane_ids.push_back(lid);
+            out.lane_types.push_back(v.type);
+        }
+    }
+    if (out.lane_ids.empty()) return out;
+
+    // Rasterize each lane's own vessels into a private scratch TissueMask
+    // (same disc-stamping rasterize_vessel() used inside rasterize_vessels(),
+    // TissueRaster.h -- frozen, only called here, never modified), then union
+    // its walkable cells into the shared owner grid.
+    //
+    // KNOWN APPROXIMATION: where two lanes' lumens geometrically overlap
+    // (e.g. an authored convergence point where two splines' discs physically
+    // intersect, not just sit close), the first lane processed (its index in
+    // `out.lane_ids`, i.e. first appearance in def.vessels) claims the
+    // overlapping cells and later lanes do not. This is a real, deliberate
+    // simplification -- an exact partition of a shared, physically-merged
+    // lumen isn't well-defined anyway (the cell IS both lanes at that point),
+    // and first-claim-wins is deterministic and cheap. It only matters for
+    // cells inside an actual geometric overlap; a normal side-by-side
+    // convergence (separate lumens that just end near the same objective)
+    // attributes perfectly.
+    for (usize lane_idx = 0; lane_idx < out.lane_ids.size(); ++lane_idx) {
+        const std::string& lane_id = out.lane_ids[lane_idx];
+        std::vector<sim::VesselSpline> lane_splines;
+        for (const Vessel& v : def.vessels) {
+            const std::string& lid = v.lane_id.empty() ? v.id : v.lane_id;
+            if (lid != lane_id) continue;
+            sim::VesselSpline spline;
+            spline.points.reserve(v.points.size());
+            for (const VesselPoint& p : v.points) {
+                spline.points.push_back(sim::VesselPoint{p.position, p.width, 1.0f});
+            }
+            lane_splines.push_back(std::move(spline));
+        }
+        if (lane_splines.empty()) continue;
+
+        sim::TissueMask scratch;
+        scratch.resize(out.width, out.height, cell, out.world_origin);
+        sim::rasterize_vessels(scratch, lane_splines);
+
+        for (i32 y = 0; y < out.height; ++y) {
+            for (i32 x = 0; x < out.width; ++x) {
+                if (!scratch.walkable(x, y)) continue;
+                u8& cell_owner = out.owner[out.index(x, y)];
+                if (cell_owner == LaneOwnershipMap::kNoLane) {
+                    cell_owner = static_cast<u8>(lane_idx);
+                }
+            }
+        }
+    }
+    return out;
 }
 
 } // namespace immune::game

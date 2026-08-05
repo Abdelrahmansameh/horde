@@ -50,6 +50,113 @@ TEST_CASE("generate() produces the requested wave count with escalating pressure
     }
 }
 
+// ---------------------------------------------------------------------------
+// Wave 4A deliverable 1: per-region wave tables (DESIGN.md §4.6, §6.5).
+// ---------------------------------------------------------------------------
+
+namespace {
+u32 wave_total(const WaveDef& w) {
+    u32 total = 0;
+    for (const auto& s : w.spawns) total += s.count;
+    return total;
+}
+bool has_family(const WaveDef& w, PathogenFamily f) {
+    for (const auto& s : w.spawns)
+        if (s.family == f) return true;
+    return false;
+}
+} // namespace
+
+TEST_CASE("skin/epidermis is virus-only across every wave (onboarding, one family)",
+          "[wave][generate][region]") {
+    Rng rng; rng.reseed(11);
+    const auto waves = WaveDirector::generate("skin", 5, rng);
+    REQUIRE(waves.size() == 5);
+    for (const auto& w : waves) {
+        REQUIRE(w.spawns.size() == 1);
+        REQUIRE(w.spawns[0].family == PathogenFamily::Virus);
+    }
+    // "epidermis" is the region table's other accepted spelling.
+    Rng rng2; rng2.reseed(11);
+    const auto waves2 = WaveDirector::generate("epidermis", 5, rng2);
+    REQUIRE(waves2.size() == waves.size());
+    for (usize i = 0; i < waves.size(); ++i) REQUIRE(waves2[i].spawns[0].count == waves[i].spawns[0].count);
+}
+
+TEST_CASE("lymphatic introduces bacteria clumping from wave 1, earlier than capillary",
+          "[wave][generate][region]") {
+    Rng rng_l; rng_l.reseed(21);
+    const auto lymph = WaveDirector::generate("lymphatic", 4, rng_l);
+    REQUIRE(has_family(lymph[0], PathogenFamily::Bacteria)); // present immediately
+
+    Rng rng_c; rng_c.reseed(21);
+    const auto cap = WaveDirector::generate("capillary", 4, rng_c);
+    REQUIRE_FALSE(has_family(cap[0], PathogenFamily::Bacteria)); // capillary waits until wave 2
+    REQUIRE(has_family(cap[1], PathogenFamily::Bacteria));
+}
+
+TEST_CASE("mucosal has the highest agent counts and fungal drift from wave 1",
+          "[wave][generate][region]") {
+    Rng rng_m; rng_m.reseed(31);
+    const auto muc = WaveDirector::generate("mucosal", 4, rng_m);
+    REQUIRE(has_family(muc[0], PathogenFamily::FungalSpore)); // drift present immediately
+
+    Rng rng_c; rng_c.reseed(31);
+    const auto cap = WaveDirector::generate("capillary", 4, rng_c);
+    Rng rng_l; rng_l.reseed(31);
+    const auto lymph = WaveDirector::generate("lymphatic", 4, rng_l);
+
+    // Same wave index, same seed: mucosal's total should dwarf the others'.
+    REQUIRE(wave_total(muc[3]) > wave_total(cap[3]));
+    REQUIRE(wave_total(muc[3]) > wave_total(lymph[3]));
+}
+
+TEST_CASE("organ_chamber has the most family variety and ends on its hardest, modifier-flagged wave",
+          "[wave][generate][region]") {
+    Rng rng; rng.reseed(41);
+    const auto waves = WaveDirector::generate("organ_chamber", 8, rng);
+    REQUIRE(waves.size() == 8);
+    for (const auto& w : waves) {
+        REQUIRE(has_family(w, PathogenFamily::Virus));
+        REQUIRE(has_family(w, PathogenFamily::Bacteria));
+        REQUIRE(has_family(w, PathogenFamily::FungalSpore));
+    }
+    // Final wave is the hardest (§4.5) and carries the boss-standin modifier.
+    u32 max_total = 0;
+    for (const auto& w : waves) if (wave_total(w) > max_total) max_total = wave_total(w);
+    REQUIRE(wave_total(waves.back()) == max_total);
+    REQUIRE(waves.back().modifier == WaveModifier::Swarm);
+    // "organ-chamber" (hyphenated) is the region table's other spelling.
+    Rng rng2; rng2.reseed(41);
+    const auto waves2 = WaveDirector::generate("organ-chamber", 8, rng2);
+    REQUIRE(waves2.back().modifier == WaveModifier::Swarm);
+}
+
+TEST_CASE("prep_time trends downward across a level, never flat-then-jumping-up",
+          "[wave][generate][pacing]") {
+    Rng rng; rng.reseed(51);
+    for (const std::string region : {"skin", "capillary", "lymphatic", "mucosal", "organ_chamber"}) {
+        Rng r; r.reseed(51);
+        const auto waves = WaveDirector::generate(region, 6, r);
+        INFO("region " << region);
+        for (usize i = 1; i < waves.size(); ++i) {
+            REQUIRE(waves[i].prep_time <= waves[i - 1].prep_time);
+        }
+        REQUIRE(waves.back().prep_time < waves.front().prep_time);
+    }
+}
+
+TEST_CASE("an unrecognized region string falls back to the original flat escalation",
+          "[wave][generate][region]") {
+    Rng rng; rng.reseed(61);
+    const auto waves = WaveDirector::generate("some_future_region", 5, rng);
+    REQUIRE(waves.size() == 5);
+    REQUIRE_FALSE(has_family(waves[0], PathogenFamily::Bacteria)); // matches the old i>=1 threshold
+    REQUIRE(has_family(waves[1], PathogenFamily::Bacteria));
+    REQUIRE_FALSE(has_family(waves[2], PathogenFamily::FungalSpore)); // matches the old i>=3 threshold
+    REQUIRE(has_family(waves[3], PathogenFamily::FungalSpore));
+}
+
 TEST_CASE("generate() is deterministic for a fixed seed", "[wave][generate][determinism]") {
     Rng rng_a; rng_a.reseed(42);
     Rng rng_b; rng_b.reseed(42);

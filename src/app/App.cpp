@@ -87,6 +87,11 @@ bool App::load_level(const std::string& path) {
         IMMUNE_LOG_ERROR("level instantiation failed: %s", res.error.c_str());
         return false;
     }
+    // Per-cell "which lane is this" attribution -- pure function of `level`,
+    // independent of instantiate(). No renderer/HUD consumes this yet; stored
+    // now so whichever wave implements per-lane hue/threat readout doesn't
+    // need to re-derive it.
+    lane_map_ = loader.build_lane_ownership_map(level);
 
     towers_.register_systems(sim_);
     enemies_.register_systems(sim_);
@@ -208,7 +213,7 @@ void App::render_frame() {
 
     hud_.begin_frame(input_);
     intents_.clear();
-    hud_.build(sim_, economy_, waves_, towers_, camera_, input_, intents_);
+    hud_.build(sim_, economy_, waves_, towers_, abilities_, camera_, input_, intents_);
     hud_.render();
     apply_intents(intents_);
 
