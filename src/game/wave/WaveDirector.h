@@ -80,6 +80,12 @@ private:
     WaveStatus status_{};
     f32 wave_time_ = 0.0f;
     bool early_start_requested_ = false;
+    /// Per-SpawnEntry running count for the current wave's Spawning phase,
+    /// sized to waves_[status_.wave_index].spawns and reset on entry.
+    std::vector<u32> spawned_so_far_;
+    /// Seconds spent in the current wave's Clearing phase, so a few
+    /// unreachable/leaked stragglers can never stall the sequence forever.
+    f32 clearing_elapsed_ = 0.0f;
 };
 
 } // namespace immune::game

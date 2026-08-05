@@ -8,6 +8,9 @@
 #include "core/Types.h"
 
 #include <array>
+#include <functional>
+
+union SDL_Event;
 
 namespace immune::platform {
 
@@ -68,6 +71,15 @@ public:
     void bind(Action a, i32 sdl_scancode);
     void bind_defaults();
 
+    /// Invoked once per raw SDL event during poll(), before this class
+    /// consumes it. The only consumer is the HUD's ImGui backend, which needs
+    /// to see raw input (text entry, precise click/release edges) that the
+    /// abstracted Action/mouse_down API above doesn't carry. Costs nothing
+    /// when unset; poll() still owns the single SDL_PollEvent loop, so this is
+    /// forwarding, not a second competing drain of the queue.
+    using RawEventSink = std::function<void(const SDL_Event&)>;
+    void set_raw_event_sink(RawEventSink sink) { raw_event_sink_ = std::move(sink); }
+
 private:
     std::array<bool, kActionCount> down_{};
     std::array<bool, kActionCount> prev_down_{};
@@ -81,6 +93,7 @@ private:
     bool ui_capture_mouse_ = false;
     bool ui_capture_keyboard_ = false;
     bool bound_ = false;
+    RawEventSink raw_event_sink_;
 };
 
 } // namespace immune::platform

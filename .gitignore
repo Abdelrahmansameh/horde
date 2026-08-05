@@ -46,3 +46,7 @@ desktop.ini
 
 # Scratch output (screenshots, ad-hoc dumps) from VS Code tasks
 /scratch/
+
+# ImGui's own window-layout state, written next to the working directory
+# at runtime
+imgui.ini

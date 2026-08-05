@@ -36,6 +36,7 @@
 #include "sim/spatial/SpatialHash.h"
 
 #include <string>
+#include <vector>
 
 namespace immune { class JobSystem; }
 
@@ -50,6 +51,17 @@ struct SimDesc {
     /// Milliseconds per frame the flow field may spend on incremental rebakes.
     f64 flow_rebake_budget_ms = 0.5;
     ChaffTuning chaff_tuning{};
+};
+
+/// One vessel spawn point, captured from the level at load time by
+/// LevelLoader::instantiate(). Read-only after that: WaveDirector::tick()
+/// resolves each wave's SpawnEntry::portal_id against this list to know where
+/// to place new agents, since SimWorld -- not LevelDef, which doesn't survive
+/// past load -- is the only thing a running tick can reach.
+struct SpawnPortalRuntime {
+    std::string id;
+    Vec2 position{0.0f, 0.0f};
+    f32 radius = 3.0f;
 };
 
 /// Aggregate counters exposed to --sim-test invariants and the HUD.
@@ -101,6 +113,18 @@ public:
     Tick tick_index() const { return tick_; }
     const SimDesc& desc() const { return desc_; }
 
+    /// Spawn portals for the current level. Set once by
+    /// LevelLoader::instantiate(); empty for the CLI headless modes that never
+    /// load a real level.
+    const std::vector<SpawnPortalRuntime>& portals() const { return portals_; }
+    void set_portals(std::vector<SpawnPortalRuntime> portals) { portals_ = std::move(portals); }
+
+    /// DamageStats from the most recently completed tick. Economy reads
+    /// density_removed from this to credit kill income -- aggregate damage
+    /// means only sim/damage knows a kill happened, so nothing else may infer
+    /// it by diffing agent counts (DamageField.h's own rationale).
+    const DamageStats& last_damage_stats() const { return last_damage_stats_; }
+
     /// Hash of the sim state, for --sim-test determinism assertions:
     /// two runs of the same SimDesc must produce the same value at every tick.
     u64 state_hash() const;
@@ -119,6 +143,9 @@ private:
     ChaffSystem chaff_system_;
     DamageSystem damage_;
     EcsWorld ecs_;
+
+    std::vector<SpawnPortalRuntime> portals_;
+    DamageStats last_damage_stats_{};
 
     u64 killed_total_ = 0;
     u64 leaked_total_ = 0;

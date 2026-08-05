@@ -229,6 +229,17 @@ LevelLoadResult LevelLoader::instantiate(const LevelDef& def, sim::SimWorld& wor
         world.chaff_system().set_goal(def.objectives[0].position, def.objectives[0].radius);
     }
     world.chaff_system().set_world_bounds(def.world_bounds);
+
+    // Spawn portals: SimWorld is the only thing WaveDirector::tick() can
+    // reach, and LevelDef doesn't survive past this function, so this is the
+    // one place portal geometry can be captured for the run.
+    std::vector<sim::SpawnPortalRuntime> portals;
+    portals.reserve(def.portals.size());
+    for (const SpawnPortal& p : def.portals) {
+        portals.push_back(sim::SpawnPortalRuntime{p.id, p.position, p.radius});
+    }
+    world.set_portals(std::move(portals));
+
     return LevelLoadResult{true, "", 0};
 }
 

@@ -18,7 +18,7 @@
 #include <string>
 #include <vector>
 
-namespace immune::platform { class InputState; }
+namespace immune::platform { class InputState; class Window; }
 namespace immune::render { class Camera; }
 namespace immune::sim { class SimWorld; }
 
@@ -59,7 +59,13 @@ struct LaneThreat {
 
 class Hud {
 public:
-    bool init();     ///< Sets up the ImGui context and the SDL2/GL3 backends.
+    /// Sets up the ImGui context and the SDL2/GL3 backends. `window` must
+    /// already own a live GL context (Window::create() already called) since
+    /// ImGui_ImplOpenGL3_Init needs a current context and
+    /// ImGui_ImplSDL2_InitForOpenGL needs the SDL_Window/SDL_GLContext pair.
+    /// Also installs itself as InputState's raw-event sink so ImGui sees SDL
+    /// events, since InputState::poll() owns the one SDL_PollEvent loop.
+    bool init(platform::Window& window, platform::InputState& input);
     void shutdown();
 
     /// Begins an ImGui frame and forwards capture flags back into InputState so

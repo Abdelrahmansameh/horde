@@ -36,8 +36,11 @@ bool App::init(const Options& options) {
 
     audio::AudioConfig ac;
     audio_.init(ac);
-    hud_.init();
     input_.bind_defaults();
+    if (!hud_.init(window_, input_)) {
+        IMMUNE_LOG_ERROR("HUD init failed (ImGui/SDL2/GL3 backend setup)");
+        return false;
+    }
 
     enemies_.load_defaults();
     meta_.reset_to_new_game();
@@ -86,6 +89,10 @@ bool App::load_level(const std::string& path) {
 
     towers_.register_systems(sim_);
     enemies_.register_systems(sim_);
+    // A fresh, deterministic wave table per level -- generate() only needs
+    // the region name and a wave count today; per-region tuning is Wave 3A's
+    // remaining scope, not something this minimal wiring blocks on.
+    waves_.set_waves(game::WaveDirector::generate(level.region, 8, sim_.rng()));
     waves_.start(sim_);
     state_.set_current_level_id(level.name);
     return true;
@@ -158,6 +165,7 @@ void App::tick_sim() {
     waves_.tick(sim_, sim_.rng(), kFixedDt);
     sim_.tick(&profiler_);
     economy_.tick(kFixedDt);
+    economy_.credit_kills(sim_.last_damage_stats().density_removed);
 }
 
 void App::render_frame() {

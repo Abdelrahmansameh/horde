@@ -41,6 +41,7 @@ void InputState::poll(Window& window) {
 
     SDL_Event ev;
     while (SDL_PollEvent(&ev)) {
+        if (raw_event_sink_) raw_event_sink_(ev);
         switch (ev.type) {
             case SDL_QUIT:
                 quit_requested_ = true;

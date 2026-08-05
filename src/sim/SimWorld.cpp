@@ -13,6 +13,8 @@ void SimWorld::init(const SimDesc& desc, JobSystem* jobs) {
     killed_total_ = 0;
     leaked_total_ = 0;
     objective_integrity_ = 100.0f;
+    portals_.clear();
+    last_damage_stats_ = DamageStats{};
 
     chaff_.reserve(desc.max_chaff);
     chaff_system_.set_tuning(desc.chaff_tuning);
@@ -61,8 +63,7 @@ void SimWorld::tick(Profiler* profiler) {
     }
 
     // 4. Aggregate damage.
-    const DamageStats dmg = damage_.apply(chaff_, spatial_, rng_, kFixedDt);
-    (void)dmg;
+    last_damage_stats_ = damage_.apply(chaff_, spatial_, rng_, kFixedDt);
 
     // 5. Compaction / kill accounting.
     killed_total_ += chaff_.compact();
