@@ -26,6 +26,8 @@ void SimWorld::init(const SimDesc& desc, JobSystem* jobs) {
     spatial_.configure(shd);
 
     damage_.reserve(desc.max_damage_fields);
+    projectiles_.reserve(desc.max_projectiles);
+    combat_events_.reserve(desc.max_combat_events);
     damage_.clear_all();
 
     ecs_.clear_entities();
@@ -64,6 +66,15 @@ void SimWorld::tick(Profiler* profiler) {
 
     // 4. Aggregate damage.
     last_damage_stats_ = damage_.apply(chaff_, spatial_, rng_, kFixedDt);
+
+    // 4b. Projectiles. Must run after the ECS tick (towers fire during Combat
+    // phase, so this tick's new rounds exist by now) and BEFORE the single
+    // chaff compaction below -- both damage paths write density, and
+    // ChaffBuffers::compact() runs exactly once per tick, after every source
+    // has applied. Running it here also means a round and a field that kill the
+    // same agent on the same tick both get their damage counted.
+    projectile_system_.update(projectiles_, chaff_, spatial_, desc_.world_bounds,
+                              rng_, kFixedDt, &combat_events_);
 
     // 5. Compaction / kill accounting.
     killed_total_ += chaff_.compact();

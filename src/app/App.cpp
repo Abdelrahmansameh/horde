@@ -47,6 +47,11 @@ bool App::init(const Options& options) {
     economy_.configure(game::EconomyConfig{});
     abilities_.load_defaults();
 
+    // Seeded from the run seed so a replay looks the same, but stepped on its
+    // own stream -- vfx never draws from the sim's Rng (see vfx/Particles.h).
+    particles_.init(vfx::ParticleSystem::kDefaultCapacity, options.seed ^ 0xA5A5'5A5AULL);
+    particle_scratch_.reserve(vfx::ParticleSystem::kDefaultCapacity);
+
     if (!load_level(options.level)) return false;
 
     camera_.set_viewport(window_.width(), window_.height());
@@ -200,6 +205,15 @@ void App::tick_sim() {
 }
 
 void App::render_frame() {
+    // Drain the tick's combat events into particles, then advance them on the
+    // RENDER clock. Draining here (not in tick_sim) means one drain per frame
+    // regardless of how many ticks the frame consumed, which is what the sink's
+    // once-per-frame contract asks for.
+    const auto& events = sim_.combat_events().events();
+    particles_.emit_for_events(events.data(), events.size());
+    sim_.combat_events().clear();
+    particles_.update(static_cast<f32>(clock_.frame_delta()), jobs_.get());
+
     WallClock submit;
     renderer_.poll_shader_reload();
     renderer_.begin_frame(camera_, clock_.alpha());
@@ -207,6 +221,15 @@ void App::render_frame() {
     renderer_.submit_chaff(sim_.chaff(), sim_.spatial());
     renderer_.submit_entities(sim_.ecs());
     renderer_.submit_fields(sim_.damage().fields().data(), sim_.damage().fields().size());
+    renderer_.submit_projectiles(sim_.projectiles());
+    // Additive first so the alpha-blended mist composites OVER the glow rather
+    // than under it (vfx/Particles.h documents this ordering requirement).
+    particles_.build_instances(vfx::BlendMode::Additive, particle_scratch_);
+    renderer_.submit_particles(particle_scratch_.data(), particle_scratch_.size(),
+                               vfx::BlendMode::Additive);
+    particles_.build_instances(vfx::BlendMode::AlphaBlend, particle_scratch_);
+    renderer_.submit_particles(particle_scratch_.data(), particle_scratch_.size(),
+                               vfx::BlendMode::AlphaBlend);
     if (hud_.debug_overlay_visible()) renderer_.submit_flow_debug(sim_.flow());
     renderer_.end_frame();
     profiler_.record(prof_key::kRenderSubmit, submit.elapsed_ms());

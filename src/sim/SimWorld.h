@@ -28,11 +28,13 @@
 #include "core/Profiler.h"
 #include "core/Rng.h"
 #include "core/Types.h"
+#include "sim/CombatEvents.h"
 #include "sim/chaff/ChaffBuffers.h"
 #include "sim/chaff/ChaffSystem.h"
 #include "sim/damage/DamageField.h"
 #include "sim/ecs/EcsWorld.h"
 #include "sim/flowfield/FlowField.h"
+#include "sim/projectile/Projectiles.h"
 #include "sim/spatial/SpatialHash.h"
 
 #include <string>
@@ -46,6 +48,14 @@ struct SimDesc {
     u64 seed = 0x1234'5678'9abc'def0ULL;
     usize max_chaff = 16384;
     usize max_damage_fields = 512;
+    /// Live Gunner rounds. Generous: a maxed Gunner is meant to read as a
+    /// continuous stream, and a dropped round is invisible but a reallocation
+    /// mid-tick is forbidden outright.
+    usize max_projectiles = 8192;
+    /// Per-tick combat-event capacity. Sized well above the expected rate so
+    /// the VFX layer never starves during a heavy volley; overflow is counted,
+    /// not silent.
+    usize max_combat_events = 8192;
     Rect world_bounds{Vec2{0.0f, 0.0f}, Vec2{256.0f, 144.0f}};
     f32 spatial_cell_size = 4.0f;
     /// Milliseconds per frame the flow field may spend on incremental rebakes.
@@ -109,6 +119,18 @@ public:
     EcsWorld& ecs() { return ecs_; }
     const EcsWorld& ecs() const { return ecs_; }
 
+    /// The Gunner's live rounds. Towers push straight into this store; the
+    /// system has no spawn entry point of its own.
+    ProjectileBuffers& projectiles() { return projectiles_; }
+    const ProjectileBuffers& projectiles() const { return projectiles_; }
+    ProjectileSystem& projectile_system() { return projectile_system_; }
+
+    /// Instantaneous combat happenings raised during the tick, drained once per
+    /// frame by the VFX layer. This is an OUTPUT of the tick: nothing in the
+    /// sim ever reads it back, so a full sink cannot perturb state_hash().
+    CombatEventSink& combat_events() { return combat_events_; }
+    const CombatEventSink& combat_events() const { return combat_events_; }
+
     Rng& rng() { return rng_; }
     Tick tick_index() const { return tick_; }
     const SimDesc& desc() const { return desc_; }
@@ -142,6 +164,9 @@ private:
     ChaffBuffers chaff_;
     ChaffSystem chaff_system_;
     DamageSystem damage_;
+    ProjectileBuffers projectiles_;
+    ProjectileSystem projectile_system_;
+    CombatEventSink combat_events_;
     EcsWorld ecs_;
 
     std::vector<SpawnPortalRuntime> portals_;

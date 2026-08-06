@@ -21,13 +21,16 @@
 #include "sim/ecs/EcsWorld.h"
 #include "sim/ecs/NamedAgents.h"
 #include "sim/flowfield/FlowField.h"
+#include "sim/projectile/Projectiles.h"
 #include "sim/spatial/SpatialHash.h"
+#include "vfx/Particles.h"
 
 #include <glad/glad.h>
 #include <glm/gtc/type_ptr.hpp>
 
 #include <cmath>
 #include <cstddef>
+#include <cstring>
 #include <vector>
 
 namespace immune::render {
@@ -93,6 +96,19 @@ struct FieldGpuInstance {
 /// with a warning, same policy as the chaff batcher.
 constexpr u32 kMaxFieldInstances = 1024;
 
+/// Per-round GPU layout, mirrored in projectile.vert. Unlike ParticleInstance
+/// this is NOT a frozen contract — it is a Renderer.cpp implementation detail,
+/// the same arrangement FieldGpuInstance has, so the SoA-to-GPU mapping can
+/// change here and in the shader together without touching sim/.
+struct ProjectileGpuInstance {
+    f32 x, y;
+    f32 vx, vy;
+    f32 radius;
+    f32 phase;
+    f32 r, g, b, a;
+    u32 visual_id;
+};
+
 /// Elite death-burst timing. The renderer has no access to the spawning
 /// entity's archetype's `ArchetypeBehavior::death_fade` (sim/ecs internals,
 /// not exposed through the frozen Components.h/NamedAgents.h contracts this
@@ -138,6 +154,24 @@ struct Renderer::Impl {
     gl::Buffer field_instances;
     gl::FenceRing<kInstanceRegions> field_fence;
     u32 field_region = 0;
+
+    // Projectile pass (Wave 6). Real simulated rounds, bounded by
+    // SimDesc::max_projectiles.
+    gl::VertexArray projectile_vao;
+    gl::Buffer projectile_instances;
+    gl::FenceRing<kInstanceRegions> projectile_fence;
+    u32 projectile_region = 0;
+    u32 max_projectile_instances = 0;
+
+    // Particle pass (Wave 6). By far the largest instance buffer in the
+    // renderer -- a quarter million instances per blend mode, triple buffered.
+    // Sized from RendererDesc rather than a constant because it dominates VRAM
+    // use and a smaller machine may want it cut.
+    gl::VertexArray particle_vao;
+    gl::Buffer particle_instances;
+    gl::FenceRing<kInstanceRegions> particle_fence;
+    u32 particle_region = 0;
+    u32 max_particle_instances = 0;
 
     // Blob + tissue passes both just need the shared quad's position attrib.
     gl::VertexArray screen_quad_vao;
@@ -248,6 +282,54 @@ bool Renderer::init(const RendererDesc& desc) {
     imp.field_vao.attrib_float(7, 1, 4, GL_UNSIGNED_BYTE, true, offsetof(FieldGpuInstance, tint_rgba8));
     imp.field_vao.attrib_int(8, 1, 1, GL_UNSIGNED_INT, offsetof(FieldGpuInstance, shape_id));
 
+    // ---- Projectile pass. Attribute locations mirror projectile.vert. ------
+    imp.max_projectile_instances = math::max(desc_.max_projectile_instances, 1u);
+    if (!imp.projectile_vao.create()) { error_ = "failed to create the projectile VAO"; return false; }
+    imp.projectile_vao.bind_vertex_buffer(0, imp.quad_vbo, sizeof(Vec2), 0, 0);
+    imp.projectile_vao.attrib_float(0, 0, 2, GL_FLOAT, false, 0);
+    const usize projectile_bytes = static_cast<usize>(imp.max_projectile_instances) *
+                                   sizeof(ProjectileGpuInstance) * kInstanceRegions;
+    if (!imp.projectile_instances.create_persistent(projectile_bytes)) {
+        error_ = "failed to allocate the projectile instance buffer";
+        return false;
+    }
+    imp.projectile_vao.bind_vertex_buffer(1, imp.projectile_instances,
+                                          sizeof(ProjectileGpuInstance), 0, 1);
+    imp.projectile_vao.attrib_float(1, 1, 2, GL_FLOAT, false, offsetof(ProjectileGpuInstance, x));
+    imp.projectile_vao.attrib_float(2, 1, 2, GL_FLOAT, false, offsetof(ProjectileGpuInstance, vx));
+    imp.projectile_vao.attrib_float(3, 1, 1, GL_FLOAT, false, offsetof(ProjectileGpuInstance, radius));
+    imp.projectile_vao.attrib_float(4, 1, 1, GL_FLOAT, false, offsetof(ProjectileGpuInstance, phase));
+    imp.projectile_vao.attrib_float(5, 1, 4, GL_FLOAT, false, offsetof(ProjectileGpuInstance, r));
+    imp.projectile_vao.attrib_int(6, 1, 1, GL_UNSIGNED_INT,
+                                  offsetof(ProjectileGpuInstance, visual_id));
+
+    // ---- Particle pass. Attribute locations mirror particle.vert, and the
+    // instance layout mirrors vfx::ParticleInstance byte for byte (that one IS
+    // a frozen contract -- see vfx/Particles.h).
+    imp.max_particle_instances = math::max(desc_.max_particle_instances, 1u);
+    if (!imp.particle_vao.create()) { error_ = "failed to create the particle VAO"; return false; }
+    imp.particle_vao.bind_vertex_buffer(0, imp.quad_vbo, sizeof(Vec2), 0, 0);
+    imp.particle_vao.attrib_float(0, 0, 2, GL_FLOAT, false, 0);
+    const usize particle_bytes = static_cast<usize>(imp.max_particle_instances) *
+                                 sizeof(vfx::ParticleInstance) * kInstanceRegions;
+    if (!imp.particle_instances.create_persistent(particle_bytes)) {
+        error_ = "failed to allocate the particle instance buffer";
+        return false;
+    }
+    imp.particle_vao.bind_vertex_buffer(1, imp.particle_instances,
+                                        sizeof(vfx::ParticleInstance), 0, 1);
+    imp.particle_vao.attrib_float(1, 1, 2, GL_FLOAT, false, offsetof(vfx::ParticleInstance, x));
+    imp.particle_vao.attrib_float(2, 1, 2, GL_FLOAT, false, offsetof(vfx::ParticleInstance, vx));
+    imp.particle_vao.attrib_float(3, 1, 1, GL_FLOAT, false, offsetof(vfx::ParticleInstance, size));
+    imp.particle_vao.attrib_float(4, 1, 1, GL_FLOAT, false, offsetof(vfx::ParticleInstance, rotation));
+    imp.particle_vao.attrib_float(5, 1, 4, GL_UNSIGNED_BYTE, true,
+                                  offsetof(vfx::ParticleInstance, tint_rgba8));
+    imp.particle_vao.attrib_int(6, 1, 1, GL_UNSIGNED_INT,
+                                offsetof(vfx::ParticleInstance, kind_blend));
+    imp.particle_vao.attrib_float(7, 1, 1, GL_FLOAT, false,
+                                  offsetof(vfx::ParticleInstance, age_norm));
+    imp.particle_vao.attrib_float(8, 1, 1, GL_FLOAT, false, offsetof(vfx::ParticleInstance, seed));
+
     // ---- Blob / tissue shared screen quad -----------------------------------
     if (!imp.screen_quad_vao.create()) { error_ = "failed to create the screen-quad VAO"; return false; }
     imp.screen_quad_vao.bind_vertex_buffer(0, imp.quad_vbo, sizeof(Vec2), 0, 0);
@@ -282,6 +364,8 @@ bool Renderer::init(const RendererDesc& desc) {
     imp.shaders.load_graphics("tissue", "tissue.vert", "tissue.frag");
     imp.shaders.load_graphics("entity", "entity.vert", "entity.frag");
     imp.shaders.load_graphics("field", "field.vert", "field.frag");
+    imp.shaders.load_graphics("projectile", "projectile.vert", "projectile.frag");
+    imp.shaders.load_graphics("particle", "particle.vert", "particle.frag");
     imp.shaders.load_graphics("flow_debug", "flow_debug.vert", "flow_debug.frag");
     if (!imp.shaders.get("chaff").valid()) {
         IMMUNE_LOG_ERROR("chaff shader failed to load: %s", imp.shaders.last_error().c_str());
@@ -725,6 +809,114 @@ void Renderer::submit_fields(const sim::DamageField* fields, usize count) {
     imp.field_fence.signal(imp.field_region);
     imp.field_region = (imp.field_region + 1) % kInstanceRegions;
 
+    stats_.submit_ms += timer.elapsed_ms();
+}
+
+void Renderer::submit_projectiles(const sim::ProjectileBuffers& projectiles) {
+    // The Gunner's real simulated rounds. Deliberately drawn BEFORE the
+    // particle pass so the additive tracer storm layers on top of them: the
+    // round is matter, the smear behind it is atmosphere.
+    const usize count = projectiles.count();
+    stats_.projectile_instances_drawn = static_cast<u32>(count);
+    if (!ready_ || !impl_ || count == 0) return;
+    Impl& imp = *impl_;
+    WallClock timer;
+
+    const u32 draw_count = math::min(static_cast<u32>(count), imp.max_projectile_instances);
+
+    imp.projectile_fence.wait(imp.projectile_region);
+    ProjectileGpuInstance* base = imp.projectile_instances.mapped_as<ProjectileGpuInstance>() +
+        static_cast<usize>(imp.projectile_region) * imp.max_projectile_instances;
+
+    // Warm white-yellow: the Gunner's identity hue, matching the palette the
+    // VFX layer uses for the same tower (vfx/Particles.cpp's palette_for).
+    // Rounds carry a visual_id, not a TowerType, so this is a constant here
+    // rather than a per-round lookup -- today only the Gunner fires rounds.
+    for (u32 i = 0; i < draw_count; ++i) {
+        ProjectileGpuInstance inst{};
+        inst.x = projectiles.pos_x[i];
+        inst.y = projectiles.pos_y[i];
+        inst.vx = projectiles.vel_x[i];
+        inst.vy = projectiles.vel_y[i];
+        inst.radius = math::max(projectiles.hit_radius[i], 0.12f);
+        // Hashed off the slot so rounds don't shimmer in lockstep, same
+        // rationale as ChaffInstance::anim_phase.
+        const u32 h = (i * 2654435761u) ^ 0x85EBCA6Bu;
+        inst.phase = static_cast<f32>(h & 0xFFFFu) * (math::kTwoPi / 65536.0f);
+        inst.r = 1.0f; inst.g = 0.96f; inst.b = 0.68f; inst.a = 1.0f;
+        inst.visual_id = projectiles.visual_id[i];
+        base[i] = inst;
+    }
+
+    const ShaderProgram prog = imp.shaders.get("projectile");
+    if (prog.valid()) {
+        glUseProgram(prog.gl_id);
+        glUniformMatrix4fv(0, 1, GL_FALSE, glm::value_ptr(imp.view_projection));
+        glUniform1f(1, imp.time);
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        imp.projectile_vao.bind();
+        glDrawArraysInstancedBaseInstance(GL_TRIANGLE_FAN, 0, 4, static_cast<GLsizei>(draw_count),
+                                          imp.projectile_region * imp.max_projectile_instances);
+        ++stats_.draw_calls;
+    }
+
+    imp.projectile_fence.signal(imp.projectile_region);
+    imp.projectile_region = (imp.projectile_region + 1) % kInstanceRegions;
+    stats_.submit_ms += timer.elapsed_ms();
+}
+
+void Renderer::submit_particles(const vfx::ParticleInstance* instances, usize count,
+                                vfx::BlendMode blend) {
+    // One instanced draw for the whole span. The CPU never builds per-particle
+    // geometry -- vfx::ParticleSystem::build_instances already packed a
+    // contiguous array in exactly the layout particle.vert reads, so this is a
+    // memcpy into the mapped region plus one draw call.
+    //
+    // Called once per blend mode per frame, so this accumulates rather than
+    // assigns the counter; the first call of the frame is the additive one.
+    if (blend == vfx::BlendMode::Additive) stats_.particle_instances_drawn = 0;
+    stats_.particle_instances_drawn += static_cast<u32>(count);
+    if (!ready_ || !impl_ || count == 0 || instances == nullptr) return;
+    Impl& imp = *impl_;
+    WallClock timer;
+
+    const u32 draw_count = math::min(static_cast<u32>(count), imp.max_particle_instances);
+    if (count > draw_count) {
+        IMMUNE_LOG_WARN("particles: dropped %zu instances (exceeds max_particle_instances=%u)",
+                        count - draw_count, imp.max_particle_instances);
+    }
+
+    imp.particle_fence.wait(imp.particle_region);
+    vfx::ParticleInstance* base = imp.particle_instances.mapped_as<vfx::ParticleInstance>() +
+        static_cast<usize>(imp.particle_region) * imp.max_particle_instances;
+    std::memcpy(base, instances, static_cast<usize>(draw_count) * sizeof(vfx::ParticleInstance));
+
+    const ShaderProgram prog = imp.shaders.get("particle");
+    if (prog.valid()) {
+        glUseProgram(prog.gl_id);
+        glUniformMatrix4fv(0, 1, GL_FALSE, glm::value_ptr(imp.view_projection));
+        glUniform1f(1, imp.time);
+        glEnable(GL_BLEND);
+        if (blend == vfx::BlendMode::Additive) {
+            // Energy stacks toward white -- this is what makes a dense Gunner
+            // stream read as one continuous bright river rather than a cloud
+            // of separate dots.
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+        } else {
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        }
+        imp.particle_vao.bind();
+        glDrawArraysInstancedBaseInstance(GL_TRIANGLE_FAN, 0, 4, static_cast<GLsizei>(draw_count),
+                                          imp.particle_region * imp.max_particle_instances);
+        ++stats_.draw_calls;
+        // Leave the pipeline on standard alpha so a later pass never inherits
+        // additive blending by accident.
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    }
+
+    imp.particle_fence.signal(imp.particle_region);
+    imp.particle_region = (imp.particle_region + 1) % kInstanceRegions;
     stats_.submit_ms += timer.elapsed_ms();
 }
 

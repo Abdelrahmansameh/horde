@@ -30,6 +30,7 @@
 #include "render/Renderer.h"
 #include "sim/SimWorld.h"
 #include "ui/Hud.h"
+#include "vfx/Particles.h"
 
 #include <memory>
 #include <vector>
@@ -75,6 +76,11 @@ private:
     game::Economy economy_;
     game::MetaProgression meta_;
     game::ActiveAbilitySystem abilities_;
+
+    /// Cosmetic only, and deliberately outside sim_: own RNG, render clock.
+    vfx::ParticleSystem particles_;
+    /// Reused across frames so build_instances() never reallocates.
+    std::vector<vfx::ParticleInstance> particle_scratch_;
 
     std::vector<ui::Intent> intents_;
     bool running_ = false;
