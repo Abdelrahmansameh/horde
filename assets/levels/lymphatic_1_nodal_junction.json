@@ -1,0 +1,67 @@
+{
+  "schema": 1,
+  "name": "lymphatic_1_nodal_junction",
+  "region": "lymphatic",
+  "world": { "min": [0, 0], "max": [280, 180], "cell_size": 0.5 },
+  "vessels": [
+    {
+      "id": "lymph_main",
+      "lane_id": "lymph_main",
+      "vessel_type": "lymphatic",
+      "points": [
+        { "p": [10, 90],   "w": 12.0 },
+        { "p": [70, 60],   "w": 11.0 },
+        { "p": [130, 90],  "w": 11.0 },
+        { "p": [200, 90],  "w": 10.0 },
+        { "p": [260, 90],  "w": 10.0 }
+      ],
+      "children": []
+    },
+    {
+      "id": "vein_trib",
+      "lane_id": "vein_trib",
+      "vessel_type": "vein",
+      "points": [
+        { "p": [10, 30],   "w": 10.0 },
+        { "p": [60, 30],   "w": 9.0 },
+        { "p": [100, 55],  "w": 9.0 },
+        { "p": [160, 80],  "w": 9.0 },
+        { "p": [220, 90],  "w": 9.0 },
+        { "p": [260, 90],  "w": 10.0 }
+      ],
+      "children": []
+    },
+    {
+      "id": "nerve_trib",
+      "lane_id": "nerve_trib",
+      "vessel_type": "nerve_adjacent",
+      "points": [
+        { "p": [10, 150],  "w": 10.0 },
+        { "p": [60, 150],  "w": 9.0 },
+        { "p": [100, 120], "w": 9.0 },
+        { "p": [160, 100], "w": 9.0 },
+        { "p": [220, 90],  "w": 9.0 },
+        { "p": [260, 90],  "w": 10.0 }
+      ],
+      "children": []
+    }
+  ],
+  "portals": [
+    { "id": "p_lymph", "pos": [10, 90],  "radius": 5.0, "lane_id": "lymph_main" },
+    { "id": "p_vein",  "pos": [10, 30],  "radius": 5.0, "lane_id": "vein_trib" },
+    { "id": "p_nerve", "pos": [10, 150], "radius": 5.0, "lane_id": "nerve_trib" }
+  ],
+  "objectives": [
+    { "id": "node", "pos": [260, 90], "radius": 8.0, "integrity": 100 }
+  ],
+  "placement_zones": [
+    { "min": [45, 45],  "max": [105, 105], "concentrated": true,  "priority": 2.0 },
+    { "min": [75, 40],  "max": [135, 90],  "concentrated": true,  "priority": 1.8 },
+    { "min": [75, 90],  "max": [135, 140], "concentrated": true,  "priority": 1.8 },
+    { "min": [195, 65], "max": [250, 115], "concentrated": true,  "priority": 2.2 },
+    { "min": [14, 80],  "max": [65, 100],  "concentrated": false, "priority": 1.0 },
+    { "min": [14, 20],  "max": [55, 40],   "concentrated": false, "priority": 1.0 },
+    { "min": [14, 140], "max": [55, 160],  "concentrated": false, "priority": 1.0 }
+  ],
+  "ambient_drift": [0.0, 0.0]
+}

@@ -1,0 +1,16 @@
+{
+  "schema": 1,
+  "name": "lymphatic_1_all_three_lanes_converge_on_the_node",
+  "seed": 20260806,
+  "ticks": 2600,
+  "max_chaff": 10000,
+  "level": "assets/levels/lymphatic_1_nodal_junction.json",
+  "actions": [
+    { "tick": 0, "type": "spawn_chaff", "family": "virus", "count": 20, "pos": [10, 90],  "radius": 3 },
+    { "tick": 0, "type": "spawn_chaff", "family": "virus", "count": 20, "pos": [10, 30],  "radius": 3 },
+    { "tick": 0, "type": "spawn_chaff", "family": "virus", "count": 20, "pos": [10, 150], "radius": 3 }
+  ],
+  "assertions": [
+    { "tick": 2600, "metric": "chaff_leaked_total", "op": ">", "value": 0 }
+  ]
+}

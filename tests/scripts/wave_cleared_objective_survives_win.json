@@ -1,0 +1,18 @@
+{
+  "schema": 1,
+  "name": "defended_wave_clears_with_objective_still_standing",
+  "seed": 20260806,
+  "ticks": 4000,
+  "max_chaff": 20000,
+  "level": "assets/levels/capillary_test.json",
+  "actions": [
+    { "tick": 0, "type": "place_tower", "tower": "macrophage", "pos": [8, 72] },
+    { "tick": 0, "type": "place_tower", "tower": "macrophage", "pos": [10, 70] },
+    { "tick": 1, "type": "spawn_chaff", "family": "bacteria", "count": 40, "pos": [8, 72], "radius": 3 }
+  ],
+  "assertions": [
+    { "tick": 4000, "metric": "chaff_count",          "op": "==", "value": 0 },
+    { "tick": 4000, "metric": "objective_integrity",  "op": ">",  "value": 90 },
+    { "tick": 4000, "metric": "chaff_killed_total",   "op": ">",  "value": 0 }
+  ]
+}

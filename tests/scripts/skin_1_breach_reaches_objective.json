@@ -1,0 +1,14 @@
+{
+  "schema": 1,
+  "name": "skin_1_breach_single_lane_reaches_objective",
+  "seed": 20260806,
+  "ticks": 1400,
+  "max_chaff": 5000,
+  "level": "assets/levels/skin_1_breach.json",
+  "actions": [
+    { "tick": 0, "type": "spawn_chaff", "family": "virus", "count": 20, "pos": [10, 45], "radius": 3 }
+  ],
+  "assertions": [
+    { "tick": 1400, "metric": "chaff_leaked_total", "op": ">", "value": 0 }
+  ]
+}

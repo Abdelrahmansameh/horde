@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "name": "mucosal_1_gut_lining_all_forks_reach_the_trunk_objective",
+  "seed": 20260806,
+  "ticks": 3400,
+  "max_chaff": 10000,
+  "level": "assets/levels/mucosal_1_gut_lining.json",
+  "actions": [
+    { "tick": 0, "type": "spawn_chaff", "family": "virus", "count": 15, "pos": [10, 20],  "radius": 4 },
+    { "tick": 0, "type": "spawn_chaff", "family": "virus", "count": 15, "pos": [10, 70],  "radius": 4 },
+    { "tick": 0, "type": "spawn_chaff", "family": "virus", "count": 15, "pos": [10, 130], "radius": 4 },
+    { "tick": 0, "type": "spawn_chaff", "family": "virus", "count": 15, "pos": [10, 180], "radius": 4 }
+  ],
+  "assertions": [
+    { "tick": 3400, "metric": "chaff_leaked_total", "op": ">", "value": 0 }
+  ]
+}

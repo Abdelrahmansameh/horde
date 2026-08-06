@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "name": "unblocked_horde_depletes_objective_integrity_to_zero",
+  "seed": 20260806,
+  "ticks": 3000,
+  "max_chaff": 20000,
+  "level": "assets/levels/capillary_test.json",
+  "actions": [
+    { "tick": 0, "type": "spawn_chaff", "family": "virus", "count": 150, "pos": [8, 72], "radius": 4 }
+  ],
+  "assertions": [
+    { "tick": 3000, "metric": "chaff_leaked_total",   "op": ">=", "value": 100 },
+    { "tick": 3000, "metric": "objective_integrity",  "op": "==", "value": 0 }
+  ]
+}

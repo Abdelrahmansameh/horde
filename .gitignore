@@ -47,6 +47,10 @@ desktop.ini
 # Scratch output (screenshots, ad-hoc dumps) from VS Code tasks
 /scratch/
 
+# Per-machine perf trend log from tools/bench_report.py -- numbers vary by
+# machine, so this is a local tracking file, not a committed artifact.
+/tools/bench_history.csv
+
 # ImGui's own window-layout state, written next to the working directory
 # at runtime
 imgui.ini

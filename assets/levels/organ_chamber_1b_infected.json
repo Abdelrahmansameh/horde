@@ -1,0 +1,93 @@
+{
+  "schema": 1,
+  "name": "organ_chamber_1b_infected",
+  "region": "organ_chamber",
+  "world": { "min": [0, 0], "max": [300, 300], "cell_size": 0.5 },
+  "vessels": [
+    {
+      "id": "artery_n",
+      "lane_id": "artery_n",
+      "vessel_type": "artery",
+      "points": [
+        { "p": [10, 20],   "w": 10.0 },
+        { "p": [100, 20],  "w": 9.0 },
+        { "p": [180, 60],  "w": 8.0 },
+        { "p": [230, 110], "w": 8.0 },
+        { "p": [230, 150], "w": 8.0 }
+      ],
+      "children": []
+    },
+    {
+      "id": "vein_s",
+      "lane_id": "vein_s",
+      "vessel_type": "vein",
+      "points": [
+        { "p": [10, 280],  "w": 10.0 },
+        { "p": [100, 280], "w": 9.0 },
+        { "p": [180, 240], "w": 8.0 },
+        { "p": [230, 190], "w": 8.0 },
+        { "p": [230, 150], "w": 8.0 }
+      ],
+      "children": []
+    },
+    {
+      "id": "lymph_top",
+      "lane_id": "lymph_top",
+      "vessel_type": "lymphatic",
+      "points": [
+        { "p": [290, 20],  "w": 9.0 },
+        { "p": [280, 80],  "w": 9.0 },
+        { "p": [255, 120], "w": 8.0 },
+        { "p": [230, 150], "w": 8.0 }
+      ],
+      "children": []
+    },
+    {
+      "id": "nerve_bottom",
+      "lane_id": "nerve_bottom",
+      "vessel_type": "nerve_adjacent",
+      "points": [
+        { "p": [290, 280], "w": 9.0 },
+        { "p": [280, 220], "w": 9.0 },
+        { "p": [255, 180], "w": 8.0 },
+        { "p": [230, 150], "w": 8.0 }
+      ],
+      "children": []
+    },
+    {
+      "id": "fold_mid",
+      "lane_id": "fold_mid",
+      "vessel_type": "mucosal_fold",
+      "points": [
+        { "p": [10, 150],  "w": 11.0 },
+        { "p": [100, 150], "w": 10.0 },
+        { "p": [170, 150], "w": 9.0 },
+        { "p": [230, 150], "w": 8.0 }
+      ],
+      "children": []
+    }
+  ],
+  "portals": [
+    { "id": "p_artery_n",     "pos": [10, 20],   "radius": 5.0, "lane_id": "artery_n" },
+    { "id": "p_vein_s",       "pos": [10, 280],  "radius": 5.0, "lane_id": "vein_s" },
+    { "id": "p_lymph_top",    "pos": [290, 20],  "radius": 5.0, "lane_id": "lymph_top" },
+    { "id": "p_nerve_bottom", "pos": [290, 280], "radius": 5.0, "lane_id": "nerve_bottom" },
+    { "id": "p_fold_mid",     "pos": [10, 150],  "radius": 6.0, "lane_id": "fold_mid" }
+  ],
+  "objectives": [
+    { "id": "hub_core", "pos": [230, 150], "radius": 10.0, "integrity": 180 }
+  ],
+  "placement_zones": [
+    { "min": [170, 90],  "max": [290, 210], "concentrated": true,  "priority": 3.0 },
+    { "min": [150, 40],  "max": [245, 130], "concentrated": true,  "priority": 2.0 },
+    { "min": [150, 170], "max": [245, 260], "concentrated": true,  "priority": 2.0 },
+    { "min": [220, 60],  "max": [300, 140], "concentrated": true,  "priority": 2.0 },
+    { "min": [220, 160], "max": [300, 240], "concentrated": true,  "priority": 2.0 },
+    { "min": [20, 138],  "max": [160, 162], "concentrated": false, "priority": 1.0 },
+    { "min": [14, 10],   "max": [95, 32],   "concentrated": false, "priority": 0.8 },
+    { "min": [14, 268],  "max": [95, 292],  "concentrated": false, "priority": 0.8 },
+    { "min": [248, 10],  "max": [298, 72],  "concentrated": false, "priority": 0.8 },
+    { "min": [248, 228], "max": [298, 290], "concentrated": false, "priority": 0.8 }
+  ],
+  "ambient_drift": [0.0, 0.0]
+}

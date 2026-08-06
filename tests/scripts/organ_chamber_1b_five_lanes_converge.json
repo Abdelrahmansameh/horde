@@ -1,0 +1,18 @@
+{
+  "schema": 1,
+  "name": "organ_chamber_1b_infected_all_five_lanes_reach_hub_core",
+  "seed": 20260806,
+  "ticks": 3200,
+  "max_chaff": 10000,
+  "level": "assets/levels/organ_chamber_1b_infected.json",
+  "actions": [
+    { "tick": 0, "type": "spawn_chaff", "family": "virus", "count": 15, "pos": [10, 20],   "radius": 3 },
+    { "tick": 0, "type": "spawn_chaff", "family": "virus", "count": 15, "pos": [10, 280],  "radius": 3 },
+    { "tick": 0, "type": "spawn_chaff", "family": "virus", "count": 15, "pos": [290, 20],  "radius": 3 },
+    { "tick": 0, "type": "spawn_chaff", "family": "virus", "count": 15, "pos": [290, 280], "radius": 3 },
+    { "tick": 0, "type": "spawn_chaff", "family": "virus", "count": 15, "pos": [10, 150],  "radius": 3 }
+  ],
+  "assertions": [
+    { "tick": 3200, "metric": "chaff_leaked_total", "op": ">", "value": 0 }
+  ]
+}

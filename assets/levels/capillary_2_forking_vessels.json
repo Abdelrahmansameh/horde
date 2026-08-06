@@ -1,0 +1,53 @@
+{
+  "schema": 1,
+  "name": "capillary_2_forking_vessels",
+  "region": "capillary",
+  "world": { "min": [0, 0], "max": [256, 160], "cell_size": 0.5 },
+  "vessels": [
+    {
+      "id": "capillary_a",
+      "lane_id": "capillary_a",
+      "vessel_type": "artery",
+      "points": [
+        { "p": [10, 50],  "w": 9.0 },
+        { "p": [60, 50],  "w": 9.0 },
+        { "p": [90, 50],  "w": 2.5 },
+        { "p": [120, 50], "w": 2.5 },
+        { "p": [150, 55], "w": 6.0 },
+        { "p": [210, 80], "w": 7.0 },
+        { "p": [248, 90], "w": 8.0 }
+      ],
+      "children": []
+    },
+    {
+      "id": "capillary_b",
+      "lane_id": "capillary_b",
+      "vessel_type": "vein",
+      "points": [
+        { "p": [10, 130],  "w": 9.0 },
+        { "p": [60, 130],  "w": 9.0 },
+        { "p": [90, 130],  "w": 2.5 },
+        { "p": [120, 130], "w": 2.5 },
+        { "p": [150, 120], "w": 6.0 },
+        { "p": [210, 100], "w": 7.0 },
+        { "p": [248, 90],  "w": 8.0 }
+      ],
+      "children": []
+    }
+  ],
+  "portals": [
+    { "id": "p_a", "pos": [10, 50],  "radius": 4.0, "lane_id": "capillary_a" },
+    { "id": "p_b", "pos": [10, 130], "radius": 4.0, "lane_id": "capillary_b" }
+  ],
+  "objectives": [
+    { "id": "organ", "pos": [248, 90], "radius": 6.0, "integrity": 100 }
+  ],
+  "placement_zones": [
+    { "min": [76, 40],  "max": [134, 60],  "concentrated": true,  "priority": 2.0 },
+    { "min": [76, 120], "max": [134, 140], "concentrated": true,  "priority": 2.0 },
+    { "min": [195, 75], "max": [240, 105], "concentrated": true,  "priority": 2.5 },
+    { "min": [14, 42],  "max": [70, 58],   "concentrated": false, "priority": 1.0 },
+    { "min": [14, 122], "max": [70, 138],  "concentrated": false, "priority": 1.0 }
+  ],
+  "ambient_drift": [0.0, 0.0]
+}
