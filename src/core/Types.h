@@ -62,16 +62,32 @@ enum class PathogenFamily : u8 {
 inline constexpr u32 kFamilyCount = static_cast<u32>(PathogenFamily::Count);
 
 /// Immune cell tower types (DESIGN.md §5).
+///
+/// Six archetypes, each a recognizable tower-defense role wearing immune-system
+/// clothing. The role name is what players actually think in ("the gunner"),
+/// the cell name is the fiction and stays the code identifier — DESIGN.md,
+/// level JSON, sim-test scripts, and save files all speak the biological name.
+/// Enum ORDER is the canonical roster order: build menu, stats table rows, and
+/// tower_type_name()/parse_tower_type() all follow it.
+///
+///   Neutrophil  GUNNER  high-rate single-target stream of real projectiles
+///   Macrophage  MORTAR  slow lobbed vesicle, huge delayed area burst
+///   Interferon  CRYO    signal cone, slows then fully encases
+///   CytotoxicT  TESLA   instantaneous jagged chain between targets
+///   BCell       LASER   continuous straight piercing antibody beam
+///   NKCell      BLADE   close-range 360 rotor, continuous contact damage
+///
+/// Replaces the earlier 8-type roster; Dendritic and MastCell are retired and
+/// ComplementCascade became Interferon (the Complement Cascade survives as an
+/// active ability, see game/abilities, not as a tower).
 enum class TowerType : u8 {
-    Macrophage = 0,
-    Neutrophil = 1,
-    Dendritic = 2,
-    CytotoxicT = 3,
-    BCell = 4,
-    NKCell = 5,
-    MastCell = 6,
-    ComplementCascade = 7,
-    Count = 8
+    Neutrophil = 0,   ///< GUNNER
+    Macrophage = 1,   ///< MORTAR
+    Interferon = 2,   ///< CRYO
+    CytotoxicT = 3,   ///< TESLA
+    BCell = 4,        ///< LASER
+    NKCell = 5,       ///< BLADE
+    Count = 6
 };
 
 inline constexpr u32 kTowerTypeCount = static_cast<u32>(TowerType::Count);

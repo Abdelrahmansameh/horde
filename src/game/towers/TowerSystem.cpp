@@ -49,9 +49,14 @@ using namespace immune::sim;
 
 namespace {
 
+// Order must match TowerType's declaration order exactly.
 constexpr const char* kTowerNames[kTowerTypeCount] = {
-    "macrophage", "neutrophil", "dendritic",  "cytotoxic_t",
-    "b_cell",     "nk_cell",    "mast_cell",  "complement_cascade"};
+    "neutrophil",   // GUNNER
+    "macrophage",   // MORTAR
+    "interferon",   // CRYO
+    "cytotoxic_t",  // TESLA
+    "b_cell",       // LASER
+    "nk_cell"};     // BLADE
 
 // ---------------------------------------------------------------------------
 // Private auxiliary ECS components (see file header comment).
@@ -144,12 +149,6 @@ void load_default_stats(TowerSystem& self) {
     self.set_stats(TowerType::Neutrophil, 2, make_stats(5.5f, 0.5f, 2.0f, 8.5f, 0.8f, 90, 32, 5.0f));
     self.set_stats(TowerType::Neutrophil, 3, make_stats(6.0f, 0.4f, 2.0f, 15.5f, 0.8f, 90, 0, 4.0f));
 
-    // Dendritic: support, no damage — kill_rate stays 0 for every tier. Its
-    // only power lever is coverage (range), so tier growth pushes range hard.
-    self.set_stats(TowerType::Dendritic, 1, make_stats(5.0f, 0.5f, 0.0f, 0.0f, 0.75f, 70, 40, 0.0f));
-    self.set_stats(TowerType::Dendritic, 2, make_stats(7.5f, 0.5f, 0.0f, 0.0f, 0.75f, 70, 25, 0.0f));
-    self.set_stats(TowerType::Dendritic, 3, make_stats(10.0f, 0.5f, 0.0f, 0.0f, 0.75f, 70, 0, 0.0f));
-
     // Cytotoxic T: precision named-agent burst, bonus vs elite/boss applied in system_cytotoxic_t.
     self.set_stats(TowerType::CytotoxicT, 1, make_stats(6.0f, 1.2f, 22.0f, 0.0f, 0.8f, 110, 65, 0.0f));
     self.set_stats(TowerType::CytotoxicT, 2, make_stats(6.5f, 0.9f, 46.0f, 0.0f, 0.8f, 110, 42, 0.0f));
@@ -165,19 +164,13 @@ void load_default_stats(TowerSystem& self) {
     self.set_stats(TowerType::NKCell, 2, make_stats(6.5f, 0.85f, 44.0f, 0.0f, 0.8f, 120, 44, 0.0f));
     self.set_stats(TowerType::NKCell, 3, make_stats(7.0f, 0.6f, 85.0f, 0.0f, 0.8f, 120, 0, 0.0f));
 
-    // Mast Cell: reactive nova. TowerStats has no dedicated "trigger threshold"
-    // field (frozen struct); system_mastcell() reuses range * kill_rate as a
-    // per-tier-tunable density threshold — see that function's comment. Tier 1
-    // range/kill_rate are untouched (threshold stays 15, matching the existing
-    // combat test), only tiers 2/3 move.
-    self.set_stats(TowerType::MastCell, 1, make_stats(5.0f, 1.0f, 0.0f, 3.0f, 0.9f, 130, 75, 8.0f));
-    self.set_stats(TowerType::MastCell, 2, make_stats(5.5f, 1.0f, 0.0f, 7.0f, 0.9f, 130, 48, 6.0f));
-    self.set_stats(TowerType::MastCell, 3, make_stats(6.0f, 1.0f, 0.0f, 15.0f, 0.9f, 130, 0, 4.5f));
-
-    // Complement Cascade: ultimate chain nova.
-    self.set_stats(TowerType::ComplementCascade, 1, make_stats(6.0f, 1.0f, 0.0f, 6.0f, 1.2f, 220, 130, 10.0f));
-    self.set_stats(TowerType::ComplementCascade, 2, make_stats(6.5f, 1.0f, 0.0f, 14.0f, 1.2f, 220, 85, 8.0f));
-    self.set_stats(TowerType::ComplementCascade, 3, make_stats(7.0f, 1.0f, 0.0f, 30.0f, 1.2f, 220, 0, 6.0f));
+    // Interferon (CRYO): signal cone. Wide, cheap, low direct damage — its
+    // value is the slow, not the kill. Wave 6C owns the real slow/encase
+    // behaviour; these are placeholder stats carried over so the roster
+    // compiles and every type has a populated row.
+    self.set_stats(TowerType::Interferon, 1, make_stats(6.0f, 1.0f, 0.0f, 6.0f, 1.2f, 220, 130, 10.0f));
+    self.set_stats(TowerType::Interferon, 2, make_stats(6.5f, 1.0f, 0.0f, 14.0f, 1.2f, 220, 85, 8.0f));
+    self.set_stats(TowerType::Interferon, 3, make_stats(7.0f, 1.0f, 0.0f, 30.0f, 1.2f, 220, 0, 6.0f));
 }
 
 /// TowerSystem.h forbids adding a constructor, so there is no natural hook to
@@ -395,29 +388,6 @@ void system_neutrophil(TowerSystem& self, sim::SystemContext& ctx) {
     }
 }
 
-/// Dendritic: no direct damage. Marks chaff in range every tick via a direct
-/// spatial-hash query + exact test — no DamageField submitted (kill_rate 0).
-void system_dendritic(sim::SystemContext& ctx) {
-    static thread_local std::vector<u32> scratch;
-    auto view = ctx.registry.view<comp::Tower, comp::Transform>();
-    for (auto e : view) {
-        const comp::Tower& tw = view.get<comp::Tower>(e);
-        if (tw.type != TowerType::Dendritic) continue;
-        const comp::Transform& tf = view.get<comp::Transform>(e);
-        scratch.clear();
-        ctx.world.spatial().query_circle(tf.position, tw.range, scratch);
-        sim::ChaffBuffers& chaff = ctx.world.chaff();
-        const f32 r2 = tw.range * tw.range;
-        for (u32 idx : scratch) {
-            if (idx >= chaff.count()) continue;
-            const f32 dx = chaff.pos_x[idx] - tf.position.x;
-            const f32 dy = chaff.pos_y[idx] - tf.position.y;
-            if (dx * dx + dy * dy > r2) continue;
-            chaff.flags[idx] |= sim::chaff_flags::kMarked;
-        }
-    }
-}
-
 /// Cytotoxic T: precision. Named agents only, high burst on cooldown, bonus
 /// multiplier vs elite (tier 1) / boss (tier >= 2).
 void system_cytotoxic_t(TowerSystem& self, sim::SystemContext& ctx) {
@@ -519,33 +489,6 @@ void system_nkcell(TowerSystem& self, sim::SystemContext& ctx) {
     }
 }
 
-/// Mast Cell: reactive trap. Measures local density every tick (no damage);
-/// once it crosses a threshold, triggers the nova ability.
-void system_mastcell(TowerSystem& self, sim::SystemContext& ctx) {
-    auto view = ctx.registry.view<comp::Tower, comp::Transform>();
-    for (auto e : view) {
-        comp::Tower& tw = view.get<comp::Tower>(e);
-        if (tw.type != TowerType::MastCell) continue;
-        const comp::Transform& tf = view.get<comp::Transform>(e);
-        const TowerStats& st = self.stats(tw.type, tw.tier);
-
-        sim::DamageField region;
-        region.shape = sim::FieldShape::Circle;
-        region.origin = tf.position;
-        region.radius = st.range;
-        region.family_mask = st.family_mask;
-        const f32 density = ctx.world.damage().measure_density(ctx.world.chaff(), ctx.world.spatial(), region);
-
-        // Judgment call: TowerStats has no dedicated trigger-threshold field
-        // (frozen struct); range * kill_rate gives a per-tier-tunable number
-        // reusing existing fields instead.
-        const f32 threshold = st.range * st.kill_rate;
-        if (threshold > 0.0f && density >= threshold && tw.ability_cooldown <= 0.0f) {
-            self.trigger_ability(ctx.world, ctx.world.ecs().to_id(e));
-        }
-    }
-}
-
 /// Complement Cascade: ultimate. Auto-casts the chain nova whenever there is
 /// any chaff in range and the ability is off cooldown — it has no other
 /// per-tick attack.
@@ -553,7 +496,7 @@ void system_complement(TowerSystem& self, sim::SystemContext& ctx) {
     auto view = ctx.registry.view<comp::Tower, comp::Transform>();
     for (auto e : view) {
         comp::Tower& tw = view.get<comp::Tower>(e);
-        if (tw.type != TowerType::ComplementCascade || tw.ability_cooldown > 0.0f) continue;
+        if (tw.type != TowerType::Interferon || tw.ability_cooldown > 0.0f) continue;
         const comp::Transform& tf = view.get<comp::Transform>(e);
         const TowerStats& st = self.stats(tw.type, tw.tier);
 
@@ -856,20 +799,7 @@ bool TowerSystem::trigger_ability(sim::SimWorld& world, EntityId tower) {
         registry.emplace<priv::ActiveNet>(net, priv::ActiveNet{tf.position, st.range, 3.0f, tower});
         break;
     }
-    case TowerType::MastCell: {
-        sim::DamageField nova;
-        nova.shape = sim::FieldShape::Circle;
-        nova.origin = tf.position;
-        nova.radius = st.range * 2.0f;
-        nova.kill_rate = st.kill_rate * 8.0f;
-        nova.falloff = 1.0f;
-        nova.family_mask = st.family_mask;
-        nova.lifetime = 0.2f; // one-shot: expires on its own after a couple ticks
-        nova.owner = tower;
-        world.damage().submit(nova);
-        break;
-    }
-    case TowerType::ComplementCascade: {
+    case TowerType::Interferon: {
         sim::DamageField chain;
         chain.shape = sim::FieldShape::Chain;
         chain.origin = tf.position;
@@ -928,16 +858,13 @@ void TowerSystem::register_systems(sim::SimWorld& world) {
                    [this](sim::SystemContext& ctx) { system_macrophage(*this, ctx); });
     ecs.add_system(sim::SystemPhase::Combat, "tower_neutrophil", 1,
                    [this](sim::SystemContext& ctx) { system_neutrophil(*this, ctx); });
-    ecs.add_system(sim::SystemPhase::Combat, "tower_dendritic", 2, &system_dendritic);
     ecs.add_system(sim::SystemPhase::Combat, "tower_cytotoxic_t", 3,
                    [this](sim::SystemContext& ctx) { system_cytotoxic_t(*this, ctx); });
     ecs.add_system(sim::SystemPhase::Combat, "tower_bcell", 4,
                    [this](sim::SystemContext& ctx) { system_bcell(*this, ctx); });
     ecs.add_system(sim::SystemPhase::Combat, "tower_nkcell", 5,
                    [this](sim::SystemContext& ctx) { system_nkcell(*this, ctx); });
-    ecs.add_system(sim::SystemPhase::Combat, "tower_mastcell", 6,
-                   [this](sim::SystemContext& ctx) { system_mastcell(*this, ctx); });
-    ecs.add_system(sim::SystemPhase::Combat, "tower_complement", 7,
+    ecs.add_system(sim::SystemPhase::Combat, "tower_interferon", 7,
                    [this](sim::SystemContext& ctx) { system_complement(*this, ctx); });
     ecs.add_system(sim::SystemPhase::Combat, "tower_net_upkeep", 8, &system_net_upkeep);
 

@@ -117,10 +117,10 @@ TEST_CASE("default stats table covers every type/tier with real, distinguishing 
         // Tiers scale range monotonically; every roster entry does in this table.
         REQUIRE(s2.range >= s1.range);
         REQUIRE(s3.range >= s2.range);
-        // At least one of damage/kill_rate strictly increases tier-over-tier
-        // (every combat-capable tower); Dendritic is the deliberate exception
-        // (support, always 0 damage/kill_rate).
-        if (type != TowerType::Dendritic) {
+        // At least one of damage/kill_rate strictly increases tier-over-tier.
+        // Every tower in the six-type roster is combat-capable, so unlike the
+        // old eight-type roster there is no support-tower exception here.
+        {
             const bool damage_grows = s3.damage > s1.damage;
             const bool kill_grows = s3.kill_rate > s1.kill_rate;
             REQUIRE((damage_grows || kill_grows));
@@ -154,7 +154,6 @@ TEST_CASE("tower_type_name/parse_tower_type round-trip for all 8 types", "[tower
 namespace {
 
 f32 tower_output(TowerType type, const TowerStats& s) {
-    if (type == TowerType::Dendritic) return s.range * s.range; // only lever: coverage area
     // Neutrophil, Mast Cell, Complement Cascade: field kill_rate is the whole
     // story (their combat systems never read `damage`). Everything else
     // (Macrophage mixes both; Cytotoxic T/B-Cell/NK Cell are named-agent dps
@@ -232,7 +231,7 @@ TEST_CASE("validate() rejects insufficient clearance near a wall", "[towers][pla
     TowerSystem ts;
     // ComplementCascade tier1 footprint_radius is 1.2; 0.5 units from the left
     // room's wall (x=0 boundary) leaves far less clearance than that.
-    const auto q = ts.validate(world, TowerType::ComplementCascade, Vec2{0.5f, 10.0f}, 100000);
+    const auto q = ts.validate(world, TowerType::Interferon, Vec2{0.5f, 10.0f}, 100000);
     REQUIRE(q.result == PlacementResult::InsufficientClearance);
     REQUIRE(q.clearance < 1.2f);
     // The light snap should nudge back toward more clearance (away from x=0).
@@ -261,10 +260,10 @@ TEST_CASE("validate() rejects a placement that would fully plug the only corrido
     // Sanity: the goal is reachable from the left room before any placement.
     REQUIRE(world.flow().reachable(kRoomCenterLeft));
 
-    const auto blocked = ts.validate(world, TowerType::MastCell, kCorridorCenter, 100000);
+    const auto blocked = ts.validate(world, TowerType::NKCell, kCorridorCenter, 100000);
     REQUIRE(blocked.result == PlacementResult::WouldBlockAllPaths);
 
-    const auto open = ts.validate(world, TowerType::MastCell, kRoomCenterRight, 100000);
+    const auto open = ts.validate(world, TowerType::NKCell, kRoomCenterRight, 100000);
     REQUIRE(open.result == PlacementResult::Ok);
 }
 
@@ -433,25 +432,6 @@ TEST_CASE("Neutrophil submits a swarm field, and its NET ability slows chaff and
     }
 }
 
-TEST_CASE("Dendritic marks chaff in range and never submits a damage field", "[towers][combat][dendritic]") {
-    SimWorld world = make_world();
-    TowerSystem ts;
-    ts.register_systems(world);
-    const EntityId tower = ts.place(world, TowerType::Dendritic, kRoomCenterLeft);
-    REQUIRE(tower.valid());
-    spawn_chaff_cluster(world, kRoomCenterLeft, 10, 1.0f);
-
-    rebuild_spatial(world);
-    SystemContext ctx = make_ctx(world);
-    world.ecs().tick(ctx);
-
-    REQUIRE(world.damage().fields().empty());
-    usize marked = 0;
-    for (usize i = 0; i < world.chaff().count(); ++i)
-        if (world.chaff().flags[i] & chaff_flags::kMarked) ++marked;
-    REQUIRE(marked > 0);
-}
-
 TEST_CASE("Cytotoxic T deals precision burst damage to the nearest named agent, boosted vs a boss",
           "[towers][combat][cytotoxic_t]") {
     auto run = [](u8 named_tier) {
@@ -535,46 +515,12 @@ TEST_CASE("NK Cell can damage a Burrowed named agent that Cytotoxic T cannot eve
     REQUIRE(ct_world.ecs().registry().get<comp::Health>(ct_world.ecs().from_id(ct_target)).current == ct_hp_before);
 }
 
-TEST_CASE("Mast Cell triggers its nova once local chaff density crosses the threshold, not before",
-          "[towers][combat][mastcell]") {
-    SECTION("below threshold: no trigger") {
-        SimWorld world = make_world();
-        TowerSystem ts;
-        ts.register_systems(world);
-        const EntityId tower = ts.place(world, TowerType::MastCell, kRoomCenterLeft);
-        spawn_chaff_cluster(world, kRoomCenterLeft, 3, 1.0f); // density 3 << threshold (range*kill_rate=15)
-
-        rebuild_spatial(world);
-        SystemContext ctx = make_ctx(world);
-        world.ecs().tick(ctx);
-
-        REQUIRE(world.ecs().registry().get<comp::Tower>(world.ecs().from_id(tower)).ability_cooldown == 0.0f);
-    }
-    SECTION("above threshold: nova fires") {
-        SimWorld world = make_world();
-        TowerSystem ts;
-        ts.register_systems(world);
-        const EntityId tower = ts.place(world, TowerType::MastCell, kRoomCenterLeft);
-        spawn_chaff_cluster(world, kRoomCenterLeft, 20, 1.0f); // density 20 >= threshold 15
-
-        rebuild_spatial(world);
-        SystemContext ctx = make_ctx(world);
-        world.ecs().tick(ctx);
-
-        REQUIRE(world.ecs().registry().get<comp::Tower>(world.ecs().from_id(tower)).ability_cooldown > 0.0f);
-        bool found_nova = false;
-        for (const DamageField& f : world.damage().fields())
-            if (f.owner == tower && f.radius > ts.stats(TowerType::MastCell, 1).range) found_nova = true;
-        REQUIRE(found_nova);
-    }
-}
-
 TEST_CASE("Complement Cascade auto-casts its chain nova whenever chaff is present in range",
           "[towers][combat][complement]") {
     SimWorld world = make_world();
     TowerSystem ts;
     ts.register_systems(world);
-    const EntityId tower = ts.place(world, TowerType::ComplementCascade, kRoomCenterLeft);
+    const EntityId tower = ts.place(world, TowerType::Interferon, kRoomCenterLeft);
     spawn_chaff_cluster(world, kRoomCenterLeft, 5, 1.0f);
 
     rebuild_spatial(world);

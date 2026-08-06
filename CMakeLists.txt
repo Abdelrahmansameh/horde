@@ -71,6 +71,7 @@ add_library(immune_sim STATIC
   src/sim/ecs/EcsWorld.cpp
   src/sim/ecs/NamedAgents.cpp
   src/sim/flowfield/FlowField.cpp
+  src/sim/projectile/Projectiles.cpp
   src/sim/spatial/SpatialHash.cpp)
 target_link_libraries(immune_sim PUBLIC immune_core EnTT::EnTT)
 
@@ -79,7 +80,12 @@ add_library(immune_render STATIC
   src/render/Renderer.cpp
   src/render/Screenshot.cpp
   src/render/Shader.cpp)
-target_link_libraries(immune_render PUBLIC immune_core immune_platform immune_sim)
+target_link_libraries(immune_render PUBLIC immune_core immune_platform immune_sim immune_vfx)
+
+# Cosmetic particle layer. Deliberately NOT part of immune_sim: it has its own
+# RNG, runs on the render clock, and must never contribute to state_hash().
+add_library(immune_vfx STATIC src/vfx/Particles.cpp)
+target_link_libraries(immune_vfx PUBLIC immune_core immune_sim)
 
 add_library(immune_game STATIC
   src/game/abilities/ActiveAbilities.cpp

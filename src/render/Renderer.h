@@ -38,7 +38,13 @@ class EcsWorld;
 class FlowField;
 class TissueMask;
 class DistanceField;
+class ProjectileBuffers;
 struct DamageField;
+}
+
+namespace immune::vfx {
+struct ParticleInstance;
+enum class BlendMode : u8;
 }
 
 namespace immune::render {
@@ -51,6 +57,12 @@ struct RendererDesc {
     /// Max instances per family batch; sized from SimDesc::max_chaff.
     u32 max_chaff_instances = 16384;
     u32 max_entity_instances = 4096;
+    /// Live simulated rounds drawable in one frame.
+    u32 max_projectile_instances = 16384;
+    /// Cosmetic particles drawable per blend mode per frame. Sized for the
+    /// Gunner's "continuous stream" brief; this is the single biggest instance
+    /// buffer in the renderer and is expected to run near full at high tiers.
+    u32 max_particle_instances = 262144;
     /// Cell occupancy at which crossfade to the blob representation begins.
     u32 lod_blob_threshold = 24;
     /// Occupancy at which the cell is drawn purely as blob density.
@@ -90,6 +102,8 @@ struct FrameStats {
     u32 chaff_agents_in_blobs = 0;
     u32 entity_instances_drawn = 0;
     u32 vfx_fields_drawn = 0;
+    u32 projectile_instances_drawn = 0;
+    u32 particle_instances_drawn = 0;
     f64 submit_ms = 0.0;
 };
 
@@ -134,6 +148,21 @@ public:
     /// Damage/AoE fields as fluid shader effects (DESIGN.md §8.5): toxin clouds,
     /// histamine blooms, antibody tides, complement lightning.
     void submit_fields(const sim::DamageField* fields, usize count);
+
+    /// Live projectile rounds, as one instanced draw over the SoA store. These
+    /// are the Gunner's actual simulated rounds — the cosmetic tracer trails
+    /// that follow them are particles, submitted separately below.
+    void submit_projectiles(const sim::ProjectileBuffers& projectiles);
+
+    /// One instanced draw of an already-built particle instance span, for one
+    /// blend mode. Called once per blend mode per frame, additive first so
+    /// alpha-blended mist composites over the glow rather than under it.
+    ///
+    /// Takes a raw span rather than the ParticleSystem itself so the renderer
+    /// stays a pure consumer and never reaches into vfx state — same rule the
+    /// rest of this interface follows for sim.
+    void submit_particles(const vfx::ParticleInstance* instances, usize count,
+                          vfx::BlendMode blend);
 
     /// Debug visualisation of the flow field vectors. Off in release play.
     void submit_flow_debug(const sim::FlowField& flow);
