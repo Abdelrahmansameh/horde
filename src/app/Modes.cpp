@@ -8,6 +8,7 @@
 #include "game/enemies/EnemyRoster.h"
 #include "game/level/Level.h"
 #include "game/towers/TowerSystem.h"
+#include "vfx/Particles.h"
 #include "platform/FileIO.h"
 #include "platform/Window.h"
 #include "render/Camera.h"
@@ -480,6 +481,39 @@ int run_screenshot(const Options& opt) {
         populate_scenario(world, *scenario);
     }
 
+    // Place one of every tower type so a screenshot can actually show combat.
+    // Without this, run_screenshot rendered a horde walking through an empty
+    // level: no tower ever fired, so no projectile existed and no combat event
+    // was ever raised, so the particle layer had nothing to draw. Wave 6C hit
+    // exactly this and correctly reported it rather than editing this
+    // orchestrator-owned file.
+    //
+    // Placement walks along the vessel's mid-line and takes the first spot
+    // validate() accepts for each type, nudging across a few offsets. Towers
+    // that find no legal spot are simply skipped -- a screenshot is a
+    // diagnostic, not a gameplay guarantee.
+    game::TowerSystem towers;
+    towers.register_systems(world);
+    if (opt.place_towers) {
+        const Rect b = world.desc().world_bounds;
+        const f32 mid_y = b.center().y;
+        u32 placed = 0;
+        for (u32 t = 0; t < kTowerTypeCount; ++t) {
+            const auto type = static_cast<TowerType>(t);
+            const f32 frac = (static_cast<f32>(t) + 1.0f) / (kTowerTypeCount + 1.0f);
+            const f32 x = b.min.x + b.size().x * frac;
+            for (const f32 dy : {0.0f, 4.0f, -4.0f, 8.0f, -8.0f, 12.0f, -12.0f}) {
+                const Vec2 p{x, mid_y + dy};
+                if (towers.validate(world, type, p, 1'000'000u).valid() &&
+                    towers.place(world, type, p).valid()) {
+                    ++placed;
+                    break;
+                }
+            }
+        }
+        IMMUNE_LOG_INFO("screenshot: placed %u/%u towers", placed, kTowerTypeCount);
+    }
+
     // Advance the deterministic sim to the requested tick before rendering.
     world.run_ticks(opt.ticks, nullptr);
 
@@ -506,12 +540,32 @@ int run_screenshot(const Options& opt) {
     camera.set_view_height(world.desc().world_bounds.size().y);
     camera.clamp_to_bounds();
 
+    // Drain the combat events the run above raised into particles, then step
+    // the layer a few render frames so bursts are mid-flight rather than all
+    // sitting exactly at birth. Mirrors App::render_frame()'s order.
+    vfx::ParticleSystem particles;
+    particles.init(vfx::ParticleSystem::kDefaultCapacity, opt.seed ^ 0xA5A5'5A5AULL);
+    const auto& evts = world.combat_events().events();
+    particles.emit_for_events(evts.data(), evts.size());
+    world.combat_events().clear();
+    for (int i = 0; i < 3; ++i) particles.update(1.0f / 60.0f, nullptr);
+
+    std::vector<vfx::ParticleInstance> pinst;
+    pinst.reserve(vfx::ParticleSystem::kDefaultCapacity);
+
     renderer.begin_frame(camera, 0.0f);
     renderer.submit_tissue(world.tissue(), world.sdf(), 0.0f);
     renderer.submit_chaff(world.chaff(), world.spatial());
     renderer.submit_entities(world.ecs());
     renderer.submit_fields(world.damage().fields().data(), world.damage().fields().size());
+    renderer.submit_projectiles(world.projectiles());
+    particles.build_instances(vfx::BlendMode::Additive, pinst);
+    renderer.submit_particles(pinst.data(), pinst.size(), vfx::BlendMode::Additive);
+    particles.build_instances(vfx::BlendMode::AlphaBlend, pinst);
+    renderer.submit_particles(pinst.data(), pinst.size(), vfx::BlendMode::AlphaBlend);
     renderer.end_frame();
+    IMMUNE_LOG_INFO("screenshot: %zu live rounds, %zu live particles",
+                    world.projectiles().count(), particles.live_count());
 
     if (!render::capture_framebuffer_png(opt.out_path, window.width(), window.height())) {
         IMMUNE_LOG_ERROR("PNG write failed: %s", opt.out_path.c_str());

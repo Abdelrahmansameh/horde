@@ -37,6 +37,11 @@ struct Options {
     std::string script_path;    ///< --sim-test <script.json>
     std::string level;          ///< --screenshot <level> / --level <path>
     std::string out_path = "shot.png";  ///< --out
+    /// --towers: place one of every tower type before capturing, so the shot
+    /// shows real combat (projectiles + particles) instead of an unopposed
+    /// horde. Off by default so existing screenshot regressions keep framing
+    /// exactly what they framed before.
+    bool place_towers = false;
 
     u64 ticks = 600;            ///< --ticks / --tick
     u64 seed = 0x1234'5678'9abc'def0ULL;

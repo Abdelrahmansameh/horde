@@ -15,13 +15,20 @@
 //     upgrade, sell, trigger_ability, find_target, stats, set_stats,
 //     register_systems) — those have normal private access because they are
 //     genuine member-function definitions. Free functions in the anonymous
-//     namespace below (the default-stats loader, the eight per-tower Combat
+//     namespace below (the default-stats loader, the six per-tower Combat
 //     systems, the WouldBlockAllPaths heuristic) only ever go through the
 //     class's *public* API (`stats()`, `find_target()`, `trigger_ability()`).
+//
+// WAVE 6C rewrote every Combat-phase system for the six-role roster (GUNNER /
+// MORTAR / CRYO / TESLA / LASER / BLADE) and retuned the whole stats table.
+// See the "Wave 6C: shared combat helpers" block below for the rules those
+// systems are written against — in particular why exactly one of them uses
+// projectiles and none of them damage chaff agent-by-agent.
 #include "game/towers/TowerSystem.h"
 
 #include "core/Math.h"
 #include "core/Rng.h"
+#include "sim/CombatEvents.h"
 #include "sim/SimWorld.h"
 #include "sim/chaff/ChaffBuffers.h"
 #include "sim/damage/DamageField.h"
@@ -29,6 +36,7 @@
 #include "sim/ecs/EcsWorld.h"
 #include "sim/flowfield/FlowField.h"
 #include "sim/flowfield/TissueRaster.h"
+#include "sim/projectile/Projectiles.h"
 #include "sim/spatial/SpatialHash.h"
 
 #include <algorithm>
@@ -120,57 +128,122 @@ TowerStats make_stats(f32 range, f32 fire_interval, f32 damage, f32 kill_rate, f
 }
 
 // ---------------------------------------------------------------------------
-// Cost-curve design goal (DESIGN.md §5.3/§7.1, deliverable 2): upgrading one
-// tier must be a reliably better ATP-per-output deal than placing a fresh
-// tower of equivalent total output, so reinforcing a concentrated position
-// beats spreading thin. Concretely, for every tower type below: if tier 1
-// costs `C` and produces output `O` (its per-second damage/kill_rate,
-// whichever the type actually uses — see tests/test_towers.cpp's
-// tower_output() for the exact per-type metric), tier 2's upgrade_cost is
-// noticeably less than `C` again while tier 2's output pushes well past `2O`,
-// and tier 3's upgrade_cost is smaller still while its output pulls further
-// ahead — an accelerating-value, decelerating-cost curve up the tree. Tier 1
-// numbers are deliberately left exactly as they were (several existing tests
-// hardcode them, e.g. Mast Cell's density-threshold test relies on
-// range*kill_rate == 15); only tier 2/3 damage-or-kill_rate and every tier's
-// upgrade_cost move. See tests/test_towers.cpp's
-// "upgrading is a better ATP-per-output deal than a fresh tower" test for the
-// numeric proof, across all 8 types.
+// MECHANISM CONSTANTS (Wave 6C).
+//
+// These are the per-role knobs that have nowhere to live in the frozen
+// TowerStats struct. They are mirrored, with the same names, in
+// tests/test_towers.cpp — the upgrade-economics test has to reconstruct each
+// role's real per-second output, and for the two BURST roles that means
+// knowing the burst's duty cycle, not just its instantaneous kill_rate.
+// ---------------------------------------------------------------------------
+
+/// MORTAR: how long the digestive burst's Circle field lives. Total density
+/// removed per shell is kill_rate * this.
+constexpr f32 kMortarBurstSeconds = 0.30f;
+/// MORTAR: burst radius per tier. Deliberately far larger than any other
+/// tower's footprint — the mortar is the "consequential" answer to a clump.
+constexpr f32 kMortarBurstRadius[3] = {5.00f, 5.75f, 6.50f};
+
+/// TESLA: how long one chain discharge's Chain field lives.
+constexpr f32 kTeslaArcSeconds = 0.12f;
+/// TESLA: jump distance between hops (the FIRST hop uses the tower's range).
+constexpr f32 kTeslaHopRadius[3] = {3.0f, 4.0f, 5.0f};
+/// TESLA: hops per discharge, and the per-hop energy falloff carried in
+/// CombatEvent::magnitude (vfx/Particles.cpp reads exactly that).
+constexpr u32 kTeslaMaxHops = 6;
+constexpr f32 kTeslaHopFalloff = 0.72f;
+
+/// GUNNER: muzzle velocity per tier, in world units/second. Bounded on purpose:
+/// Projectiles.cpp documents that a round whose per-tick step greatly exceeds
+/// the spatial-hash cell size (default 4.0) can tunnel past agents. At 60 Hz
+/// even the tier-3 figure steps 1.0 units per tick — a quarter of a cell.
+constexpr f32 kGunnerRoundSpeed[3] = {45.0f, 52.0f, 60.0f};
+constexpr f32 kGunnerHitRadius = 0.45f;
+/// GUNNER: muzzle spread half-angle, in radians. The ONLY sim-RNG draw any
+/// tower makes per tick, and exactly one draw per round fired.
+constexpr f32 kGunnerSpread = 0.045f;
+
+/// CRYO: cone half-angle per tier, and the fraction of the cone's reach inside
+/// which a newly-caught agent counts as fully encased rather than merely slowed.
+constexpr f32 kCryoArcRadians[3] = {0.60f, 0.66f, 0.72f};
+constexpr f32 kCryoInnerFraction = 0.55f;
+/// CRYO: cap on Freeze events per pulse. A cosmetic bound only — every agent in
+/// the cone is still slowed; this just stops one pulse into a 10k horde from
+/// filling the whole event sink with PINGs.
+constexpr u32 kCryoMaxFreezeEvents = 6;
+
+/// LASER: beam half-thickness per tier. The beam's Rect is an AABB (that is
+/// what DamageField::rect is), which is why the aim is axis-snapped — see
+/// system_laser.
+constexpr f32 kLaserHalfWidth[3] = {0.50f, 0.60f, 0.70f};
+
+/// BLADE: rotor angular velocity, and the per-pulse cap on BladeSlash events
+/// (same cosmetic-bound rationale as the Cryo cap).
+constexpr f32 kBladeSpinRadPerSec = 9.0f;
+constexpr u32 kBladeMaxSlashEvents = 5;
+
+/// Index into a `[3]` per-tier constant table from a 1..3 tier.
+u32 tier_slot(u8 tier) { return tier >= 3 ? 2u : (tier == 2 ? 1u : 0u); }
+
+// ---------------------------------------------------------------------------
+// Cost-curve design goal (DESIGN.md §5.3/§7.1): upgrading one tier must be a
+// reliably better ATP-per-output deal than placing a fresh tower, so
+// reinforcing a concentrated position beats spreading thin. For every role
+// below: tier 2's upgrade_cost is well under a fresh build, tier 2's output
+// pushes past 2x tier 1's, tier 3's upgrade_cost is smaller still and its
+// output pulls further ahead — accelerating value, decelerating cost.
+//
+// "Output" is per-role, because the six roles spend different stats:
+//   GUNNER  damage / fire_interval          (projectile throughput)
+//   MORTAR  kill_rate * burst / interval    (burst duty cycle)
+//   CRYO    kill_rate                       (continuous cone)
+//   TESLA   kill_rate * arc / interval      (discharge duty cycle)
+//   LASER   kill_rate                       (continuous beam)
+//   BLADE   kill_rate                       (continuous rotor)
+// tests/test_towers.cpp's tower_output() is exactly this table, and proves the
+// claim numerically for all six.
 // ---------------------------------------------------------------------------
 
 void load_default_stats(TowerSystem& self) {
-    // Macrophage: melee sink. Big kill_rate self-field + slow single-target DPS.
-    self.set_stats(TowerType::Macrophage, 1, make_stats(4.0f, 1.0f, 6.0f, 3.0f, 1.0f, 80, 45, 0.0f));
-    self.set_stats(TowerType::Macrophage, 2, make_stats(4.5f, 0.9f, 16.0f, 7.0f, 1.0f, 80, 30, 0.0f));
-    self.set_stats(TowerType::Macrophage, 3, make_stats(5.0f, 0.75f, 30.0f, 12.0f, 1.0f, 80, 0, 0.0f));
+    // GUNNER — cheapest, longest-uptime, single-target. Its whole identity is
+    // rate: 11 rounds/s at tier 1 up to 33/s at tier 3, so the stream reads as
+    // continuous rather than as individual shots. kill_rate is 0 by design —
+    // the Gunner is the one tower that does NOT publish a damage field.
+    self.set_stats(TowerType::Neutrophil, 1, make_stats(9.0f, 0.090f, 1.4f, 0.0f, 0.7f, 70, 45, 6.0f));
+    self.set_stats(TowerType::Neutrophil, 2, make_stats(10.0f, 0.055f, 2.2f, 0.0f, 0.7f, 70, 38, 5.0f));
+    self.set_stats(TowerType::Neutrophil, 3, make_stats(11.0f, 0.030f, 2.4f, 0.0f, 0.7f, 70, 0, 4.0f));
 
-    // Neutrophil: swarm. Modest self-field; NET + micro-units is the ability.
-    self.set_stats(TowerType::Neutrophil, 1, make_stats(5.0f, 0.6f, 2.0f, 2.0f, 0.8f, 90, 50, 6.0f));
-    self.set_stats(TowerType::Neutrophil, 2, make_stats(5.5f, 0.5f, 2.0f, 8.5f, 0.8f, 90, 32, 5.0f));
-    self.set_stats(TowerType::Neutrophil, 3, make_stats(6.0f, 0.4f, 2.0f, 15.5f, 0.8f, 90, 0, 4.0f));
+    // MORTAR — the longest range and by far the slowest cadence. One shell
+    // every 2.6s that erases whatever was standing in a 5-unit circle.
+    self.set_stats(TowerType::Macrophage, 1, make_stats(14.0f, 2.60f, 45.0f, 62.0f, 1.0f, 150, 95, 0.0f));
+    self.set_stats(TowerType::Macrophage, 2, make_stats(15.5f, 2.30f, 95.0f, 145.0f, 1.0f, 150, 80, 0.0f));
+    self.set_stats(TowerType::Macrophage, 3, make_stats(17.0f, 2.00f, 175.0f, 240.0f, 1.0f, 150, 0, 0.0f));
 
-    // Cytotoxic T: precision named-agent burst, bonus vs elite/boss applied in system_cytotoxic_t.
-    self.set_stats(TowerType::CytotoxicT, 1, make_stats(6.0f, 1.2f, 22.0f, 0.0f, 0.8f, 110, 65, 0.0f));
-    self.set_stats(TowerType::CytotoxicT, 2, make_stats(6.5f, 0.9f, 46.0f, 0.0f, 0.8f, 110, 42, 0.0f));
-    self.set_stats(TowerType::CytotoxicT, 3, make_stats(7.0f, 0.65f, 80.0f, 0.0f, 0.8f, 110, 0, 0.0f));
+    // CRYO — deliberately the weakest kill_rate in the roster. Its output is
+    // crowd control: everything in the cone is slowed, and anything caught deep
+    // in it is locked down outright.
+    self.set_stats(TowerType::Interferon, 1, make_stats(8.0f, 0.55f, 3.0f, 2.0f, 1.2f, 110, 70, 12.0f));
+    self.set_stats(TowerType::Interferon, 2, make_stats(9.0f, 0.50f, 7.0f, 5.4f, 1.2f, 110, 60, 10.0f));
+    self.set_stats(TowerType::Interferon, 3, make_stats(10.0f, 0.45f, 14.0f, 10.5f, 1.2f, 110, 0, 8.0f));
 
-    // B-Cell: homing tag & chase (see system_bcell for the Marked-application simplification).
-    self.set_stats(TowerType::BCell, 1, make_stats(7.0f, 1.0f, 8.0f, 0.0f, 0.7f, 100, 55, 0.0f));
-    self.set_stats(TowerType::BCell, 2, make_stats(8.0f, 0.75f, 18.0f, 0.0f, 0.7f, 100, 35, 0.0f));
-    self.set_stats(TowerType::BCell, 3, make_stats(9.0f, 0.55f, 34.0f, 0.0f, 0.7f, 100, 0, 0.0f));
+    // TESLA — short base range but its chain reaches far past it by hopping.
+    // Bursty: nothing at all between discharges.
+    self.set_stats(TowerType::CytotoxicT, 1, make_stats(7.00f, 0.90f, 30.0f, 60.0f, 0.8f, 130, 84, 0.0f));
+    self.set_stats(TowerType::CytotoxicT, 2, make_stats(7.75f, 0.75f, 62.0f, 135.0f, 0.8f, 130, 70, 0.0f));
+    self.set_stats(TowerType::CytotoxicT, 3, make_stats(8.50f, 0.60f, 120.0f, 210.0f, 0.8f, 130, 0, 0.0f));
 
-    // NK Cell: anti-stealth precision (find_target with require_detect_hidden=true).
-    self.set_stats(TowerType::NKCell, 1, make_stats(6.0f, 1.0f, 20.0f, 0.0f, 0.8f, 120, 68, 0.0f));
-    self.set_stats(TowerType::NKCell, 2, make_stats(6.5f, 0.85f, 44.0f, 0.0f, 0.8f, 120, 44, 0.0f));
-    self.set_stats(TowerType::NKCell, 3, make_stats(7.0f, 0.6f, 85.0f, 0.0f, 0.8f, 120, 0, 0.0f));
+    // LASER — the longest *continuous* reach and the most expensive. Pierces
+    // everything on the line at once, but only along one axis at a time.
+    self.set_stats(TowerType::BCell, 1, make_stats(16.0f, 0.30f, 6.0f, 6.0f, 0.7f, 160, 104, 0.0f));
+    self.set_stats(TowerType::BCell, 2, make_stats(18.0f, 0.26f, 13.0f, 16.0f, 0.7f, 160, 88, 0.0f));
+    self.set_stats(TowerType::BCell, 3, make_stats(20.0f, 0.22f, 26.0f, 31.0f, 0.7f, 160, 0, 0.0f));
 
-    // Interferon (CRYO): signal cone. Wide, cheap, low direct damage — its
-    // value is the slow, not the kill. Wave 6C owns the real slow/encase
-    // behaviour; these are placeholder stats carried over so the roster
-    // compiles and every type has a populated row.
-    self.set_stats(TowerType::Interferon, 1, make_stats(6.0f, 1.0f, 0.0f, 6.0f, 1.2f, 220, 130, 10.0f));
-    self.set_stats(TowerType::Interferon, 2, make_stats(6.5f, 1.0f, 0.0f, 14.0f, 1.2f, 220, 85, 8.0f));
-    self.set_stats(TowerType::Interferon, 3, make_stats(7.0f, 1.0f, 0.0f, 30.0f, 1.2f, 220, 0, 6.0f));
+    // BLADE — by far the shortest range in the roster (it is a contact weapon)
+    // and by far the highest sustained kill_rate per unit of range. A wall
+    // tower: it only works where the horde is forced to walk into it.
+    self.set_stats(TowerType::NKCell, 1, make_stats(3.2f, 0.18f, 5.0f, 8.0f, 0.8f, 90, 58, 0.0f));
+    self.set_stats(TowerType::NKCell, 2, make_stats(3.6f, 0.14f, 10.0f, 21.0f, 0.8f, 90, 49, 0.0f));
+    self.set_stats(TowerType::NKCell, 3, make_stats(4.0f, 0.10f, 20.0f, 41.0f, 0.8f, 90, 0, 0.0f));
 }
 
 /// TowerSystem.h forbids adding a constructor, so there is no natural hook to
@@ -313,200 +386,611 @@ void restore_footprint(sim::TissueMask& mask, const priv::TowerRecord& rec) {
 }
 
 // ---------------------------------------------------------------------------
-// Per-tower Combat-phase systems (deliverable 3). Free functions taking
-// `TowerSystem&` so they can reach stats()/find_target()/trigger_ability()
-// through the public API only (see file header comment).
+// Wave 6C: shared combat helpers.
+//
+// THE LOAD-BEARING RULE (DamageField.h's own rationale, restated because it is
+// the thing that is easiest to accidentally undo): the five AREA roles never
+// touch chaff agent-by-agent to *damage* them. They publish one DamageField and
+// let the aggregate damage system thin whatever it overlaps. Cost then scales
+// with fields and cells, not with towers x 10,000 agents. Only the Gunner is
+// the documented exception, and it uses the projectile store, not a per-agent
+// loop either.
+//
+// What DOES touch agents individually here, and why each is bounded:
+//   - acquire_focus()  reads per-cell OCCUPANCY over the cells a range circle
+//     overlaps (tens of integers), then averages the positions of exactly ONE
+//     cell's agents. Never a scan of the store.
+//   - nearest_chaff()  is the Tesla's hop search. Bounded by hop radius (3-5
+//     units => a handful of cells) and by kTeslaMaxHops, and it runs only on a
+//     discharge tick.
+//   - the Cryo and Blade passes set chaff_flags / emit contact events over the
+//     agents in their (small) shape. Flags and events have no aggregate path at
+//     all — DamageField publishes damage, not state — so this is the only way
+//     to express "slowed" or "the rotor touched this one". Both are capped, and
+//     both run on a fire_interval pulse, not every tick.
 // ---------------------------------------------------------------------------
 
-/// Macrophage: melee sink. Submits a small high-kill-rate self field against
-/// chaff every tick, and separately runs continuous single-target DPS against
-/// the nearest named agent in range ("eating" an elite over time).
-void system_macrophage(TowerSystem& self, sim::SystemContext& ctx) {
-    auto view = ctx.registry.view<comp::Tower, comp::Transform>();
-    for (auto e : view) {
-        comp::Tower& tw = view.get<comp::Tower>(e);
-        if (tw.type != TowerType::Macrophage) continue;
-        const comp::Transform& tf = view.get<comp::Transform>(e);
-        const TowerStats& st = self.stats(tw.type, tw.tier);
+constexpr u32 kNoIndex = static_cast<u32>(-1);
 
-        if (st.kill_rate > 0.0f) {
-            sim::DamageField field;
-            field.shape = sim::FieldShape::Circle;
-            field.origin = tf.position;
-            field.radius = st.range;
-            field.kill_rate = st.kill_rate;
-            field.family_mask = st.family_mask;
-            field.marked_multiplier = 1.5f;
-            field.lifetime = 0.0f; // persistent: resubmitted every tick
-            field.owner = ctx.world.ecs().to_id(e);
-            ctx.world.damage().submit(field);
-        }
+/// The data model has 3 upgrade tiers; vfx/Particles.cpp's art authoring keys
+/// its escalation on visual_id 1..5. Spread the three tiers across that range
+/// so tier 3 gets the top-end look (most barrels, most branches, most blades)
+/// rather than the middle of it.
+u16 tier_visual(u8 tier) { return tier >= 3 ? u16{5} : (tier == 2 ? u16{3} : u16{1}); }
 
-        if (st.damage <= 0.0f) continue;
-        entt::entity te = ctx.world.ecs().from_id(tw.current_target);
-        bool have_target = tw.current_target.valid() && ctx.registry.valid(te) &&
-                           ctx.registry.all_of<comp::Health, comp::Transform>(te);
-        if (have_target) {
-            const f32 d2 = math::length_sq(ctx.registry.get<comp::Transform>(te).position - tf.position);
-            have_target = d2 <= st.range * st.range && !ctx.registry.get<comp::Health>(te).dead();
-        }
-        if (!have_target) {
-            tw.current_target = self.find_target(ctx.world, tf.position, st.range, st.family_mask, false);
-            te = ctx.world.ecs().from_id(tw.current_target);
-            have_target = tw.current_target.valid() && ctx.registry.valid(te) && ctx.registry.all_of<comp::Health>(te);
-        }
-        if (have_target) {
-            comp::Health& hp = ctx.registry.get<comp::Health>(te);
-            // Armor is a flat reduction "per damage event" (Components.h), not
-            // per tick — subtracting it from the tiny per-tick fraction
-            // (st.damage * dt, often << 1) would let any armor value >= that
-            // fraction fully nullify continuous DPS. Apply it once to the
-            // full per-second rate instead, then prorate the net by dt.
-            hp.current -= math::max(0.0f, st.damage - hp.armor) * ctx.dt;
-        }
-    }
+sim::CombatEvent tower_event(sim::CombatEventType type, TowerType source, u8 tier, Vec2 origin) {
+    sim::CombatEvent e;
+    e.type = type;
+    e.source = source;
+    e.visual_id = tier_visual(tier);
+    e.origin = origin;
+    e.secondary = origin;
+    return e;
 }
 
-/// Neutrophil: swarm. Submits a modest self field every tick; the NET / micro
-/// -unit burst is the active ability (trigger_ability), not per-tick.
-void system_neutrophil(TowerSystem& self, sim::SystemContext& ctx) {
+bool family_allowed(u8 mask, u8 family) { return (mask & static_cast<u8>(1u << family)) != 0; }
+
+bool chaff_targetable(const sim::ChaffBuffers& chaff, u32 idx, u8 mask) {
+    if (idx >= chaff.count()) return false;
+    const u8 f = chaff.flags[idx];
+    if ((f & sim::chaff_flags::kAlive) == 0) return false;
+    if ((f & sim::chaff_flags::kPendingKill) != 0) return false;
+    return family_allowed(mask, chaff.family[idx]);
+}
+
+/// "Where is the horde, roughly" — the aim point every area tower and the
+/// Gunner share. Cost is O(cells overlapping the range circle) for the search
+/// plus O(one cell's occupancy) for the refine; it never walks the chaff store.
+///
+/// Picks the fullest spatial-hash cell that can actually contain an in-range
+/// agent (a cell whose NEAREST point is out of range provably cannot), then
+/// returns the centroid of that cell's in-range agents. Deterministic: cell
+/// scan order is row-major and ties keep the first (lowest-index) cell.
+bool acquire_focus(const sim::SimWorld& world, Vec2 origin, f32 range, u8 mask, Vec2& out) {
+    const sim::SpatialHash& hash = world.spatial();
+    const sim::ChaffBuffers& chaff = world.chaff();
+    if (chaff.count() == 0) return false;
+    const IVec2 dims = hash.grid_dims();
+    if (dims.x <= 0 || dims.y <= 0) return false;
+
+    const f32 cs = hash.cell_size();
+    const Vec2 gmin = hash.bounds().min;
+    const IVec2 lo = hash.cell_coord(origin - Vec2{range, range});
+    const IVec2 hi = hash.cell_coord(origin + Vec2{range, range});
+    const u32* occ = hash.occupancy();
+    const f32 r2 = range * range;
+
+    u32 best_cell = kNoIndex;
+    u32 best_occ = 0;
+    for (i32 y = lo.y; y <= hi.y; ++y) {
+        for (i32 x = lo.x; x <= hi.x; ++x) {
+            const u32 ci = hash.cell_index(IVec2{x, y});
+            const u32 n = occ[ci];
+            if (n <= best_occ) continue;
+            const f32 cx0 = gmin.x + static_cast<f32>(x) * cs;
+            const f32 cy0 = gmin.y + static_cast<f32>(y) * cs;
+            const f32 dx = math::clamp(origin.x, cx0, cx0 + cs) - origin.x;
+            const f32 dy = math::clamp(origin.y, cy0, cy0 + cs) - origin.y;
+            if (dx * dx + dy * dy > r2) continue;
+            best_occ = n;
+            best_cell = ci;
+        }
+    }
+    if (best_cell == kNoIndex) return false;
+
+    u32 begin = 0, end = 0;
+    hash.cell_range(best_cell, begin, end);
+    const u32* indices = hash.indices();
+    const u32 indexed = static_cast<u32>(hash.indexed_count());
+    if (end > indexed) end = indexed;
+
+    Vec2 in_range{0.0f, 0.0f};
+    Vec2 anywhere{0.0f, 0.0f};
+    u32 n_in = 0;
+    u32 n_any = 0;
+    for (u32 s = begin; s < end; ++s) {
+        const u32 a = indices[s];
+        if (!chaff_targetable(chaff, a, mask)) continue;
+        const Vec2 p{chaff.pos_x[a], chaff.pos_y[a]};
+        anywhere += p;
+        ++n_any;
+        if (math::length_sq(p - origin) > r2) continue;
+        in_range += p;
+        ++n_in;
+    }
+    if (n_in > 0) {
+        out = in_range / static_cast<f32>(n_in);
+        return true;
+    }
+    if (n_any == 0) return false;
+    // Every agent in the fullest reachable cell sits just past the radius (its
+    // near corner was in range, its agents are not). Aim at the clamped point
+    // rather than dropping the target and stuttering.
+    const Vec2 c = anywhere / static_cast<f32>(n_any);
+    const Vec2 d = c - origin;
+    const f32 l = math::length(d);
+    out = (l > range && l > math::kEpsilon) ? origin + d * (range / l) : c;
+    return true;
+}
+
+/// Nearest live matching chaff agent to `from` within `radius`, skipping the
+/// `n_exclude` indices in `exclude`. Ties resolve to the lowest chaff index, so
+/// the walk is a pure function of the store's contents.
+u32 nearest_chaff(const sim::SimWorld& world, Vec2 from, f32 radius, u8 mask,
+                  const u32* exclude, u32 n_exclude, Vec2& out_pos) {
+    static thread_local std::vector<u32> scratch;
+    if (scratch.capacity() < 1024) scratch.reserve(1024);
+    scratch.clear();
+    world.spatial().query_circle(from, radius, scratch);
+
+    const sim::ChaffBuffers& chaff = world.chaff();
+    const f32 r2 = radius * radius;
+    u32 best = kNoIndex;
+    f32 best_d2 = 0.0f;
+    for (u32 idx : scratch) {
+        if (!chaff_targetable(chaff, idx, mask)) continue;
+        bool skip = false;
+        for (u32 k = 0; k < n_exclude; ++k) {
+            if (exclude[k] == idx) { skip = true; break; }
+        }
+        if (skip) continue;
+        const f32 dx = chaff.pos_x[idx] - from.x;
+        const f32 dy = chaff.pos_y[idx] - from.y;
+        const f32 d2 = dx * dx + dy * dy;
+        if (d2 > r2) continue;
+        if (best == kNoIndex || d2 < best_d2) {
+            best = idx;
+            best_d2 = d2;
+            out_pos = Vec2{chaff.pos_x[idx], chaff.pos_y[idx]};
+        }
+    }
+    return best;
+}
+
+/// The aim point a tower should face this tick: the chaff focus if there is
+/// one, otherwise the nearest named agent, otherwise nothing.
+bool acquire_aim_point(TowerSystem& self, sim::SystemContext& ctx, Vec2 origin,
+                       const TowerStats& st, bool detect_hidden, Vec2& out) {
+    if (acquire_focus(ctx.world, origin, st.range, st.family_mask, out)) return true;
+    const EntityId named = self.find_target(ctx.world, origin, st.range, st.family_mask, detect_hidden);
+    if (!named.valid()) return false;
+    const entt::entity te = ctx.world.ecs().from_id(named);
+    if (!ctx.registry.valid(te) || !ctx.registry.all_of<comp::Transform>(te)) return false;
+    out = ctx.registry.get<comp::Transform>(te).position;
+    return true;
+}
+
+/// Every role also hurts named agents when it fires. Armor is a flat reduction
+/// per damage event (Components.h), and every one of these is a discrete event
+/// (a round, a shell, a discharge, a beam refresh, a rotor pulse), so it is
+/// applied straight rather than prorated by dt.
+void strike_named(TowerSystem& self, sim::SystemContext& ctx, comp::Tower& tw, Vec2 origin,
+                  const TowerStats& st, bool detect_hidden) {
+    if (st.damage <= 0.0f) return;
+    const EntityId target = self.find_target(ctx.world, origin, st.range, st.family_mask, detect_hidden);
+    if (!target.valid()) return;
+    const entt::entity te = ctx.world.ecs().from_id(target);
+    if (!ctx.registry.valid(te) || !ctx.registry.all_of<comp::Health>(te)) return;
+    comp::Health& hp = ctx.registry.get<comp::Health>(te);
+    f32 amount = math::max(0.0f, st.damage - hp.armor);
+    if (const auto* mk = ctx.registry.try_get<comp::Marked>(te)) amount *= mk->damage_multiplier;
+    hp.current -= amount;
+    tw.current_target = target;
+}
+
+Vec2 heading(f32 radians) { return Vec2{std::cos(radians), std::sin(radians)}; }
+Vec2 perp(Vec2 v) { return Vec2{-v.y, v.x}; }
+
+// ---------------------------------------------------------------------------
+// GUNNER — Neutrophil. Real projectiles; the only tower that publishes no
+// damage field at all.
+// ---------------------------------------------------------------------------
+void system_gunner(TowerSystem& self, sim::SystemContext& ctx) {
     auto view = ctx.registry.view<comp::Tower, comp::Transform>();
     for (auto e : view) {
         comp::Tower& tw = view.get<comp::Tower>(e);
         if (tw.type != TowerType::Neutrophil) continue;
-        const comp::Transform& tf = view.get<comp::Transform>(e);
+        comp::Transform& tf = view.get<comp::Transform>(e);
         const TowerStats& st = self.stats(tw.type, tw.tier);
-        sim::DamageField field;
-        field.shape = sim::FieldShape::Circle;
-        field.origin = tf.position;
-        field.radius = st.range;
-        field.kill_rate = st.kill_rate;
-        field.family_mask = st.family_mask;
-        field.lifetime = 0.0f;
-        field.owner = ctx.world.ecs().to_id(e);
-        ctx.world.damage().submit(field);
+
+        Vec2 target{};
+        if (!acquire_aim_point(self, ctx, tf.position, st, false, target)) continue;
+        Vec2 aim = math::normalize_safe(target - tf.position);
+        if (aim.x == 0.0f && aim.y == 0.0f) aim = heading(tf.rotation);
+        tf.rotation = std::atan2(aim.y, aim.x);
+        if (tw.cooldown > 0.0f) continue;
+
+        const u32 slot = tier_slot(tw.tier);
+        const f32 speed = kGunnerRoundSpeed[slot];
+        // EXACTLY ONE Rng draw per round fired, taken before anything that could
+        // fail. ProjectileSystem::update deliberately draws nothing, so the sim
+        // stream advances once per shot and not once per round-in-flight.
+        const f32 jitter = ctx.rng.range_f(-kGunnerSpread, kGunnerSpread);
+        const f32 cj = std::cos(jitter);
+        const f32 sj = std::sin(jitter);
+        const Vec2 dir{aim.x * cj - aim.y * sj, aim.x * sj + aim.y * cj};
+        const Vec2 muzzle = tf.position + aim * (st.footprint_radius + 0.15f);
+
+        sim::ProjectileSpawnParams round;
+        round.position = muzzle;
+        round.velocity = dir * speed;
+        round.damage = st.damage;
+        // Just enough to cross the full range. A round that outlives its
+        // usefulness is a store slot another round wanted.
+        round.lifetime = (st.range + 2.0f) / speed;
+        round.hit_radius = kGunnerHitRadius;
+        round.family_mask = st.family_mask;
+        round.owner = ctx.world.ecs().to_id(e);
+        round.visual_id = tier_visual(tw.tier);
+        ctx.world.projectiles().spawn(round);
+
+        sim::CombatEvent flash = tower_event(sim::CombatEventType::MuzzleFlash, tw.type, tw.tier, muzzle);
+        flash.direction = dir;
+        flash.radius = kGunnerHitRadius;
+        flash.magnitude = st.damage;
+        ctx.world.combat_events().push(flash);
+
+        strike_named(self, ctx, tw, tf.position, st, false);
+        tw.cooldown = st.fire_interval;
     }
 }
 
-/// Cytotoxic T: precision. Named agents only, high burst on cooldown, bonus
-/// multiplier vs elite (tier 1) / boss (tier >= 2).
-void system_cytotoxic_t(TowerSystem& self, sim::SystemContext& ctx) {
+// ---------------------------------------------------------------------------
+// MORTAR — Macrophage. One big Circle burst on a long cooldown, lobbed at the
+// densest thing in range.
+// ---------------------------------------------------------------------------
+void system_mortar(TowerSystem& self, sim::SystemContext& ctx) {
     auto view = ctx.registry.view<comp::Tower, comp::Transform>();
     for (auto e : view) {
         comp::Tower& tw = view.get<comp::Tower>(e);
-        if (tw.type != TowerType::CytotoxicT || tw.cooldown > 0.0f) continue;
-        const comp::Transform& tf = view.get<comp::Transform>(e);
+        if (tw.type != TowerType::Macrophage) continue;
+        comp::Transform& tf = view.get<comp::Transform>(e);
         const TowerStats& st = self.stats(tw.type, tw.tier);
-        const EntityId target = self.find_target(ctx.world, tf.position, tw.range, st.family_mask, false);
-        if (!target.valid()) continue;
-        const entt::entity te = ctx.world.ecs().from_id(target);
-        if (!ctx.registry.valid(te) || !ctx.registry.all_of<comp::Health, comp::NamedAgent>(te)) continue;
-        comp::Health& hp = ctx.registry.get<comp::Health>(te);
-        const comp::NamedAgent& agent = ctx.registry.get<comp::NamedAgent>(te);
-        const f32 tier_bonus = agent.tier >= 2 ? 2.5f : 1.75f; // named agents are always tier>=1 (elite/boss)
-        hp.current -= math::max(0.0f, st.damage * tier_bonus - hp.armor);
-        tw.current_target = target;
-        tw.cooldown = tw.fire_interval;
+
+        Vec2 target{};
+        if (!acquire_aim_point(self, ctx, tf.position, st, false, target)) continue;
+        Vec2 aim = math::normalize_safe(target - tf.position);
+        if (aim.x == 0.0f && aim.y == 0.0f) aim = heading(tf.rotation);
+        tf.rotation = std::atan2(aim.y, aim.x);
+        if (tw.cooldown > 0.0f) continue;
+
+        const f32 radius = kMortarBurstRadius[tier_slot(tw.tier)];
+
+        sim::DamageField burst;
+        burst.shape = sim::FieldShape::Circle;
+        burst.origin = target;
+        burst.radius = radius;
+        burst.kill_rate = st.kill_rate;
+        // Mostly flat with a soft edge: a shell that only kills at the exact
+        // centre does not read as a shell.
+        burst.falloff = 0.4f;
+        burst.family_mask = st.family_mask;
+        burst.marked_multiplier = 1.5f;
+        burst.lifetime = kMortarBurstSeconds;
+        burst.owner = ctx.world.ecs().to_id(e);
+        ctx.world.damage().submit(burst);
+
+        sim::CombatEvent lob = tower_event(sim::CombatEventType::MuzzleFlash, tw.type, tw.tier,
+                                           tf.position + aim * st.footprint_radius);
+        lob.direction = aim;
+        lob.magnitude = 1.0f;
+        ctx.world.combat_events().push(lob);
+
+        // radius drives the shockwave ring; the particle layer stages the
+        // land -> charge -> burst timing itself off this single event.
+        sim::CombatEvent boom = tower_event(sim::CombatEventType::Explosion, tw.type, tw.tier, target);
+        boom.direction = aim;
+        boom.radius = radius;
+        boom.magnitude = st.kill_rate * kMortarBurstSeconds;
+        ctx.world.combat_events().push(boom);
+
+        strike_named(self, ctx, tw, tf.position, st, false);
+        tw.cooldown = st.fire_interval;
     }
 }
 
-/// B-Cell: tag & chase. Simplification (documented in the report): rather
-/// than simulating a homing projectile in flight, the antibody "sticks"
-/// immediately by applying comp::Marked to the nearest named target. With no
-/// named target in range it falls back to flagging the nearest chaff agent
-/// with chaff_flags::kMarked, so the tower isn't dead weight on chaff-only
-/// waves.
-void system_bcell(TowerSystem& self, sim::SystemContext& ctx) {
+// ---------------------------------------------------------------------------
+// CRYO — Interferon. A persistent Cone field with the roster's lowest kill_rate;
+// the point is the slow, and the lockdown deep inside the cone.
+// ---------------------------------------------------------------------------
+void system_cryo(TowerSystem& self, sim::SystemContext& ctx) {
+    static thread_local std::vector<u32> scratch;
+    if (scratch.capacity() < 2048) scratch.reserve(2048);
+
     auto view = ctx.registry.view<comp::Tower, comp::Transform>();
     for (auto e : view) {
         comp::Tower& tw = view.get<comp::Tower>(e);
-        if (tw.type != TowerType::BCell || tw.cooldown > 0.0f) continue;
-        const comp::Transform& tf = view.get<comp::Transform>(e);
+        if (tw.type != TowerType::Interferon) continue;
+        comp::Transform& tf = view.get<comp::Transform>(e);
         const TowerStats& st = self.stats(tw.type, tw.tier);
-        const EntityId target = self.find_target(ctx.world, tf.position, tw.range, st.family_mask, false);
-        bool fired = false;
+        const f32 arc = kCryoArcRadians[tier_slot(tw.tier)];
 
-        if (target.valid()) {
-            const entt::entity te = ctx.world.ecs().from_id(target);
-            if (ctx.registry.valid(te)) {
-                comp::Marked mk;
-                mk.remaining = 4.0f;
-                mk.damage_multiplier = 1.5f;
-                mk.source = ctx.world.ecs().to_id(e);
-                ctx.registry.emplace_or_replace<comp::Marked>(te, mk);
-                if (st.damage > 0.0f && ctx.registry.all_of<comp::Health>(te)) {
-                    comp::Health& hp = ctx.registry.get<comp::Health>(te);
-                    hp.current -= math::max(0.0f, st.damage - hp.armor);
-                }
-                fired = true;
-            }
+        Vec2 target{};
+        Vec2 dir = heading(tf.rotation);
+        const bool have_target = acquire_aim_point(self, ctx, tf.position, st, false, target);
+        if (have_target) {
+            const Vec2 d = math::normalize_safe(target - tf.position);
+            if (d.x != 0.0f || d.y != 0.0f) dir = d;
+            tf.rotation = std::atan2(dir.y, dir.x);
         }
 
-        if (!fired) {
-            static thread_local std::vector<u32> scratch;
-            scratch.clear();
-            ctx.world.spatial().query_circle(tf.position, tw.range, scratch);
-            sim::ChaffBuffers& chaff = ctx.world.chaff();
-            f32 best_d2 = tw.range * tw.range;
-            i64 best_idx = -1;
-            for (u32 idx : scratch) {
-                if (idx >= chaff.count()) continue;
-                const f32 dx = chaff.pos_x[idx] - tf.position.x;
-                const f32 dy = chaff.pos_y[idx] - tf.position.y;
-                const f32 d2 = dx * dx + dy * dy;
-                if (d2 <= best_d2) {
-                    best_d2 = d2;
-                    best_idx = static_cast<i64>(idx);
-                }
-            }
-            if (best_idx >= 0) {
-                chaff.flags[static_cast<usize>(best_idx)] |= sim::chaff_flags::kMarked;
-                fired = true;
-            }
+        // Persistent (lifetime <= 0): resubmitted every tick by its owner, per
+        // DamageField.h. The signal is continuous even between pulses.
+        sim::DamageField cone;
+        cone.shape = sim::FieldShape::Cone;
+        cone.origin = tf.position;
+        cone.direction = dir;
+        cone.radius = st.range;
+        cone.arc_radians = arc;
+        cone.kill_rate = st.kill_rate;
+        cone.falloff = 0.5f;
+        cone.family_mask = st.family_mask;
+        cone.lifetime = 0.0f;
+        cone.owner = ctx.world.ecs().to_id(e);
+        ctx.world.damage().submit(cone);
+
+        if (!have_target || tw.cooldown > 0.0f) continue;
+
+        sim::CombatEvent pulse = tower_event(sim::CombatEventType::ConePulse, tw.type, tw.tier, tf.position);
+        pulse.direction = dir;
+        pulse.radius = st.range;
+        pulse.arc_radians = arc;
+        pulse.magnitude = 1.0f;
+        ctx.world.combat_events().push(pulse);
+
+        sim::CombatEvent emit = tower_event(sim::CombatEventType::MuzzleFlash, tw.type, tw.tier, tf.position);
+        emit.direction = dir;
+        ctx.world.combat_events().push(emit);
+
+        // The slow itself. DamageField publishes damage, not state, so there is
+        // no aggregate path for a flag — this pass is the only way to express
+        // "slowed", and it runs on the pulse cadence, not every tick.
+        scratch.clear();
+        ctx.world.spatial().query_cone(tf.position, dir, st.range, arc, scratch);
+        sim::ChaffBuffers& chaff = ctx.world.chaff();
+        const f32 cos_half = std::cos(arc);
+        const f32 r2 = st.range * st.range;
+        const f32 inner = st.range * kCryoInnerFraction;
+        u32 freezes = 0;
+        for (u32 idx : scratch) {
+            if (!chaff_targetable(chaff, idx, st.family_mask)) continue;
+            const Vec2 d = Vec2{chaff.pos_x[idx], chaff.pos_y[idx]} - tf.position;
+            const f32 d2 = math::length_sq(d);
+            if (d2 > r2) continue;
+            const f32 dist = std::sqrt(d2);
+            if (dist > math::kEpsilon && (d.x * dir.x + d.y * dir.y) / dist < cos_half) continue;
+
+            const bool was_slowed = (chaff.flags[idx] & sim::chaff_flags::kSlowed) != 0;
+            chaff.flags[idx] |= sim::chaff_flags::kSlowed;
+
+            // "Fully locked down" = caught deep in the cone rather than clipped
+            // at its fringe. Nothing in the sim clears kSlowed, so this fires at
+            // most once per agent, which is what keeps the PINGs a trickle.
+            if (was_slowed || dist > inner || freezes >= kCryoMaxFreezeEvents) continue;
+            ++freezes;
+            sim::CombatEvent frozen = tower_event(sim::CombatEventType::Freeze, tw.type, tw.tier,
+                                                  Vec2{chaff.pos_x[idx], chaff.pos_y[idx]});
+            frozen.target_family = static_cast<PathogenFamily>(chaff.family[idx]);
+            frozen.direction = dir;
+            frozen.radius = 0.7f + 0.1f * static_cast<f32>(tw.tier);
+            frozen.magnitude = 1.0f;
+            ctx.world.combat_events().push(frozen);
         }
-        if (fired) tw.cooldown = tw.fire_interval;
+
+        strike_named(self, ctx, tw, tf.position, st, false);
+        tw.cooldown = st.fire_interval;
     }
 }
 
-/// NK Cell: anti-stealth. find_target with require_detect_hidden=true is the
-/// only path that may return a Burrowed named agent.
-void system_nkcell(TowerSystem& self, sim::SystemContext& ctx) {
+// ---------------------------------------------------------------------------
+// TESLA — Cytotoxic T. One Chain field per discharge, plus one ChainArc event
+// per hop so the VFX layer draws each jagged link individually.
+// ---------------------------------------------------------------------------
+void system_tesla(TowerSystem& self, sim::SystemContext& ctx) {
     auto view = ctx.registry.view<comp::Tower, comp::Transform>();
     for (auto e : view) {
         comp::Tower& tw = view.get<comp::Tower>(e);
-        if (tw.type != TowerType::NKCell || tw.cooldown > 0.0f) continue;
-        const comp::Transform& tf = view.get<comp::Transform>(e);
+        if (tw.type != TowerType::CytotoxicT) continue;
+        comp::Transform& tf = view.get<comp::Transform>(e);
         const TowerStats& st = self.stats(tw.type, tw.tier);
-        const EntityId target =
-            self.find_target(ctx.world, tf.position, tw.range, st.family_mask, /*require_detect_hidden=*/true);
-        if (!target.valid()) continue;
-        const entt::entity te = ctx.world.ecs().from_id(target);
-        if (!ctx.registry.valid(te) || !ctx.registry.all_of<comp::Health>(te)) continue;
-        comp::Health& hp = ctx.registry.get<comp::Health>(te);
-        hp.current -= math::max(0.0f, st.damage - hp.armor);
-        tw.current_target = target;
-        tw.cooldown = tw.fire_interval;
+        const f32 hop_radius = kTeslaHopRadius[tier_slot(tw.tier)];
+
+        Vec2 aim_point{};
+        if (acquire_aim_point(self, ctx, tf.position, st, false, aim_point)) {
+            const Vec2 d = math::normalize_safe(aim_point - tf.position);
+            if (d.x != 0.0f || d.y != 0.0f) tf.rotation = std::atan2(d.y, d.x);
+        }
+        if (tw.cooldown > 0.0f) continue;
+
+        // Walk the chain once, read-only, to learn where the links go. This is
+        // ONLY for the events; the damage is applied by the aggregate Chain
+        // field below, which re-walks the same "nearest unvisited" rule.
+        u32 visited[kTeslaMaxHops];
+        u32 hops = 0;
+        Vec2 cursor = tf.position;
+        Vec2 hit{};
+        f32 weight = 1.0f;
+        u32 idx = nearest_chaff(ctx.world, cursor, st.range, st.family_mask, visited, 0, hit);
+        Vec2 first_hit = hit;
+        const sim::ChaffBuffers& chaff = ctx.world.chaff();
+
+        while (idx != kNoIndex && hops < kTeslaMaxHops) {
+            sim::CombatEvent arc = tower_event(sim::CombatEventType::ChainArc, tw.type, tw.tier, cursor);
+            arc.secondary = hit;
+            arc.direction = math::normalize_safe(hit - cursor);
+            arc.target_family = static_cast<PathogenFamily>(chaff.family[idx]);
+            arc.magnitude = weight;
+            ctx.world.combat_events().push(arc);
+
+            visited[hops++] = idx;
+            cursor = hit;
+            weight *= kTeslaHopFalloff;
+            idx = nearest_chaff(ctx.world, cursor, hop_radius, st.family_mask, visited, hops, hit);
+        }
+
+        if (hops > 0) {
+            // Anchored on the first victim, not on the tower: DamageSystem's
+            // chain walk starts at field.origin and jumps within field.radius,
+            // so anchoring here reproduces the same link sequence the events
+            // just described while keeping the jump distance a per-tier knob
+            // independent of the tower's own acquisition range.
+            sim::DamageField chain;
+            chain.shape = sim::FieldShape::Chain;
+            chain.origin = first_hit;
+            chain.radius = hop_radius;
+            chain.kill_rate = st.kill_rate;
+            chain.family_mask = st.family_mask;
+            chain.marked_multiplier = 1.5f;
+            chain.lifetime = kTeslaArcSeconds;
+            chain.owner = ctx.world.ecs().to_id(e);
+            ctx.world.damage().submit(chain);
+
+            sim::CombatEvent charge =
+                tower_event(sim::CombatEventType::MuzzleFlash, tw.type, tw.tier, tf.position);
+            charge.direction = math::normalize_safe(first_hit - tf.position);
+            ctx.world.combat_events().push(charge);
+        }
+
+        strike_named(self, ctx, tw, tf.position, st, false);
+        if (hops > 0 || st.damage > 0.0f) tw.cooldown = st.fire_interval;
     }
 }
 
-/// Complement Cascade: ultimate. Auto-casts the chain nova whenever there is
-/// any chaff in range and the ability is off cooldown — it has no other
-/// per-tick attack.
-void system_complement(TowerSystem& self, sim::SystemContext& ctx) {
+// ---------------------------------------------------------------------------
+// LASER — B-Cell. A long thin Rect along the aim, piercing everything on the
+// line at once.
+//
+// AXIS SNAP, and why it is not a shortcut: DamageField::rect is a `Rect`, which
+// is an axis-aligned box (core/Types.h) and is tested as one by
+// DamageField.cpp's test_rect. There is no rotated-rect shape in the frozen
+// contract, and the AABB of a diagonal beam is a huge square that would hit
+// everything nowhere near the line. So the aim is snapped to the nearest of the
+// four axes and the field is then EXACTLY the beam the player sees. The tower
+// re-aims as the horde moves; it simply commits to one axis at a time.
+// ---------------------------------------------------------------------------
+Vec2 axis_snap(Vec2 v) {
+    if (v.x == 0.0f && v.y == 0.0f) return Vec2{1.0f, 0.0f};
+    if (std::abs(v.x) >= std::abs(v.y)) return Vec2{v.x >= 0.0f ? 1.0f : -1.0f, 0.0f};
+    return Vec2{0.0f, v.y >= 0.0f ? 1.0f : -1.0f};
+}
+
+void system_laser(TowerSystem& self, sim::SystemContext& ctx) {
     auto view = ctx.registry.view<comp::Tower, comp::Transform>();
     for (auto e : view) {
         comp::Tower& tw = view.get<comp::Tower>(e);
-        if (tw.type != TowerType::Interferon || tw.ability_cooldown > 0.0f) continue;
-        const comp::Transform& tf = view.get<comp::Transform>(e);
+        if (tw.type != TowerType::BCell) continue;
+        comp::Transform& tf = view.get<comp::Transform>(e);
+        const TowerStats& st = self.stats(tw.type, tw.tier);
+        const f32 half_w = kLaserHalfWidth[tier_slot(tw.tier)];
+
+        Vec2 target{};
+        const bool have_target = acquire_aim_point(self, ctx, tf.position, st, false, target);
+        const Vec2 dir = have_target ? axis_snap(target - tf.position) : axis_snap(heading(tf.rotation));
+        tf.rotation = std::atan2(dir.y, dir.x);
+
+        const Vec2 tip = tf.position + dir * st.range;
+        // Thickness is perpendicular to the (axis-aligned) beam only.
+        const Vec2 thickness{dir.x != 0.0f ? 0.0f : half_w, dir.y != 0.0f ? 0.0f : half_w};
+        sim::DamageField beam;
+        beam.shape = sim::FieldShape::Rect;
+        beam.rect = Rect{Vec2{math::min(tf.position.x, tip.x), math::min(tf.position.y, tip.y)} - thickness,
+                         Vec2{math::max(tf.position.x, tip.x), math::max(tf.position.y, tip.y)} + thickness};
+        beam.kill_rate = st.kill_rate;
+        beam.falloff = 0.0f;   // a beam is as lethal at its tip as at its muzzle
+        beam.family_mask = st.family_mask;
+        beam.marked_multiplier = 1.5f;
+        beam.lifetime = 0.0f;  // persistent: continuous fire, resubmitted each tick
+        beam.owner = ctx.world.ecs().to_id(e);
+        ctx.world.damage().submit(beam);
+
+        if (!have_target || tw.cooldown > 0.0f) continue;
+
+        const Vec2 muzzle = tf.position + dir * (st.footprint_radius + 0.1f);
+        sim::CombatEvent fired = tower_event(sim::CombatEventType::BeamFired, tw.type, tw.tier, muzzle);
+        fired.secondary = tip;
+        fired.direction = dir;
+        fired.radius = half_w;
+        fired.magnitude = st.kill_rate;
+        ctx.world.combat_events().push(fired);
+
+        sim::CombatEvent charge = tower_event(sim::CombatEventType::MuzzleFlash, tw.type, tw.tier, muzzle);
+        charge.direction = dir;
+        ctx.world.combat_events().push(charge);
+
+        strike_named(self, ctx, tw, tf.position, st, false);
+        tw.cooldown = st.fire_interval;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// BLADE — NK Cell. A short 360-degree Circle field pinned to the tower, running
+// continuously, with a contact slash raised for whatever the rotor passes
+// through. The one tower that still sees Burrowed named agents.
+// ---------------------------------------------------------------------------
+void system_blade(TowerSystem& self, sim::SystemContext& ctx) {
+    static thread_local std::vector<u32> scratch;
+    if (scratch.capacity() < 1024) scratch.reserve(1024);
+
+    auto view = ctx.registry.view<comp::Tower, comp::Transform>();
+    for (auto e : view) {
+        comp::Tower& tw = view.get<comp::Tower>(e);
+        if (tw.type != TowerType::NKCell) continue;
+        comp::Transform& tf = view.get<comp::Transform>(e);
         const TowerStats& st = self.stats(tw.type, tw.tier);
 
-        sim::DamageField probe;
-        probe.shape = sim::FieldShape::Circle;
-        probe.origin = tf.position;
-        probe.radius = st.range;
-        probe.family_mask = st.family_mask;
-        const f32 density = ctx.world.damage().measure_density(ctx.world.chaff(), ctx.world.spatial(), probe);
-        if (density > 0.0f) self.trigger_ability(ctx.world, ctx.world.ecs().to_id(e));
+        // The rotor never stops, so its facing is a pure function of elapsed
+        // ticks rather than of any target.
+        tf.rotation += kBladeSpinRadPerSec * ctx.dt;
+        if (tf.rotation > math::kTwoPi) tf.rotation -= math::kTwoPi;
+        const Vec2 arm = heading(tf.rotation);
+
+        sim::DamageField rotor;
+        rotor.shape = sim::FieldShape::Circle;
+        rotor.origin = tf.position;
+        rotor.radius = st.range;
+        rotor.kill_rate = st.kill_rate;
+        rotor.falloff = 0.0f;   // contact damage: uniform inside the disc
+        rotor.family_mask = st.family_mask;
+        rotor.marked_multiplier = 1.5f;
+        rotor.lifetime = 0.0f;  // persistent: continuous contact
+        rotor.owner = ctx.world.ecs().to_id(e);
+        ctx.world.damage().submit(rotor);
+
+        if (tw.cooldown > 0.0f) continue;
+
+        scratch.clear();
+        ctx.world.spatial().query_circle(tf.position, st.range, scratch);
+        const sim::ChaffBuffers& chaff = ctx.world.chaff();
+        const f32 r2 = st.range * st.range;
+        u32 slashes = 0;
+        for (u32 idx : scratch) {
+            if (slashes >= kBladeMaxSlashEvents) break;
+            if (!chaff_targetable(chaff, idx, st.family_mask)) continue;
+            const Vec2 p{chaff.pos_x[idx], chaff.pos_y[idx]};
+            const Vec2 d = p - tf.position;
+            if (math::length_sq(d) > r2) continue;
+            ++slashes;
+            sim::CombatEvent cut = tower_event(sim::CombatEventType::BladeSlash, tw.type, tw.tier, p);
+            // Blade travel at the contact point is tangential, not radial.
+            cut.direction = perp(math::normalize_safe(d));
+            if (cut.direction.x == 0.0f && cut.direction.y == 0.0f) cut.direction = perp(arm);
+            cut.target_family = static_cast<PathogenFamily>(chaff.family[idx]);
+            cut.radius = st.range;
+            cut.magnitude = 1.0f;
+            ctx.world.combat_events().push(cut);
+        }
+
+        if (slashes > 0) {
+            sim::CombatEvent sweep =
+                tower_event(sim::CombatEventType::MuzzleFlash, tw.type, tw.tier, tf.position);
+            sweep.direction = arm;
+            sweep.radius = st.range;
+            ctx.world.combat_events().push(sweep);
+        }
+
+        // The ONLY targeting path that may return a Burrowed named agent.
+        strike_named(self, ctx, tw, tf.position, st, /*detect_hidden=*/true);
+        tw.cooldown = st.fire_interval;
     }
 }
 
@@ -694,7 +1178,13 @@ EntityId TowerSystem::place(sim::SimWorld& world, TowerType type, Vec2 world_pos
     tw.type = type;
     tw.tier = 1;
     tw.range = st.range;
-    tw.cooldown = 0.0f;
+    // Spin-up: a tower starts one full fire_interval from its first shot rather
+    // than discharging on the tick it is dropped. For the Gunner that is 90ms
+    // and invisible; for the Mortar it is the difference between "placed a
+    // tower" and "instantly deleted the wave you were about to be hit by", and
+    // tests/scripts/tower_thins_horde.json asserts exactly that (no kills on
+    // the placement tick).
+    tw.cooldown = st.fire_interval;
     tw.fire_interval = st.fire_interval;
     tw.ability_cooldown = 0.0f;
     registry.emplace<comp::Tower>(e, tw);
@@ -800,15 +1290,46 @@ bool TowerSystem::trigger_ability(sim::SimWorld& world, EntityId tower) {
         break;
     }
     case TowerType::Interferon: {
-        sim::DamageField chain;
-        chain.shape = sim::FieldShape::Chain;
-        chain.origin = tf.position;
-        chain.radius = st.range;
-        chain.kill_rate = st.kill_rate;
-        chain.family_mask = st.family_mask;
-        chain.lifetime = 0.2f;
-        chain.owner = tower;
-        world.damage().submit(chain);
+        // FLASH FREEZE. The cone is the Cryo's per-tick job; the ability is the
+        // panic button: a full 360-degree lockdown of everything in range, plus
+        // a short high-rate field so it is not purely cosmetic.
+        sim::DamageField nova;
+        nova.shape = sim::FieldShape::Circle;
+        nova.origin = tf.position;
+        nova.radius = st.range;
+        nova.kill_rate = st.kill_rate * 4.0f;
+        nova.falloff = 0.0f;
+        nova.family_mask = st.family_mask;
+        nova.lifetime = 0.35f;
+        nova.owner = tower;
+        world.damage().submit(nova);
+
+        static thread_local std::vector<u32> scratch;
+        if (scratch.capacity() < 2048) scratch.reserve(2048);
+        scratch.clear();
+        world.spatial().query_circle(tf.position, st.range, scratch);
+        sim::ChaffBuffers& chaff = world.chaff();
+        const f32 r2 = st.range * st.range;
+        u32 freezes = 0;
+        for (u32 idx : scratch) {
+            if (idx >= chaff.count()) continue;
+            if ((chaff.flags[idx] & sim::chaff_flags::kAlive) == 0) continue;
+            const Vec2 d = Vec2{chaff.pos_x[idx], chaff.pos_y[idx]} - tf.position;
+            if (math::length_sq(d) > r2) continue;
+            const bool was_slowed = (chaff.flags[idx] & sim::chaff_flags::kSlowed) != 0;
+            chaff.flags[idx] |= sim::chaff_flags::kSlowed;
+            if (was_slowed || freezes >= 12u) continue;
+            ++freezes;
+            sim::CombatEvent frozen;
+            frozen.type = sim::CombatEventType::Freeze;
+            frozen.source = TowerType::Interferon;
+            frozen.visual_id = tier_visual(tw.tier);
+            frozen.origin = Vec2{chaff.pos_x[idx], chaff.pos_y[idx]};
+            frozen.secondary = frozen.origin;
+            frozen.target_family = static_cast<PathogenFamily>(chaff.family[idx]);
+            frozen.radius = 0.9f;
+            world.combat_events().push(frozen);
+        }
         break;
     }
     default:
@@ -854,18 +1375,22 @@ void TowerSystem::register_systems(sim::SimWorld& world) {
 
     ecs.add_system(sim::SystemPhase::PreUpdate, "tower_cooldowns", 20, &system_tower_cooldowns);
 
-    ecs.add_system(sim::SystemPhase::Combat, "tower_macrophage", 0,
-                   [this](sim::SystemContext& ctx) { system_macrophage(*this, ctx); });
-    ecs.add_system(sim::SystemPhase::Combat, "tower_neutrophil", 1,
-                   [this](sim::SystemContext& ctx) { system_neutrophil(*this, ctx); });
-    ecs.add_system(sim::SystemPhase::Combat, "tower_cytotoxic_t", 3,
-                   [this](sim::SystemContext& ctx) { system_cytotoxic_t(*this, ctx); });
-    ecs.add_system(sim::SystemPhase::Combat, "tower_bcell", 4,
-                   [this](sim::SystemContext& ctx) { system_bcell(*this, ctx); });
-    ecs.add_system(sim::SystemPhase::Combat, "tower_nkcell", 5,
-                   [this](sim::SystemContext& ctx) { system_nkcell(*this, ctx); });
-    ecs.add_system(sim::SystemPhase::Combat, "tower_interferon", 7,
-                   [this](sim::SystemContext& ctx) { system_complement(*this, ctx); });
+    // Sort keys are the canonical roster order (core/Types.h). Fixed order is a
+    // determinism requirement, not a preference: the Gunner draws from the sim
+    // Rng when it fires, so any reshuffle here would move every downstream
+    // system's numbers.
+    ecs.add_system(sim::SystemPhase::Combat, "tower_gunner", 0,
+                   [this](sim::SystemContext& ctx) { system_gunner(*this, ctx); });
+    ecs.add_system(sim::SystemPhase::Combat, "tower_mortar", 1,
+                   [this](sim::SystemContext& ctx) { system_mortar(*this, ctx); });
+    ecs.add_system(sim::SystemPhase::Combat, "tower_cryo", 2,
+                   [this](sim::SystemContext& ctx) { system_cryo(*this, ctx); });
+    ecs.add_system(sim::SystemPhase::Combat, "tower_tesla", 3,
+                   [this](sim::SystemContext& ctx) { system_tesla(*this, ctx); });
+    ecs.add_system(sim::SystemPhase::Combat, "tower_laser", 4,
+                   [this](sim::SystemContext& ctx) { system_laser(*this, ctx); });
+    ecs.add_system(sim::SystemPhase::Combat, "tower_blade", 5,
+                   [this](sim::SystemContext& ctx) { system_blade(*this, ctx); });
     ecs.add_system(sim::SystemPhase::Combat, "tower_net_upkeep", 8, &system_net_upkeep);
 
     ecs.add_system(sim::SystemPhase::Movement, "tower_ephemeral_drift", 50, &system_ephemeral_drift);

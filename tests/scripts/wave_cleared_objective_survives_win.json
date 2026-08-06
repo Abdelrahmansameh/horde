@@ -8,6 +8,7 @@
   "actions": [
     { "tick": 0, "type": "place_tower", "tower": "macrophage", "pos": [8, 72] },
     { "tick": 0, "type": "place_tower", "tower": "macrophage", "pos": [10, 70] },
+    { "tick": 0, "type": "place_tower", "tower": "nk_cell", "pos": [11, 73] },
     { "tick": 1, "type": "spawn_chaff", "family": "bacteria", "count": 40, "pos": [8, 72], "radius": 3 }
   ],
   "assertions": [

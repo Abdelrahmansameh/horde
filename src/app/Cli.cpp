@@ -42,6 +42,8 @@ const char* usage_text() {
 "  immune --bench <scenario> [--ticks N]               headless sim, JSON timings on stdout\n"
 "  immune --sim-test <script.json>                     scripted run, exit 0 pass / 1 fail\n"
 "  immune --screenshot <level> --tick N --out <f.png>  deterministic frame capture\n"
+"      --towers                                        place every tower type first,\n"
+"                                                      so the shot shows real combat\n"
 "  immune --list-scenarios                             print available bench scenarios\n"
 "\n"
 "OPTIONS\n"
@@ -88,6 +90,8 @@ Options parse_args(int argc, char** argv) {
             tick_set = true;
         } else if (a == "--out" || a == "-o") {
             if (!next_value(argc, argv, i, a, o.out_path, o.error)) break;
+        } else if (a == "--towers") {
+            o.place_towers = true;
         } else if (a == "--level") {
             if (!next_value(argc, argv, i, a, o.level, o.error)) break;
         } else if (a == "--scenario") {
