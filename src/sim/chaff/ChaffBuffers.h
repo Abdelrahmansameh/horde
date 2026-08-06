@@ -123,7 +123,17 @@ public:
 
     /// Sum of `density` over all live agents — the "how big is the horde really"
     /// number the HUD threat meter and wave-clear check use.
-    f32 total_density() const { return total_density_; }
+    ///
+    /// `total_density_` is a running accumulator (+= on spawn, -= on damage/
+    /// compact), not recomputed from the live array. Over many waves of small
+    /// per-tick float32 subtractions it can drift to a tiny nonzero residual
+    /// even once every agent is gone — compact() only clamps the *negative*
+    /// case, so a positive residual persists forever and the wave-clear
+    /// checker's `<= 0.0f` test never fires, silently forcing the full
+    /// Clearing-phase timeout on every single wave. Since zero live agents
+    /// means zero density by definition, short-circuit on count_ so this
+    /// check is exact regardless of accumulated drift.
+    f32 total_density() const { return count_ == 0 ? 0.0f : total_density_; }
 
     void clear();
 

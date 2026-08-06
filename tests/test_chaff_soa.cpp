@@ -258,3 +258,39 @@ TEST_CASE("heavy spawn/kill/compact churn preserves I1-I4", "[sim][chaff][soa][i
         }
     }
 }
+
+TEST_CASE("total_density is exactly zero once every agent is gone, even under drift",
+          "[sim][chaff][soa]") {
+    // total_density_ is a running accumulator (+= on spawn, -= on damage/
+    // compact), not recomputed from the live array, so float32 rounding can
+    // leave it at a tiny nonzero residual after enough small subtractions --
+    // the test above tolerates exactly that with a 0.01f margin. A residue
+    // that's merely "close to zero" is harmless almost everywhere it's read,
+    // except the wave-clear check (WaveDirector's `horde_gone`), which does
+    // a strict `<= 0.0f` comparison: any leftover positive residue defeats
+    // it forever and the game silently falls back to the full Clearing-phase
+    // timeout on every wave, no matter how long you actually wait. This
+    // reproduces that drift with many tiny apply_density_loss() calls, then
+    // asserts the documented count()==0 short-circuit holds exactly.
+    ChaffBuffers b;
+    b.reserve(64);
+    Rng rng(20260805);
+
+    for (int agent = 0; agent < 40; ++agent) {
+        b.spawn(make(rng.range_f(-50.0f, 50.0f), rng.range_f(-50.0f, 50.0f),
+                    static_cast<PathogenFamily>(rng.next_below(kFamilyCount)),
+                    rng.range_f(3.0f, 8.0f)));
+    }
+
+    // Whittle every agent down via many small, non-round losses rather than
+    // one clean kill -- this is what actually accumulates float error.
+    while (b.count() > 0) {
+        for (usize i = 0; i < b.count(); ++i) {
+            b.apply_density_loss(i, 0.03f);
+        }
+        b.compact();
+    }
+
+    REQUIRE(b.count() == 0);
+    REQUIRE(b.total_density() == 0.0f);
+}
