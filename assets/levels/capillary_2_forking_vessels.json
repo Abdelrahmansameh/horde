@@ -2,20 +2,72 @@
   "schema": 1,
   "name": "capillary_2_forking_vessels",
   "region": "capillary",
-  "world": { "min": [0, 0], "max": [256, 160], "cell_size": 0.5 },
+  "world": {
+    "min": [
+      0,
+      0
+    ],
+    "max": [
+      260.15,
+      160.0
+    ],
+    "cell_size": 0.5
+  },
   "vessels": [
     {
       "id": "capillary_a",
       "lane_id": "capillary_a",
       "vessel_type": "artery",
       "points": [
-        { "p": [10, 50],  "w": 9.0 },
-        { "p": [60, 50],  "w": 9.0 },
-        { "p": [90, 50],  "w": 2.5 },
-        { "p": [120, 50], "w": 2.5 },
-        { "p": [150, 55], "w": 6.0 },
-        { "p": [210, 80], "w": 7.0 },
-        { "p": [248, 90], "w": 8.0 }
+        {
+          "p": [
+            11.55,
+            50.0
+          ],
+          "w": 17.1
+        },
+        {
+          "p": [
+            61.55,
+            50.0
+          ],
+          "w": 17.1
+        },
+        {
+          "p": [
+            91.55,
+            50.0
+          ],
+          "w": 4.75
+        },
+        {
+          "p": [
+            121.55,
+            50.0
+          ],
+          "w": 4.75
+        },
+        {
+          "p": [
+            151.55,
+            55.0
+          ],
+          "w": 11.4
+        },
+        {
+          "p": [
+            211.55,
+            80.0
+          ],
+          "w": 13.3
+        },
+        {
+          "p": [
+            249.55,
+            90.0
+          ],
+          "w": 15.2
+        }
       ],
       "children": []
     },
@@ -24,30 +76,154 @@
       "lane_id": "capillary_b",
       "vessel_type": "vein",
       "points": [
-        { "p": [10, 130],  "w": 9.0 },
-        { "p": [60, 130],  "w": 9.0 },
-        { "p": [90, 130],  "w": 2.5 },
-        { "p": [120, 130], "w": 2.5 },
-        { "p": [150, 120], "w": 6.0 },
-        { "p": [210, 100], "w": 7.0 },
-        { "p": [248, 90],  "w": 8.0 }
+        {
+          "p": [
+            11.55,
+            130.0
+          ],
+          "w": 17.1
+        },
+        {
+          "p": [
+            61.55,
+            130.0
+          ],
+          "w": 17.1
+        },
+        {
+          "p": [
+            91.55,
+            130.0
+          ],
+          "w": 4.75
+        },
+        {
+          "p": [
+            121.55,
+            130.0
+          ],
+          "w": 4.75
+        },
+        {
+          "p": [
+            151.55,
+            120.0
+          ],
+          "w": 11.4
+        },
+        {
+          "p": [
+            211.55,
+            100.0
+          ],
+          "w": 13.3
+        },
+        {
+          "p": [
+            249.55,
+            90.0
+          ],
+          "w": 15.2
+        }
       ],
       "children": []
     }
   ],
   "portals": [
-    { "id": "p_a", "pos": [10, 50],  "radius": 4.0, "lane_id": "capillary_a" },
-    { "id": "p_b", "pos": [10, 130], "radius": 4.0, "lane_id": "capillary_b" }
+    {
+      "id": "p_a",
+      "pos": [
+        11.55,
+        50.0
+      ],
+      "radius": 7.6,
+      "lane_id": "capillary_a"
+    },
+    {
+      "id": "p_b",
+      "pos": [
+        11.55,
+        130.0
+      ],
+      "radius": 7.6,
+      "lane_id": "capillary_b"
+    }
   ],
   "objectives": [
-    { "id": "organ", "pos": [248, 90], "radius": 6.0, "integrity": 100 }
+    {
+      "id": "organ",
+      "pos": [
+        249.55,
+        90.0
+      ],
+      "radius": 6.0,
+      "integrity": 100
+    }
   ],
   "placement_zones": [
-    { "min": [76, 40],  "max": [134, 60],  "concentrated": true,  "priority": 2.0 },
-    { "min": [76, 120], "max": [134, 140], "concentrated": true,  "priority": 2.0 },
-    { "min": [195, 75], "max": [240, 105], "concentrated": true,  "priority": 2.5 },
-    { "min": [14, 42],  "max": [70, 58],   "concentrated": false, "priority": 1.0 },
-    { "min": [14, 122], "max": [70, 138],  "concentrated": false, "priority": 1.0 }
+    {
+      "min": [
+        77.55,
+        40.0
+      ],
+      "max": [
+        135.55,
+        60.0
+      ],
+      "concentrated": true,
+      "priority": 2.0
+    },
+    {
+      "min": [
+        77.55,
+        120.0
+      ],
+      "max": [
+        135.55,
+        140.0
+      ],
+      "concentrated": true,
+      "priority": 2.0
+    },
+    {
+      "min": [
+        196.55,
+        75.0
+      ],
+      "max": [
+        241.55,
+        105.0
+      ],
+      "concentrated": true,
+      "priority": 2.5
+    },
+    {
+      "min": [
+        15.55,
+        42.0
+      ],
+      "max": [
+        71.55,
+        58.0
+      ],
+      "concentrated": false,
+      "priority": 1.0
+    },
+    {
+      "min": [
+        15.55,
+        122.0
+      ],
+      "max": [
+        71.55,
+        138.0
+      ],
+      "concentrated": false,
+      "priority": 1.0
+    }
   ],
-  "ambient_drift": [0.0, 0.0]
+  "ambient_drift": [
+    0.0,
+    0.0
+  ]
 }

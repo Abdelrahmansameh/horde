@@ -553,3 +553,70 @@ TEST_CASE("a dense pack stops overlapping instead of stacking",
     REQUIRE(after < contact_radius * 0.25f);
     REQUIRE(after < before * 0.5f);
 }
+
+TEST_CASE("spawn_burst never places two agents inside each other",
+          "[sim][chaff][spawn]") {
+    // Uniform-random placement in a disc (what this used to do) overlaps by
+    // construction -- it is the birthday problem, so a burst of any size
+    // reliably produced interpenetrating agents that the contact pass then had
+    // to unpick over the following ticks. The phyllotaxis packing places them
+    // evenly instead, so a burst is clean the instant it appears.
+    //
+    // Measured at spawn time, with no ticks run: this is about the spawn
+    // pattern itself, not about relaxation rescuing it afterwards.
+    ChaffTuning tuning = flat_tuning(/*accel*/ 0.0f, /*max_speed*/ 6.0f,
+                                     /*sep_radius*/ 1.2f, /*sep_strength*/ 8.0f,
+                                     /*jitter*/ 0.0f);
+    ChaffSystem sys;
+    sys.set_tuning(tuning);
+
+    const f32 contact_d =
+        tuning.family[0].radius * tuning.family[0].contact_spacing;
+
+    for (const u32 count : {8u, 60u, 250u}) {
+        ChaffBuffers buffers;
+        buffers.reserve(512);
+        Rng rng(4242);
+        // A portal far too small to hold the burst, to prove the packing grows
+        // the disc rather than stacking agents inside the requested radius.
+        const u32 spawned =
+            sys.spawn_burst(buffers, PathogenFamily::Virus, Vec2{50.0f, 50.0f},
+                            /*portal_radius*/ 1.5f, count, rng);
+        REQUIRE(spawned == count);
+
+        f32 worst = 0.0f;
+        for (usize a = 0; a < buffers.count(); ++a) {
+            for (usize b = a + 1; b < buffers.count(); ++b) {
+                const f32 dx = buffers.pos_x[a] - buffers.pos_x[b];
+                const f32 dy = buffers.pos_y[a] - buffers.pos_y[b];
+                worst = math::max(worst, contact_d - std::sqrt(dx * dx + dy * dy));
+            }
+        }
+        INFO("count=" << count << " worst penetration=" << worst
+                      << " (contact diameter " << contact_d << ")");
+        REQUIRE(worst <= 0.0f);
+    }
+}
+
+TEST_CASE("spawn_burst stays deterministic and varies between bursts",
+          "[sim][chaff][spawn]") {
+    ChaffTuning tuning = flat_tuning(0.0f, 6.0f, 1.2f, 8.0f, 0.0f);
+    ChaffSystem sys;
+    sys.set_tuning(tuning);
+
+    auto burst = [&](u64 seed) {
+        ChaffBuffers b;
+        b.reserve(64);
+        Rng rng(seed);
+        sys.spawn_burst(b, PathogenFamily::Bacteria, Vec2{10.0f, 10.0f}, 4.0f, 24, rng);
+        std::vector<f32> out;
+        for (usize i = 0; i < b.count(); ++i) { out.push_back(b.pos_x[i]); out.push_back(b.pos_y[i]); }
+        return out;
+    };
+
+    // Same seed -> identical placement (the pattern is a pure function of the
+    // one phase draw), different seed -> a rotated pattern, so repeated waves
+    // out of one portal are not stamped on top of each other.
+    REQUIRE(burst(7) == burst(7));
+    REQUIRE(burst(7) != burst(8));
+}

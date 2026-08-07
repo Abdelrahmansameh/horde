@@ -565,11 +565,54 @@ ChaffUpdateStats ChaffSystem::update(ChaffBuffers& buffers, const FlowField& flo
 u32 ChaffSystem::spawn_burst(ChaffBuffers& buffers, PathogenFamily family, Vec2 portal,
                              f32 portal_radius, u32 count, Rng& rng) const {
     const ChaffFamilyParams& fp = tuning_.family[static_cast<u32>(family)];
+    if (count == 0) return 0;
+
+    // SPAWN PACKING (was: rng.unit_disc() * portal_radius, i.e. uniform random
+    // inside the disc). Uniform random placement puts agents on top of each
+    // other by construction -- with n points in a disc the expected number of
+    // overlapping pairs is not small, it is the birthday problem, so a burst
+    // reliably spawned a knot of interpenetrating agents that then had to be
+    // shoved apart by the contact pass over the following ticks. That looked
+    // exactly like the thing the contact pass was added to prevent.
+    //
+    // Replaced with a golden-angle (phyllotaxis) spiral: the arrangement
+    // sunflower seeds use. Points land at
+    //     r = R * sqrt((i + 0.5) / n),  theta = i * golden_angle
+    // which fills the disc at uniform DENSITY -- the sqrt keeps area per point
+    // constant -- while the irrational angle guarantees no two points ever line
+    // up. Spacing is even by construction, so no rejection sampling, no
+    // retries, and cost stays O(1) per agent.
+    const f32 kGoldenAngle = 2.39996323f;   // pi * (3 - sqrt(5))
+
+    // Grow the disc if the requested radius cannot hold `count` agents at
+    // contact distance. Growing the portal is the right trade: a burst that
+    // does not fit has to go somewhere, and spilling slightly wider reads far
+    // better than spawning a solid interpenetrating plug in the middle.
+    //
+    // For a phyllotaxis disc the closest pair sits about 1.55*R/sqrt(n) apart
+    // (nearest neighbours are Fibonacci-index offsets, not adjacent indices,
+    // which is why the naive uniform-density estimate R*sqrt(pi/n) is too
+    // optimistic and let small bursts overlap). Inverting that and keeping a
+    // little margin gives the 0.75 below; tests/test_chaff_system.cpp measures
+    // the worst pair at several burst sizes so this constant cannot rot.
+    const f32 contact_d = fp.radius * fp.contact_spacing;
+    const f32 needed = contact_d * std::sqrt(static_cast<f32>(count)) * 0.75f;
+    const f32 radius = math::max(portal_radius, needed);
+
+    // One draw, for the whole burst: a random spiral phase so successive waves
+    // out of the same portal are not stamped identically. Rotating the pattern
+    // cannot disturb the spacing, whereas per-agent jitter would reintroduce
+    // exactly the overlap this is here to remove.
+    const f32 phase = rng.range_f(0.0f, math::kTwoPi);
+
     u32 spawned = 0;
     for (u32 i = 0; i < count; ++i) {
         if (buffers.full()) break;
+        const f32 t = (static_cast<f32>(i) + 0.5f) / static_cast<f32>(count);
+        const f32 r = radius * std::sqrt(t);
+        const f32 a = phase + static_cast<f32>(i) * kGoldenAngle;
         ChaffSpawnParams p;
-        p.position = portal + rng.unit_disc() * portal_radius;
+        p.position = portal + Vec2{std::cos(a), std::sin(a)} * r;
         p.family = family;
         p.density = fp.base_density > 0.0f ? fp.base_density : 1.0f;
         if (buffers.spawn(p).valid()) ++spawned;

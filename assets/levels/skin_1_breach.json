@@ -2,32 +2,124 @@
   "schema": 1,
   "name": "skin_1_breach",
   "region": "skin",
-  "world": { "min": [0, 0], "max": [140, 90], "cell_size": 0.5 },
+  "world": {
+    "min": [
+      0,
+      0
+    ],
+    "max": [
+      140.0,
+      90.0
+    ],
+    "cell_size": 0.5
+  },
   "vessels": [
     {
       "id": "main",
       "lane_id": "main",
       "vessel_type": "vein",
       "points": [
-        { "p": [10, 45], "w": 7.0 },
-        { "p": [45, 45], "w": 6.0 },
-        { "p": [70, 25], "w": 6.0 },
-        { "p": [95, 45], "w": 6.0 },
-        { "p": [130, 45], "w": 7.0 }
+        {
+          "p": [
+            10,
+            45
+          ],
+          "w": 13.3
+        },
+        {
+          "p": [
+            45,
+            45
+          ],
+          "w": 11.4
+        },
+        {
+          "p": [
+            70,
+            25
+          ],
+          "w": 11.4
+        },
+        {
+          "p": [
+            95,
+            45
+          ],
+          "w": 11.4
+        },
+        {
+          "p": [
+            130,
+            45
+          ],
+          "w": 13.3
+        }
       ],
       "children": []
     }
   ],
   "portals": [
-    { "id": "p0", "pos": [10, 45], "radius": 4.0, "lane_id": "main" }
+    {
+      "id": "p0",
+      "pos": [
+        10,
+        45
+      ],
+      "radius": 7.6,
+      "lane_id": "main"
+    }
   ],
   "objectives": [
-    { "id": "organ", "pos": [130, 45], "radius": 5.0, "integrity": 100 }
+    {
+      "id": "organ",
+      "pos": [
+        130,
+        45
+      ],
+      "radius": 5.0,
+      "integrity": 100
+    }
   ],
   "placement_zones": [
-    { "min": [14, 34], "max": [42, 56], "concentrated": false, "priority": 1.0 },
-    { "min": [52, 10], "max": [90, 40], "concentrated": true, "priority": 2.5 },
-    { "min": [96, 36], "max": [126, 54], "concentrated": false, "priority": 1.0 }
+    {
+      "min": [
+        14,
+        34
+      ],
+      "max": [
+        42,
+        56
+      ],
+      "concentrated": false,
+      "priority": 1.0
+    },
+    {
+      "min": [
+        52,
+        10
+      ],
+      "max": [
+        90,
+        40
+      ],
+      "concentrated": true,
+      "priority": 2.5
+    },
+    {
+      "min": [
+        96,
+        36
+      ],
+      "max": [
+        126,
+        54
+      ],
+      "concentrated": false,
+      "priority": 1.0
+    }
   ],
-  "ambient_drift": [0.0, 0.0]
+  "ambient_drift": [
+    0.0,
+    0.0
+  ]
 }

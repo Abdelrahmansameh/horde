@@ -2,16 +2,44 @@
   "schema": 1,
   "name": "lane_schema_test",
   "region": "organ_chamber",
-  "world": { "min": [0, 0], "max": [160, 140], "cell_size": 0.5 },
+  "world": {
+    "min": [
+      0,
+      0
+    ],
+    "max": [
+      164.5,
+      140.0
+    ],
+    "cell_size": 0.5
+  },
   "vessels": [
     {
       "id": "artery_main",
       "lane_id": "artery_main",
       "vessel_type": "artery",
       "points": [
-        { "p": [8, 20],   "w": 10.0 },
-        { "p": [80, 45],  "w": 8.0 },
-        { "p": [140, 72], "w": 7.0 }
+        {
+          "p": [
+            12.5,
+            20.0
+          ],
+          "w": 19.0
+        },
+        {
+          "p": [
+            84.5,
+            45.0
+          ],
+          "w": 15.2
+        },
+        {
+          "p": [
+            144.5,
+            72.0
+          ],
+          "w": 13.3
+        }
       ],
       "children": []
     },
@@ -20,9 +48,27 @@
       "lane_id": "lymph_main",
       "vessel_type": "lymphatic",
       "points": [
-        { "p": [8, 72],   "w": 9.0 },
-        { "p": [80, 72],  "w": 8.0 },
-        { "p": [140, 72], "w": 7.0 }
+        {
+          "p": [
+            12.5,
+            72.0
+          ],
+          "w": 17.1
+        },
+        {
+          "p": [
+            84.5,
+            72.0
+          ],
+          "w": 15.2
+        },
+        {
+          "p": [
+            144.5,
+            72.0
+          ],
+          "w": 13.3
+        }
       ],
       "children": []
     },
@@ -31,24 +77,99 @@
       "lane_id": "nerve_main",
       "vessel_type": "nerve_adjacent",
       "points": [
-        { "p": [8, 124],  "w": 8.0 },
-        { "p": [80, 99],  "w": 7.0 },
-        { "p": [140, 72], "w": 7.0 }
+        {
+          "p": [
+            12.5,
+            124.0
+          ],
+          "w": 15.2
+        },
+        {
+          "p": [
+            84.5,
+            99.0
+          ],
+          "w": 13.3
+        },
+        {
+          "p": [
+            144.5,
+            72.0
+          ],
+          "w": 13.3
+        }
       ],
       "children": []
     }
   ],
   "portals": [
-    { "id": "p_artery", "pos": [8, 20],  "radius": 5.0, "lane_id": "artery_main" },
-    { "id": "p_lymph",  "pos": [8, 72],  "radius": 5.0, "lane_id": "lymph_main" },
-    { "id": "p_nerve",  "pos": [8, 124], "radius": 5.0, "lane_id": "nerve_main" }
+    {
+      "id": "p_artery",
+      "pos": [
+        12.5,
+        20.0
+      ],
+      "radius": 9.5,
+      "lane_id": "artery_main"
+    },
+    {
+      "id": "p_lymph",
+      "pos": [
+        12.5,
+        72.0
+      ],
+      "radius": 9.5,
+      "lane_id": "lymph_main"
+    },
+    {
+      "id": "p_nerve",
+      "pos": [
+        12.5,
+        124.0
+      ],
+      "radius": 9.5,
+      "lane_id": "nerve_main"
+    }
   ],
   "objectives": [
-    { "id": "organ", "pos": [140, 72], "radius": 8.0, "integrity": 100 }
+    {
+      "id": "organ",
+      "pos": [
+        144.5,
+        72.0
+      ],
+      "radius": 8.0,
+      "integrity": 100
+    }
   ],
   "placement_zones": [
-    { "min": [60, 55], "max": [100, 90], "concentrated": true, "priority": 2.0 },
-    { "min": [10, 10], "max": [150, 135], "concentrated": false, "priority": 1.0 }
+    {
+      "min": [
+        64.5,
+        55.0
+      ],
+      "max": [
+        104.5,
+        90.0
+      ],
+      "concentrated": true,
+      "priority": 2.0
+    },
+    {
+      "min": [
+        14.5,
+        10.0
+      ],
+      "max": [
+        154.5,
+        135.0
+      ],
+      "concentrated": false,
+      "priority": 1.0
+    }
   ],
-  "ambient_drift": [0.0, 0.0]
+  "ambient_drift": [
+    0.0,
+    0.0
+  ]
 }

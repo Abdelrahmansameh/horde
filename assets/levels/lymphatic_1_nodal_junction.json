@@ -2,18 +2,58 @@
   "schema": 1,
   "name": "lymphatic_1_nodal_junction",
   "region": "lymphatic",
-  "world": { "min": [0, 0], "max": [280, 180], "cell_size": 0.5 },
+  "world": {
+    "min": [
+      0,
+      0
+    ],
+    "max": [
+      284.4,
+      180.0
+    ],
+    "cell_size": 0.5
+  },
   "vessels": [
     {
       "id": "lymph_main",
       "lane_id": "lymph_main",
       "vessel_type": "lymphatic",
       "points": [
-        { "p": [10, 90],   "w": 12.0 },
-        { "p": [70, 60],   "w": 11.0 },
-        { "p": [130, 90],  "w": 11.0 },
-        { "p": [200, 90],  "w": 10.0 },
-        { "p": [260, 90],  "w": 10.0 }
+        {
+          "p": [
+            14.4,
+            90.0
+          ],
+          "w": 22.8
+        },
+        {
+          "p": [
+            74.4,
+            60.0
+          ],
+          "w": 20.9
+        },
+        {
+          "p": [
+            134.4,
+            90.0
+          ],
+          "w": 20.9
+        },
+        {
+          "p": [
+            204.4,
+            90.0
+          ],
+          "w": 19.0
+        },
+        {
+          "p": [
+            264.4,
+            90.0
+          ],
+          "w": 19.0
+        }
       ],
       "children": []
     },
@@ -22,12 +62,48 @@
       "lane_id": "vein_trib",
       "vessel_type": "vein",
       "points": [
-        { "p": [10, 30],   "w": 10.0 },
-        { "p": [60, 30],   "w": 9.0 },
-        { "p": [100, 55],  "w": 9.0 },
-        { "p": [160, 80],  "w": 9.0 },
-        { "p": [220, 90],  "w": 9.0 },
-        { "p": [260, 90],  "w": 10.0 }
+        {
+          "p": [
+            14.4,
+            30.0
+          ],
+          "w": 19.0
+        },
+        {
+          "p": [
+            64.4,
+            30.0
+          ],
+          "w": 17.1
+        },
+        {
+          "p": [
+            104.4,
+            55.0
+          ],
+          "w": 17.1
+        },
+        {
+          "p": [
+            164.4,
+            80.0
+          ],
+          "w": 17.1
+        },
+        {
+          "p": [
+            224.4,
+            90.0
+          ],
+          "w": 17.1
+        },
+        {
+          "p": [
+            264.4,
+            90.0
+          ],
+          "w": 19.0
+        }
       ],
       "children": []
     },
@@ -36,32 +112,180 @@
       "lane_id": "nerve_trib",
       "vessel_type": "nerve_adjacent",
       "points": [
-        { "p": [10, 150],  "w": 10.0 },
-        { "p": [60, 150],  "w": 9.0 },
-        { "p": [100, 120], "w": 9.0 },
-        { "p": [160, 100], "w": 9.0 },
-        { "p": [220, 90],  "w": 9.0 },
-        { "p": [260, 90],  "w": 10.0 }
+        {
+          "p": [
+            14.4,
+            150.0
+          ],
+          "w": 19.0
+        },
+        {
+          "p": [
+            64.4,
+            150.0
+          ],
+          "w": 17.1
+        },
+        {
+          "p": [
+            104.4,
+            120.0
+          ],
+          "w": 17.1
+        },
+        {
+          "p": [
+            164.4,
+            100.0
+          ],
+          "w": 17.1
+        },
+        {
+          "p": [
+            224.4,
+            90.0
+          ],
+          "w": 17.1
+        },
+        {
+          "p": [
+            264.4,
+            90.0
+          ],
+          "w": 19.0
+        }
       ],
       "children": []
     }
   ],
   "portals": [
-    { "id": "p_lymph", "pos": [10, 90],  "radius": 5.0, "lane_id": "lymph_main" },
-    { "id": "p_vein",  "pos": [10, 30],  "radius": 5.0, "lane_id": "vein_trib" },
-    { "id": "p_nerve", "pos": [10, 150], "radius": 5.0, "lane_id": "nerve_trib" }
+    {
+      "id": "p_lymph",
+      "pos": [
+        14.4,
+        90.0
+      ],
+      "radius": 9.5,
+      "lane_id": "lymph_main"
+    },
+    {
+      "id": "p_vein",
+      "pos": [
+        14.4,
+        30.0
+      ],
+      "radius": 9.5,
+      "lane_id": "vein_trib"
+    },
+    {
+      "id": "p_nerve",
+      "pos": [
+        14.4,
+        150.0
+      ],
+      "radius": 9.5,
+      "lane_id": "nerve_trib"
+    }
   ],
   "objectives": [
-    { "id": "node", "pos": [260, 90], "radius": 8.0, "integrity": 100 }
+    {
+      "id": "node",
+      "pos": [
+        264.4,
+        90.0
+      ],
+      "radius": 8.0,
+      "integrity": 100
+    }
   ],
   "placement_zones": [
-    { "min": [45, 45],  "max": [105, 105], "concentrated": true,  "priority": 2.0 },
-    { "min": [75, 40],  "max": [135, 90],  "concentrated": true,  "priority": 1.8 },
-    { "min": [75, 90],  "max": [135, 140], "concentrated": true,  "priority": 1.8 },
-    { "min": [195, 65], "max": [250, 115], "concentrated": true,  "priority": 2.2 },
-    { "min": [14, 80],  "max": [65, 100],  "concentrated": false, "priority": 1.0 },
-    { "min": [14, 20],  "max": [55, 40],   "concentrated": false, "priority": 1.0 },
-    { "min": [14, 140], "max": [55, 160],  "concentrated": false, "priority": 1.0 }
+    {
+      "min": [
+        49.4,
+        45.0
+      ],
+      "max": [
+        109.4,
+        105.0
+      ],
+      "concentrated": true,
+      "priority": 2.0
+    },
+    {
+      "min": [
+        79.4,
+        40.0
+      ],
+      "max": [
+        139.4,
+        90.0
+      ],
+      "concentrated": true,
+      "priority": 1.8
+    },
+    {
+      "min": [
+        79.4,
+        90.0
+      ],
+      "max": [
+        139.4,
+        140.0
+      ],
+      "concentrated": true,
+      "priority": 1.8
+    },
+    {
+      "min": [
+        199.4,
+        65.0
+      ],
+      "max": [
+        254.4,
+        115.0
+      ],
+      "concentrated": true,
+      "priority": 2.2
+    },
+    {
+      "min": [
+        18.4,
+        80.0
+      ],
+      "max": [
+        69.4,
+        100.0
+      ],
+      "concentrated": false,
+      "priority": 1.0
+    },
+    {
+      "min": [
+        18.4,
+        20.0
+      ],
+      "max": [
+        59.4,
+        40.0
+      ],
+      "concentrated": false,
+      "priority": 1.0
+    },
+    {
+      "min": [
+        18.4,
+        140.0
+      ],
+      "max": [
+        59.4,
+        160.0
+      ],
+      "concentrated": false,
+      "priority": 1.0
+    }
   ],
-  "ambient_drift": [0.0, 0.0]
+  "ambient_drift": [
+    0.0,
+    0.0
+  ]
 }

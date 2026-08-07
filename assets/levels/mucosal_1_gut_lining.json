@@ -2,80 +2,297 @@
   "schema": 1,
   "name": "mucosal_1_gut_lining",
   "region": "mucosal",
-  "world": { "min": [0, 0], "max": [340, 200], "cell_size": 0.5 },
+  "world": {
+    "min": [
+      0,
+      0
+    ],
+    "max": [
+      363.5,
+      204.0
+    ],
+    "cell_size": 0.5
+  },
   "vessels": [
     {
       "id": "fold_north",
       "lane_id": "fold_north",
       "vessel_type": "mucosal_fold",
       "points": [
-        { "p": [10, 20],  "w": 20.0 },
-        { "p": [70, 35],  "w": 20.0 },
-        { "p": [140, 90], "w": 26.0 }
+        {
+          "p": [
+            23.9,
+            22.0
+          ],
+          "w": 38.0
+        },
+        {
+          "p": [
+            83.9,
+            37.0
+          ],
+          "w": 38.0
+        },
+        {
+          "p": [
+            153.9,
+            92.0
+          ],
+          "w": 49.4
+        }
       ],
-      "children": ["trunk"]
+      "children": [
+        "trunk"
+      ]
     },
     {
       "id": "fold_mid_n",
       "lane_id": "fold_mid_n",
       "vessel_type": "mucosal_fold",
       "points": [
-        { "p": [10, 70],  "w": 22.0 },
-        { "p": [70, 75],  "w": 22.0 },
-        { "p": [140, 90], "w": 26.0 }
+        {
+          "p": [
+            23.9,
+            72.0
+          ],
+          "w": 41.8
+        },
+        {
+          "p": [
+            83.9,
+            77.0
+          ],
+          "w": 41.8
+        },
+        {
+          "p": [
+            153.9,
+            92.0
+          ],
+          "w": 49.4
+        }
       ],
-      "children": ["trunk"]
+      "children": [
+        "trunk"
+      ]
     },
     {
       "id": "lymph_fold",
       "lane_id": "lymph_fold",
       "vessel_type": "lymphatic",
       "points": [
-        { "p": [10, 130], "w": 20.0 },
-        { "p": [70, 110], "w": 20.0 },
-        { "p": [140, 90], "w": 26.0 }
+        {
+          "p": [
+            23.9,
+            132.0
+          ],
+          "w": 38.0
+        },
+        {
+          "p": [
+            83.9,
+            112.0
+          ],
+          "w": 38.0
+        },
+        {
+          "p": [
+            153.9,
+            92.0
+          ],
+          "w": 49.4
+        }
       ],
-      "children": ["trunk"]
+      "children": [
+        "trunk"
+      ]
     },
     {
       "id": "fold_south",
       "lane_id": "fold_south",
       "vessel_type": "mucosal_fold",
       "points": [
-        { "p": [10, 180], "w": 20.0 },
-        { "p": [70, 150], "w": 20.0 },
-        { "p": [140, 90], "w": 26.0 }
+        {
+          "p": [
+            23.9,
+            182.0
+          ],
+          "w": 38.0
+        },
+        {
+          "p": [
+            83.9,
+            152.0
+          ],
+          "w": 38.0
+        },
+        {
+          "p": [
+            153.9,
+            92.0
+          ],
+          "w": 49.4
+        }
       ],
-      "children": ["trunk"]
+      "children": [
+        "trunk"
+      ]
     },
     {
       "id": "trunk",
       "lane_id": "trunk",
       "vessel_type": "mucosal_fold",
       "points": [
-        { "p": [140, 90], "w": 28.0 },
-        { "p": [230, 90], "w": 28.0 },
-        { "p": [320, 90], "w": 28.0 }
+        {
+          "p": [
+            153.9,
+            92.0
+          ],
+          "w": 53.2
+        },
+        {
+          "p": [
+            243.9,
+            92.0
+          ],
+          "w": 53.2
+        },
+        {
+          "p": [
+            333.9,
+            92.0
+          ],
+          "w": 53.2
+        }
       ],
       "children": []
     }
   ],
   "portals": [
-    { "id": "p_north", "pos": [10, 20],  "radius": 10.0, "lane_id": "fold_north" },
-    { "id": "p_mid_n",  "pos": [10, 70],  "radius": 10.0, "lane_id": "fold_mid_n" },
-    { "id": "p_lymph",  "pos": [10, 130], "radius": 10.0, "lane_id": "lymph_fold" },
-    { "id": "p_south",  "pos": [10, 180], "radius": 10.0, "lane_id": "fold_south" }
+    {
+      "id": "p_north",
+      "pos": [
+        23.9,
+        22.0
+      ],
+      "radius": 19.0,
+      "lane_id": "fold_north"
+    },
+    {
+      "id": "p_mid_n",
+      "pos": [
+        23.9,
+        72.0
+      ],
+      "radius": 19.0,
+      "lane_id": "fold_mid_n"
+    },
+    {
+      "id": "p_lymph",
+      "pos": [
+        23.9,
+        132.0
+      ],
+      "radius": 19.0,
+      "lane_id": "lymph_fold"
+    },
+    {
+      "id": "p_south",
+      "pos": [
+        23.9,
+        182.0
+      ],
+      "radius": 19.0,
+      "lane_id": "fold_south"
+    }
   ],
   "objectives": [
-    { "id": "organ", "pos": [320, 90], "radius": 10.0, "integrity": 100 }
+    {
+      "id": "organ",
+      "pos": [
+        333.9,
+        92.0
+      ],
+      "radius": 10.0,
+      "integrity": 100
+    }
   ],
   "placement_zones": [
-    { "min": [95, 15],  "max": [175, 175], "concentrated": true,  "priority": 2.5 },
-    { "min": [185, 60], "max": [300, 120], "concentrated": false, "priority": 1.0 },
-    { "min": [14, 10],  "max": [65, 30],   "concentrated": false, "priority": 0.8 },
-    { "min": [14, 60],  "max": [65, 80],   "concentrated": false, "priority": 0.8 },
-    { "min": [14, 120], "max": [65, 140],  "concentrated": false, "priority": 0.8 },
-    { "min": [14, 170], "max": [65, 190],  "concentrated": false, "priority": 0.8 }
+    {
+      "min": [
+        108.9,
+        17.0
+      ],
+      "max": [
+        188.9,
+        177.0
+      ],
+      "concentrated": true,
+      "priority": 2.5
+    },
+    {
+      "min": [
+        198.9,
+        62.0
+      ],
+      "max": [
+        313.9,
+        122.0
+      ],
+      "concentrated": false,
+      "priority": 1.0
+    },
+    {
+      "min": [
+        27.9,
+        12.0
+      ],
+      "max": [
+        78.9,
+        32.0
+      ],
+      "concentrated": false,
+      "priority": 0.8
+    },
+    {
+      "min": [
+        27.9,
+        62.0
+      ],
+      "max": [
+        78.9,
+        82.0
+      ],
+      "concentrated": false,
+      "priority": 0.8
+    },
+    {
+      "min": [
+        27.9,
+        122.0
+      ],
+      "max": [
+        78.9,
+        142.0
+      ],
+      "concentrated": false,
+      "priority": 0.8
+    },
+    {
+      "min": [
+        27.9,
+        172.0
+      ],
+      "max": [
+        78.9,
+        192.0
+      ],
+      "concentrated": false,
+      "priority": 0.8
+    }
   ],
-  "ambient_drift": [0.0, 0.0]
+  "ambient_drift": [
+    0.0,
+    0.0
+  ]
 }

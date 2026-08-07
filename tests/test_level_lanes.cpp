@@ -223,32 +223,47 @@ TEST_CASE("build_lane_ownership_map attributes known points on lane_schema_test.
     REQUIRE(map.lane_types[2] == VesselType::NerveAdjacent);
 
     // Grid geometry matches the level's world/cell_size, independent of any
-    // live TissueMask.
-    REQUIRE(map.width == 320);  // 160 / 0.5
-    REQUIRE(map.height == 280); // 140 / 0.5
-    REQUIRE(map.cell_size == 0.5f);
+    // live TissueMask. Derived from the level rather than hardcoded: these were
+    // literal cell counts (320x280) until a pass widened every lane and grew
+    // the world to fit, at which point the numbers were wrong and said nothing
+    // about whether the mapping worked.
+    const Vec2 world_size = def.world_bounds.size();
+    REQUIRE(map.cell_size == def.cell_size);
+    REQUIRE(map.width == static_cast<i32>(world_size.x / def.cell_size));
+    REQUIRE(map.height == static_cast<i32>(world_size.y / def.cell_size));
 
-    // Near each lane's own portal, well clear of the other two lanes' lumens
-    // and of the shared convergence point at (140,72).
-    REQUIRE(map.lane_at(Vec2{8.0f, 20.0f}) == 0);   // artery portal
-    REQUIRE(map.lane_at(Vec2{8.0f, 72.0f}) == 1);   // lymph portal
-    REQUIRE(map.lane_at(Vec2{8.0f, 124.0f}) == 2);  // nerve portal
+    // Each portal must be attributed to the lane it is authored on. Probing at
+    // the portal's real position (not a copied literal) keeps this meaningful
+    // when the level geometry moves.
+    for (const SpawnPortal& portal : def.portals) {
+        const i32 owner = map.lane_at(portal.position);
+        INFO("portal " << portal.id << " lane_id=" << portal.lane_id);
+        REQUIRE(owner >= 0);
+        REQUIRE(map.lane_ids[static_cast<usize>(owner)] == portal.lane_id);
+    }
 
-    // Mid-lane point on the lymph lane's straight run (80,72)-(140,72), clear
-    // of the artery curve (which sits around y~54 at this x) and the nerve
-    // curve (which sits around y~90 at this x).
-    REQUIRE(map.lane_at(Vec2{100.0f, 72.0f}) == 1);
+    // A mid-lane point on the lymph lane, taken from its own control points and
+    // nudged back along the lane so it stays clear of the shared convergence
+    // point where all three lumens meet.
+    const Vessel* lymph = nullptr;
+    for (const Vessel& v : def.vessels) {
+        if (v.lane_id == "lymph_main") lymph = &v;
+    }
+    REQUIRE(lymph != nullptr);
+    REQUIRE(lymph->points.size() >= 2);
+    const Vec2 mid = lymph->points[lymph->points.size() - 2].position;
+    REQUIRE(map.lane_at(mid) == 1);
 
     // A point nowhere near any lane is unowned.
-    REQUIRE(map.lane_at(Vec2{2.0f, 2.0f}) == -1);
+    REQUIRE(map.lane_at(def.world_bounds.min + Vec2{1.0f, 1.0f}) == -1);
 
     // The shared convergence point: all three lanes' final control point
-    // coincides at (140,72) with the same width, so this is a genuine lumen
-    // overlap. build_lane_ownership_map()'s documented first-claim-wins rule
-    // means the first lane in authoring order (artery_main, index 0) owns it
-    // -- this is the known approximation, asserted explicitly rather than
-    // left as an accident.
-    REQUIRE(map.lane_at(Vec2{140.0f, 72.0f}) == 0);
+    // coincides with the same width, so this is a genuine lumen overlap.
+    // build_lane_ownership_map()'s documented first-claim-wins rule means the
+    // first lane in authoring order (artery_main, index 0) owns it -- this is
+    // the known approximation, asserted explicitly rather than left as an
+    // accident.
+    REQUIRE(map.lane_at(lymph->points.back().position) == 0);
 }
 
 TEST_CASE("build_lane_ownership_map on a single-lane level yields exactly one lane "
