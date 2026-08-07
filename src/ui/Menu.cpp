@@ -138,4 +138,54 @@ MenuResult Menu::build_level_select(const std::vector<LevelEntry>& levels,
     return result;
 }
 
+MenuResult Menu::build_level_failed_screen(i32 screen_width, i32 screen_height) {
+    MenuResult result;
+    center_next_window(screen_width, screen_height, 480.0f, 280.0f);
+    if (ImGui::Begin("##level_failed", nullptr, kPanelFlags)) {
+        ImGui::Dummy(ImVec2(0.0f, 20.0f));
+        draw_title("Level Failed", 1.8f);
+        ImGui::Dummy(ImVec2(0.0f, 16.0f));
+
+        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+        center_next_item(ImGui::CalcTextSize("Objective destroyed.").x);
+        ImGui::TextUnformatted("Objective destroyed.");
+        ImGui::PopStyleColor();
+
+        ImGui::Dummy(ImVec2(0.0f, 24.0f));
+        const ImVec2 button{180.0f, 42.0f};
+
+        center_next_item(button.x);
+        if (ImGui::Button("Restart", button)) result.action = MenuAction::RestartLevel;
+
+        ImGui::Dummy(ImVec2(0.0f, 8.0f));
+        center_next_item(button.x);
+        if (ImGui::Button("Menu", button)) result.action = MenuAction::Back;
+    }
+    ImGui::End();
+    return result;
+}
+
+MenuResult Menu::build_level_complete_screen(i32 screen_width, i32 screen_height) {
+    MenuResult result;
+    center_next_window(screen_width, screen_height, 480.0f, 280.0f);
+    if (ImGui::Begin("##level_complete", nullptr, kPanelFlags)) {
+        ImGui::Dummy(ImVec2(0.0f, 20.0f));
+        draw_title("Level Complete", 1.8f);
+        ImGui::Dummy(ImVec2(0.0f, 16.0f));
+
+        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+        center_next_item(ImGui::CalcTextSize("All waves cleared!").x);
+        ImGui::TextUnformatted("All waves cleared!");
+        ImGui::PopStyleColor();
+
+        ImGui::Dummy(ImVec2(0.0f, 24.0f));
+        const ImVec2 button{180.0f, 42.0f};
+
+        center_next_item(button.x);
+        if (ImGui::Button("Menu", button)) result.action = MenuAction::Back;
+    }
+    ImGui::End();
+    return result;
+}
+
 } // namespace immune::ui

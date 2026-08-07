@@ -495,11 +495,19 @@ int run_screenshot(const Options& opt) {
     game::TowerSystem towers;
     towers.register_systems(world);
     if (opt.place_towers) {
+        TowerType only = TowerType::Count;
+        if (!opt.tower_filter.empty()) {
+            if (!game::parse_tower_type(opt.tower_filter, only)) {
+                IMMUNE_LOG_ERROR("unknown --tower '%s'", opt.tower_filter.c_str());
+                return 1;
+            }
+        }
         const Rect b = world.desc().world_bounds;
         const f32 mid_y = b.center().y;
         u32 placed = 0;
         for (u32 t = 0; t < kTowerTypeCount; ++t) {
             const auto type = static_cast<TowerType>(t);
+            if (only != TowerType::Count && type != only) continue;
             const f32 frac = (static_cast<f32>(t) + 1.0f) / (kTowerTypeCount + 1.0f);
             const f32 x = b.min.x + b.size().x * frac;
             for (const f32 dy : {0.0f, 4.0f, -4.0f, 8.0f, -8.0f, 12.0f, -12.0f}) {
@@ -514,8 +522,25 @@ int run_screenshot(const Options& opt) {
         IMMUNE_LOG_INFO("screenshot: placed %u/%u towers", placed, kTowerTypeCount);
     }
 
-    // Advance the deterministic sim to the requested tick before rendering.
-    world.run_ticks(opt.ticks, nullptr);
+    // Advance the deterministic sim to the requested tick before rendering,
+    // draining combat events and stepping particles ONCE PER TICK as we go --
+    // exactly the cadence App::render_frame() uses at 60 FPS. Draining once at
+    // the very end and only stepping particles a few catch-up frames (the
+    // first version of this code did that) crushes an entire run's worth of
+    // muzzle flashes into one overlapping blob a few pixels wide instead of
+    // the spread stream continuous play actually produces -- it looked like a
+    // tower's attack was barely there when the tower was firing correctly the
+    // whole time. A screenshot is only useful as a diagnostic if it shows what
+    // real play looks like.
+    vfx::ParticleSystem particles;
+    particles.init(vfx::ParticleSystem::kDefaultCapacity, opt.seed ^ 0xA5A5'5A5AULL);
+    for (u64 i = 0; i < opt.ticks; ++i) {
+        world.tick(nullptr);
+        const auto& evts = world.combat_events().events();
+        particles.emit_for_events(evts.data(), evts.size());
+        world.combat_events().clear();
+        particles.update(kFixedDt, nullptr);
+    }
 
     platform::Window window;
     if (!platform::create_headless_gl(window, opt.width, opt.height)) {
@@ -536,19 +561,10 @@ int run_screenshot(const Options& opt) {
     render::Camera camera;
     camera.set_viewport(window.width(), window.height());
     camera.set_bounds(world.desc().world_bounds);
-    camera.set_center(world.desc().world_bounds.center());
-    camera.set_view_height(world.desc().world_bounds.size().y);
+    camera.set_center(opt.has_focus ? opt.focus : world.desc().world_bounds.center());
+    camera.set_view_height(opt.view_height > 0.0f ? opt.view_height
+                                                  : world.desc().world_bounds.size().y);
     camera.clamp_to_bounds();
-
-    // Drain the combat events the run above raised into particles, then step
-    // the layer a few render frames so bursts are mid-flight rather than all
-    // sitting exactly at birth. Mirrors App::render_frame()'s order.
-    vfx::ParticleSystem particles;
-    particles.init(vfx::ParticleSystem::kDefaultCapacity, opt.seed ^ 0xA5A5'5A5AULL);
-    const auto& evts = world.combat_events().events();
-    particles.emit_for_events(evts.data(), evts.size());
-    world.combat_events().clear();
-    for (int i = 0; i < 3; ++i) particles.update(1.0f / 60.0f, nullptr);
 
     std::vector<vfx::ParticleInstance> pinst;
     pinst.reserve(vfx::ParticleSystem::kDefaultCapacity);

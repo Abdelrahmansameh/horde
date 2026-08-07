@@ -46,14 +46,14 @@ struct SpeedProfile {
 
 SpeedProfile speed_profile(SpeedTier tier) {
     switch (tier) {
-        case SpeedTier::Slow:    return SpeedProfile{2.5f, 9.0f, 0.12f};
-        case SpeedTier::Normal:  return SpeedProfile{4.5f, 16.0f, 0.30f};
-        case SpeedTier::Fast:    return SpeedProfile{7.5f, 28.0f, 0.45f};
+        case SpeedTier::Slow:    return SpeedProfile{5.625f, 20.25f, 0.12f};
+        case SpeedTier::Normal:  return SpeedProfile{10.125f, 36.0f, 0.30f};
+        case SpeedTier::Fast:    return SpeedProfile{16.875f, 63.0f, 0.45f};
         // Erratic reads through jitter, not raw top speed: sudden, unpredictable
         // impulses rather than a flat-out sprint (DESIGN.md's Parasite tempo).
-        case SpeedTier::Erratic: return SpeedProfile{5.5f, 20.0f, 1.00f};
+        case SpeedTier::Erratic: return SpeedProfile{12.375f, 45.0f, 1.00f};
     }
-    return SpeedProfile{4.0f, 16.0f, 0.30f};
+    return SpeedProfile{9.0f, 36.0f, 0.30f};
 }
 
 // ---------------------------------------------------------------------------
@@ -740,17 +740,17 @@ void EnemyRoster::load_defaults() {
     elites_.push_back(EliteDef{
         .id = 1, .name = "parasite_burrower", .family = PathogenFamily::Parasite,
         .tier = ThreatTier::Elite, .max_health = 420.0f, .armor = 1.5f,
-        .speed = 3.4f, .sprite_size = 1.7f, .ability_cooldown = 5.0f,
+        .speed = 7.65f, .sprite_size = 6.12f, .ability_cooldown = 5.0f,
         .telegraph_duration = 0.6f, .atp_bounty = 70});
     elites_.push_back(EliteDef{
         .id = 2, .name = "biofilm_colony", .family = PathogenFamily::Bacteria,
         .tier = ThreatTier::Elite, .max_health = 950.0f, .armor = 5.0f,
-        .speed = 1.1f, .sprite_size = 2.1f, .ability_cooldown = 4.5f,
+        .speed = 2.475f, .sprite_size = 7.56f, .ability_cooldown = 4.5f,
         .telegraph_duration = 0.5f, .atp_bounty = 100});
     elites_.push_back(EliteDef{
         .id = 3, .name = "tumor_mass", .family = PathogenFamily::CancerCell,
         .tier = ThreatTier::Boss, .max_health = 5000.0f, .armor = 8.0f,
-        .speed = 0.0f, .sprite_size = 3.2f, .ability_cooldown = 30.0f,
+        .speed = 0.0f, .sprite_size = 11.52f, .ability_cooldown = 30.0f,
         .telegraph_duration = 1.0f, .atp_bounty = 800});
     // Organ-chamber finale boss (DESIGN.md §6.4's two-simultaneous-pressures
     // framework). Biggest silhouette in the roster, per the readability rule
@@ -759,14 +759,14 @@ void EnemyRoster::load_defaults() {
     elites_.push_back(EliteDef{
         .id = 4, .name = "abscess_hulk", .family = PathogenFamily::Bacteria,
         .tier = ThreatTier::Boss, .max_health = 15000.0f, .armor = 12.0f,
-        .speed = 0.9f, .sprite_size = 3.8f, .ability_cooldown = 9.0f,
+        .speed = 2.025f, .sprite_size = 13.68f, .ability_cooldown = 9.0f,
         .telegraph_duration = 1.3f, .atp_bounty = 1800});
     // Mucosal (floodplain) region elite: see make_spore_colossus_behavior's
     // doc comment for the defensive gap it tests.
     elites_.push_back(EliteDef{
         .id = 5, .name = "spore_colossus", .family = PathogenFamily::FungalSpore,
         .tier = ThreatTier::Elite, .max_health = 1400.0f, .armor = 3.0f,
-        .speed = 1.6f, .sprite_size = 2.4f, .ability_cooldown = 5.5f,
+        .speed = 3.6f, .sprite_size = 8.64f, .ability_cooldown = 5.5f,
         .telegraph_duration = 0.7f, .atp_bounty = 220});
 }
 

@@ -131,7 +131,22 @@ TEST_CASE("kDrifting agents ignore the flow field and follow ambient drift",
     REQUIRE(buffers.pos_x[0] == Catch::Approx(25.0f).margin(0.01f)); // NOT pulled toward goal
 }
 
-TEST_CASE("kClumped disables separation", "[sim][chaff][movement][flags]") {
+TEST_CASE("kClumped disables steering separation but still resolves overlap",
+          "[sim][chaff][movement][flags]") {
+    // REFINED CONTRACT (movement overhaul). This used to assert that a clumped
+    // pair's distance was completely unchanged. It no longer is, deliberately:
+    // the positional contact pass applies to clumped agents too.
+    //
+    // The distinction is between a *preference* and a *fact*. kClumped means
+    // "biofilm bacteria do not try to spread out" -- that is the steering
+    // separation impulse, and it stays off. It does not mean "two cells may
+    // occupy the same point", which is not a behaviour at all, just overlapping
+    // sprites. A biofilm should read as a densely packed mat, and a mat still
+    // has cells sitting beside each other rather than inside each other.
+    //
+    // So the assertion becomes relative: a clumped pair settles to contact
+    // distance and stops, while a free pair with a strong separation impulse is
+    // driven much further apart.
     const Rect bounds{Vec2{0.0f, 0.0f}, Vec2{50.0f, 50.0f}};
     FlowField flow = make_radial_flow(bounds, Vec2{25.0f, 25.0f});
     DistanceField sdf;
@@ -183,8 +198,22 @@ TEST_CASE("kClumped disables separation", "[sim][chaff][movement][flags]") {
     rebuild(hash, free_pair);
     sys.update(free_pair, flow, sdf, hash, rng_b, kFixedDt, nullptr);
 
-    REQUIRE(dist(clumped) == Catch::Approx(before_clumped).margin(1e-5f));  // unchanged
-    REQUIRE(dist(free_pair) > before_free + 1e-4f);                          // pushed apart
+    const f32 after_clumped = dist(clumped);
+    const f32 after_free = dist(free_pair);
+
+    // Both un-overlap: neither pair is left stacked on the same point.
+    REQUIRE(after_clumped > before_clumped);
+    REQUIRE(after_free > before_free);
+
+    // But the clumped pair is separated ONLY by the geometric contact
+    // correction, while the free pair also gets the (very strong, 200) steering
+    // impulse on top. That gap is what kClumped still buys.
+    REQUIRE(after_free > after_clumped * 2.0f);
+
+    // And the clumped pair stops at contact distance rather than being driven
+    // on: radius 0.5 * contact_spacing 2.0 = 1.0 world units, approached over a
+    // few ticks at contact_stiffness 0.7 and never exceeded.
+    REQUIRE(after_clumped < 1.05f);
 }
 
 TEST_CASE("kSlowed lowers the effective max speed", "[sim][chaff][movement][flags]") {
@@ -448,4 +477,79 @@ TEST_CASE("below the parallel_for grain, serial and multi-worker results match e
         REQUIRE(a.vel_x[i] == b.vel_x[i]);
         REQUIRE(a.vel_y[i] == b.vel_y[i]);
     }
+}
+
+TEST_CASE("a dense pack stops overlapping instead of stacking",
+          "[sim][chaff][movement][crowd]") {
+    // The movement overhaul's headline requirement, as a measurement rather
+    // than a vibe: pack far more agents into a space than comfortably fit and
+    // assert that they end up beside each other, not inside each other.
+    //
+    // This is what a velocity-only separation impulse could NOT deliver, and
+    // why the positional contact pass exists. Separation is a force, forces are
+    // rationed by max_speed, and that ration is already spoken for by the flow
+    // field -- so however deep an overlap got, agents could only unstack at
+    // walking pace, which at high density means never. The contact pass moves
+    // positions directly and is not subject to that budget.
+    const Rect bounds{Vec2{0.0f, 0.0f}, Vec2{60.0f, 60.0f}};
+    FlowField flow = make_radial_flow(bounds, Vec2{55.0f, 30.0f});
+    DistanceField sdf;   // unbaked: no walls, isolate agent-agent behaviour
+    SpatialHash hash = make_hash(bounds, 4.0f);
+
+    ChaffTuning tuning = flat_tuning(/*accel*/ 12.0f, /*max_speed*/ 6.0f,
+                                     /*sep_radius*/ 1.2f, /*sep_strength*/ 8.0f,
+                                     /*jitter*/ 0.0f);
+    const f32 contact_radius =
+        tuning.family[0].radius * tuning.family[0].contact_spacing;
+
+    // 400 agents seeded inside a 4-unit disc. At contact_radius 1.0 that is
+    // several times denser than can physically resolve, so the pass has to do
+    // real work rather than getting a trivially satisfiable start.
+    ChaffBuffers buffers;
+    buffers.reserve(1024);
+    Rng seed_rng(90210);
+    for (u32 i = 0; i < 400; ++i) {
+        ChaffSpawnParams p;
+        p.position = Vec2{20.0f, 30.0f} + seed_rng.unit_disc() * 4.0f;
+        buffers.spawn(p);
+    }
+
+    auto worst_overlap = [&](const ChaffBuffers& b) {
+        f32 worst = 0.0f;   // how far inside contact_radius the closest pair is
+        for (usize a = 0; a < b.count(); ++a) {
+            for (usize c = a + 1; c < b.count(); ++c) {
+                const f32 dx = b.pos_x[a] - b.pos_x[c];
+                const f32 dy = b.pos_y[a] - b.pos_y[c];
+                const f32 d = std::sqrt(dx * dx + dy * dy);
+                worst = math::max(worst, contact_radius - d);
+            }
+        }
+        return worst;
+    };
+
+    const f32 before = worst_overlap(buffers);
+    INFO("initial worst overlap: " << before);
+    REQUIRE(before > 0.5f);   // the seeding really is badly overlapped
+
+    ChaffSystem sys;
+    sys.set_tuning(tuning);
+    sys.set_world_bounds(bounds);
+    sys.set_goal(Vec2{55.0f, 30.0f}, 0.0f);   // no goal despawn
+
+    Rng rng(7);
+    for (int t = 0; t < 240; ++t) {
+        rebuild(hash, buffers);
+        sys.update(buffers, flow, sdf, hash, rng, kFixedDt, nullptr);
+        buffers.compact();
+    }
+
+    REQUIRE(buffers.count() == 400);   // nothing was lost resolving the jam
+    const f32 after = worst_overlap(buffers);
+    INFO("worst overlap after settling: " << after << " (was " << before << ")");
+
+    // Relaxation is iterative and the crowd is still being driven together by
+    // the flow field, so this is "essentially touching, not interpenetrating"
+    // rather than a hard geometric guarantee -- a quarter of a radius.
+    REQUIRE(after < contact_radius * 0.25f);
+    REQUIRE(after < before * 0.5f);
 }

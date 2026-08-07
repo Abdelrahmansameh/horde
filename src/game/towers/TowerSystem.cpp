@@ -209,41 +209,41 @@ void load_default_stats(TowerSystem& self) {
     // rate: 11 rounds/s at tier 1 up to 33/s at tier 3, so the stream reads as
     // continuous rather than as individual shots. kill_rate is 0 by design —
     // the Gunner is the one tower that does NOT publish a damage field.
-    self.set_stats(TowerType::Neutrophil, 1, make_stats(9.0f, 0.090f, 1.4f, 0.0f, 0.7f, 70, 45, 6.0f));
-    self.set_stats(TowerType::Neutrophil, 2, make_stats(10.0f, 0.055f, 2.2f, 0.0f, 0.7f, 70, 38, 5.0f));
-    self.set_stats(TowerType::Neutrophil, 3, make_stats(11.0f, 0.030f, 2.4f, 0.0f, 0.7f, 70, 0, 4.0f));
+    self.set_stats(TowerType::Neutrophil, 1, make_stats(9.0f, 0.090f, 1.4f, 0.0f, 1.4f, 70, 45, 6.0f));
+    self.set_stats(TowerType::Neutrophil, 2, make_stats(10.0f, 0.055f, 2.2f, 0.0f, 1.4f, 70, 38, 5.0f));
+    self.set_stats(TowerType::Neutrophil, 3, make_stats(11.0f, 0.030f, 2.4f, 0.0f, 1.4f, 70, 0, 4.0f));
 
     // MORTAR — the longest range and by far the slowest cadence. One shell
     // every 2.6s that erases whatever was standing in a 5-unit circle.
-    self.set_stats(TowerType::Macrophage, 1, make_stats(14.0f, 2.60f, 45.0f, 62.0f, 1.0f, 150, 95, 0.0f));
-    self.set_stats(TowerType::Macrophage, 2, make_stats(15.5f, 2.30f, 95.0f, 145.0f, 1.0f, 150, 80, 0.0f));
-    self.set_stats(TowerType::Macrophage, 3, make_stats(17.0f, 2.00f, 175.0f, 240.0f, 1.0f, 150, 0, 0.0f));
+    self.set_stats(TowerType::Macrophage, 1, make_stats(14.0f, 2.60f, 45.0f, 62.0f, 2.0f, 150, 95, 0.0f));
+    self.set_stats(TowerType::Macrophage, 2, make_stats(15.5f, 2.30f, 95.0f, 145.0f, 2.0f, 150, 80, 0.0f));
+    self.set_stats(TowerType::Macrophage, 3, make_stats(17.0f, 2.00f, 175.0f, 240.0f, 2.0f, 150, 0, 0.0f));
 
     // CRYO — deliberately the weakest kill_rate in the roster. Its output is
     // crowd control: everything in the cone is slowed, and anything caught deep
     // in it is locked down outright.
-    self.set_stats(TowerType::Interferon, 1, make_stats(8.0f, 0.55f, 3.0f, 2.0f, 1.2f, 110, 70, 12.0f));
-    self.set_stats(TowerType::Interferon, 2, make_stats(9.0f, 0.50f, 7.0f, 5.4f, 1.2f, 110, 60, 10.0f));
-    self.set_stats(TowerType::Interferon, 3, make_stats(10.0f, 0.45f, 14.0f, 10.5f, 1.2f, 110, 0, 8.0f));
+    self.set_stats(TowerType::Interferon, 1, make_stats(8.0f, 0.55f, 3.0f, 2.0f, 2.4f, 110, 70, 12.0f));
+    self.set_stats(TowerType::Interferon, 2, make_stats(9.0f, 0.50f, 7.0f, 5.4f, 2.4f, 110, 60, 10.0f));
+    self.set_stats(TowerType::Interferon, 3, make_stats(10.0f, 0.45f, 14.0f, 10.5f, 2.4f, 110, 0, 8.0f));
 
     // TESLA — short base range but its chain reaches far past it by hopping.
     // Bursty: nothing at all between discharges.
-    self.set_stats(TowerType::CytotoxicT, 1, make_stats(7.00f, 0.90f, 30.0f, 60.0f, 0.8f, 130, 84, 0.0f));
-    self.set_stats(TowerType::CytotoxicT, 2, make_stats(7.75f, 0.75f, 62.0f, 135.0f, 0.8f, 130, 70, 0.0f));
-    self.set_stats(TowerType::CytotoxicT, 3, make_stats(8.50f, 0.60f, 120.0f, 210.0f, 0.8f, 130, 0, 0.0f));
+    self.set_stats(TowerType::CytotoxicT, 1, make_stats(7.00f, 0.90f, 30.0f, 60.0f, 1.6f, 130, 84, 0.0f));
+    self.set_stats(TowerType::CytotoxicT, 2, make_stats(7.75f, 0.75f, 62.0f, 135.0f, 1.6f, 130, 70, 0.0f));
+    self.set_stats(TowerType::CytotoxicT, 3, make_stats(8.50f, 0.60f, 120.0f, 210.0f, 1.6f, 130, 0, 0.0f));
 
     // LASER — the longest *continuous* reach and the most expensive. Pierces
     // everything on the line at once, but only along one axis at a time.
-    self.set_stats(TowerType::BCell, 1, make_stats(16.0f, 0.30f, 6.0f, 6.0f, 0.7f, 160, 104, 0.0f));
-    self.set_stats(TowerType::BCell, 2, make_stats(18.0f, 0.26f, 13.0f, 16.0f, 0.7f, 160, 88, 0.0f));
-    self.set_stats(TowerType::BCell, 3, make_stats(20.0f, 0.22f, 26.0f, 31.0f, 0.7f, 160, 0, 0.0f));
+    self.set_stats(TowerType::BCell, 1, make_stats(16.0f, 0.30f, 6.0f, 6.0f, 1.4f, 160, 104, 0.0f));
+    self.set_stats(TowerType::BCell, 2, make_stats(18.0f, 0.26f, 13.0f, 16.0f, 1.4f, 160, 88, 0.0f));
+    self.set_stats(TowerType::BCell, 3, make_stats(20.0f, 0.22f, 26.0f, 31.0f, 1.4f, 160, 0, 0.0f));
 
     // BLADE — by far the shortest range in the roster (it is a contact weapon)
     // and by far the highest sustained kill_rate per unit of range. A wall
     // tower: it only works where the horde is forced to walk into it.
-    self.set_stats(TowerType::NKCell, 1, make_stats(3.2f, 0.18f, 5.0f, 8.0f, 0.8f, 90, 58, 0.0f));
-    self.set_stats(TowerType::NKCell, 2, make_stats(3.6f, 0.14f, 10.0f, 21.0f, 0.8f, 90, 49, 0.0f));
-    self.set_stats(TowerType::NKCell, 3, make_stats(4.0f, 0.10f, 20.0f, 41.0f, 0.8f, 90, 0, 0.0f));
+    self.set_stats(TowerType::NKCell, 1, make_stats(3.2f, 0.18f, 5.0f, 8.0f, 1.6f, 90, 58, 0.0f));
+    self.set_stats(TowerType::NKCell, 2, make_stats(3.6f, 0.14f, 10.0f, 21.0f, 1.6f, 90, 49, 0.0f));
+    self.set_stats(TowerType::NKCell, 3, make_stats(4.0f, 0.10f, 20.0f, 41.0f, 1.6f, 90, 0, 0.0f));
 }
 
 /// TowerSystem.h forbids adding a constructor, so there is no natural hook to
@@ -1188,8 +1188,18 @@ EntityId TowerSystem::place(sim::SimWorld& world, TowerType type, Vec2 world_pos
     tw.fire_interval = st.fire_interval;
     tw.ability_cooldown = 0.0f;
     registry.emplace<comp::Tower>(e, tw);
+    // Shape ids 0..15 belong to agents and renderer overlays (blob, range ring,
+    // telegraph diamond, countdown ring, death burst — see entity.frag). Towers
+    // start at kTowerShapeBase so the two spaces cannot collide.
+    //
+    // They previously did: atlas_index was the raw TowerType, so the Macrophage
+    // (type 1) drew as the range-indicator RING, the Cytotoxic T (3) as the
+    // telegraph countdown ring, and the B-Cell (4) as an elite death burst.
+    // Every tower was wearing some other system's overlay.
+    constexpr u16 kTowerShapeBase = 16;
     registry.emplace<comp::Sprite>(e, comp::Sprite{Vec4{1.0f, 1.0f, 1.0f, 1.0f}, st.footprint_radius * 2.0f,
-                                                    static_cast<u16>(t), /*layer=*/1});
+                                                    static_cast<u16>(kTowerShapeBase + static_cast<u16>(t)),
+                                                    /*layer=*/1});
     registry.emplace<priv::TowerRecord>(e, std::move(rec));
 
     const EntityId id = world.ecs().to_id(e);

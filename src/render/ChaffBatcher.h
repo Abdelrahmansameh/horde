@@ -48,18 +48,18 @@ struct FamilyVisual {
 inline FamilyVisual family_visual(PathogenFamily family) {
     switch (family) {
         // Virus: smallest silhouette, fastest tempo (fast/weak/replicating).
-        case PathogenFamily::Virus:       return FamilyVisual{0.85f, 3.4f, 0.55f};
+        case PathogenFamily::Virus:       return FamilyVisual{1.53f, 3.4f, 0.55f};
         // Bacteria: tankier, so a bigger silhouette; slower, clumping tempo.
-        case PathogenFamily::Bacteria:    return FamilyVisual{1.25f, 1.5f, 0.30f};
+        case PathogenFamily::Bacteria:    return FamilyVisual{2.25f, 1.5f, 0.30f};
         // Fungal spore: mid silhouette, very slow drift.
-        case PathogenFamily::FungalSpore: return FamilyVisual{1.10f, 0.8f, 0.70f};
+        case PathogenFamily::FungalSpore: return FamilyVisual{1.98f, 0.8f, 0.70f};
         // Parasite: elite tier, large; medium tempo with a burrow twitch.
-        case PathogenFamily::Parasite:    return FamilyVisual{1.55f, 2.2f, 0.45f};
+        case PathogenFamily::Parasite:    return FamilyVisual{2.79f, 2.2f, 0.45f};
         // Cancer cell: boss mass, largest and slowest.
-        case PathogenFamily::CancerCell:  return FamilyVisual{2.10f, 0.5f, 0.85f};
+        case PathogenFamily::CancerCell:  return FamilyVisual{3.78f, 0.5f, 0.85f};
         // Allergen: warning-coded, small and frantic.
-        case PathogenFamily::Allergen:    return FamilyVisual{0.95f, 4.2f, 0.25f};
-        default:                          return FamilyVisual{1.0f, 1.0f, 0.5f};
+        case PathogenFamily::Allergen:    return FamilyVisual{1.71f, 4.2f, 0.25f};
+        default:                          return FamilyVisual{1.8f, 1.0f, 0.5f};
     }
 }
 
@@ -303,7 +303,14 @@ inline ChaffBatchResult build_chaff_batches(const sim::ChaffBuffers& chaff,
         Vec4 tint = fam_color[f];
         tint.a = split.instance_alpha;
         inst.tint_rgba8 = pack_rgba8(tint);
-        inst.flags = flg[i];
+        // chaff_flags is a u8 and ChaffInstance::flags is a u32, so the top 24
+        // bits were dead. The family id rides in bits 8..15 rather than
+        // widening a frozen 32-byte instance layout: the fragment shader needs
+        // to know which pathogen it is drawing to pick a silhouette, and
+        // inferring it from the tint would tie shape to colour and break the
+        // "these are separate channels" rule this file's header states.
+        // Mirrored by CHAFF_FAMILY_SHIFT in chaff.frag.
+        inst.flags = static_cast<u32>(flg[i]) | (f << 8);
         inst.anim_phase = offset + params.time * vis.tempo * math::kTwoPi;
         inst.pad = vis.wobble;
     }

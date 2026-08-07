@@ -83,7 +83,7 @@ SpawnEntry make_spawn(PathogenFamily family, u32 count, f32 start_time, f32 dura
 }
 
 /// Region-agnostic fallback: virus, +bacteria from wave 2, +fungal from wave
-/// 4, base count 40 + i*25, flat 8s/15s prep. This is the *original*
+/// 4, base count 120 + i*75, flat 8s/15s prep. This is the *original*
 /// generate() body, kept byte-for-byte in shape so anything that generates
 /// with an unrecognized region string (headless --bench scenarios, tests that
 /// don't pass a real level region) doesn't regress.
@@ -97,11 +97,11 @@ std::vector<WaveDef> generate_flat(const std::string& region, u32 wave_count, Rn
         w.prep_time = (i == 0) ? 8.0f : 15.0f;
         w.atp_reward = 50 + i * 10;
 
-        const u32 base = 40 + i * 25;
+        const u32 base = 120 + i * 75;
         w.spawns.push_back(make_spawn(PathogenFamily::Virus,
-                                       base + static_cast<u32>(rng.range_f(0.0f, 10.0f)), 0.0f, 6.0f));
-        if (i >= 1) w.spawns.push_back(make_spawn(PathogenFamily::Bacteria, base / 3, 3.0f, 5.0f));
-        if (i >= 3) w.spawns.push_back(make_spawn(PathogenFamily::FungalSpore, base / 4, 2.0f, 8.0f));
+                                       base + static_cast<u32>(rng.range_f(0.0f, 30.0f)), 0.0f, 4.0f));
+        if (i >= 1) w.spawns.push_back(make_spawn(PathogenFamily::Bacteria, base / 3, 1.0f, 3.34f));
+        if (i >= 3) w.spawns.push_back(make_spawn(PathogenFamily::FungalSpore, base / 4, 0.67f, 5.34f));
 
         waves.push_back(std::move(w));
     }
@@ -121,9 +121,9 @@ std::vector<WaveDef> generate_skin(const std::string& region, u32 wave_count, Rn
         w.prep_time = prep_curve(i, wave_count, 12.0f, 9.0f);
         w.atp_reward = 40 + i * 8;
 
-        const u32 base = 20 + i * 6;
+        const u32 base = 60 + i * 18;
         w.spawns.push_back(make_spawn(PathogenFamily::Virus,
-                                       base + static_cast<u32>(rng.range_f(0.0f, 4.0f)), 0.0f, 7.0f));
+                                       base + static_cast<u32>(rng.range_f(0.0f, 12.0f)), 0.0f, 4.67f));
 
         waves.push_back(std::move(w));
     }
@@ -145,11 +145,11 @@ std::vector<WaveDef> generate_capillary(const std::string& region, u32 wave_coun
         w.prep_time = prep_curve(i, wave_count, 8.0f, 4.0f);
         w.atp_reward = 50 + i * 10;
 
-        const u32 base = 40 + i * 25;
+        const u32 base = 120 + i * 75;
         w.spawns.push_back(make_spawn(PathogenFamily::Virus,
-                                       base + static_cast<u32>(rng.range_f(0.0f, 10.0f)), 0.0f, 6.0f));
-        if (i >= 1) w.spawns.push_back(make_spawn(PathogenFamily::Bacteria, base / 3, 3.0f, 5.0f));
-        if (i >= 3) w.spawns.push_back(make_spawn(PathogenFamily::FungalSpore, base / 4, 2.0f, 8.0f));
+                                       base + static_cast<u32>(rng.range_f(0.0f, 30.0f)), 0.0f, 4.0f));
+        if (i >= 1) w.spawns.push_back(make_spawn(PathogenFamily::Bacteria, base / 3, 1.0f, 3.34f));
+        if (i >= 3) w.spawns.push_back(make_spawn(PathogenFamily::FungalSpore, base / 4, 0.67f, 5.34f));
 
         waves.push_back(std::move(w));
     }
@@ -170,11 +170,11 @@ std::vector<WaveDef> generate_lymphatic(const std::string& region, u32 wave_coun
         w.prep_time = prep_curve(i, wave_count, 9.0f, 5.0f);
         w.atp_reward = 55 + i * 12;
 
-        const u32 base = 35 + i * 20;
+        const u32 base = 105 + i * 60;
         w.spawns.push_back(make_spawn(PathogenFamily::Virus,
-                                       base + static_cast<u32>(rng.range_f(0.0f, 8.0f)), 0.0f, 6.0f));
-        w.spawns.push_back(make_spawn(PathogenFamily::Bacteria, base / 2, 1.5f, 6.0f)); // clumping, every wave
-        if (i >= 4) w.spawns.push_back(make_spawn(PathogenFamily::FungalSpore, base / 5, 3.0f, 7.0f));
+                                       base + static_cast<u32>(rng.range_f(0.0f, 24.0f)), 0.0f, 4.0f));
+        w.spawns.push_back(make_spawn(PathogenFamily::Bacteria, base / 2, 0.5f, 4.0f)); // clumping, every wave
+        if (i >= 4) w.spawns.push_back(make_spawn(PathogenFamily::FungalSpore, base / 5, 1.0f, 4.67f));
 
         waves.push_back(std::move(w));
     }
@@ -194,11 +194,11 @@ std::vector<WaveDef> generate_mucosal(const std::string& region, u32 wave_count,
         w.prep_time = prep_curve(i, wave_count, 9.0f, 5.0f);
         w.atp_reward = 60 + i * 15;
 
-        const u32 base = 60 + i * 35; // highest agent counts of any region
+        const u32 base = 180 + i * 105; // highest agent counts of any region
         w.spawns.push_back(make_spawn(PathogenFamily::Virus,
-                                       base + static_cast<u32>(rng.range_f(0.0f, 12.0f)), 0.0f, 7.0f));
-        w.spawns.push_back(make_spawn(PathogenFamily::FungalSpore, base / 2, 1.0f, 9.0f)); // drift, every wave
-        if (i >= 1) w.spawns.push_back(make_spawn(PathogenFamily::Bacteria, base / 3, 2.5f, 6.0f));
+                                       base + static_cast<u32>(rng.range_f(0.0f, 36.0f)), 0.0f, 4.67f));
+        w.spawns.push_back(make_spawn(PathogenFamily::FungalSpore, base / 2, 0.33f, 6.0f)); // drift, every wave
+        if (i >= 1) w.spawns.push_back(make_spawn(PathogenFamily::Bacteria, base / 3, 0.83f, 4.0f));
 
         waves.push_back(std::move(w));
     }
@@ -224,11 +224,11 @@ std::vector<WaveDef> generate_organ_chamber(const std::string& region, u32 wave_
         const f32 final_mult = is_final ? 1.75f : 1.0f;
         w.atp_reward = static_cast<u32>(static_cast<f32>(70 + i * 15) * (is_final ? 1.5f : 1.0f));
 
-        const u32 base = static_cast<u32>(static_cast<f32>(45 + i * 22) * final_mult);
+        const u32 base = static_cast<u32>(static_cast<f32>(135 + i * 66) * final_mult);
         w.spawns.push_back(make_spawn(PathogenFamily::Virus,
-                                       base + static_cast<u32>(rng.range_f(0.0f, 12.0f)), 0.0f, 6.0f));
-        w.spawns.push_back(make_spawn(PathogenFamily::Bacteria, base / 2, 1.5f, 6.0f));
-        w.spawns.push_back(make_spawn(PathogenFamily::FungalSpore, base / 3, 2.5f, 7.0f));
+                                       base + static_cast<u32>(rng.range_f(0.0f, 36.0f)), 0.0f, 4.0f));
+        w.spawns.push_back(make_spawn(PathogenFamily::Bacteria, base / 2, 0.5f, 4.0f));
+        w.spawns.push_back(make_spawn(PathogenFamily::FungalSpore, base / 3, 0.83f, 4.67f));
         if (is_final) w.modifier = WaveModifier::Swarm; // §6 allergen/curveball framework's Swarm case
 
         waves.push_back(std::move(w));

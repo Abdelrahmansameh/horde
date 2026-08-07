@@ -106,8 +106,10 @@ void App::build_menus() {
     ui::MenuResult r;
 
     switch (state_.current()) {
-    case GameStateId::MainMenu:    r = menu_.build_main_menu(w, h); break;
-    case GameStateId::LevelSelect: r = menu_.build_level_select(levels_, w, h); break;
+    case GameStateId::MainMenu:     r = menu_.build_main_menu(w, h); break;
+    case GameStateId::LevelSelect:  r = menu_.build_level_select(levels_, w, h); break;
+    case GameStateId::LevelFailed:  r = menu_.build_level_failed_screen(w, h); break;
+    case GameStateId::LevelComplete: r = menu_.build_level_complete_screen(w, h); break;
     default: return;
     }
 
@@ -132,6 +134,14 @@ void App::build_menus() {
                 IMMUNE_LOG_ERROR("could not start level '%s'",
                                  levels_[r.level_index].path.c_str());
             }
+        }
+        break;
+    case ui::MenuAction::RestartLevel:
+        if (load_level(current_level_path_)) {
+            state_.request(GameStateId::InLevel);
+        } else {
+            IMMUNE_LOG_ERROR("could not restart level '%s'", current_level_path_.c_str());
+            state_.request(GameStateId::MainMenu);
         }
         break;
     case ui::MenuAction::None:
@@ -194,6 +204,7 @@ bool App::load_level(const std::string& path) {
     abilities_.load_defaults();
 
     level_loaded_ = true;
+    current_level_path_ = path;
     return true;
 }
 
@@ -356,10 +367,17 @@ void App::render_frame() {
 
     hud_.begin_frame(input_);
     intents_.clear();
-    hud_.build(sim_, economy_, waves_, towers_, abilities_, camera_, input_, intents_);
-    hud_.render();
-    apply_intents(intents_);
 
+    // For LevelFailed and LevelComplete, show the result screen instead of the HUD.
+    if (state_.current() == GameStateId::LevelFailed ||
+        state_.current() == GameStateId::LevelComplete) {
+        build_menus();
+    } else {
+        hud_.build(sim_, economy_, waves_, towers_, abilities_, camera_, input_, intents_);
+        apply_intents(intents_);
+    }
+
+    hud_.render();
     window_.swap();
 }
 

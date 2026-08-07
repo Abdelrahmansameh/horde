@@ -61,7 +61,7 @@ constexpr i32 kH = 20;
 
 Vec2 kRoomCenterLeft{12.0f, 10.0f};
 Vec2 kRoomCenterRight{47.0f, 10.0f};
-Vec2 kCorridorCenter{30.0f, 10.5f};
+Vec2 kCorridorCenter{30.0f, 10.5f};   // centre of the 5-cell corridor (y 8..13)
 Vec2 kGoal{55.0f, 10.0f};
 
 SimWorld make_world() {
@@ -79,8 +79,25 @@ SimWorld make_world() {
         for (i32 x = 0; x < 25; ++x) mask.set_walkable(x, y, true); // left room
     for (i32 y = 4; y < 16; ++y)
         for (i32 x = 35; x < 60; ++x) mask.set_walkable(x, y, true); // right room
-    for (i32 y = 9; y < 12; ++y)
-        for (i32 x = 25; x < 35; ++x) mask.set_walkable(x, y, true); // 3-cell-tall corridor
+    // 5-cell-tall corridor. Sized to the tower footprints, not chosen freely:
+    // this test only means anything if the corridor is wide enough that the
+    // tower FITS (clearance >= footprint_radius, or validate() rejects it for
+    // InsufficientClearance and never reaches the reachability check it is
+    // actually testing) while still being narrow enough that the footprint
+    // spans every corridor cell and genuinely plugs it.
+    //
+    // The SDF measures centre-to-wall less half a cell, so a corridor H cells
+    // tall has centre clearance H/2 - 0.5. Footprint 1.6 therefore needs
+    // H >= 4.2, i.e. 5, giving clearance 2.0. The 3.2-wide footprint then spans
+    // y 8.9..12.1, which still intersects all five corridor cells (8..12) and
+    // blocks them.
+    //
+    // It was 3 cells while footprints were <= 0.8 (clearance 1.0 >= 0.8). When
+    // every tower's footprint_radius was doubled, a 1.6-radius tower stopped
+    // fitting a 3-cell corridor at all and this test began failing on the
+    // clearance assertion instead of exercising reachability.
+    for (i32 y = 8; y < 13; ++y)
+        for (i32 x = 25; x < 35; ++x) mask.set_walkable(x, y, true);
 
     world.sdf().bake(mask);
     FlowFieldBakeDesc fdesc;

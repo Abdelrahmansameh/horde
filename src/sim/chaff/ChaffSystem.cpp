@@ -1,27 +1,40 @@
-// Batch chaff movement kernel. Owner: Wave 1B.
+// Batch chaff movement kernel. Owner: Wave 1B. Fluid-feel rules and wall
+// contact added by the movement overhaul (see ChaffSystem.h's tuning fields).
 //
-// THREE PASSES, ONE TICK
-// The frozen four-line kernel (flow sample, separation, clamp, integrate) is
-// split into three passes rather than one fused per-agent loop:
+// FOUR PASSES, ONE TICK
 //
-//   A. accumulate  (parallel, per-range Rng)   — flow/drift + separation + jitter
-//      into vel_x/vel_y (UNCLAMPED), plus the per-agent effective max speed and
-//      replication rolls into scratch. This is the pass that touches the
-//      spatial hash, so it is inherently gather-heavy and does not vectorize —
-//      that cost is unavoidable and is what the spatial hash's O(1) cell lookup
-//      exists to minimize.
+//   A. accumulate  (parallel, per-range Rng)   — flow/drift, then the three
+//      local crowd rules (separation, alignment, crowd pressure) from ONE
+//      neighbour gather, then jitter, into vel_x/vel_y (UNCLAMPED); plus the
+//      per-agent effective max speed and replication rolls into scratch. This
+//      is the pass that touches the spatial hash, so it is inherently
+//      gather-heavy and does not vectorize — that cost is unavoidable and is
+//      what the spatial hash's O(1) cell lookup exists to minimize.
 //   B. integrate   (serial, straight-line)     — clamp_length + p += v*dt over
 //      contiguous vel_x/vel_y/scratch_max_speed/old_pos_{x,y}/pos_{x,y}. No
 //      branches on flags, no hash access, no gather: this is the loop
 //      docs/ARCHITECTURE.md means by "the movement loop is written so MSVC
 //      auto-vectorizes it" (verified below).
+//   B2. wall contact (parallel, SDF gather)    — projects agents out of tissue
+//      they overlap and cancels the inbound part of their velocity. Separate
+//      from B so B stays vectorizable.
 //   C. despawn     (serial)                    — bounds/goal test against the
 //      now-final position, flags kPendingKill. Cheap, branchy, not perf-critical.
 //
 // Splitting out B is also what makes the result scheduling-independent: pass A
-// writes only the index each range owns and reads neighbours through a snapshot
-// of positions taken *before* pass A runs (old_pos_x_/old_pos_y_), never through
-// the live arrays another range may already have overwritten.
+// writes only the index each range owns and reads neighbours through snapshots
+// of positions AND velocities taken *before* pass A runs (old_pos_*, old_vel_*),
+// never through the live arrays another range may already have overwritten.
+//
+// WHY THIS LOOKS LIKE A FLUID WITHOUT ANY FLUID MATH
+// There is no density solve, no pressure projection, no smoothing kernel —
+// nothing from SPH or continuum crowds, both of which would mean replacing the
+// flow field rather than extending it. Every agent runs the same three cheap
+// local rules against its own neighbourhood, and the collective motion (waves
+// travelling back through a jam, a mass splashing along a wall and rejoining
+// downstream) is emergent, exactly as in Reynolds' boids. Cohesion is
+// deliberately omitted: the flow field already supplies "everyone go that way",
+// so a cohesion term would only fight it and ball the horde up.
 #include "sim/chaff/ChaffSystem.h"
 
 #include "core/JobSystem.h"
@@ -46,17 +59,50 @@ constexpr f32 kSeparationEpsSq = 1e-8f;
 // of silently doing nothing.
 constexpr f32 kSlowedSpeedMultiplier = 0.4f;
 
-/// 3x3-cell separation impulse for agent `i`, reading positions through the
-/// pre-tick snapshot `px`/`py` (see file header). Uses the raw cell accessors
-/// per SpatialHash.h's guidance — this runs up to 10,000 times a tick and must
-/// not touch a std::vector per call.
-Vec2 separation_impulse(const SpatialHash& hash, const f32* px, const f32* py,
-                        usize i, f32 radius) {
-    if (radius <= 0.0f) return Vec2{0.0f, 0.0f};
+/// Everything one agent learns about its neighbourhood, from ONE walk of the
+/// 3x3 cells around it.
+struct NeighbourSample {
+    Vec2 separation{0.0f, 0.0f};   ///< Mean normalized push-away, weighted by closeness.
+    Vec2 avg_velocity{0.0f, 0.0f}; ///< Mean neighbour velocity, for alignment.
+    /// SUMMED (not averaged) positional correction that resolves actual
+    /// interpenetration. Summed on purpose: this is a geometric constraint, not
+    /// a preference, so being crowded by ten agents must push ten times as hard
+    /// as being crowded by one. Averaging it -- which is right for `separation`,
+    /// a steering preference -- is precisely what let dense crowds overlap.
+    Vec2 contact_push{0.0f, 0.0f};
+    u32 crowd = 0;                 ///< Neighbours inside alignment_radius; drives pressure.
+    bool has_alignment = false;
+};
+
+/// 3x3-cell neighbourhood gather for agent `i`, reading positions and
+/// velocities through the pre-tick snapshots (see file header for why the
+/// snapshots exist at all).
+///
+/// WHY ONE FUNCTION AND NOT THREE
+/// Separation, alignment and crowd-pressure each need "the agents near me".
+/// Fetching that three times would triple the only genuinely expensive thing in
+/// this kernel -- the gather -- to compute three cheap sums. So the walk happens
+/// once and all three accumulate off it. The per-neighbour body below is a
+/// handful of multiply-adds; the loop around it is the cost.
+///
+/// Uses the raw cell accessors per SpatialHash.h's guidance: this runs once per
+/// agent per tick and must not touch a std::vector.
+NeighbourSample gather_neighbours(const SpatialHash& hash,
+                                  const f32* px, const f32* py,
+                                  const f32* vx, const f32* vy,
+                                  usize i, f32 sep_radius, f32 align_radius,
+                                  f32 contact_radius, f32 contact_stiffness,
+                                  u32 max_sampled) {
+    NeighbourSample out;
+    const f32 scan_radius = math::max(math::max(sep_radius, align_radius), contact_radius);
+    if (scan_radius <= 0.0f) return out;
+
     const Vec2 p{px[i], py[i]};
     const IVec2 c = hash.cell_coord(p);
     const IVec2 dims = hash.grid_dims();
-    const f32 r2 = radius * radius;
+    const f32 sep_r2 = sep_radius * sep_radius;
+    const f32 align_r2 = align_radius * align_radius;
+    const f32 contact_r2 = contact_radius * contact_radius;
     const u32* indices = hash.indices();
 
     const i32 y0 = math::max(0, c.y - 1);
@@ -64,8 +110,13 @@ Vec2 separation_impulse(const SpatialHash& hash, const f32* px, const f32* py,
     const i32 x0 = math::max(0, c.x - 1);
     const i32 x1 = math::min(dims.x - 1, c.x + 1);
 
-    Vec2 accum{0.0f, 0.0f};
-    u32 neighbours = 0;
+    Vec2 sep{0.0f, 0.0f};
+    Vec2 vel{0.0f, 0.0f};
+    Vec2 contact{0.0f, 0.0f};
+    u32 sep_count = 0;
+    u32 align_count = 0;
+    u32 sampled = 0;
+
     for (i32 cy = y0; cy <= y1; ++cy) {
         const u32 row = static_cast<u32>(cy) * static_cast<u32>(dims.x);
         u32 begin, end;
@@ -77,26 +128,150 @@ Vec2 separation_impulse(const SpatialHash& hash, const f32* px, const f32* py,
         for (i32 cx = x0; cx <= x1; ++cx) {
             hash.cell_range(row + static_cast<u32>(cx), begin, end);
             for (u32 k = begin; k < end; ++k) {
+                // The density cap. Truncating in CSR order keeps this a pure
+                // function of positions (see ChaffTuning::max_neighbors_sampled)
+                // while bounding the worst case a single packed cell can cost.
+                if (sampled >= max_sampled) goto done;
                 const u32 j = indices[k];
                 if (j == i) continue;
                 const f32 dx = p.x - px[j];
                 const f32 dy = p.y - py[j];
                 const f32 d2 = dx * dx + dy * dy;
-                if (d2 >= r2 || d2 < kSeparationEpsSq) continue;
+                if (d2 < kSeparationEpsSq) continue;
+                if (d2 >= align_r2 && d2 >= sep_r2 && d2 >= contact_r2) continue;
+                ++sampled;
+
+                // One square root, shared by the two rules that need a real
+                // distance. Contact is deliberately NOT capped by max_sampled's
+                // spirit even though it shares the counter: geometry already
+                // bounds how many agents can physically be inside contact_radius
+                // at once, so this term is self-limiting in a way the
+                // alignment/pressure sums are not.
                 const f32 d = std::sqrt(d2);
-                const f32 push = (radius - d) / radius;   // 1 at d=0, 0 at d=radius
-                accum.x += (dx / d) * push;
-                accum.y += (dy / d) * push;
-                ++neighbours;
+                const f32 inv_d = 1.0f / d;
+                const f32 nx = dx * inv_d;   // unit vector from neighbour to me
+                const f32 ny = dy * inv_d;
+
+                if (d2 < contact_r2) {
+                    // Half the overlap, because the neighbour independently
+                    // computes and applies the other half.
+                    const f32 correction = (contact_radius - d) * 0.5f * contact_stiffness;
+                    contact.x += nx * correction;
+                    contact.y += ny * correction;
+                }
+                if (d2 < sep_r2) {
+                    const f32 push = (sep_radius - d) / sep_radius;  // 1 at d=0, 0 at edge
+                    sep.x += nx * push;
+                    sep.y += ny * push;
+                    ++sep_count;
+                }
+                if (d2 < align_r2) {
+                    vel.x += vx[j];
+                    vel.y += vy[j];
+                    ++align_count;
+                }
             }
         }
     }
-    if (neighbours > 0) {
-        const f32 inv = 1.0f / static_cast<f32>(neighbours);
-        accum.x *= inv;
-        accum.y *= inv;
+done:
+    out.contact_push = contact;
+    if (sep_count > 0) {
+        const f32 inv = 1.0f / static_cast<f32>(sep_count);
+        out.separation = Vec2{sep.x * inv, sep.y * inv};
     }
-    return accum;
+    if (align_count > 0) {
+        const f32 inv = 1.0f / static_cast<f32>(align_count);
+        out.avg_velocity = Vec2{vel.x * inv, vel.y * inv};
+        out.has_alignment = true;
+    }
+    out.crowd = align_count;
+    return out;
+}
+
+/// Pushes one agent out of tissue it is overlapping and cancels the part of its
+/// velocity heading further in. This is the actual "bumps into the lane wall"
+/// behaviour, and it deliberately replaces nothing -- the SDF-gradient term in
+/// pass A is still the recovery net for agents that end up fully outside the
+/// mask with no flow guidance; this is contact response for agents at the edge.
+///
+/// Position-based, in the sense the crowd-simulation literature means: rather
+/// than adding a repulsive force and hoping it is strong enough before the next
+/// tick, the position is projected back onto the legal side immediately, so an
+/// agent can never be seen inside a wall regardless of how fast it arrived or
+/// how hard the crowd behind it is pushing. That property is exactly what makes
+/// a dense jam against a wall hold its shape instead of squeezing through.
+void resolve_wall_contact(const DistanceField& sdf, f32& px, f32& py,
+                          f32& vx, f32& vy, f32 radius, f32 restitution, f32 splash) {
+    const Vec2 p{px, py};
+    const f32 clearance = sdf.sample(p);
+    if (clearance >= radius) return;   // not touching anything
+
+    Vec2 n = sdf.gradient(p);          // points toward more open tissue
+    const f32 n2 = math::length_sq(n);
+    if (n2 <= math::kEpsilon) return;  // no usable normal (unbaked field, or a
+                                       // perfectly flat plateau) -- leave pass
+                                       // A's flow/SDF steering to handle it
+    const f32 inv = 1.0f / std::sqrt(n2);
+    n.x *= inv;
+    n.y *= inv;
+
+    // Positional projection. `clearance` is signed, so an agent that has ended
+    // up well inside solid tissue gets a correspondingly large push and is
+    // recovered in one tick rather than crawling out over many.
+    const f32 penetration = radius - clearance;
+    px += n.x * penetration;
+    py += n.y * penetration;
+
+    const f32 vn = vx * n.x + vy * n.y;
+    if (vn >= 0.0f) return;            // already heading away; nothing to resolve
+
+    // Split the velocity into "into the wall" and "along the wall".
+    const f32 tx = vx - n.x * vn;
+    const f32 ty = vy - n.y * vn;
+
+    // Cancel the inbound part (optionally bouncing a little of it back).
+    const f32 j = vn * (1.0f + restitution);
+    vx -= n.x * j;
+    vy -= n.y * j;
+
+    // THE SPLASH. Cancelling the inbound component alone just deletes that
+    // momentum, so an agent arriving head-on stops dead against the wall and
+    // the horde reads as piling up rather than flowing around. A fluid does the
+    // opposite: what cannot continue forward is redirected sideways, and the
+    // mass keeps moving. So the blocked speed is re-injected along the wall
+    // tangent.
+    //
+    // Direction: follow whatever sideways motion the agent already had, so a
+    // crowd sweeping along a wall keeps sweeping the same way instead of
+    // scattering. Only when the impact is dead-on (no tangential component at
+    // all) is a side chosen arbitrarily -- and then it is chosen from the
+    // agent's own position bits, which splits an incoming column to BOTH sides
+    // of an obstacle. Picking a fixed side there would send every agent the
+    // same way and read as a conveyor belt, not a splash.
+    const f32 blocked = -vn * splash;
+    if (blocked <= 0.0f) return;
+
+    const f32 t2 = tx * tx + ty * ty;
+    f32 ux, uy;
+    if (t2 > 1e-6f) {
+        const f32 inv_t = 1.0f / std::sqrt(t2);
+        ux = tx * inv_t;
+        uy = ty * inv_t;
+    } else {
+        // Deterministic per-agent coin flip from the position bits: same input
+        // always gives the same side, so this stays reproducible, but adjacent
+        // agents disagree and the column splits.
+        u32 bits;
+        std::memcpy(&bits, &px, sizeof(bits));
+        u32 bits_y;
+        std::memcpy(&bits_y, &py, sizeof(bits_y));
+        bits ^= bits_y * 2654435761u;
+        const f32 sign = (bits & 1u) ? 1.0f : -1.0f;
+        ux = -n.y * sign;
+        uy = n.x * sign;
+    }
+    vx += ux * blocked;
+    vy += uy * blocked;
 }
 
 /// Pass B: branch-free clamp_length + p += v*dt over six contiguous streams.
@@ -113,6 +288,7 @@ Vec2 separation_impulse(const SpatialHash& hash, const f32* px, const f32* py,
 void integrate_and_clamp(f32* __restrict pos_x, f32* __restrict pos_y,
                          f32* __restrict vel_x, f32* __restrict vel_y,
                          const f32* __restrict old_pos_x, const f32* __restrict old_pos_y,
+                         const f32* __restrict push_x, const f32* __restrict push_y,
                          const f32* __restrict max_speed, u32 n, f32 dt) {
     for (u32 i = 0; i < n; ++i) {
         const f32 ms = max_speed[i];
@@ -131,8 +307,13 @@ void integrate_and_clamp(f32* __restrict pos_x, f32* __restrict pos_y,
         const f32 nvy = vyi * scale;
         vel_x[i] = nvx;
         vel_y[i] = nvy;
-        pos_x[i] = old_pos_x[i] + nvx * dt;
-        pos_y[i] = old_pos_y[i] + nvy * dt;
+        // The contact push is added as DISPLACEMENT, not as another force, and
+        // deliberately after the speed clamp: un-overlapping is a geometric
+        // correction, so it must not be rationed by max_speed the way steering
+        // is. That is the whole reason overlap survived a velocity-only
+        // separation impulse. Two extra adds; the loop still vectorizes.
+        pos_x[i] = old_pos_x[i] + nvx * dt + push_x[i];
+        pos_y[i] = old_pos_y[i] + nvy * dt + push_y[i];
     }
 }
 
@@ -142,6 +323,10 @@ void ChaffSystem::ensure_scratch(usize capacity) {
     if (old_pos_x_.size() == capacity) return;   // already sized; reserved-once
     old_pos_x_.assign(capacity, 0.0f);
     old_pos_y_.assign(capacity, 0.0f);
+    old_vel_x_.assign(capacity, 0.0f);
+    old_vel_y_.assign(capacity, 0.0f);
+    contact_push_x_.assign(capacity, 0.0f);
+    contact_push_y_.assign(capacity, 0.0f);
     scratch_max_speed_.assign(capacity, 0.0f);
     replicate_wanted_.assign(capacity, 0u);
 }
@@ -160,6 +345,10 @@ ChaffUpdateStats ChaffSystem::update(ChaffBuffers& buffers, const FlowField& flo
     // cheap relative to the hash-gather pass that follows.
     std::memcpy(old_pos_x_.data(), buffers.pos_x.data(), count * sizeof(f32));
     std::memcpy(old_pos_y_.data(), buffers.pos_y.data(), count * sizeof(f32));
+    // Velocities need the same treatment for alignment -- see old_vel_x_'s
+    // declaration in the header.
+    std::memcpy(old_vel_x_.data(), buffers.vel_x.data(), count * sizeof(f32));
+    std::memcpy(old_vel_y_.data(), buffers.vel_y.data(), count * sizeof(f32));
 
     f32* vx = buffers.vel_x.data();
     f32* vy = buffers.vel_y.data();
@@ -167,6 +356,10 @@ ChaffUpdateStats ChaffSystem::update(ChaffBuffers& buffers, const FlowField& flo
     const u8* flg = buffers.flags.data();
     const f32* old_px = old_pos_x_.data();
     const f32* old_py = old_pos_y_.data();
+    const f32* old_vx = old_vel_x_.data();
+    const f32* old_vy = old_vel_y_.data();
+    f32* push_x = contact_push_x_.data();
+    f32* push_y = contact_push_y_.data();
     f32* max_speed_scratch = scratch_max_speed_.data();
     u8* replicate_wanted = replicate_wanted_.data();
     const ChaffTuning& tuning = tuning_;
@@ -191,6 +384,8 @@ ChaffUpdateStats ChaffSystem::update(ChaffBuffers& buffers, const FlowField& flo
                 vx[i] = 0.0f;
                 vy[i] = 0.0f;
                 max_speed_scratch[i] = 0.0f;
+                push_x[i] = 0.0f;
+                push_y[i] = 0.0f;
                 continue;
             }
 
@@ -216,9 +411,46 @@ ChaffUpdateStats ChaffSystem::update(ChaffBuffers& buffers, const FlowField& flo
             Vec2 v{vx[i], vy[i]};
             v += dir * fp.acceleration * dt;
 
+            // ONE gather feeds all four local rules. Clumped (biofilm) agents
+            // skip the STEERING rules -- refusing to spread is their whole
+            // identity -- but still take the contact correction: a biofilm
+            // should read as a packed mat of cells, not as one cell drawn ten
+            // times on top of itself. Overlap is a rendering lie either way.
+            const f32 contact_radius = fp.radius * fp.contact_spacing;
+            const NeighbourSample nb =
+                gather_neighbours(hash, old_px, old_py, old_vx, old_vy, i,
+                                  clumped ? 0.0f : fp.separation_radius,
+                                  clumped ? 0.0f : fp.alignment_radius,
+                                  contact_radius, fp.contact_stiffness,
+                                  tuning.max_neighbors_sampled);
+            push_x[i] = nb.contact_push.x;
+            push_y[i] = nb.contact_push.y;
+
             if (!clumped) {
-                v += separation_impulse(hash, old_px, old_py, i, fp.separation_radius)
-                     * fp.separation_strength;
+                // Crowd pressure amplifies separation rather than adding a
+                // second independent force. Separation already points "away
+                // from where everyone is"; when the neighbourhood is packed,
+                // that same direction is exactly where the mass needs to
+                // relieve into, so scaling it keeps the release coherent
+                // instead of adding noise on top.
+                f32 push = fp.separation_strength;
+                if (fp.pressure_gain > 0.0f &&
+                    static_cast<f32>(nb.crowd) > fp.pressure_threshold) {
+                    const f32 excess = static_cast<f32>(nb.crowd) - fp.pressure_threshold;
+                    const f32 mul = 1.0f + excess * fp.pressure_gain;
+                    push *= mul < fp.pressure_max ? mul : fp.pressure_max;
+                }
+                v += nb.separation * push;
+
+                // Alignment: steer toward the neighbourhood's mean velocity.
+                // Written as a difference (a steering term, not a velocity
+                // assignment) so it can never overrule the flow field -- it
+                // biases how the agent gets where it is already going, which is
+                // what makes the crowd move as a body without losing the
+                // objective.
+                if (nb.has_alignment && fp.alignment_strength > 0.0f) {
+                    v += (nb.avg_velocity - v) * fp.alignment_strength * dt;
+                }
             }
             if (fp.jitter > 0.0f) {
                 v += local_rng.unit_disc() * fp.jitter;
@@ -247,8 +479,38 @@ ChaffUpdateStats ChaffSystem::update(ChaffBuffers& buffers, const FlowField& flo
     // rather than an inline loop.
     f32* px = buffers.pos_x.data();
     f32* py = buffers.pos_y.data();
-    integrate_and_clamp(px, py, vx, vy, old_px, old_py, max_speed_scratch,
-                        static_cast<u32>(count), dt);
+    integrate_and_clamp(px, py, vx, vy, old_px, old_py, push_x, push_y,
+                        max_speed_scratch, static_cast<u32>(count), dt);
+
+    // ---- Pass B2: wall contact (parallel, gather-light) ---------------------
+    // Must run after B, because contact is decided against the position the
+    // agent actually ended up at, not the one it started from. Kept out of B so
+    // B stays the branch-free vectorizable loop described above -- an SDF
+    // sample is a bilinear gather and would sink it.
+    //
+    // Embarrassingly parallel and deterministic: every agent reads only the
+    // immutable DistanceField and writes only its own slot. No RNG, no
+    // cross-agent reads, so no snapshot needed and no scheduling sensitivity.
+    //
+    // Skipped entirely when the field was never baked (width 0). Most unit
+    // tests pass a default-constructed DistanceField, and its sample() returns
+    // 0, which would otherwise read as "every agent is buried in a wall".
+    if (sdf.width() > 0 && sdf.height() > 0) {
+        auto resolve_range = [&](usize begin, usize end, u32) {
+            for (usize i = begin; i < end; ++i) {
+                if ((flg[i] & chaff_flags::kHidden) != 0) continue;   // burrowed: not in the world
+                const u32 f = fam[i];
+                const ChaffFamilyParams& fp = tuning.family[f < kFamilyCount ? f : 0];
+                resolve_wall_contact(sdf, px[i], py[i], vx[i], vy[i], fp.radius,
+                                     fp.wall_restitution, fp.wall_splash);
+            }
+        };
+        if (jobs) {
+            jobs->parallel_for(count, resolve_range);
+        } else {
+            resolve_range(0, count, 0);
+        }
+    }
 
     // ---- Pass C: despawn + replication resolve (serial, deterministic) -----
     u32 despawned_goal = 0;

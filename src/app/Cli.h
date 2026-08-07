@@ -42,6 +42,19 @@ struct Options {
     /// horde. Off by default so existing screenshot regressions keep framing
     /// exactly what they framed before.
     bool place_towers = false;
+    /// --tower <name>: with --towers, restrict placement to just this type
+    /// (parse_tower_type() name, e.g. "neutrophil"). Empty means every type.
+    /// Isolating one tower per shot is what makes a per-tower visual bug
+    /// diagnosable instead of guessed at in a crowd of six effects at once.
+    std::string tower_filter;
+    /// --view-height <world units>: camera framing for --screenshot. Defaults
+    /// to the whole level. Needed to inspect per-agent art at all: at full-level
+    /// framing a chaff agent covers about six pixels, which is the size the
+    /// shader is tuned for but far too small to review.
+    f32 view_height = 0.0f;
+    /// --focus <x,y>: camera centre for --screenshot. Defaults to level centre.
+    Vec2 focus{0.0f, 0.0f};
+    bool has_focus = false;
 
     u64 ticks = 600;            ///< --ticks / --tick
     u64 seed = 0x1234'5678'9abc'def0ULL;

@@ -64,6 +64,70 @@ struct ChaffFamilyParams {
     f32 drift_bias = 0.0f;      ///< Fungal spores: how much ambient drift overrides flow.
     f32 replication_rate = 0.0f;///< Viruses: expected replications per agent per second.
     f32 radius = 0.5f;          ///< Visual/collision radius, drives sprite scale.
+
+    // ---- Fluid-feel additions (movement overhaul) --------------------------
+    // The three classic boid rules minus cohesion (the flow field already
+    // supplies "go the same way", so a cohesion term would just fight it and
+    // clump the horde into balls). Separation above is rule one; these are the
+    // rest. All three read the SAME neighbour gather -- see gather_neighbours()
+    // in ChaffSystem.cpp -- so adding them costs arithmetic per neighbour, not
+    // an extra spatial-hash pass.
+
+    /// Radius over which velocities are averaged. Should be >= separation_radius
+    /// (a neighbour close enough to shove you is close enough to steer you) and
+    /// must stay within the 3x3 cell scan, i.e. <= spatial cell_size.
+    f32 alignment_radius = 2.4f;
+    /// How hard an agent steers toward its neighbours' average heading. THIS is
+    /// what makes a mass read as one moving body instead of independent dots:
+    /// a disturbance at the front (a wall, a tower) propagates backwards
+    /// neighbour-to-neighbour as a visible wave. No agent knows about the wave.
+    f32 alignment_strength = 3.0f;
+
+    /// Neighbour count above which the local crowd counts as "packed". Below
+    /// this, separation alone handles spacing and pressure contributes nothing.
+    f32 pressure_threshold = 6.0f;
+    /// Extra separation gain per neighbour past the threshold. Turns a jam into
+    /// something that visibly builds and then releases sideways, instead of
+    /// agents quietly overlapping. Paired with wall collision this is what
+    /// produces DESIGN.md 4.2's splash-and-redirect.
+    f32 pressure_gain = 0.12f;
+    /// Ceiling on the pressure multiplier, so one pathological cell cannot
+    /// launch its occupants across the level.
+    f32 pressure_max = 4.0f;
+
+    /// Fraction of the wall-normal velocity component reflected on contact.
+    /// 0 = fully inelastic (slides along the wall, the dense-crowd default),
+    /// 1 = a perfect bounce. Kept low: a horde is wet, not rubber.
+    f32 wall_restitution = 0.15f;
+
+    /// Fraction of the speed a wall just BLOCKED that gets redirected along the
+    /// wall instead of being thrown away.
+    ///
+    /// Without this, a head-on impact simply deletes the agent's momentum and
+    /// it stops dead against the wall -- which is why the horde read as
+    /// "stopping" rather than "splashing". A real splash conserves the flow:
+    /// what cannot go forward goes sideways. 0 = absorb everything (dead stop),
+    /// 1 = redirect all of it into the tangent.
+    f32 wall_splash = 0.75f;
+
+    /// Hard minimum centre-to-centre spacing, as a multiple of `radius`.
+    ///
+    /// This backs the POSITIONAL overlap pass, which is what actually keeps
+    /// agents from interpenetrating. The velocity-space separation impulse
+    /// above cannot do that job on its own at high density: it is a force, and
+    /// forces are clamped by max_speed and are competing with the flow field
+    /// for that same budget, so however deep the overlap gets, agents can only
+    /// unstack at walking pace. Projecting positions apart is unconditional and
+    /// takes effect the same tick -- see the contact-relaxation pass in
+    /// ChaffSystem.cpp.
+    ///
+    /// 2.0 means "two agents may not be closer than the sum of their radii",
+    /// i.e. exactly touching. Slightly above 2 leaves a visible gap.
+    f32 contact_spacing = 2.0f;
+    /// How much of each detected overlap is corrected per tick, 0..1. Below 1
+    /// the crowd settles over a few ticks instead of snapping, which reads as
+    /// a dense fluid relaxing rather than as a rigid lattice popping apart.
+    f32 contact_stiffness = 0.7f;
 };
 
 struct ChaffTuning {
@@ -73,6 +137,22 @@ struct ChaffTuning {
     u32 max_replications_per_tick = 128;
     /// Ambient drift direction/strength applied to kDrifting agents.
     Vec2 ambient_drift{0.0f, 0.0f};
+
+    /// Hard ceiling on how many neighbours ONE agent inspects per tick.
+    ///
+    /// This is the single most important number for keeping the fluid-feel
+    /// rules affordable at high density. Per-neighbour cost is fixed and small,
+    /// but neighbour COUNT grows with density -- without a cap, doubling the
+    /// horde roughly quadruples this pass, because each of twice as many agents
+    /// also sees twice as many neighbours. Capping makes the pass linear in
+    /// agent count again at any density.
+    ///
+    /// Deterministic despite being a truncation: the spatial hash's CSR order
+    /// is a pure function of agent positions, so "the first N in cell order" is
+    /// the same set on every machine and at every thread count. Cutting off is
+    /// also visually harmless -- the sample is already a local average, and
+    /// the 24 nearest neighbours describe the same crowd as the 200 nearest.
+    u32 max_neighbors_sampled = 24;
 };
 
 struct ChaffUpdateStats {
@@ -137,6 +217,28 @@ private:
     // "read the previous tick's positions" (see file header) actually requires.
     std::vector<f32> old_pos_x_;
     std::vector<f32> old_pos_y_;
+    /// Pre-tick velocity snapshot, for exactly the same reason as old_pos_*:
+    /// alignment averages NEIGHBOURS' velocities, and those slots are being
+    /// overwritten in place by whichever range owns them. Reading a neighbour's
+    /// live velocity would make alignment depend on range scheduling order, and
+    /// alignment is a feedback loop, so that divergence would compound rather
+    /// than stay a rounding difference.
+    std::vector<f32> old_vel_x_;
+    std::vector<f32> old_vel_y_;
+    /// Per-agent POSITIONAL correction for this tick: how far to shove this
+    /// agent so it stops overlapping its neighbours. Accumulated by the same
+    /// neighbour gather that feeds separation/alignment/pressure (so it costs
+    /// no extra spatial-hash work) and applied during the integrate pass, where
+    /// it is two more adds over contiguous memory and does not disturb
+    /// vectorization.
+    ///
+    /// Jacobi-style: every agent computes and applies only its OWN half of each
+    /// overlap, reading neighbours through the pre-tick snapshot. Both agents in
+    /// a pair independently arrive at the same, opposite correction, so the pair
+    /// separates without either one writing to the other's slot -- which is what
+    /// keeps this parallel-safe and scheduling-independent.
+    std::vector<f32> contact_push_x_;
+    std::vector<f32> contact_push_y_;
     /// Per-agent effective max speed for this tick (family base, kSlowed-scaled),
     /// written by the accumulate pass and consumed by the branch-free clamp+
     /// integrate pass so that pass never has to touch flags or the tuning table.

@@ -77,6 +77,7 @@ private:
     ui::Hud hud_;
     ui::Menu menu_;
     std::vector<ui::LevelEntry> levels_;
+    std::string current_level_path_;  ///< Path to the currently loaded level, for restart.
     /// True once a level has actually been loaded into sim_. Guards the render
     /// path: the menu states run before any world exists, so the game passes
     /// must not be submitted against an uninitialised SimWorld.

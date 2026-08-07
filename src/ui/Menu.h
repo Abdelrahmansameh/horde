@@ -38,6 +38,7 @@ enum class MenuAction : u8 {
     None = 0,        ///< Nothing clicked this frame.
     OpenLevelSelect,
     StartLevel,      ///< `level_index` names the chosen entry.
+    RestartLevel,    ///< Restart the current level.
     Back,
     Quit,
 };
@@ -59,6 +60,12 @@ public:
     /// missing asset root is otherwise indistinguishable from a broken build.
     MenuResult build_level_select(const std::vector<LevelEntry>& levels,
                                   i32 screen_width, i32 screen_height);
+
+    /// Draws the level failed screen with restart and back buttons.
+    MenuResult build_level_failed_screen(i32 screen_width, i32 screen_height);
+
+    /// Draws the level complete screen with continue and back buttons.
+    MenuResult build_level_complete_screen(i32 screen_width, i32 screen_height);
 
 private:
     /// Survives across frames so the list keeps its highlight between clicks.

@@ -92,6 +92,24 @@ Options parse_args(int argc, char** argv) {
             if (!next_value(argc, argv, i, a, o.out_path, o.error)) break;
         } else if (a == "--towers") {
             o.place_towers = true;
+        } else if (a == "--tower") {
+            o.place_towers = true;
+            if (!next_value(argc, argv, i, a, o.tower_filter, o.error)) break;
+        } else if (a == "--view-height") {
+            std::string vh;
+            if (!next_value(argc, argv, i, a, vh, o.error)) break;
+            o.view_height = std::strtof(vh.c_str(), nullptr);
+        } else if (a == "--focus") {
+            std::string xy;
+            if (!next_value(argc, argv, i, a, xy, o.error)) break;
+            const auto comma = xy.find(',');
+            if (comma == std::string::npos) {
+                o.error = "--focus expects x,y";
+                break;
+            }
+            o.focus = Vec2{std::strtof(xy.substr(0, comma).c_str(), nullptr),
+                           std::strtof(xy.substr(comma + 1).c_str(), nullptr)};
+            o.has_focus = true;
         } else if (a == "--level") {
             if (!next_value(argc, argv, i, a, o.level, o.error)) break;
         } else if (a == "--scenario") {
