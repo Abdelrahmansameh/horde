@@ -73,3 +73,49 @@ TEST_CASE("worker pool defaults to hardware concurrency", "[core][jobs]") {
     REQUIRE(serial.worker_count() == 0u);
     REQUIRE(serial.thread_count() == 1u);
 }
+
+TEST_CASE("rapid back-to-back parallel_for calls do not use freed stack state",
+          "[core][jobs][stress]") {
+    // Regression guard for a use-after-free in parallel_for.
+    //
+    // Its completion counter, mutex and condition_variable live in the calling
+    // frame and are captured by reference by the worker lambdas. The counter
+    // used to be decremented OUTSIDE the mutex, so the last worker could drop
+    // it to zero, get descheduled, and only then reach for the lock -- while
+    // the caller, already inside wait(), re-checked the predicate, saw zero,
+    // returned, and destroyed all three objects. The worker then locked a dead
+    // mutex and notified a dead condition_variable.
+    //
+    // It surfaced as a crash deep inside worker_main with implausible frames,
+    // because the corrupted memory was whatever the next call reused, never as
+    // a fault at the guilty line.
+    //
+    // The window is a few instructions wide, so this hammers it: many
+    // iterations, workloads small enough that ranges finish almost together,
+    // and frames reused immediately. It is not a proof of absence -- a race
+    // this narrow can hide -- but it exercises the exact pattern, and the
+    // result check also catches any range being skipped or double-counted.
+    JobSystem jobs;
+    if (jobs.worker_count() == 0) {
+        WARN("single-core machine; parallel_for never dispatches, nothing to race");
+        return;
+    }
+
+    constexpr int kIterations = 4000;
+    constexpr usize kCount = 512;
+
+    for (int it = 0; it < kIterations; ++it) {
+        std::atomic<u64> sum{0};
+        // grain 1 forces the split all the way up to thread_count() ranges, so
+        // every iteration really does dispatch and join.
+        jobs.parallel_for(kCount,
+                          [&sum](usize begin, usize end, u32) {
+                              u64 local = 0;
+                              for (usize i = begin; i < end; ++i) local += i;
+                              sum.fetch_add(local, std::memory_order_relaxed);
+                          },
+                          /*grain=*/1);
+        // Every index exactly once: nothing skipped, nothing double-run.
+        REQUIRE(sum.load() == (kCount * (kCount - 1)) / 2);
+    }
+}

@@ -80,7 +80,40 @@ void JobSystem::parallel_for(usize count,
 
     // Ranges [1, ranges) go to workers; range 0 runs on the calling thread so
     // we never idle it.
-    std::atomic<u32> remaining{static_cast<u32>(ranges - 1)};
+    // THE COUNTER IS GUARDED BY done_mutex, NOT ATOMIC, AND THE NOTIFY HAPPENS
+    // WHILE HOLDING THE LOCK. Both of those are load-bearing; this was a
+    // use-after-free of stack memory.
+    //
+    // These three objects live in THIS stack frame, and the worker lambdas
+    // capture them by reference. The previous version decremented an atomic
+    // counter OUTSIDE the mutex and only then took the lock to notify:
+    //
+    //     if (remaining.fetch_sub(1) == 1) {        // worker, no lock held
+    //         std::lock_guard lock(done_mutex);     // <-- window
+    //         done_cv.notify_all();
+    //     }
+    //
+    // which allows:
+    //   1. the last worker decrements `remaining` to 0 and is then descheduled
+    //      before taking the lock;
+    //   2. the calling thread, already holding done_mutex inside wait(),
+    //      re-evaluates the predicate, sees 0, and returns WITHOUT EVER
+    //      BLOCKING;
+    //   3. parallel_for returns, and done_mutex/done_cv/remaining are destroyed
+    //      with the frame;
+    //   4. the worker resumes and locks a destroyed mutex, then notifies a
+    //      destroyed condition_variable.
+    //
+    // The corrupted memory is whatever stack the next call reuses, so this
+    // surfaces as an implausible crash inside worker_main with nonsense frames
+    // (e.g. vector<thread> reallocation) rather than anywhere near here.
+    //
+    // Mutating the counter under the lock closes it: the waiter can only leave
+    // wait() by re-acquiring done_mutex, which the notifying worker still
+    // holds, so by the time the frame can be destroyed the worker has finished
+    // touching all three objects. Notifying with the lock held costs the woken
+    // thread one extra block, which is irrelevant at a few calls per tick.
+    u32 remaining = static_cast<u32>(ranges - 1);
     std::mutex done_mutex;
     std::condition_variable done_cv;
 
@@ -90,17 +123,15 @@ void JobSystem::parallel_for(usize count,
         const u32 index = static_cast<u32>(r);
         dispatch([&body, begin, end, index, &remaining, &done_mutex, &done_cv] {
             if (begin < end) body(begin, end, index);
-            if (remaining.fetch_sub(1, std::memory_order_acq_rel) == 1) {
-                std::lock_guard<std::mutex> lock(done_mutex);
-                done_cv.notify_all();
-            }
+            std::lock_guard<std::mutex> lock(done_mutex);
+            if (--remaining == 0) done_cv.notify_all();
         });
     }
 
     body(0, std::min(chunk, count), 0);
 
     std::unique_lock<std::mutex> lock(done_mutex);
-    done_cv.wait(lock, [&remaining] { return remaining.load(std::memory_order_acquire) == 0; });
+    done_cv.wait(lock, [&remaining] { return remaining == 0; });
 }
 
 } // namespace immune
