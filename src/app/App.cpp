@@ -5,6 +5,8 @@
 #include "platform/FileIO.h"
 #include "render/Screenshot.h"
 
+#include <algorithm>
+
 namespace immune::app {
 
 bool App::init(const Options& options) {
@@ -52,19 +54,89 @@ bool App::init(const Options& options) {
     particles_.init(vfx::ParticleSystem::kDefaultCapacity, options.seed ^ 0xA5A5'5A5AULL);
     particle_scratch_.reserve(vfx::ParticleSystem::kDefaultCapacity);
 
-    if (!load_level(options.level)) return false;
-
-    camera_.set_viewport(window_.width(), window_.height());
-    camera_.set_bounds(sim_.desc().world_bounds);
-    camera_.set_center(sim_.desc().world_bounds.center());
-    camera_.set_view_height(sim_.desc().world_bounds.size().y);
-    camera_.clamp_to_bounds();
+    discover_levels();
 
     profiler_.reserve(4096);
-    state_.request(GameStateId::InLevel);
+
+    // An explicit --level means "play this now" (that is what the headless
+    // modes and every existing launch script expect), so it skips the front
+    // end. A bare launch goes to the menu.
+    if (!options.level.empty()) {
+        if (!load_level(options.level)) return false;
+        state_.request(GameStateId::InLevel);
+    } else {
+        state_.request(GameStateId::MainMenu);
+    }
     state_.apply_pending();
     running_ = true;
     return true;
+}
+
+void App::discover_levels() {
+    levels_.clear();
+    const std::string dir = platform::asset_path("levels");
+    for (const std::string& path : platform::list_files(dir, ".json")) {
+        game::LevelLoader loader;
+        game::LevelDef def;
+        if (!loader.load_file(path, def).ok) {
+            IMMUNE_LOG_WARN("skipping unreadable level '%s'", path.c_str());
+            continue;
+        }
+        ui::LevelEntry e;
+        e.path = path;
+        e.display_name = def.name.empty() ? path : def.name;
+        e.region = def.region.empty() ? std::string("unknown") : def.region;
+        // Distinct lane ids, not vessel count: a lane can be authored as
+        // several chained vessel segments, and the player cares how many ways
+        // in there are, not how the spline was cut up.
+        std::vector<std::string> seen;
+        for (const game::Vessel& v : def.vessels) {
+            const std::string& id = v.lane_id.empty() ? v.id : v.lane_id;
+            if (std::find(seen.begin(), seen.end(), id) == seen.end()) seen.push_back(id);
+        }
+        e.lane_count = static_cast<u32>(seen.size());
+        levels_.push_back(std::move(e));
+    }
+    IMMUNE_LOG_INFO("discovered %zu level(s) in %s", levels_.size(), dir.c_str());
+}
+
+void App::build_menus() {
+    const i32 w = window_.width();
+    const i32 h = window_.height();
+    ui::MenuResult r;
+
+    switch (state_.current()) {
+    case GameStateId::MainMenu:    r = menu_.build_main_menu(w, h); break;
+    case GameStateId::LevelSelect: r = menu_.build_level_select(levels_, w, h); break;
+    default: return;
+    }
+
+    switch (r.action) {
+    case ui::MenuAction::OpenLevelSelect:
+        state_.request(GameStateId::LevelSelect);
+        break;
+    case ui::MenuAction::Back:
+        state_.request(GameStateId::MainMenu);
+        break;
+    case ui::MenuAction::Quit:
+        state_.request(GameStateId::Quitting);
+        running_ = false;
+        break;
+    case ui::MenuAction::StartLevel:
+        if (r.level_index < levels_.size()) {
+            if (load_level(levels_[r.level_index].path)) {
+                state_.request(GameStateId::InLevel);
+            } else {
+                // Loading failed and load_level() already logged why. Stay on
+                // the level list rather than dropping into a half-built world.
+                IMMUNE_LOG_ERROR("could not start level '%s'",
+                                 levels_[r.level_index].path.c_str());
+            }
+        }
+        break;
+    case ui::MenuAction::None:
+        break;
+    }
 }
 
 bool App::load_level(const std::string& path) {
@@ -106,6 +178,22 @@ bool App::load_level(const std::string& path) {
     waves_.set_waves(game::WaveDirector::generate(level.region, 8, sim_.rng()));
     waves_.start(sim_);
     state_.set_current_level_id(level.name);
+
+    // Camera framing moved here from init(): with a front end, a level can be
+    // loaded long after startup, and each one has its own world bounds.
+    camera_.set_viewport(window_.width(), window_.height());
+    camera_.set_bounds(sim_.desc().world_bounds);
+    camera_.set_center(sim_.desc().world_bounds.center());
+    camera_.set_view_height(sim_.desc().world_bounds.size().y);
+    camera_.clamp_to_bounds();
+
+    // A fresh level must not inherit the previous one's sparks, nor a stale
+    // economy/ability state from a run that already ended.
+    particles_.clear();
+    economy_.configure(game::EconomyConfig{});
+    abilities_.load_defaults();
+
+    level_loaded_ = true;
     return true;
 }
 
@@ -123,6 +211,24 @@ void App::handle_input() {
     if (input_.quit_requested() || window_.close_requested()) {
         state_.request(GameStateId::Quitting);
         running_ = false;
+    }
+    // Escape backs out one level of the front end, and abandons a run in
+    // progress. Without this a finished or abandoned level had no way back to
+    // the menu at all.
+    if (input_.action_pressed(platform::Action::CancelPlacement)) {
+        switch (state_.current()) {
+        case GameStateId::LevelSelect:
+            state_.request(GameStateId::MainMenu);
+            break;
+        case GameStateId::InLevel:
+        case GameStateId::LevelComplete:
+        case GameStateId::LevelFailed:
+            state_.set_outcome(LevelOutcome::Aborted);
+            state_.request(GameStateId::MainMenu);
+            break;
+        default:
+            break;
+        }
     }
     if (input_.action_pressed(platform::Action::Pause)) {
         clock_.set_time_scale(clock_.time_scale() > 0.0f ? 0.0f : 1.0f);
@@ -205,6 +311,20 @@ void App::tick_sim() {
 }
 
 void App::render_frame() {
+    // Menu states run before any level exists, so every pass below would be
+    // reading an uninitialised SimWorld. Draw a bare frame plus the front end
+    // and return.
+    if (!level_loaded_) {
+        renderer_.poll_shader_reload();
+        renderer_.begin_frame(camera_, 0.0f);
+        renderer_.end_frame();
+        hud_.begin_frame(input_);
+        build_menus();
+        hud_.render();
+        window_.swap();
+        return;
+    }
+
     // Drain the tick's combat events into particles, then advance them on the
     // RENDER clock. Draining here (not in tick_sim) means one drain per frame
     // regardless of how many ticks the frame consumed, which is what the sink's
@@ -253,7 +373,17 @@ int App::run() {
         WallClock frame;
         clock_.begin_frame();
         handle_input();
-        state_.apply_pending();
+        if (state_.apply_pending()) {
+            // Returning to the front end tears the world down so the menu
+            // renders over a clean frame and a re-entered level starts fresh
+            // rather than inheriting the previous run's state.
+            const GameStateId now = state_.current();
+            if (now == GameStateId::MainMenu || now == GameStateId::LevelSelect) {
+                level_loaded_ = false;
+                particles_.clear();
+                clock_.set_time_scale(1.0f);
+            }
+        }
 
         if (state_.sim_running()) {
             while (clock_.consume_tick()) tick_sim();

@@ -30,6 +30,7 @@
 #include "render/Renderer.h"
 #include "sim/SimWorld.h"
 #include "ui/Hud.h"
+#include "ui/Menu.h"
 #include "vfx/Particles.h"
 
 #include <memory>
@@ -54,6 +55,13 @@ private:
     void render_frame();
     void enter_state(GameStateId id);
     bool load_level(const std::string& path);
+    /// Scans the levels directory once and fills `levels_`. Cheap enough to do
+    /// at startup (a dozen small JSON parses) and keeps the level list a pure
+    /// function of what is on disk rather than a hardcoded table.
+    void discover_levels();
+    /// Draws whichever front-end screen the current state calls for and
+    /// applies the resulting MenuAction. Runs inside Hud's ImGui frame.
+    void build_menus();
 
     Options options_{};
     GameStateMachine state_;
@@ -67,6 +75,12 @@ private:
     render::Camera camera_;
     audio::AudioEngine audio_;
     ui::Hud hud_;
+    ui::Menu menu_;
+    std::vector<ui::LevelEntry> levels_;
+    /// True once a level has actually been loaded into sim_. Guards the render
+    /// path: the menu states run before any world exists, so the game passes
+    /// must not be submitted against an uninitialised SimWorld.
+    bool level_loaded_ = false;
 
     sim::SimWorld sim_;
     game::TowerSystem towers_;
