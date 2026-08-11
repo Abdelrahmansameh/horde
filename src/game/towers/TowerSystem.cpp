@@ -209,9 +209,9 @@ void load_default_stats(TowerSystem& self) {
     // rate: 11 rounds/s at tier 1 up to 33/s at tier 3, so the stream reads as
     // continuous rather than as individual shots. kill_rate is 0 by design —
     // the Gunner is the one tower that does NOT publish a damage field.
-    self.set_stats(TowerType::Neutrophil, 1, make_stats(9.0f, 0.090f, 1.4f, 0.0f, 1.4f, 70, 45, 6.0f));
-    self.set_stats(TowerType::Neutrophil, 2, make_stats(10.0f, 0.055f, 2.2f, 0.0f, 1.4f, 70, 38, 5.0f));
-    self.set_stats(TowerType::Neutrophil, 3, make_stats(11.0f, 0.030f, 2.4f, 0.0f, 1.4f, 70, 0, 4.0f));
+    self.set_stats(TowerType::Neutrophil, 1, make_stats(18.0f, 0.045f, 1.4f, 0.0f, 1.4f, 70, 45, 6.0f));
+    self.set_stats(TowerType::Neutrophil, 2, make_stats(20.0f, 0.0275f, 2.2f, 0.0f, 1.4f, 70, 38, 5.0f));
+    self.set_stats(TowerType::Neutrophil, 3, make_stats(22.0f, 0.015f, 2.4f, 0.0f, 1.4f, 70, 0, 4.0f));
 
     // MORTAR — the longest range and by far the slowest cadence. One shell
     // every 2.6s that erases whatever was standing in a 5-unit circle.
@@ -222,9 +222,9 @@ void load_default_stats(TowerSystem& self) {
     // CRYO — deliberately the weakest kill_rate in the roster. Its output is
     // crowd control: everything in the cone is slowed, and anything caught deep
     // in it is locked down outright.
-    self.set_stats(TowerType::Interferon, 1, make_stats(8.0f, 0.55f, 3.0f, 2.0f, 2.4f, 110, 70, 12.0f));
-    self.set_stats(TowerType::Interferon, 2, make_stats(9.0f, 0.50f, 7.0f, 5.4f, 2.4f, 110, 60, 10.0f));
-    self.set_stats(TowerType::Interferon, 3, make_stats(10.0f, 0.45f, 14.0f, 10.5f, 2.4f, 110, 0, 8.0f));
+    self.set_stats(TowerType::Interferon, 1, make_stats(24.0f, 0.55f, 3.0f, 2.0f, 2.4f, 110, 70, 12.0f));
+    self.set_stats(TowerType::Interferon, 2, make_stats(27.0f, 0.50f, 7.0f, 5.4f, 2.4f, 110, 60, 10.0f));
+    self.set_stats(TowerType::Interferon, 3, make_stats(30.0f, 0.45f, 14.0f, 10.5f, 2.4f, 110, 0, 8.0f));
 
     // TESLA — short base range but its chain reaches far past it by hopping.
     // Bursty: nothing at all between discharges.
@@ -241,9 +241,9 @@ void load_default_stats(TowerSystem& self) {
     // BLADE — by far the shortest range in the roster (it is a contact weapon)
     // and by far the highest sustained kill_rate per unit of range. A wall
     // tower: it only works where the horde is forced to walk into it.
-    self.set_stats(TowerType::NKCell, 1, make_stats(3.2f, 0.18f, 5.0f, 8.0f, 1.6f, 90, 58, 0.0f));
-    self.set_stats(TowerType::NKCell, 2, make_stats(3.6f, 0.14f, 10.0f, 21.0f, 1.6f, 90, 49, 0.0f));
-    self.set_stats(TowerType::NKCell, 3, make_stats(4.0f, 0.10f, 20.0f, 41.0f, 1.6f, 90, 0, 0.0f));
+    self.set_stats(TowerType::NKCell, 1, make_stats(16.0f, 0.18f, 5.0f, 8.0f, 1.6f, 90, 58, 0.0f));
+    self.set_stats(TowerType::NKCell, 2, make_stats(18.0f, 0.14f, 10.0f, 21.0f, 1.6f, 90, 49, 0.0f));
+    self.set_stats(TowerType::NKCell, 3, make_stats(20.0f, 0.10f, 20.0f, 41.0f, 1.6f, 90, 0, 0.0f));
 }
 
 /// TowerSystem.h forbids adding a constructor, so there is no natural hook to
@@ -446,7 +446,14 @@ bool chaff_targetable(const sim::ChaffBuffers& chaff, u32 idx, u8 mask) {
 /// agent (a cell whose NEAREST point is out of range provably cannot), then
 /// returns the centroid of that cell's in-range agents. Deterministic: cell
 /// scan order is row-major and ties keep the first (lowest-index) cell.
-bool acquire_focus(const sim::SimWorld& world, Vec2 origin, f32 range, u8 mask, Vec2& out) {
+///
+/// `out_vel`, when given, receives the mean velocity of the SAME agents the
+/// centroid averaged, so a caller with travel time to cover can lead the shot
+/// (see lead_aim_point). Everything else ignores it — an area field lands the
+/// tick it is published, so it has nothing to lead.
+bool acquire_focus(const sim::SimWorld& world, Vec2 origin, f32 range, u8 mask, Vec2& out,
+                   Vec2* out_vel = nullptr) {
+    if (out_vel) *out_vel = Vec2{0.0f, 0.0f};
     const sim::SpatialHash& hash = world.spatial();
     const sim::ChaffBuffers& chaff = world.chaff();
     if (chaff.count() == 0) return false;
@@ -486,20 +493,26 @@ bool acquire_focus(const sim::SimWorld& world, Vec2 origin, f32 range, u8 mask, 
 
     Vec2 in_range{0.0f, 0.0f};
     Vec2 anywhere{0.0f, 0.0f};
+    Vec2 vel_in{0.0f, 0.0f};
+    Vec2 vel_any{0.0f, 0.0f};
     u32 n_in = 0;
     u32 n_any = 0;
     for (u32 s = begin; s < end; ++s) {
         const u32 a = indices[s];
         if (!chaff_targetable(chaff, a, mask)) continue;
         const Vec2 p{chaff.pos_x[a], chaff.pos_y[a]};
+        const Vec2 v{chaff.vel_x[a], chaff.vel_y[a]};
         anywhere += p;
+        vel_any += v;
         ++n_any;
         if (math::length_sq(p - origin) > r2) continue;
         in_range += p;
+        vel_in += v;
         ++n_in;
     }
     if (n_in > 0) {
         out = in_range / static_cast<f32>(n_in);
+        if (out_vel) *out_vel = vel_in / static_cast<f32>(n_in);
         return true;
     }
     if (n_any == 0) return false;
@@ -510,7 +523,49 @@ bool acquire_focus(const sim::SimWorld& world, Vec2 origin, f32 range, u8 mask, 
     const Vec2 d = c - origin;
     const f32 l = math::length(d);
     out = (l > range && l > math::kEpsilon) ? origin + d * (range / l) : c;
+    if (out_vel) *out_vel = vel_any / static_cast<f32>(n_any);
     return true;
+}
+
+/// Where to point so a round of `speed` and the target meet, given the target's
+/// position and velocity RIGHT NOW. Without this the Gunner shoots at where the
+/// horde was when the trigger was pulled, and every round lands one travel-time
+/// behind a moving crowd — a constant, very visible lag, not a near-miss.
+///
+/// Solves |D + V*t| = speed*t for the earliest t >= 0, with D = target - origin:
+///
+///     (V.V - speed^2) t^2 + 2 (D.V) t + D.D = 0
+///
+/// `a` is negative whenever the round outruns the target (kGunnerRoundSpeed is
+/// 45+ against agents that move single digits, so always, here) and `c` is a
+/// squared length, so the roots have opposite signs and exactly one is valid.
+/// The degenerate cases — target already on the muzzle, or somehow no positive
+/// root — fall back to the unled point, which is the old behaviour.
+Vec2 lead_aim_point(Vec2 origin, Vec2 target, Vec2 target_vel, f32 speed) {
+    if (speed <= math::kEpsilon) return target;
+    const Vec2 d = target - origin;
+    const f32 a = math::length_sq(target_vel) - speed * speed;
+    const f32 b = 2.0f * (d.x * target_vel.x + d.y * target_vel.y);
+    const f32 c = math::length_sq(d);
+    if (c <= math::kEpsilon) return target;
+
+    f32 t = -1.0f;
+    if (std::fabs(a) <= math::kEpsilon) {
+        // Target receding at exactly muzzle speed: the quadratic collapses to a
+        // line. Only meets if it is closing on the b term.
+        if (std::fabs(b) > math::kEpsilon) t = -c / b;
+    } else {
+        const f32 disc = b * b - 4.0f * a * c;
+        if (disc < 0.0f) return target;
+        const f32 root = std::sqrt(disc);
+        const f32 t0 = (-b - root) / (2.0f * a);
+        const f32 t1 = (-b + root) / (2.0f * a);
+        // Earliest non-negative root; they cannot both be negative while a < 0.
+        if (t0 >= 0.0f && t1 >= 0.0f) t = math::min(t0, t1);
+        else t = math::max(t0, t1);
+    }
+    if (!(t > 0.0f)) return target;
+    return target + target_vel * t;
 }
 
 /// Nearest live matching chaff agent to `from` within `radius`, skipping the
@@ -548,15 +603,22 @@ u32 nearest_chaff(const sim::SimWorld& world, Vec2 from, f32 radius, u8 mask,
 }
 
 /// The aim point a tower should face this tick: the chaff focus if there is
-/// one, otherwise the nearest named agent, otherwise nothing.
+/// one, otherwise the nearest named agent, otherwise nothing. `out_vel`, when
+/// given, receives that target's velocity for lead_aim_point; it is zero when
+/// the target has no Velocity to report.
 bool acquire_aim_point(TowerSystem& self, sim::SystemContext& ctx, Vec2 origin,
-                       const TowerStats& st, bool detect_hidden, Vec2& out) {
-    if (acquire_focus(ctx.world, origin, st.range, st.family_mask, out)) return true;
+                       const TowerStats& st, bool detect_hidden, Vec2& out,
+                       Vec2* out_vel = nullptr) {
+    if (acquire_focus(ctx.world, origin, st.range, st.family_mask, out, out_vel)) return true;
+    if (out_vel) *out_vel = Vec2{0.0f, 0.0f};
     const EntityId named = self.find_target(ctx.world, origin, st.range, st.family_mask, detect_hidden);
     if (!named.valid()) return false;
     const entt::entity te = ctx.world.ecs().from_id(named);
     if (!ctx.registry.valid(te) || !ctx.registry.all_of<comp::Transform>(te)) return false;
     out = ctx.registry.get<comp::Transform>(te).position;
+    if (out_vel) {
+        if (const auto* v = ctx.registry.try_get<comp::Velocity>(te)) *out_vel = v->value;
+    }
     return true;
 }
 
@@ -594,22 +656,36 @@ void system_gunner(TowerSystem& self, sim::SystemContext& ctx) {
         const TowerStats& st = self.stats(tw.type, tw.tier);
 
         Vec2 target{};
-        if (!acquire_aim_point(self, ctx, tf.position, st, false, target)) continue;
-        Vec2 aim = math::normalize_safe(target - tf.position);
-        if (aim.x == 0.0f && aim.y == 0.0f) aim = heading(tf.rotation);
-        tf.rotation = std::atan2(aim.y, aim.x);
-        if (tw.cooldown > 0.0f) continue;
+        Vec2 target_vel{};
+        if (!acquire_aim_point(self, ctx, tf.position, st, false, target, &target_vel)) continue;
 
         const u32 slot = tier_slot(tw.tier);
         const f32 speed = kGunnerRoundSpeed[slot];
+        // Lead from the barrel, not the base. The muzzle sits a footprint out
+        // along the aim, so the round has that much less ground to cover and
+        // wants a correspondingly shorter lead — hence the second solve once
+        // the first one has told us which way the barrel points. Both use the
+        // same closed form; the refinement is two dozen flops.
+        Vec2 led = lead_aim_point(tf.position, target, target_vel, speed);
+        Vec2 aim = math::normalize_safe(led - tf.position);
+        if (aim.x == 0.0f && aim.y == 0.0f) aim = heading(tf.rotation);
+        const Vec2 muzzle = tf.position + aim * (st.footprint_radius + 0.15f);
+        led = lead_aim_point(muzzle, target, target_vel, speed);
+        Vec2 shot = math::normalize_safe(led - muzzle);
+        if (shot.x == 0.0f && shot.y == 0.0f) shot = aim;
+
+        // The barrel points where it will SHOOT, so the muzzle flash, the round
+        // and the turret all agree on screen even while the horde slides past.
+        tf.rotation = std::atan2(shot.y, shot.x);
+        if (tw.cooldown > 0.0f) continue;
+
         // EXACTLY ONE Rng draw per round fired, taken before anything that could
         // fail. ProjectileSystem::update deliberately draws nothing, so the sim
         // stream advances once per shot and not once per round-in-flight.
         const f32 jitter = ctx.rng.range_f(-kGunnerSpread, kGunnerSpread);
         const f32 cj = std::cos(jitter);
         const f32 sj = std::sin(jitter);
-        const Vec2 dir{aim.x * cj - aim.y * sj, aim.x * sj + aim.y * cj};
-        const Vec2 muzzle = tf.position + aim * (st.footprint_radius + 0.15f);
+        const Vec2 dir{shot.x * cj - shot.y * sj, shot.x * sj + shot.y * cj};
 
         sim::ProjectileSpawnParams round;
         round.position = muzzle;
@@ -922,6 +998,30 @@ void system_laser(TowerSystem& self, sim::SystemContext& ctx) {
     }
 }
 
+// Shape ids 0..15 belong to agents and renderer overlays (blob, range ring,
+// telegraph diamond, countdown ring, death burst — see entity.frag). Towers
+// start here so the two spaces cannot collide.
+constexpr u16 kTowerShapeBase = 16;
+
+/// World-space diameter of a tower's body sprite.
+///
+/// Most towers are drawn at their physical footprint: the sprite IS the lump of
+/// cell sitting on the tissue, and its reach is communicated by the separate
+/// DamageField / range-ring visuals.
+///
+/// The NK Cell is the exception. Its whole silhouette is a rotor whose blades
+/// sweep the kill disc (system_blade submits a Circle field of st.range every
+/// tick), so the blades have to physically reach that far or the visual lies
+/// about where the tower kills. Its quad is therefore sized to the FIELD, not
+/// the footprint, and entity.frag draws the small cell body as a hub at the
+/// centre with the blades spanning out to the rim. This is why the NK sprite
+/// must be re-sized on upgrade (see TowerSystem::upgrade) — for every other
+/// tower the footprint never changes, but the NK Cell's reach does.
+f32 tower_sprite_size(TowerType type, const TowerStats& st) {
+    if (type == TowerType::NKCell) return st.range * 2.0f;
+    return st.footprint_radius * 2.0f;
+}
+
 // ---------------------------------------------------------------------------
 // BLADE — NK Cell. A short 360-degree Circle field pinned to the tower, running
 // continuously, with a contact slash raised for whatever the rotor passes
@@ -1188,16 +1288,14 @@ EntityId TowerSystem::place(sim::SimWorld& world, TowerType type, Vec2 world_pos
     tw.fire_interval = st.fire_interval;
     tw.ability_cooldown = 0.0f;
     registry.emplace<comp::Tower>(e, tw);
-    // Shape ids 0..15 belong to agents and renderer overlays (blob, range ring,
-    // telegraph diamond, countdown ring, death burst — see entity.frag). Towers
-    // start at kTowerShapeBase so the two spaces cannot collide.
+    // Shape ids start at kTowerShapeBase so tower and overlay id spaces cannot
+    // collide.
     //
     // They previously did: atlas_index was the raw TowerType, so the Macrophage
     // (type 1) drew as the range-indicator RING, the Cytotoxic T (3) as the
     // telegraph countdown ring, and the B-Cell (4) as an elite death burst.
     // Every tower was wearing some other system's overlay.
-    constexpr u16 kTowerShapeBase = 16;
-    registry.emplace<comp::Sprite>(e, comp::Sprite{Vec4{1.0f, 1.0f, 1.0f, 1.0f}, st.footprint_radius * 2.0f,
+    registry.emplace<comp::Sprite>(e, comp::Sprite{Vec4{1.0f, 1.0f, 1.0f, 1.0f}, tower_sprite_size(type, st),
                                                     static_cast<u16>(kTowerShapeBase + static_cast<u16>(t)),
                                                     /*layer=*/1});
     registry.emplace<priv::TowerRecord>(e, std::move(rec));
@@ -1223,6 +1321,16 @@ u8 TowerSystem::upgrade(sim::SimWorld& world, EntityId tower) {
     tw.tier = next_tier;
     tw.range = next.range;
     tw.fire_interval = next.fire_interval;
+
+    // Keep the body sprite in step with the new tier's stats. This only
+    // actually changes anything for the NK Cell (whose quad tracks st.range so
+    // its blades keep spanning the kill disc — see tower_sprite_size); every
+    // other tower has a tier-invariant footprint and re-sizes to the same
+    // value it already had. Done unconditionally anyway so that a future tower
+    // with a growing footprint doesn't silently keep a stale sprite.
+    if (auto* sprite = registry.try_get<comp::Sprite>(e)) {
+        sprite->size = tower_sprite_size(tw.type, next);
+    }
 
     if (auto* rec = registry.try_get<priv::TowerRecord>(e)) rec->invested_atp += cur.upgrade_cost;
     return next_tier;

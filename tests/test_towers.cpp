@@ -585,6 +585,76 @@ TEST_CASE("GUNNER spawns real rounds into world.projectiles(), and those rounds 
     REQUIRE(count_events(world, CombatEventType::MuzzleFlash, TowerType::Neutrophil) >= 10);
 }
 
+TEST_CASE("GUNNER leads a moving target instead of firing at where it already was",
+          "[towers][combat][gunner][projectiles]") {
+    // Regression: the Gunner used to aim straight at the aim point, which for a
+    // finite-speed round means every shot lands one travel-time BEHIND anything
+    // that is moving — a permanent visible lag, not an occasional miss.
+    SimWorld world = make_world();
+    TowerSystem ts;
+    ts.register_systems(world);
+    const EntityId tower = ts.place(world, TowerType::Neutrophil, kRoomCenterLeft);
+    REQUIRE(tower.valid());
+    ready_now(world, tower);
+
+    // ONE agent, so the focus centroid is exactly its position and the geometry
+    // below is exact. Crossing the line of fire is the worst case for lag.
+    const Vec2 target = kRoomCenterLeft + Vec2{9.0f, 0.0f};
+    const Vec2 target_vel{0.0f, 3.5f};
+    {
+        ChaffSpawnParams p;
+        p.position = target;
+        p.velocity = target_vel;
+        p.density = 4.0f;
+        p.family = PathogenFamily::Virus;
+        world.chaff().spawn(p);
+    }
+
+    // Submission only: step_combat() would advance the round off its muzzle
+    // before we can read where it started from.
+    submit_only(world);
+    REQUIRE(world.projectiles().count() == 1);
+    const Vec2 muzzle{world.projectiles().pos_x[0], world.projectiles().pos_y[0]};
+    const Vec2 round_vel{world.projectiles().vel_x[0], world.projectiles().vel_y[0]};
+    const f32 speed = math::length(round_vel);
+    REQUIRE(speed > 1.0f);
+
+    // Exact intercept, solved independently of the shipping code: the time at
+    // which a round of this speed and the agent occupy the same point.
+    const Vec2 d = target - muzzle;
+    const f32 a = math::length_sq(target_vel) - speed * speed;
+    const f32 b = 2.0f * (d.x * target_vel.x + d.y * target_vel.y);
+    const f32 c = math::length_sq(d);
+    const f32 root = std::sqrt(b * b - 4.0f * a * c);
+    const f32 t0 = (-b - root) / (2.0f * a);
+    const f32 t1 = (-b + root) / (2.0f * a);
+    const f32 t = math::min(t0, t1) > 0.0f ? math::min(t0, t1) : math::max(t0, t1);
+    REQUIRE(t > 0.0f);
+
+    const f32 want = std::atan2(target_vel.y * t + d.y, target_vel.x * t + d.x);
+    const f32 got = std::atan2(round_vel.y, round_vel.x);
+    const f32 unled = std::atan2(d.y, d.x);
+    auto angle_gap = [](f32 x, f32 y) {
+        f32 g = std::fabs(x - y);
+        while (g > 3.14159265f) g = std::fabs(g - 6.28318531f);
+        return g;
+    };
+
+    // Muzzle spread is the only thing allowed to separate the shot from the
+    // ideal intercept angle.
+    const f32 tolerance = 0.045f + 1e-3f;
+    INFO("intercept t=" << t << " want=" << want << " got=" << got << " unled=" << unled);
+    REQUIRE(angle_gap(got, want) <= tolerance);
+    // ...and the test has teeth: aiming at the agent's CURRENT position — the
+    // old behaviour — is a miss by more than spread can account for.
+    REQUIRE(angle_gap(unled, want) > tolerance);
+
+    // The turret is pointed where it shoots, so the barrel, the flash and the
+    // round all agree on screen.
+    const f32 rotation = world.ecs().registry().get<comp::Transform>(world.ecs().from_id(tower)).rotation;
+    REQUIRE(angle_gap(rotation, want) <= tolerance);
+}
+
 TEST_CASE("GUNNER fire rate escalates hard with tier and rounds never outrun the spatial hash",
           "[towers][combat][gunner]") {
     TowerSystem ts;

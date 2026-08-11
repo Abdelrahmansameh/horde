@@ -93,7 +93,41 @@ struct EntityInstance {
     u32 tint_rgba8;
     u32 shape_id;      ///< procedural SDF shape selector
     f32 anim_phase;
-    f32 pad;
+    /// Extra per-shape parameter; its meaning is defined by `shape_id`, and it
+    /// is 0 for shapes that don't declare one. Today only the NK Cell body
+    /// (shape 21) reads it, as the blade count to draw. Was dead padding
+    /// before — the 32-byte layout is unchanged, so entity.vert's byte-for-byte
+    /// contract still holds.
+    f32 shape_param;
+};
+
+/// Optional extra inputs for the tissue pass (DESIGN.md §9.2's lane-identity
+/// system, and the flow-aligned plasma treatment in §9.4).
+///
+/// Everything here is passed as raw arrays and a sim:: pointer rather than as
+/// the `game::LaneOwnershipMap` it actually comes from: render/ deliberately
+/// does not depend on game/, and that rule is worth more than the small amount
+/// of unpacking a caller has to do (App::render / Modes.cpp, both one-liners).
+///
+/// Every field is optional. A null `decor`, or a decor with null members, makes
+/// submit_tissue fall back to a single default hue and a straight-line flow
+/// assumption — which is exactly what the bench/sim-test paths want.
+struct TissueDecor {
+    /// Drives the plasma streamlines (direction) and the travelling systolic
+    /// pressure wave (cost-to-goal). Must have been baked from the same mask
+    /// that is passed to submit_tissue, since its world extent is taken from
+    /// that mask (FlowField does not expose its own origin).
+    const sim::FlowField* flow = nullptr;
+
+    /// game::LaneOwnershipMap::owner — `lane_width * lane_height` cells,
+    /// row-major, each an index into `lane_type` or 0xFF for "unowned".
+    const u8* lane_owner = nullptr;
+    /// Per-lane game::VesselType ordinal; `lane_count` entries. Indexed by the
+    /// values in `lane_owner`.
+    const u8* lane_type = nullptr;
+    u32 lane_count = 0;
+    i32 lane_width = 0;
+    i32 lane_height = 0;
 };
 
 struct FrameStats {
@@ -132,9 +166,12 @@ public:
     /// FixedClock::alpha() for sim-state interpolation.
     void begin_frame(const Camera& camera, f32 alpha);
 
-    /// Draws the tissue substrate layer (DESIGN.md §7 back layer) from the
-    /// level's distance field, including the heartbeat pulse.
-    void submit_tissue(const sim::TissueMask& mask, const sim::DistanceField& sdf, f32 heartbeat_phase);
+    /// Draws the tissue substrate layer (DESIGN.md §9.1 back layer) from the
+    /// level's distance field, including the heartbeat pulse. `decor` is
+    /// optional (see TissueDecor); without it the pass still draws, just with
+    /// one default lane hue and no flow-aligned plasma.
+    void submit_tissue(const sim::TissueMask& mask, const sim::DistanceField& sdf,
+                       f32 heartbeat_phase, const TissueDecor* decor = nullptr);
 
     /// THE hot submission. Walks the chaff SoA once, partitions agents into
     /// per-family instance ranges and blob density accumulation using `hash`

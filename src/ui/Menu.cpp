@@ -3,6 +3,8 @@
 // state machine themselves.
 #include "ui/Menu.h"
 
+#include "ui/Fonts.h"
+
 #include <imgui.h>
 
 #include <cstdio>
@@ -29,11 +31,21 @@ void center_next_item(f32 item_w) {
     if (avail > item_w) ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (avail - item_w) * 0.5f);
 }
 
-/// A title drawn larger than body text. ImGui's default font is a single size,
-/// so scale rather than swap fonts — this keeps the menu working with the
-/// stock atlas and avoids shipping a font file (this project has a zero
-/// binary-asset rule).
+/// A title drawn larger than body text. If a system font was found
+/// (ui/Fonts.h), use the real larger-size instance baked for headings --
+/// crisp at its native size, unlike a bitmap font stretched via Scale.
+/// Otherwise fall back to scaling the stock atlas font, which keeps the menu
+/// working even with zero fonts on disk (this project ships zero binary
+/// assets, so a bundled .ttf is not an option).
 void draw_title(const char* text, f32 scale) {
+    ImFont* big = title_font();
+    if (big) {
+        ImGui::PushFont(big);
+        center_next_item(ImGui::CalcTextSize(text).x);
+        ImGui::TextUnformatted(text);
+        ImGui::PopFont();
+        return;
+    }
     const f32 old = ImGui::GetFont()->Scale;
     ImGui::GetFont()->Scale = scale;
     ImGui::PushFont(ImGui::GetFont());
@@ -183,6 +195,30 @@ MenuResult Menu::build_level_complete_screen(i32 screen_width, i32 screen_height
 
         center_next_item(button.x);
         if (ImGui::Button("Menu", button)) result.action = MenuAction::Back;
+    }
+    ImGui::End();
+    return result;
+}
+
+MenuResult Menu::build_pause_menu(i32 screen_width, i32 screen_height) {
+    MenuResult result;
+    center_next_window(screen_width, screen_height, 420.0f, 320.0f);
+    if (ImGui::Begin("##pause_menu", nullptr, kPanelFlags)) {
+        ImGui::Dummy(ImVec2(0.0f, 12.0f));
+        draw_title("Paused", 1.8f);
+        ImGui::Dummy(ImVec2(0.0f, 20.0f));
+        const ImVec2 button{220.0f, 42.0f};
+
+        center_next_item(button.x);
+        if (ImGui::Button("Resume", button)) result.action = MenuAction::Resume;
+
+        ImGui::Dummy(ImVec2(0.0f, 8.0f));
+        center_next_item(button.x);
+        if (ImGui::Button("Restart", button)) result.action = MenuAction::RestartLevel;
+
+        ImGui::Dummy(ImVec2(0.0f, 8.0f));
+        center_next_item(button.x);
+        if (ImGui::Button("Main Menu", button)) result.action = MenuAction::Back;
     }
     ImGui::End();
     return result;

@@ -29,8 +29,13 @@ using json = nlohmann::json;
 
 /// Builds the sim for a headless run: level geometry (from --level or the
 /// built-in test level) plus deterministic tuning.
+/// `out_lane_map`, when non-null, receives the per-cell lane attribution the
+/// tissue pass needs for DESIGN.md §9.2's per-lane hue. Optional because only
+/// --screenshot renders anything a human looks at; --bench and --sim-test have
+/// no use for it and should not pay to build it.
 bool build_world(sim::SimWorld& world, const Options& opt, usize max_chaff,
-                 JobSystem* jobs, std::string& error) {
+                 JobSystem* jobs, std::string& error,
+                 game::LaneOwnershipMap* out_lane_map = nullptr) {
     game::LevelDef level;
     game::LevelLoader loader;
 
@@ -74,7 +79,25 @@ bool build_world(sim::SimWorld& world, const Options& opt, usize max_chaff,
     // mode: idempotent per EnemyRoster's own design, and a no-op if nothing
     // ever spawns an elite.
     roster.register_systems(world);
+    if (out_lane_map != nullptr) *out_lane_map = loader.build_lane_ownership_map(level);
     return true;
+}
+
+/// Unpacks a lane map plus the live flow field into the renderer's game/-free
+/// view of them. Mirrors what App::render does for the interactive path, so a
+/// --screenshot capture frames the same substrate the player sees.
+render::TissueDecor tissue_decor(const sim::SimWorld& world,
+                                 const game::LaneOwnershipMap& lanes) {
+    render::TissueDecor decor;
+    decor.flow = &world.flow();
+    if (!lanes.owner.empty() && !lanes.lane_types.empty()) {
+        decor.lane_owner = lanes.owner.data();
+        decor.lane_type = reinterpret_cast<const u8*>(lanes.lane_types.data());
+        decor.lane_count = static_cast<u32>(lanes.lane_types.size());
+        decor.lane_width = lanes.width;
+        decor.lane_height = lanes.height;
+    }
+    return decor;
 }
 
 /// Populates a world for a bench scenario at t=0.
@@ -272,6 +295,9 @@ int run_bench(const Options& opt) {
         if (have_renderer) {
             WallClock submit;
             renderer.begin_frame(camera, 0.0f);
+            // No decor: --bench measures submission cost against the same
+            // world every run, and the flow/lane textures are a --screenshot
+            // and interactive-play concern.
             renderer.submit_tissue(world.tissue(), world.sdf(), 0.0f);
             renderer.submit_chaff(world.chaff(), world.spatial());
             renderer.submit_entities(world.ecs());
@@ -464,7 +490,8 @@ int run_screenshot(const Options& opt) {
     auto jobs = make_jobs(opt);
     sim::SimWorld world;
     std::string error;
-    if (!build_world(world, opt, 16384, jobs.get(), error)) {
+    game::LaneOwnershipMap lanes;
+    if (!build_world(world, opt, 16384, jobs.get(), error, &lanes)) {
         IMMUNE_LOG_ERROR("screenshot setup failed: %s", error.c_str());
         return 1;
     }
@@ -570,7 +597,8 @@ int run_screenshot(const Options& opt) {
     pinst.reserve(vfx::ParticleSystem::kDefaultCapacity);
 
     renderer.begin_frame(camera, 0.0f);
-    renderer.submit_tissue(world.tissue(), world.sdf(), 0.0f);
+    const render::TissueDecor decor = tissue_decor(world, lanes);
+    renderer.submit_tissue(world.tissue(), world.sdf(), 0.0f, &decor);
     renderer.submit_chaff(world.chaff(), world.spatial());
     renderer.submit_entities(world.ecs());
     renderer.submit_fields(world.damage().fields().data(), world.damage().fields().size());

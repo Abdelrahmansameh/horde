@@ -110,6 +110,7 @@ void App::build_menus() {
     case GameStateId::LevelSelect:  r = menu_.build_level_select(levels_, w, h); break;
     case GameStateId::LevelFailed:  r = menu_.build_level_failed_screen(w, h); break;
     case GameStateId::LevelComplete: r = menu_.build_level_complete_screen(w, h); break;
+    case GameStateId::Paused:        r = menu_.build_pause_menu(w, h); break;
     default: return;
     }
 
@@ -117,7 +118,15 @@ void App::build_menus() {
     case ui::MenuAction::OpenLevelSelect:
         state_.request(GameStateId::LevelSelect);
         break;
+    case ui::MenuAction::Resume:
+        state_.request(GameStateId::InLevel);
+        break;
     case ui::MenuAction::Back:
+        // Leaving a live/paused run from the pause menu abandons it, same as
+        // Escape does from InLevel directly.
+        if (state_.current() == GameStateId::Paused) {
+            state_.set_outcome(LevelOutcome::Aborted);
+        }
         state_.request(GameStateId::MainMenu);
         break;
     case ui::MenuAction::Quit:
@@ -223,15 +232,20 @@ void App::handle_input() {
         state_.request(GameStateId::Quitting);
         running_ = false;
     }
-    // Escape backs out one level of the front end, and abandons a run in
-    // progress. Without this a finished or abandoned level had no way back to
-    // the menu at all.
+    // Escape backs out one level of the front end. From inside a level it
+    // opens the pause menu rather than immediately abandoning the run; the
+    // pause menu itself offers resume/restart/main-menu.
     if (input_.action_pressed(platform::Action::CancelPlacement)) {
         switch (state_.current()) {
         case GameStateId::LevelSelect:
             state_.request(GameStateId::MainMenu);
             break;
         case GameStateId::InLevel:
+            state_.request(GameStateId::Paused);
+            break;
+        case GameStateId::Paused:
+            state_.request(GameStateId::InLevel);
+            break;
         case GameStateId::LevelComplete:
         case GameStateId::LevelFailed:
             state_.set_outcome(LevelOutcome::Aborted);
@@ -348,7 +362,20 @@ void App::render_frame() {
     WallClock submit;
     renderer_.poll_shader_reload();
     renderer_.begin_frame(camera_, clock_.alpha());
-    renderer_.submit_tissue(sim_.tissue(), sim_.sdf(), 0.0f);
+    // Lane identity (DESIGN.md §9.2) plus the flow field the plasma streamlines
+    // follow. lane_map_ is a pure function of the level file, so this is just
+    // unpacking it into render/'s game/-free view; the renderer caches the
+    // texture it bakes from `owner` on the pointer.
+    render::TissueDecor decor;
+    decor.flow = &sim_.flow();
+    if (!lane_map_.owner.empty() && !lane_map_.lane_types.empty()) {
+        decor.lane_owner = lane_map_.owner.data();
+        decor.lane_type = reinterpret_cast<const u8*>(lane_map_.lane_types.data());
+        decor.lane_count = static_cast<u32>(lane_map_.lane_types.size());
+        decor.lane_width = lane_map_.width;
+        decor.lane_height = lane_map_.height;
+    }
+    renderer_.submit_tissue(sim_.tissue(), sim_.sdf(), 0.0f, &decor);
     renderer_.submit_chaff(sim_.chaff(), sim_.spatial());
     renderer_.submit_entities(sim_.ecs());
     renderer_.submit_fields(sim_.damage().fields().data(), sim_.damage().fields().size());
@@ -368,9 +395,11 @@ void App::render_frame() {
     hud_.begin_frame(input_);
     intents_.clear();
 
-    // For LevelFailed and LevelComplete, show the result screen instead of the HUD.
+    // For LevelFailed, LevelComplete, and Paused, show a front-end screen
+    // instead of the interactive HUD over the (frozen, for Paused) game frame.
     if (state_.current() == GameStateId::LevelFailed ||
-        state_.current() == GameStateId::LevelComplete) {
+        state_.current() == GameStateId::LevelComplete ||
+        state_.current() == GameStateId::Paused) {
         build_menus();
     } else {
         hud_.build(sim_, economy_, waves_, towers_, abilities_, camera_, input_, intents_);

@@ -39,6 +39,7 @@ enum class MenuAction : u8 {
     OpenLevelSelect,
     StartLevel,      ///< `level_index` names the chosen entry.
     RestartLevel,    ///< Restart the current level.
+    Resume,          ///< Close the pause menu and continue the current level.
     Back,
     Quit,
 };
@@ -66,6 +67,10 @@ public:
 
     /// Draws the level complete screen with continue and back buttons.
     MenuResult build_level_complete_screen(i32 screen_width, i32 screen_height);
+
+    /// Draws the in-level pause menu: resume, restart, or return to the main
+    /// menu. Drawn as an overlay over a frozen (but still rendered) game frame.
+    MenuResult build_pause_menu(i32 screen_width, i32 screen_height);
 
 private:
     /// Survives across frames so the list keeps its highlight between clicks.

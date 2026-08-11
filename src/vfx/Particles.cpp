@@ -557,36 +557,31 @@ void ParticleSystem::emit_for_event(const sim::CombatEvent& event) {
         }
 
         case TowerType::BCell: {
-            // LASER. A charge ring collapsing into the emitter, so the
-            // continuous beam has a visible "on" moment.
+            // LASER. Charge ring removed (was rendering as a broken cyan
+            // blob) — just the muzzle spark for the beam's "on" moment.
             p.kind = ParticleKind::Spark;
             p.color = pal.accent;
             p.size = 0.36f;
             p.lifetime = 0.10f;
             p.drag = 5.0f;
             push(p);
-
-            for (u32 k = 0; k < 1u + tier / 2u; ++k) {
-                ParticleSpawnParams r;
-                r.kind = ParticleKind::Ring;
-                r.blend = BlendMode::Additive;
-                r.position = event.origin;
-                r.color = Vec4{pal.primary.r, pal.primary.g, pal.primary.b, 0.7f};
-                r.size = 0.9f + 0.2f * static_cast<f32>(k);
-                r.lifetime = 0.14f;
-                push(r, 0.02f * static_cast<f32>(k));
-            }
             break;
         }
 
         case TowerType::NKCell: {
             // BLADE. This event is "the rotor swept" — the trail, not a shot.
-            // (1 + tier) blades, each dropping three trail points along its
+            // (2 + tier) blades, each dropping three trail points along its
             // length with tangential velocity. At the rotor's real spin rate
             // these arrive fast enough that the trails perceptually merge into
             // a glowing disk, which is exactly the brief.
+            //
+            // The count MUST match the arm count entity.frag draws for the NK
+            // body (shape 21, fed by EntityInstance::shape_param) or the solid
+            // blades and the trails they throw off disagree about how many arms
+            // the rotor has. Three is the floor: two arms 180 degrees apart
+            // fuse into a single S-curve rather than reading as a rotor.
             const f32 reach = event.radius > 0.05f ? event.radius : 2.0f;
-            const u32 blades = 1u + tier;
+            const u32 blades = 2u + tier;
             for (u32 b = 0; b < blades; ++b) {
                 const f32 ang = math::kTwoPi * static_cast<f32>(b) / static_cast<f32>(blades);
                 const Vec2 arm = rotate_by(dir, ang);

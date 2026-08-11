@@ -128,6 +128,200 @@ constexpr f32 kDeathBurstScale = 2.4f;
 /// near expiry instead, which is what actually reads as "the nova is ending".
 constexpr f32 kFieldBurstFadeWindow = 0.35f;
 
+// ---------------------------------------------------------------------------
+// Tissue-pass side textures (DESIGN.md §9.2 lane identity, §9.4 fluid feel).
+// See assets/shaders/tissue.frag for what the shader does with them.
+// ---------------------------------------------------------------------------
+
+/// Resolution cap for the flow texture. The flow field itself is as fine as the
+/// level's tissue grid (0.5 world units — a 260x160 level is 520x320 cells),
+/// which is far more than a visual needs: the plasma striations want a *smooth*
+/// direction field, and downsampling is how they get one. Capping also bounds
+/// the per-frame rebuild cost to a fixed ~37k bilinear samples regardless of
+/// level size.
+constexpr i32 kFlowTexMax = 192;
+
+/// Resolution cap for the lane-hue texture. Coarser than the flow texture on
+/// purpose: it is bilinearly filtered, so a coarse grid is what gives soft
+/// hue transitions where two lanes converge instead of a hard seam.
+constexpr i32 kLaneTexMax = 128;
+
+/// DESIGN.md §9.2's fixed per-vessel-type hue and ambient tempo. Indexed by
+/// game::VesselType's ordinal — mirrored, not included, since render/ does not
+/// depend on game/ (see TissueDecor's rationale). Order: artery, vein,
+/// lymphatic, nerve-adjacent, mucosal fold.
+///
+/// Every hue is kept well under full saturation: §9.3 requires the substrate to
+/// lose to the foreground at every lane, and the shader only blends ~40% of
+/// this into the plasma colour on top of that.
+struct LaneVisual {
+    Vec4 hue;   ///< rgb only; a unused
+    f32 tempo;  ///< ambient animation rate multiplier
+};
+constexpr LaneVisual kLaneVisuals[] = {
+    {{0.82f, 0.30f, 0.26f, 1.0f}, 1.70f}, // Artery        — warm red-orange, fast pulse
+    {{0.42f, 0.32f, 0.56f, 1.0f}, 0.85f}, // Vein          — dusky blue-violet
+    {{0.80f, 0.72f, 0.44f, 1.0f}, 0.55f}, // Lymphatic     — pale gold, slow drift
+    {{0.54f, 0.40f, 0.74f, 1.0f}, 1.15f}, // NerveAdjacent — cool violet
+    {{0.62f, 0.63f, 0.40f, 1.0f}, 0.70f}, // MucosalFold   — warm green-cream
+};
+constexpr u32 kLaneVisualCount = static_cast<u32>(sizeof(kLaneVisuals) / sizeof(kLaneVisuals[0]));
+
+/// Encoded into the lane texture's alpha, so the shader can recover tempo as
+/// `a * 2`. Every tempo above is comfortably inside [0, 2].
+constexpr f32 kTempoEncodeScale = 0.5f;
+
+/// Builds the RGBA8 lane-hue texture from a LaneOwnershipMap's owner grid.
+///
+/// Three steps, and the middle one is the interesting one:
+///
+///  1. DOWNSAMPLE to `out_w x out_h`. Each coarse cell takes the first owned
+///     fine cell it covers. Coarse is not a compromise here — see kLaneTexMax.
+///
+///  2. FLOOD the unowned cells. `owner` is 0xFF both outside every vessel (most
+///     of the map) and, per game::LaneOwnershipMap's documented first-claim-wins
+///     caveat, wherever two lanes' lumens overlap — which is precisely where
+///     lanes converge, i.e. the most visible place on the level. Sampling those
+///     as "no lane" would put a hole of default hue right at the junction. So
+///     unowned cells are iteratively filled from their owned 4-neighbours,
+///     which both closes the junction hole (with a blend of the lanes meeting
+///     there, which is the honest answer) and carries each lane's hue outward
+///     into the surrounding flesh so the interstitium belongs to its vessel.
+///     Ping-ponged so fill order cannot bias the result toward one direction.
+///
+///  3. BLUR twice, so lane boundaries are soft gradients rather than seams.
+///     Combined with the texture's linear filtering this is what makes a
+///     three-lane level read as three tinted regions of one organ instead of
+///     three flat colour fields.
+///
+/// Level-load-time cost only (the caller caches on the source pointer), and
+/// bounded by kLaneTexMax regardless of level size.
+void build_lane_tint(const TissueDecor& decor, i32 out_w, i32 out_h, std::vector<u8>& out) {
+    const usize n = static_cast<usize>(out_w) * static_cast<usize>(out_h);
+    std::vector<Vec4> tint(n, Vec4{0.0f, 0.0f, 0.0f, 0.0f}); // rgb + encoded tempo
+    std::vector<u8> filled(n, 0);
+
+    const auto visual_for = [&decor](u8 lane_index) -> LaneVisual {
+        u32 type = 0;
+        if (decor.lane_type != nullptr && lane_index < decor.lane_count) {
+            type = decor.lane_type[lane_index];
+        }
+        if (type >= kLaneVisualCount) type = 0;
+        return kLaneVisuals[type];
+    };
+
+    // ---- 1. Downsample -----------------------------------------------------
+    for (i32 oy = 0; oy < out_h; ++oy) {
+        const i32 y0 = oy * decor.lane_height / out_h;
+        const i32 y1 = math::max((oy + 1) * decor.lane_height / out_h, y0 + 1);
+        for (i32 ox = 0; ox < out_w; ++ox) {
+            const i32 x0 = ox * decor.lane_width / out_w;
+            const i32 x1 = math::max((ox + 1) * decor.lane_width / out_w, x0 + 1);
+            u8 owner = 0xFFu;
+            for (i32 y = y0; y < y1 && owner == 0xFFu; ++y) {
+                for (i32 x = x0; x < x1; ++x) {
+                    const u8 o = decor.lane_owner[static_cast<usize>(y) *
+                                                  static_cast<usize>(decor.lane_width) +
+                                                  static_cast<usize>(x)];
+                    if (o != 0xFFu) { owner = o; break; }
+                }
+            }
+            if (owner == 0xFFu) continue;
+            const LaneVisual lv = visual_for(owner);
+            const usize i = static_cast<usize>(oy) * static_cast<usize>(out_w) +
+                            static_cast<usize>(ox);
+            tint[i] = Vec4{lv.hue.r, lv.hue.g, lv.hue.b, lv.tempo * kTempoEncodeScale};
+            filled[i] = 1;
+        }
+    }
+
+    // ---- 2. Flood ----------------------------------------------------------
+    // The bound is the coarse grid's diagonal, so a level whose vessels occupy
+    // one corner still fills completely; the early-out is what makes the usual
+    // case (a few passes) cheap.
+    const i32 kMaxPasses = out_w + out_h;
+    std::vector<Vec4> next_tint = tint;
+    std::vector<u8> next_filled = filled;
+    for (i32 pass = 0; pass < kMaxPasses; ++pass) {
+        bool any_hole = false;
+        for (i32 y = 0; y < out_h; ++y) {
+            for (i32 x = 0; x < out_w; ++x) {
+                const usize i = static_cast<usize>(y) * static_cast<usize>(out_w) +
+                                static_cast<usize>(x);
+                if (filled[i] != 0) continue;
+                Vec4 sum{0.0f, 0.0f, 0.0f, 0.0f};
+                i32 hits = 0;
+                const i32 dx[4] = {-1, 1, 0, 0};
+                const i32 dy[4] = {0, 0, -1, 1};
+                for (i32 k = 0; k < 4; ++k) {
+                    const i32 nx = x + dx[k];
+                    const i32 ny = y + dy[k];
+                    if (nx < 0 || ny < 0 || nx >= out_w || ny >= out_h) continue;
+                    const usize j = static_cast<usize>(ny) * static_cast<usize>(out_w) +
+                                    static_cast<usize>(nx);
+                    if (filled[j] == 0) continue;
+                    sum.r += tint[j].r; sum.g += tint[j].g;
+                    sum.b += tint[j].b; sum.a += tint[j].a;
+                    ++hits;
+                }
+                if (hits == 0) { any_hole = true; continue; }
+                const f32 inv = 1.0f / static_cast<f32>(hits);
+                next_tint[i] = Vec4{sum.r * inv, sum.g * inv, sum.b * inv, sum.a * inv};
+                next_filled[i] = 1;
+            }
+        }
+        tint = next_tint;
+        filled = next_filled;
+        if (!any_hole) break;
+    }
+    // A level with no lanes at all leaves everything unfilled; fall back to the
+    // arterial default rather than emitting black.
+    for (usize i = 0; i < n; ++i) {
+        if (filled[i] == 0) {
+            tint[i] = Vec4{kLaneVisuals[0].hue.r, kLaneVisuals[0].hue.g, kLaneVisuals[0].hue.b,
+                           kLaneVisuals[0].tempo * kTempoEncodeScale};
+        }
+    }
+
+    // ---- 3. Blur -----------------------------------------------------------
+    std::vector<Vec4> tmp(n);
+    for (i32 pass = 0; pass < 2; ++pass) {
+        for (i32 axis = 0; axis < 2; ++axis) {
+            const i32 sx = (axis == 0) ? 1 : 0;
+            const i32 sy = (axis == 0) ? 0 : 1;
+            for (i32 y = 0; y < out_h; ++y) {
+                for (i32 x = 0; x < out_w; ++x) {
+                    Vec4 sum{0.0f, 0.0f, 0.0f, 0.0f};
+                    f32 wsum = 0.0f;
+                    for (i32 k = -1; k <= 1; ++k) {
+                        const i32 nx = math::clamp(x + k * sx, 0, out_w - 1);
+                        const i32 ny = math::clamp(y + k * sy, 0, out_h - 1);
+                        const f32 w = (k == 0) ? 2.0f : 1.0f;
+                        const Vec4& s = tint[static_cast<usize>(ny) * static_cast<usize>(out_w) +
+                                             static_cast<usize>(nx)];
+                        sum.r += s.r * w; sum.g += s.g * w; sum.b += s.b * w; sum.a += s.a * w;
+                        wsum += w;
+                    }
+                    const f32 inv = 1.0f / wsum;
+                    tmp[static_cast<usize>(y) * static_cast<usize>(out_w) +
+                        static_cast<usize>(x)] =
+                        Vec4{sum.r * inv, sum.g * inv, sum.b * inv, sum.a * inv};
+                }
+            }
+            tint.swap(tmp);
+        }
+    }
+
+    out.resize(n * 4);
+    for (usize i = 0; i < n; ++i) {
+        const u32 packed = pack_rgba8(tint[i]);
+        out[i * 4 + 0] = static_cast<u8>(packed & 0xFFu);
+        out[i * 4 + 1] = static_cast<u8>((packed >> 8) & 0xFFu);
+        out[i * 4 + 2] = static_cast<u8>((packed >> 16) & 0xFFu);
+        out[i * 4 + 3] = static_cast<u8>((packed >> 24) & 0xFFu);
+    }
+}
+
 } // namespace
 
 struct Renderer::Impl {
@@ -182,6 +376,32 @@ struct Renderer::Impl {
     gl::Texture2D tissue_sdf_tex;
     i32 tissue_tex_w = 0;
     i32 tissue_tex_h = 0;
+    /// World bounds the cached tissue side-textures were built for; a change
+    /// means a different level was loaded.
+    Rect tissue_world{{0.0f, 0.0f}, {0.0f, 0.0f}};
+
+    // Flow texture: rebuilt every frame (the field reroutes whenever a tower
+    // lands, and there is no version counter on FlowField to test against), but
+    // capped at kFlowTexMax so that rebuild is a fixed small cost.
+    gl::Texture2D tissue_flow_tex;
+    i32 flow_tex_w = 0;
+    i32 flow_tex_h = 0;
+    std::vector<f32> flow_scratch; // rgb32f staging
+    std::vector<u8> flow_valid;    // hole-fill mask, parallel to flow_scratch
+    bool flow_tex_valid = false;
+    // Change detector for the flow field; see submit_tissue.
+    f64 flow_bake_ms = -1.0;
+    u32 flow_cells_visited = 0xFFFFFFFFu;
+    u32 flow_regions = 0xFFFFFFFFu;
+
+    // Lane-hue texture: built once per level. Lane ownership is a pure function
+    // of the level file and never changes at runtime, so the source pointer
+    // plus dimensions are a sufficient cache key.
+    gl::Texture2D tissue_lane_tex;
+    const u8* lane_src = nullptr;
+    i32 lane_src_w = 0;
+    i32 lane_src_h = 0;
+    bool lane_tex_ready = false;
 
     // Flow-field debug overlay: rebuilt CPU-side each call (F1 overlay only,
     // never in the hot path), uploaded into a plain dynamic-storage buffer.
@@ -259,7 +479,7 @@ bool Renderer::init(const RendererDesc& desc) {
     imp.entity_vao.attrib_float(4, 1, 4, GL_UNSIGNED_BYTE, true, offsetof(EntityInstance, tint_rgba8));
     imp.entity_vao.attrib_int(5, 1, 1, GL_UNSIGNED_INT, offsetof(EntityInstance, shape_id));
     imp.entity_vao.attrib_float(6, 1, 1, GL_FLOAT, false, offsetof(EntityInstance, anim_phase));
-    imp.entity_vao.attrib_float(7, 1, 1, GL_FLOAT, false, offsetof(EntityInstance, pad));
+    imp.entity_vao.attrib_float(7, 1, 1, GL_FLOAT, false, offsetof(EntityInstance, shape_param));
 
     // ---- Field-VFX instanced pass (Wave 4G) --------------------------------
     if (!imp.field_vao.create()) { error_ = "failed to create the field VAO"; return false; }
@@ -403,20 +623,26 @@ void Renderer::begin_frame(const Camera& camera, f32 alpha) {
     imp.alpha = alpha;
     imp.time = static_cast<f32>(imp.clock.elapsed_seconds());
 
-    // Host tissue substrate base colour (DESIGN.md §7 palette). submit_tissue
+    // Host tissue substrate base colour (DESIGN.md §9.3 palette). submit_tissue
     // draws a proper vessel-shaped quad over this; the clear is the fallback
     // for anything the tissue quad doesn't cover (and for Wave-0-era callers
-    // that never call submit_tissue at all).
-    glClearColor(0.129f, 0.086f, 0.106f, 1.0f);
+    // that never call submit_tissue at all). Kept in step with the darkest
+    // interstitial value tissue.frag resolves to, so the seam at the level's
+    // edge is invisible rather than a bright border.
+    glClearColor(0.070f, 0.042f, 0.050f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 }
 
 void Renderer::submit_tissue(const sim::TissueMask& mask, const sim::DistanceField& sdf,
-                             f32 heartbeat_phase) {
+                             f32 heartbeat_phase, const TissueDecor* decor) {
     if (!ready_ || !impl_) return;
     Impl& imp = *impl_;
     const ShaderProgram prog = imp.shaders.get("tissue");
     if (!prog.valid()) return;
+    // Timed like every other pass: with `decor` supplied this function does
+    // real per-frame CPU work (the flow-texture rebuild), and a cost that does
+    // not show up in render_submit is a cost nobody notices growing.
+    WallClock timer;
 
     const i32 w = sdf.width();
     const i32 h = sdf.height();
@@ -429,14 +655,261 @@ void Renderer::submit_tissue(const sim::TissueMask& mask, const sim::DistanceFie
     }
     imp.tissue_sdf_tex.upload(sdf.data(), GL_RED, GL_FLOAT);
 
+    const Rect world = mask.world_bounds();
+    // A new level can reuse the same grid dimensions as the old one, in which
+    // case nothing else below would notice the swap. Bounds are what actually
+    // identify the level's geometry, so they are the invalidation trigger.
+    if (world.min.x != imp.tissue_world.min.x || world.min.y != imp.tissue_world.min.y ||
+        world.max.x != imp.tissue_world.max.x || world.max.y != imp.tissue_world.max.y) {
+        imp.tissue_world = world;
+        imp.flow_tex_valid = false;
+        imp.lane_src = nullptr;
+        imp.lane_tex_ready = false;
+    }
+
+    // ---- Flow texture ------------------------------------------------------
+    // The flow field's own origin is private, but it is always baked from this
+    // same mask, so the mask's world bounds are its extent, and its grid has
+    // the same dimensions as the SDF's — which is why the downsample below can
+    // index the raw arrays proportionally instead of sampling in world space.
+    // That matters: bilinear FlowField::sample + sample_cost over 37k points
+    // measured at 1.16 ms/frame, which would have made this pass the most
+    // expensive thing in render_submit. Nearest reads off directions()/costs()
+    // are a rounding error by comparison, and the GPU's own bilinear filter
+    // plus the noise the result drives hide the difference completely.
+    bool have_flow = false;
+    if (decor != nullptr && decor->flow != nullptr && decor->flow->width() > 0 &&
+        decor->flow->height() > 0) {
+        const sim::FlowField& flow = *decor->flow;
+        const i32 src_w = flow.width();
+        const i32 src_h = flow.height();
+        const i32 fw = math::min(src_w, kFlowTexMax);
+        const i32 fh = math::min(src_h, kFlowTexMax);
+        if (imp.flow_tex_w != fw || imp.flow_tex_h != fh) {
+            if (imp.tissue_flow_tex.create(fw, fh, GL_RGB16F, GL_LINEAR, GL_LINEAR,
+                                           GL_CLAMP_TO_EDGE)) {
+                imp.flow_tex_w = fw;
+                imp.flow_tex_h = fh;
+                imp.flow_tex_valid = false;
+            }
+        }
+
+        // Rebuild only when the field actually changed. A FlowField is baked at
+        // level load and re-solved only when a tower blocks or unblocks a lane,
+        // so on the overwhelming majority of frames this whole block is a few
+        // comparisons. It exposes no version counter, but pump_rebake() returns
+        // before touching `stats` when nothing is dirty (sim/flowfield/
+        // FlowField.cpp), which makes the stats triple a serviceable one:
+        // a rebake always moves it. Worst case if it ever failed to, the plasma
+        // keeps flowing along the previous routing for a frame or two, which is
+        // cosmetic and self-corrects at the next rebake.
+        const sim::RebakeStats& rs = flow.stats();
+        const bool changed = !imp.flow_tex_valid ||
+                             flow.has_pending_rebake() ||
+                             rs.last_bake_ms != imp.flow_bake_ms ||
+                             rs.cells_visited != imp.flow_cells_visited ||
+                             rs.regions_processed != imp.flow_regions;
+
+        if (imp.flow_tex_w == fw && imp.flow_tex_h == fh && changed) {
+            const usize texels = static_cast<usize>(fw) * static_cast<usize>(fh);
+            imp.flow_scratch.resize(texels * 3);
+            imp.flow_valid.assign(texels, 0);
+            const Vec2* dirs = flow.directions();
+            const f32* costs = flow.costs();
+            f32 max_cost = 0.0f;
+            for (i32 y = 0; y < fh; ++y) {
+                const i32 sy = y * src_h / fh;
+                for (i32 x = 0; x < fw; ++x) {
+                    const i32 sx = x * src_w / fw;
+                    const usize src = static_cast<usize>(sy) * static_cast<usize>(src_w) +
+                                      static_cast<usize>(sx);
+                    const usize texel = static_cast<usize>(y) * static_cast<usize>(fw) +
+                                        static_cast<usize>(x);
+                    const usize dst = texel * 3;
+                    imp.flow_scratch[dst + 0] = dirs[src].x;
+                    imp.flow_scratch[dst + 1] = dirs[src].y;
+                    // Unreachable cells hold infinity; park them at -1 and
+                    // resolve to "maximally far" once the scale is known.
+                    const f32 cost = costs[src];
+                    const bool finite = cost < 1e30f && cost == cost;
+                    imp.flow_scratch[dst + 2] = finite ? cost : -1.0f;
+                    if (finite) max_cost = math::max(max_cost, cost);
+                    const bool has_dir = math::length_sq(dirs[src]) > 1e-4f;
+                    imp.flow_valid[texel] = (finite && has_dir) ? u8{1} : u8{0};
+                }
+            }
+
+            // ---- Close the small holes a placed tower punches in the field --
+            // A tower blocks a square of the mask, so after the rebake those
+            // cells are *unreachable*: zero direction and infinite cost. That
+            // is correct navigation data and completely wrong visual data — the
+            // shader falls back to a fixed direction where the flow is zero, so
+            // the plasma streamlines snap to +x and the systolic phase jumps,
+            // painting a rounded square of visibly broken lane around every
+            // tower. (Diagnosed the hard way: the SDF is baked once at level
+            // load and never sees a footprint at all, so this pass's *only*
+            // knowledge of a tower is through the flow field.)
+            //
+            // Fix: treat those cells as holes and dilate the surrounding field
+            // into them, so the lane simply flows over the footprint and the
+            // tower sprite is the sole thing marking it. The pass count is
+            // deliberately small — it is sized to swallow a footprint (the
+            // largest is ~4.8 world units across) and nothing more, so the
+            // genuinely unreachable interstitium outside the vessels stays
+            // unfilled. Nothing samples flow out there, and flooding the whole
+            // map would be both pointless and much more expensive.
+            constexpr i32 kHoleFillPasses = 6;
+            std::vector<f32> next = imp.flow_scratch;
+            std::vector<u8> next_valid = imp.flow_valid;
+            for (i32 pass = 0; pass < kHoleFillPasses; ++pass) {
+                bool filled_any = false;
+                for (i32 y = 0; y < fh; ++y) {
+                    for (i32 x = 0; x < fw; ++x) {
+                        const usize texel = static_cast<usize>(y) * static_cast<usize>(fw) +
+                                            static_cast<usize>(x);
+                        if (imp.flow_valid[texel] != 0) continue;
+                        f32 sx_sum = 0.0f, sy_sum = 0.0f, c_sum = 0.0f;
+                        i32 hits = 0;
+                        const i32 dx[4] = {-1, 1, 0, 0};
+                        const i32 dy[4] = {0, 0, -1, 1};
+                        for (i32 k = 0; k < 4; ++k) {
+                            const i32 nx = x + dx[k];
+                            const i32 ny = y + dy[k];
+                            if (nx < 0 || ny < 0 || nx >= fw || ny >= fh) continue;
+                            const usize nt = static_cast<usize>(ny) * static_cast<usize>(fw) +
+                                             static_cast<usize>(nx);
+                            if (imp.flow_valid[nt] == 0) continue;
+                            sx_sum += imp.flow_scratch[nt * 3 + 0];
+                            sy_sum += imp.flow_scratch[nt * 3 + 1];
+                            c_sum += imp.flow_scratch[nt * 3 + 2];
+                            ++hits;
+                        }
+                        if (hits == 0) continue;
+                        const f32 inv = 1.0f / static_cast<f32>(hits);
+                        next[texel * 3 + 0] = sx_sum * inv;
+                        next[texel * 3 + 1] = sy_sum * inv;
+                        next[texel * 3 + 2] = c_sum * inv;
+                        next_valid[texel] = 1;
+                        filled_any = true;
+                    }
+                }
+                imp.flow_scratch = next;
+                imp.flow_valid = next_valid;
+                if (!filled_any) break;
+            }
+
+            // ---- Smooth it into something fluid -----------------------------
+            // The flow field is a *pathfinding* product and looks like one. Its
+            // directions come from the gradient of a Dijkstra sweep on an
+            // 8-connected grid, so they are quantised into staircases; and
+            // placing a tower re-solves only a dirty region, which FlowField.h
+            // documents as an approximation ("correct as long as the true
+            // shortest path leaves and re-enters the region at most once").
+            // Around a footprint that approximation leaves a wedge of cells
+            // pointing sideways or briefly backwards, plus a near-zero
+            // stagnation seam.
+            //
+            // None of that hurts steering — an agent crossing a few odd cells
+            // just curves — but the LIC integrates along these vectors, so it
+            // renders that wedge as a hard chevron scratched into the lane
+            // beside every tower. Plasma does not need cell-accurate direction;
+            // it needs a smooth, plausible one. So blur, using only in-lane
+            // samples (the valid mask stops the wall's zeroes bleeding in) and
+            // renormalising each pass so a convergence cannot cancel the field
+            // to nothing. This also dissolves the 8-way staircase, which is
+            // worth having on its own.
+            constexpr i32 kSmoothPasses = 8;
+            for (i32 pass = 0; pass < kSmoothPasses; ++pass) {
+                for (i32 axis = 0; axis < 2; ++axis) {
+                    const i32 sx = (axis == 0) ? 1 : 0;
+                    const i32 sy = (axis == 0) ? 0 : 1;
+                    for (i32 y = 0; y < fh; ++y) {
+                        for (i32 x = 0; x < fw; ++x) {
+                            const usize texel = static_cast<usize>(y) * static_cast<usize>(fw) +
+                                                static_cast<usize>(x);
+                            f32 ax = 0.0f, ay = 0.0f, ac = 0.0f, wsum = 0.0f;
+                            if (imp.flow_valid[texel] != 0) {
+                                for (i32 k = -1; k <= 1; ++k) {
+                                    const i32 nx = x + k * sx;
+                                    const i32 ny = y + k * sy;
+                                    if (nx < 0 || ny < 0 || nx >= fw || ny >= fh) continue;
+                                    const usize nt = static_cast<usize>(ny) *
+                                                     static_cast<usize>(fw) +
+                                                     static_cast<usize>(nx);
+                                    if (imp.flow_valid[nt] == 0) continue;
+                                    const f32 kw = (k == 0) ? 2.0f : 1.0f;
+                                    ax += imp.flow_scratch[nt * 3 + 0] * kw;
+                                    ay += imp.flow_scratch[nt * 3 + 1] * kw;
+                                    ac += imp.flow_scratch[nt * 3 + 2] * kw;
+                                    wsum += kw;
+                                }
+                            }
+                            if (wsum <= 0.0f) {
+                                // Invalid, or fully surrounded by invalid: pass
+                                // it through untouched.
+                                next[texel * 3 + 0] = imp.flow_scratch[texel * 3 + 0];
+                                next[texel * 3 + 1] = imp.flow_scratch[texel * 3 + 1];
+                                next[texel * 3 + 2] = imp.flow_scratch[texel * 3 + 2];
+                            } else {
+                                const f32 inv = 1.0f / wsum;
+                                next[texel * 3 + 0] = ax * inv;
+                                next[texel * 3 + 1] = ay * inv;
+                                next[texel * 3 + 2] = ac * inv;
+                            }
+                        }
+                    }
+                    // Every texel was written, so this cannot carry stale data.
+                    imp.flow_scratch.swap(next);
+                }
+                for (usize t = 0; t < texels; ++t) {
+                    if (imp.flow_valid[t] == 0) continue;
+                    const f32 vx = imp.flow_scratch[t * 3 + 0];
+                    const f32 vy = imp.flow_scratch[t * 3 + 1];
+                    const f32 len = std::sqrt(vx * vx + vy * vy);
+                    if (len < 1e-4f) continue; // leave a true convergence alone
+                    imp.flow_scratch[t * 3 + 0] = vx / len;
+                    imp.flow_scratch[t * 3 + 1] = vy / len;
+                }
+            }
+
+            const f32 inv_cost = 1.0f / math::max(max_cost, 1e-4f);
+            for (usize i = 2; i < imp.flow_scratch.size(); i += 3) {
+                const f32 c = imp.flow_scratch[i];
+                imp.flow_scratch[i] = (c < 0.0f) ? 1.0f : math::saturate(c * inv_cost);
+            }
+            imp.tissue_flow_tex.upload(imp.flow_scratch.data(), GL_RGB, GL_FLOAT);
+            imp.flow_tex_valid = true;
+            imp.flow_bake_ms = rs.last_bake_ms;
+            imp.flow_cells_visited = rs.cells_visited;
+            imp.flow_regions = rs.regions_processed;
+        }
+        have_flow = imp.flow_tex_valid;
+    }
+
+    // ---- Lane-hue texture (built once per level; see build_lane_tint) ------
+    if (decor != nullptr && decor->lane_owner != nullptr && decor->lane_width > 0 &&
+        decor->lane_height > 0 && decor->lane_owner != imp.lane_src) {
+        const i32 lw = math::min(decor->lane_width, kLaneTexMax);
+        const i32 lh = math::min(decor->lane_height, kLaneTexMax);
+        std::vector<u8> pixels;
+        build_lane_tint(*decor, lw, lh, pixels);
+        imp.lane_tex_ready =
+            imp.tissue_lane_tex.create(lw, lh, GL_RGBA8, GL_LINEAR, GL_LINEAR, GL_CLAMP_TO_EDGE);
+        if (imp.lane_tex_ready) imp.tissue_lane_tex.upload(pixels.data(), GL_RGBA, GL_UNSIGNED_BYTE);
+        imp.lane_src = decor->lane_owner;
+        imp.lane_src_w = decor->lane_width;
+        imp.lane_src_h = decor->lane_height;
+    }
+    const bool have_lane = imp.lane_tex_ready && decor != nullptr &&
+                           decor->lane_owner == imp.lane_src;
+
     glUseProgram(prog.gl_id);
     glUniformMatrix4fv(0, 1, GL_FALSE, glm::value_ptr(imp.view_projection));
     const Rect vis = imp.visible_bounds;
     glUniform2f(1, vis.min.x, vis.min.y);
     glUniform2f(2, vis.size().x, vis.size().y);
-    const Rect mb = mask.world_bounds();
-    glUniform2f(3, mb.min.x, mb.min.y);
-    glUniform2f(4, mb.size().x, mb.size().y);
+    glUniform2f(3, world.min.x, world.min.y);
+    glUniform2f(4, world.size().x, world.size().y);
     // DESIGN.md §7.1/§9.1: "subtle heartbeat pulse" on the substrate layer.
     // tissue.frag already turns a phase into a low-amplitude brightness pulse
     // (`1.0 + 0.025*sin(phase)`); the current callers (app/Modes.cpp,
@@ -449,11 +922,20 @@ void Renderer::submit_tissue(const sim::TissueMask& mask, const sim::DistanceFie
     // going away.
     constexpr f32 kHeartbeatRate = 2.1f; // radians/sec; a relaxed resting pulse
     glUniform1f(5, heartbeat_phase + imp.time * kHeartbeatRate);
+    // Raw seconds, kept separate from the phase above: the plasma advection and
+    // the drifting corpuscles want a linear time, not something a caller may
+    // have offset per-lane.
+    glUniform1f(6, imp.time);
+    glUniform1f(7, have_flow ? 1.0f : 0.0f);
+    glUniform1f(8, have_lane ? 1.0f : 0.0f);
 
     imp.tissue_sdf_tex.bind_unit(0);
+    if (have_flow) imp.tissue_flow_tex.bind_unit(1);
+    if (have_lane) imp.tissue_lane_tex.bind_unit(2);
     imp.screen_quad_vao.bind();
     glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
     ++stats_.draw_calls;
+    stats_.submit_ms += timer.elapsed_ms();
 }
 
 void Renderer::submit_chaff(const sim::ChaffBuffers& chaff, const sim::SpatialHash& hash) {
@@ -574,7 +1056,20 @@ void Renderer::submit_entities(const sim::EcsWorld& ecs) {
         const u32 h = static_cast<u32>(entt::to_integral(entity)) * 2654435761u;
         inst.anim_phase =
             static_cast<f32>(h & 0xFFFFu) * (math::kTwoPi / 65536.0f) + imp.time * tempo * math::kTwoPi;
-        inst.pad = 0.0f;
+        inst.shape_param = 0.0f;
+
+        // Tower tier drives the NK Cell's blade count, so an upgrade is legible
+        // from the silhouette alone rather than only from the stat panel. The
+        // 2+tier formula deliberately matches the rotor-sweep particle burst in
+        // vfx/Particles.cpp (TowerType::NKCell case) so the solid blades and the
+        // trails they throw off never disagree about how many arms exist.
+        // Sourced from comp::Tower every frame rather than baked into the sprite
+        // at upgrade time, so the two can't drift.
+        if (const auto* tower = registry.try_get<const sim::comp::Tower>(entity)) {
+            if (tower->type == TowerType::NKCell) {
+                inst.shape_param = 2.0f + static_cast<f32>(tower->tier);
+            }
+        }
 
         // Elite death burst (DESIGN.md §9.5 tier 2: "individual pop/burst
         // VFX"). Detected generically off AiBrain::state == Dying rather than
@@ -605,7 +1100,7 @@ void Renderer::submit_entities(const sim::EcsWorld& ecs) {
                 burst.tint_rgba8 = pack_rgba8(hot);
                 burst.shape_id = 4; // entity.frag: death burst
                 burst.anim_phase = math::saturate(brain->state_timer / kDeathBurstWindow);
-                burst.pad = 0.0f;
+                burst.shape_param = 0.0f;
             }
         }
     }
@@ -638,7 +1133,7 @@ void Renderer::submit_entities(const sim::EcsWorld& ecs) {
             diamond.tint_rgba8 = pack_rgba8(diamond_tint);
             diamond.shape_id = 2;
             diamond.anim_phase = imp.time * 6.0f; // fast alert pulse (shape 2's own sin pulse)
-            diamond.pad = 0.0f;
+            diamond.shape_param = 0.0f;
 
             EntityInstance& ring = region_base[count++];
             ring.x = tg.point.x;
@@ -648,7 +1143,7 @@ void Renderer::submit_entities(const sim::EcsWorld& ecs) {
             ring.tint_rgba8 = pack_rgba8(ring_tint);
             ring.shape_id = 3; // entity.frag: telegraph countdown ring
             ring.anim_phase = math::saturate(tg.progress); // repurposed as progress, not a phase
-            ring.pad = 0.0f;
+            ring.shape_param = 0.0f;
         }
     }
 

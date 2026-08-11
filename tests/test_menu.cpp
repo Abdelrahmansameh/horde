@@ -58,9 +58,22 @@ struct HeadlessUi {
         i32 pw = 0, ph = 0;
         if (!renderer.read_pixels(pixels, pw, ph)) return -1.0f;
 
+        // Measured against the actual cleared background, not a fixed
+        // brightness. The previous absolute `> 24` cutoff silently depended on
+        // Renderer::begin_frame's clear colour being brighter than it: with the
+        // old (0.129, 0.086, 0.106) the red channel cleared to 33, so EVERY
+        // pixel counted as drawn content and every assertion below passed at
+        // ~1.0 coverage no matter what the menu rendered. Sampling the corner —
+        // which no centred panel ever touches — keeps this honest whatever the
+        // substrate palette does next.
+        const u8 bg_r = pixels[0], bg_g = pixels[1], bg_b = pixels[2];
+        const auto differs = [](u8 a, u8 b) { return a > b ? a - b > 8 : b - a > 8; };
         usize lit = 0;
         for (usize i = 0; i + 3 < pixels.size(); i += 4) {
-            if (pixels[i] > 24 || pixels[i + 1] > 24 || pixels[i + 2] > 24) ++lit;
+            if (differs(pixels[i], bg_r) || differs(pixels[i + 1], bg_g) ||
+                differs(pixels[i + 2], bg_b)) {
+                ++lit;
+            }
         }
         const usize total = pixels.size() / 4;
         return total == 0 ? -1.0f : static_cast<f32>(lit) / static_cast<f32>(total);
@@ -85,6 +98,7 @@ TEST_CASE("the main menu actually draws pixels", "[ui][menu]") {
     }
     ui::Menu menu;
     const f32 coverage = ui.draw_one_frame([&] { menu.build_main_menu(1280, 720); });
+    CAPTURE(coverage);
     REQUIRE(coverage > 0.0f);
     // A centred 420x300 panel over 1280x720 is ~13.7% of the screen; require a
     // clear fraction of that so an empty or collapsed window fails.
@@ -100,6 +114,7 @@ TEST_CASE("level select draws its entries", "[ui][menu]") {
     ui::Menu menu;
     const auto levels = sample_levels();
     const f32 coverage = ui.draw_one_frame([&] { menu.build_level_select(levels, 1280, 720); });
+    CAPTURE(coverage);
     REQUIRE(coverage > 0.02f);
 }
 
@@ -114,7 +129,12 @@ TEST_CASE("level select survives an empty level list", "[ui][menu]") {
     ui::Menu menu;
     const std::vector<ui::LevelEntry> none;
     const f32 coverage = ui.draw_one_frame([&] { menu.build_level_select(none, 1280, 720); });
-    REQUIRE(coverage > 0.02f);
+    CAPTURE(coverage);
+    // A lower bar than the populated cases on purpose: this panel is a header
+    // plus three wrapped lines of explanation, no 320px level list, so it
+    // genuinely covers about 1.3% of the screen. The bar still has to sit well
+    // clear of zero, because "drew an empty box" is exactly what this guards.
+    REQUIRE(coverage > 0.005f);
 }
 
 TEST_CASE("menus report no action when nothing is clicked", "[ui][menu]") {

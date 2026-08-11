@@ -98,7 +98,7 @@ add_library(immune_game STATIC
 target_link_libraries(immune_game PUBLIC immune_core immune_sim immune_render
   nlohmann_json::nlohmann_json)
 
-add_library(immune_ui STATIC src/ui/Hud.cpp src/ui/Menu.cpp)
+add_library(immune_ui STATIC src/ui/Hud.cpp src/ui/Menu.cpp src/ui/Fonts.cpp)
 target_link_libraries(immune_ui PUBLIC immune_core immune_platform immune_render immune_game
   PRIVATE imgui::imgui)
 
