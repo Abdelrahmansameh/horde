@@ -1,0 +1,366 @@
+{
+  "schema": 1,
+  "name": "floodplain_max_horde",
+  "region": "mucosal",
+  "world": {
+    "min": [
+      0,
+      0
+    ],
+    "max": [
+      148.36,
+      96.0
+    ],
+    "cell_size": 0.5
+  },
+  "vessels": [
+    {
+      "id": "flood_main",
+      "lane_id": "flood_main",
+      "vessel_type": "mucosal_fold",
+      "points": [
+        {
+          "p": [
+            10.47,
+            48.0
+          ],
+          "w": 47.13
+        },
+        {
+          "p": [
+            41.89,
+            45.38
+          ],
+          "w": 53.24
+        },
+        {
+          "p": [
+            76.8,
+            50.62
+          ],
+          "w": 54.98
+        },
+        {
+          "p": [
+            111.71,
+            46.25
+          ],
+          "w": 51.49
+        },
+        {
+          "p": [
+            138.76,
+            48.0
+          ],
+          "w": 38.4
+        }
+      ],
+      "children": []
+    }
+  ],
+  "portals": [
+    {
+      "id": "p_flood",
+      "pos": [
+        11.35,
+        48.0
+      ],
+      "radius": 9.6,
+      "lane_id": "flood_main"
+    }
+  ],
+  "objectives": [
+    {
+      "id": "organ",
+      "pos": [
+        137.02,
+        48.0
+      ],
+      "radius": 5.24,
+      "integrity": 100
+    }
+  ],
+  "placement_zones": [
+    {
+      "min": [
+        36.65,
+        27.05
+      ],
+      "max": [
+        54.11,
+        68.95
+      ],
+      "concentrated": true,
+      "priority": 2.0
+    },
+    {
+      "min": [
+        71.56,
+        27.05
+      ],
+      "max": [
+        89.02,
+        74.18
+      ],
+      "concentrated": true,
+      "priority": 2.0
+    },
+    {
+      "min": [
+        106.47,
+        27.05
+      ],
+      "max": [
+        123.93,
+        68.95
+      ],
+      "concentrated": true,
+      "priority": 2.0
+    },
+    {
+      "min": [
+        24.44,
+        25.31
+      ],
+      "max": [
+        130.91,
+        73.31
+      ],
+      "concentrated": false,
+      "priority": 1.0
+    }
+  ],
+  "ambient_drift": [
+    0.0,
+    0.0
+  ],
+  "waves": [
+    {
+      "name": "flood_1",
+      "prep_time": 25.0,
+      "atp_reward": 90,
+      "spawns": [
+        {
+          "family": "virus",
+          "count": 900,
+          "start_time": 0.0,
+          "duration": 6.0,
+          "portal_id": "p_flood"
+        },
+        {
+          "family": "fungal_spore",
+          "count": 400,
+          "start_time": 0.5,
+          "duration": 6.0,
+          "portal_id": "p_flood"
+        },
+        {
+          "family": "bacteria",
+          "count": 200,
+          "start_time": 1.0,
+          "duration": 5.0,
+          "portal_id": "p_flood"
+        }
+      ]
+    },
+    {
+      "name": "flood_2",
+      "prep_time": 22.0,
+      "atp_reward": 110,
+      "spawns": [
+        {
+          "family": "virus",
+          "count": 1500,
+          "start_time": 0.0,
+          "duration": 6.5,
+          "portal_id": "p_flood"
+        },
+        {
+          "family": "fungal_spore",
+          "count": 600,
+          "start_time": 0.5,
+          "duration": 6.5,
+          "portal_id": "p_flood"
+        },
+        {
+          "family": "bacteria",
+          "count": 400,
+          "start_time": 1.0,
+          "duration": 5.5,
+          "portal_id": "p_flood"
+        }
+      ]
+    },
+    {
+      "name": "flood_3",
+      "prep_time": 20.0,
+      "atp_reward": 130,
+      "spawns": [
+        {
+          "family": "virus",
+          "count": 2100,
+          "start_time": 0.0,
+          "duration": 7.0,
+          "portal_id": "p_flood"
+        },
+        {
+          "family": "fungal_spore",
+          "count": 900,
+          "start_time": 0.5,
+          "duration": 7.0,
+          "portal_id": "p_flood"
+        },
+        {
+          "family": "bacteria",
+          "count": 500,
+          "start_time": 1.0,
+          "duration": 6.0,
+          "portal_id": "p_flood"
+        }
+      ]
+    },
+    {
+      "name": "flood_4",
+      "prep_time": 18.0,
+      "atp_reward": 150,
+      "spawns": [
+        {
+          "family": "virus",
+          "count": 3000,
+          "start_time": 0.0,
+          "duration": 7.5,
+          "portal_id": "p_flood"
+        },
+        {
+          "family": "fungal_spore",
+          "count": 1200,
+          "start_time": 0.5,
+          "duration": 7.5,
+          "portal_id": "p_flood"
+        },
+        {
+          "family": "bacteria",
+          "count": 800,
+          "start_time": 1.0,
+          "duration": 6.5,
+          "portal_id": "p_flood"
+        }
+      ]
+    },
+    {
+      "name": "flood_5",
+      "prep_time": 16.0,
+      "atp_reward": 175,
+      "modifier": "fever",
+      "spawns": [
+        {
+          "family": "virus",
+          "count": 3900,
+          "start_time": 0.0,
+          "duration": 8.0,
+          "portal_id": "p_flood"
+        },
+        {
+          "family": "fungal_spore",
+          "count": 1600,
+          "start_time": 0.5,
+          "duration": 8.0,
+          "portal_id": "p_flood"
+        },
+        {
+          "family": "bacteria",
+          "count": 1000,
+          "start_time": 1.0,
+          "duration": 7.0,
+          "portal_id": "p_flood"
+        }
+      ]
+    },
+    {
+      "name": "flood_6",
+      "prep_time": 14.0,
+      "atp_reward": 200,
+      "spawns": [
+        {
+          "family": "virus",
+          "count": 4800,
+          "start_time": 0.0,
+          "duration": 8.5,
+          "portal_id": "p_flood"
+        },
+        {
+          "family": "fungal_spore",
+          "count": 2000,
+          "start_time": 0.5,
+          "duration": 8.5,
+          "portal_id": "p_flood"
+        },
+        {
+          "family": "bacteria",
+          "count": 1200,
+          "start_time": 1.0,
+          "duration": 7.5,
+          "portal_id": "p_flood"
+        }
+      ]
+    },
+    {
+      "name": "flood_7",
+      "prep_time": 12.0,
+      "atp_reward": 230,
+      "modifier": "allergen",
+      "spawns": [
+        {
+          "family": "virus",
+          "count": 5400,
+          "start_time": 0.0,
+          "duration": 9.0,
+          "portal_id": "p_flood"
+        },
+        {
+          "family": "fungal_spore",
+          "count": 2250,
+          "start_time": 0.5,
+          "duration": 9.0,
+          "portal_id": "p_flood"
+        },
+        {
+          "family": "bacteria",
+          "count": 1350,
+          "start_time": 1.0,
+          "duration": 8.0,
+          "portal_id": "p_flood"
+        }
+      ]
+    },
+    {
+      "name": "flood_8_full_flood",
+      "prep_time": 12.0,
+      "atp_reward": 300,
+      "modifier": "swarm",
+      "spawns": [
+        {
+          "family": "virus",
+          "count": 6000,
+          "start_time": 0.0,
+          "duration": 9.0,
+          "portal_id": "p_flood"
+        },
+        {
+          "family": "fungal_spore",
+          "count": 2500,
+          "start_time": 0.5,
+          "duration": 9.0,
+          "portal_id": "p_flood"
+        },
+        {
+          "family": "bacteria",
+          "count": 1500,
+          "start_time": 1.0,
+          "duration": 8.0,
+          "portal_id": "p_flood"
+        }
+      ]
+    }
+  ]
+}

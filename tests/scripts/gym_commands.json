@@ -1,0 +1,100 @@
+{
+  "schema": 1,
+  "name": "gym_commands",
+  "seed": 1337,
+  "ticks": 400,
+  "max_chaff": 24000,
+  "level": "assets/levels/gym.json",
+  "actions": [
+    {
+      "tick": 0,
+      "type": "cmd",
+      "cmd": "spawn virus 400 at p_lymph; spawn bacteria 300 at p_artery; spawn fungal_spore 300 at p_vein"
+    },
+    {
+      "tick": 0,
+      "type": "cmd",
+      "cmd": "elite all at p_mucosa"
+    },
+    {
+      "tick": 30,
+      "type": "cmd",
+      "cmd": "atp 9000; tower all at 150,75; upgrade all"
+    },
+    {
+      "tick": 60,
+      "type": "cmd",
+      "cmd": "cast complement at 150,75; cast histamine at 150,75"
+    },
+    {
+      "tick": 90,
+      "type": "cmd",
+      "cmd": "field 25 80 2 at 120,75"
+    },
+    {
+      "tick": 120,
+      "type": "cmd",
+      "cmd": "vfx all at 120,75"
+    },
+    {
+      "tick": 150,
+      "type": "cmd",
+      "cmd": "wave start"
+    },
+    {
+      "tick": 300,
+      "type": "cmd",
+      "cmd": "kill fungal_spore"
+    }
+  ],
+  "assertions": [
+    {
+      "tick": 0,
+      "metric": "chaff_count",
+      "op": ">",
+      "value": 300
+    },
+    {
+      "tick": 0,
+      "metric": "named_count",
+      "op": ">=",
+      "value": 5
+    },
+    {
+      "tick": 20,
+      "metric": "chaff_count",
+      "op": ">",
+      "value": 900
+    },
+    {
+      "tick": 200,
+      "metric": "chaff_killed_total",
+      "op": ">",
+      "value": 0
+    },
+    {
+      "tick": 200,
+      "metric": "objective_integrity",
+      "op": "==",
+      "value": 100
+    },
+    {
+      "tick": 301,
+      "metric": "chaff_count",
+      "op": ">",
+      "value": 0
+    },
+    {
+      "tick": 400,
+      "metric": "objective_integrity",
+      "op": ">",
+      "value": 0
+    },
+    {
+      "tick": 400,
+      "metric": "state_hash",
+      "op": "!=",
+      "value": 0
+    }
+  ]
+}

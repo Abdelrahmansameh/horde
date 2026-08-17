@@ -6,14 +6,63 @@
   "max_chaff": 20000,
   "level": "assets/levels/capillary_test.json",
   "actions": [
-    { "tick": 0, "type": "place_tower", "tower": "macrophage", "pos": [8, 72] },
-    { "tick": 0, "type": "place_tower", "tower": "macrophage", "pos": [10, 70] },
-    { "tick": 0, "type": "place_tower", "tower": "nk_cell", "pos": [11, 73] },
-    { "tick": 1, "type": "spawn_chaff", "family": "bacteria", "count": 40, "pos": [8, 72], "radius": 3 }
+    {
+      "tick": 0,
+      "type": "place_tower",
+      "tower": "macrophage",
+      "pos": [
+        4.89,
+        44.0
+      ]
+    },
+    {
+      "tick": 0,
+      "type": "place_tower",
+      "tower": "macrophage",
+      "pos": [
+        6.11,
+        42.78
+      ]
+    },
+    {
+      "tick": 0,
+      "type": "place_tower",
+      "tower": "nk_cell",
+      "pos": [
+        6.72,
+        44.61
+      ]
+    },
+    {
+      "tick": 1,
+      "type": "spawn_chaff",
+      "family": "bacteria",
+      "count": 40,
+      "pos": [
+        4.89,
+        44.0
+      ],
+      "radius": 1.83
+    }
   ],
   "assertions": [
-    { "tick": 4000, "metric": "chaff_count",          "op": "==", "value": 0 },
-    { "tick": 4000, "metric": "objective_integrity",  "op": ">",  "value": 90 },
-    { "tick": 4000, "metric": "chaff_killed_total",   "op": ">",  "value": 0 }
+    {
+      "tick": 4000,
+      "metric": "chaff_count",
+      "op": "==",
+      "value": 0
+    },
+    {
+      "tick": 4000,
+      "metric": "objective_integrity",
+      "op": ">",
+      "value": 90
+    },
+    {
+      "tick": 4000,
+      "metric": "chaff_killed_total",
+      "op": ">",
+      "value": 0
+    }
   ]
 }

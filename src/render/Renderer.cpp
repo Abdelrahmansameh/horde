@@ -22,6 +22,7 @@
 #include "sim/ecs/NamedAgents.h"
 #include "sim/flowfield/FlowField.h"
 #include "sim/projectile/Projectiles.h"
+#include "sim/swarm/Swarmers.h"
 #include "sim/spatial/SpatialHash.h"
 #include "vfx/Particles.h"
 
@@ -37,12 +38,43 @@ namespace immune::render {
 
 Vec4 family_color(PathogenFamily family) {
     // DESIGN.md §6 colour code. Single source of truth.
+    //
+    // Retuned when the substrate went vivid red. §9.3 fixes the family coding
+    // as the constant that never shifts *with lane or region* — it does not
+    // require the values to survive a change of floor unexamined, and two of
+    // them did not. Measured against the new lumen (#D23548, luminance 0.34):
+    //
+    //   Virus       old (0.72,0.20,0.62): luminance contrast 0.01, hue gap 41 deg
+    //   FungalSpore old (0.48,0.33,0.18): luminance contrast 0.02, hue gap 37 deg
+    //
+    // Both were effectively invisible on the lane — identical in value to the
+    // plasma and too near it in hue for that to rescue them. The other four
+    // measured 0.41 to 0.59 and are untouched.
+    //
+    // VIRUS IS NOW GREEN, not the red-purple DESIGN.md §6.2's table still
+    // lists. No amount of adjustment inside "red-purple" solved it: the Virus
+    // is the most numerous family and a purple that stays purple is always the
+    // nearest thing on the wheel to a red lane, so it was the one family
+    // fighting its own background everywhere it appeared. Moving it out of the
+    // red sector entirely is the fix; §6.2's table wants updating to match.
+    //
+    // The specific green is picked to sit between the two families already in
+    // that half of the wheel rather than beside either: Bacteria's yellow-green
+    // is at hue 68 deg and Parasite's teal at 178 deg, so 135 deg leaves ~66
+    // deg of clearance on one side and ~43 on the other. It also runs far
+    // lighter than the plasma (luminance contrast 0.54 against it, up from
+    // 0.01), so it separates on value as well as hue.
+    //
+    // Silhouette still does the rest of the work where hue gets crowded: a
+    // spiked capsid against Bacteria's rod-and-flagellum is not a confusion
+    // anyone makes twice, which is exactly what §6.2's "colour = family,
+    // silhouette size = threat tier" trio is for.
     switch (family) {
-        case PathogenFamily::Virus:       return Vec4{0.72f, 0.20f, 0.62f, 1.0f}; // red-purple
+        case PathogenFamily::Virus:       return Vec4{0.20f, 0.94f, 0.38f, 1.0f}; // vivid green
         case PathogenFamily::Bacteria:    return Vec4{0.72f, 0.80f, 0.22f, 1.0f}; // yellow-green
-        case PathogenFamily::FungalSpore: return Vec4{0.48f, 0.33f, 0.18f, 1.0f}; // brown
+        case PathogenFamily::FungalSpore: return Vec4{0.34f, 0.20f, 0.10f, 1.0f}; // brown, darkened
         case PathogenFamily::Parasite:    return Vec4{0.16f, 0.70f, 0.68f, 1.0f}; // teal
-        case PathogenFamily::CancerCell:  return Vec4{0.70f, 0.55f, 0.58f, 1.0f}; // grey-pink
+        case PathogenFamily::CancerCell:  return Vec4{0.72f, 0.60f, 0.70f, 1.0f}; // grey-pink
         case PathogenFamily::Allergen:    return Vec4{1.00f, 0.86f, 0.10f, 1.0f}; // warning yellow
         default:                          return Vec4{1.0f, 1.0f, 1.0f, 1.0f};
     }
@@ -75,9 +107,9 @@ constexpr u32 kInstanceRegions = 3;
 /// implementation detail of this .cpp).
 ///
 /// Shape-specific field meaning (see field.vert's header comment):
-///   Circle/Chain: scale = diameter, rotation = 0.
+///   Circle/Chain: scale = diameter, rotation = 0, arc_cos unused.
 ///   Rect:         scale = full width/height, rotation = 0 (sim::Rect is
-///                 always axis-aligned).
+///                 always axis-aligned), arc_cos = width/height aspect.
 ///   Cone:         scale = diameter, rotation = direction angle, arc_cos =
 ///                 cos(arc_radians).
 struct FieldGpuInstance {
@@ -109,6 +141,17 @@ struct ProjectileGpuInstance {
     u32 visual_id;
 };
 
+/// Per-granule GPU layout, mirrored in swarmer.vert. Same status as
+/// ProjectileGpuInstance: a Renderer.cpp implementation detail, not a contract.
+struct SwarmerGpuInstance {
+    f32 x, y;
+    f32 vx, vy;
+    f32 radius;
+    f32 phase;
+    f32 r, g, b, a;
+    u32 flags;      ///< bit 0: attached to a host. Mirrors swarmer.frag.
+};
+
 /// Elite death-burst timing. The renderer has no access to the spawning
 /// entity's archetype's `ArchetypeBehavior::death_fade` (sim/ecs internals,
 /// not exposed through the frozen Components.h/NamedAgents.h contracts this
@@ -126,7 +169,16 @@ constexpr f32 kDeathBurstScale = 2.4f;
 /// duration (frozen contract, sim/damage/DamageField.h), so a true fade-in at
 /// spawn can't be reconstructed here — this fixed window shapes the fade-out
 /// near expiry instead, which is what actually reads as "the nova is ending".
-constexpr f32 kFieldBurstFadeWindow = 0.35f;
+///
+/// IT MUST BE SHORTER THAN THE SHORTEST BURST IN THE GAME, and at 0.35s it was
+/// longer than every one of them. Because intensity is remaining/window, a
+/// field whose ENTIRE life is under the window starts already faded and only
+/// gets dimmer: the Tesla's chain (kTeslaArcSeconds, 0.12s) peaked at 34%
+/// brightness and the Macrophage's shell (kMortarBurstSeconds, 0.30s) at 86%,
+/// so the roster's two burst towers were the two whose AoE you could barely
+/// see. At 0.10s both hold full brightness for most of their life and spend
+/// only the last hundred milliseconds fading, which is what the curve was for.
+constexpr f32 kFieldBurstFadeWindow = 0.10f;
 
 // ---------------------------------------------------------------------------
 // Tissue-pass side textures (DESIGN.md §9.2 lane identity, §9.4 fluid feel).
@@ -151,19 +203,31 @@ constexpr i32 kLaneTexMax = 128;
 /// depend on game/ (see TissueDecor's rationale). Order: artery, vein,
 /// lymphatic, nerve-adjacent, mucosal fold.
 ///
-/// Every hue is kept well under full saturation: §9.3 requires the substrate to
-/// lose to the foreground at every lane, and the shader only blends ~40% of
-/// this into the plasma colour on top of that.
+/// These are SATURATED. The substrate used to hold back on value — a dark,
+/// desaturated floor that could not possibly compete with the horde. That is
+/// no longer the strategy: the lanes are vivid, and foreground readability is
+/// carried by hue separation and per-agent drop shadows instead (the pathogen
+/// families are yellow-green, teal, brown and magenta; the towers are cool
+/// blue/white/violet — none of them sit near a red substrate on the wheel).
+///
+/// Each type keeps the identity §9.2 assigns it, so a returning player still
+/// recognises an artery at a glance; what changed is the intensity, not the
+/// hue relationships between them.
 struct LaneVisual {
     Vec4 hue;   ///< rgb only; a unused
     f32 tempo;  ///< ambient animation rate multiplier
 };
+// Desaturated one step from the first vivid pass. Each value was mixed 22%
+// toward its OWN equal-luminance grey rather than being darkened or dulled by
+// hand, so every lane holds exactly the brightness and hue it had and only the
+// intensity comes off — the palette relationships between the five, and the
+// contrast the foreground was measured against, are untouched.
 constexpr LaneVisual kLaneVisuals[] = {
-    {{0.82f, 0.30f, 0.26f, 1.0f}, 1.70f}, // Artery        — warm red-orange, fast pulse
-    {{0.42f, 0.32f, 0.56f, 1.0f}, 0.85f}, // Vein          — dusky blue-violet
-    {{0.80f, 0.72f, 0.44f, 1.0f}, 0.55f}, // Lymphatic     — pale gold, slow drift
-    {{0.54f, 0.40f, 0.74f, 1.0f}, 1.15f}, // NerveAdjacent — cool violet
-    {{0.62f, 0.63f, 0.40f, 1.0f}, 0.70f}, // MucosalFold   — warm green-cream
+    {{0.820f, 0.227f, 0.289f, 1.0f}, 1.70f}, // Artery        — arterial crimson
+    {{0.512f, 0.184f, 0.402f, 1.0f}, 0.85f}, // Vein          — deep wine-violet
+    {{0.897f, 0.632f, 0.429f, 1.0f}, 0.55f}, // Lymphatic     — gold, slow drift
+    {{0.600f, 0.288f, 0.756f, 1.0f}, 1.15f}, // NerveAdjacent — violet
+    {{0.816f, 0.441f, 0.379f, 1.0f}, 0.70f}, // MucosalFold   — warm coral
 };
 constexpr u32 kLaneVisualCount = static_cast<u32>(sizeof(kLaneVisuals) / sizeof(kLaneVisuals[0]));
 
@@ -357,6 +421,15 @@ struct Renderer::Impl {
     u32 projectile_region = 0;
     u32 max_projectile_instances = 0;
 
+    // Swarmer pass. Mirrors the projectile pass exactly; kept as its own VAO,
+    // buffer and fence ring rather than sharing the projectile ones so the two
+    // submits in a frame can never contend for the same region.
+    gl::VertexArray swarmer_vao;
+    gl::Buffer swarmer_instances;
+    gl::FenceRing<kInstanceRegions> swarmer_fence;
+    u32 swarmer_region = 0;
+    u32 max_swarmer_instances = 0;
+
     // Particle pass (Wave 6). By far the largest instance buffer in the
     // renderer -- a quarter million instances per blend mode, triple buffered.
     // Sized from RendererDesc rather than a constant because it dominates VRAM
@@ -523,6 +596,25 @@ bool Renderer::init(const RendererDesc& desc) {
     imp.projectile_vao.attrib_int(6, 1, 1, GL_UNSIGNED_INT,
                                   offsetof(ProjectileGpuInstance, visual_id));
 
+    // ---- Swarmer pass. Attribute locations mirror swarmer.vert. ------------
+    imp.max_swarmer_instances = math::max(desc_.max_swarmer_instances, 1u);
+    if (!imp.swarmer_vao.create()) { error_ = "failed to create the swarmer VAO"; return false; }
+    imp.swarmer_vao.bind_vertex_buffer(0, imp.quad_vbo, sizeof(Vec2), 0, 0);
+    imp.swarmer_vao.attrib_float(0, 0, 2, GL_FLOAT, false, 0);
+    const usize swarmer_bytes = static_cast<usize>(imp.max_swarmer_instances) *
+                                sizeof(SwarmerGpuInstance) * kInstanceRegions;
+    if (!imp.swarmer_instances.create_persistent(swarmer_bytes)) {
+        error_ = "failed to allocate the swarmer instance buffer";
+        return false;
+    }
+    imp.swarmer_vao.bind_vertex_buffer(1, imp.swarmer_instances, sizeof(SwarmerGpuInstance), 0, 1);
+    imp.swarmer_vao.attrib_float(1, 1, 2, GL_FLOAT, false, offsetof(SwarmerGpuInstance, x));
+    imp.swarmer_vao.attrib_float(2, 1, 2, GL_FLOAT, false, offsetof(SwarmerGpuInstance, vx));
+    imp.swarmer_vao.attrib_float(3, 1, 1, GL_FLOAT, false, offsetof(SwarmerGpuInstance, radius));
+    imp.swarmer_vao.attrib_float(4, 1, 1, GL_FLOAT, false, offsetof(SwarmerGpuInstance, phase));
+    imp.swarmer_vao.attrib_float(5, 1, 4, GL_FLOAT, false, offsetof(SwarmerGpuInstance, r));
+    imp.swarmer_vao.attrib_int(6, 1, 1, GL_UNSIGNED_INT, offsetof(SwarmerGpuInstance, flags));
+
     // ---- Particle pass. Attribute locations mirror particle.vert, and the
     // instance layout mirrors vfx::ParticleInstance byte for byte (that one IS
     // a frozen contract -- see vfx/Particles.h).
@@ -585,6 +677,7 @@ bool Renderer::init(const RendererDesc& desc) {
     imp.shaders.load_graphics("entity", "entity.vert", "entity.frag");
     imp.shaders.load_graphics("field", "field.vert", "field.frag");
     imp.shaders.load_graphics("projectile", "projectile.vert", "projectile.frag");
+    imp.shaders.load_graphics("swarmer", "swarmer.vert", "swarmer.frag");
     imp.shaders.load_graphics("particle", "particle.vert", "particle.frag");
     imp.shaders.load_graphics("flow_debug", "flow_debug.vert", "flow_debug.frag");
     if (!imp.shaders.get("chaff").valid()) {
@@ -629,7 +722,7 @@ void Renderer::begin_frame(const Camera& camera, f32 alpha) {
     // that never call submit_tissue at all). Kept in step with the darkest
     // interstitial value tissue.frag resolves to, so the seam at the level's
     // edge is invisible rather than a bright border.
-    glClearColor(0.070f, 0.042f, 0.050f, 1.0f);
+    glClearColor(0.256f, 0.054f, 0.121f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 }
 
@@ -1058,17 +1151,24 @@ void Renderer::submit_entities(const sim::EcsWorld& ecs) {
             static_cast<f32>(h & 0xFFFFu) * (math::kTwoPi / 65536.0f) + imp.time * tempo * math::kTwoPi;
         inst.shape_param = 0.0f;
 
-        // Tower tier drives the NK Cell's blade count, so an upgrade is legible
-        // from the silhouette alone rather than only from the stat panel. The
-        // 2+tier formula deliberately matches the rotor-sweep particle burst in
-        // vfx/Particles.cpp (TowerType::NKCell case) so the solid blades and the
-        // trails they throw off never disagree about how many arms exist.
-        // Sourced from comp::Tower every frame rather than baked into the sprite
-        // at upgrade time, so the two can't drift.
+        // Every tower body spends its tier on a countable feature — the
+        // Macrophage's phagosomes, the Interferon crystal's reach, the
+        // Cytotoxic T's microvilli, the B-Cell's antibodies, the NK Cell's
+        // blades — so an upgrade is legible from the silhouette alone rather
+        // than only from the stat panel.
+        //
+        // What travels is the RAW tier, not any one shape's derived count.
+        // entity.frag turns it into blades (2 + tier) or antibodies (2 + tier)
+        // or whatever else at the point of use, which keeps the "what does a
+        // tier look like" decision in the shader that draws it — the NK Cell's
+        // blade count in particular has to agree with the rotor-sweep particle
+        // burst in vfx/Particles.cpp, and one owner for that formula is one
+        // fewer place for the two to drift apart.
+        //
+        // Sourced from comp::Tower every frame rather than baked into the
+        // sprite at upgrade time, for the same no-drift reason.
         if (const auto* tower = registry.try_get<const sim::comp::Tower>(entity)) {
-            if (tower->type == TowerType::NKCell) {
-                inst.shape_param = 2.0f + static_cast<f32>(tower->tier);
-            }
+            inst.shape_param = static_cast<f32>(tower->tier);
         }
 
         // Elite death burst (DESIGN.md §9.5 tier 2: "individual pop/burst
@@ -1187,21 +1287,48 @@ void Renderer::submit_fields(const sim::DamageField* fields, usize count) {
     FieldGpuInstance* region_base = imp.field_instances.mapped_as<FieldGpuInstance>() +
         static_cast<usize>(imp.field_region) * kMaxFieldInstances;
 
-    // Cool blue/violet base palette per shape category (DESIGN.md §9.3: towers
-    // and their effects are the "not part of the flow" temperature family),
-    // distinct enough per shape that a standing toxin cloud (Circle), an
-    // antibody wall (Rect), a directional spray (Cone), and a complement
-    // cascade (Chain) don't all read as the same generic glow. friendly_fire
-    // fields (the allergen overreaction mechanic) override to a hot warning
-    // colour regardless of shape, since those damage the player, not the horde.
-    const Vec4 kCircleTint{0.30f, 0.80f, 0.88f, 1.0f};
-    const Vec4 kRectTint{0.58f, 0.46f, 0.95f, 1.0f};
-    const Vec4 kConeTint{0.92f, 0.38f, 0.58f, 1.0f};
-    const Vec4 kChainTint{0.78f, 0.95f, 1.0f, 1.0f};
+    // A field is tinted with the IDENTITY HUE OF THE TOWER THAT CASTS IT, so a
+    // tower's body, its particles and the AoE it puts on the ground are all one
+    // colour. These values mirror palette_for()'s `primary` in
+    // vfx/Particles.cpp entry for entry.
+    //
+    // Before this they were an unrelated per-shape palette, and it actively
+    // fought the roster's own legibility rule (DESIGN.md §9.3): the Interferon
+    // is the cyan tower and its cone rendered PINK, the B-Cell is the green
+    // tower and its beam rendered VIOLET. The player's only cheap "who is
+    // shooting" channel is hue, and half the roster was spending it saying
+    // something different in two places at once.
+    //
+    // Shape maps to tower one-to-one across the current roster, so the tower
+    // does not have to be looked up: only the Interferon casts Cones, only the
+    // B-Cell casts Rects, and Chain is the Cytotoxic T (the Complement Cascade
+    // ABILITY also resolves through Chain, and reading as a T-Cell discharge is
+    // the right answer there — it is the same mechanism fired by the player).
+    // Circle is the one genuine ambiguity and is split below by lifetime.
+    const Vec4 kMortarTint{1.00f, 0.66f, 0.24f, 1.0f};  // Macrophage — amber
+    const Vec4 kBladeTint{1.00f, 0.52f, 0.86f, 1.0f};   // NK Cell    — magenta
+    const Vec4 kRectTint{0.62f, 1.00f, 0.80f, 1.0f};    // B-Cell     — antibody green
+    const Vec4 kConeTint{0.52f, 0.84f, 1.00f, 1.0f};    // Interferon — cyan
+    const Vec4 kChainTint{0.76f, 0.66f, 1.00f, 1.0f};   // Cytotoxic T— violet
+    // friendly_fire fields (the allergen overreaction mechanic) override to a
+    // hot warning colour regardless of shape, since those damage the player.
     const Vec4 kFriendlyFireTint{1.0f, 0.32f, 0.15f, 1.0f};
+
+    // Written instances, which is NOT the loop index: the persistent Interferon
+    // cone is skipped below, so the buffer is packed with a separate cursor.
+    u32 written = 0;
 
     for (u32 i = 0; i < draw_count; ++i) {
         const sim::DamageField& f = fields[i];
+
+        // The Interferon's cone is submitted every tick whether or not the
+        // tower has anything to shoot (see system_cryo), so drawing it painted
+        // permanent striated rays fanning out of every Interferon on the map.
+        // The pulse particles already say when it fires; the standing beam only
+        // added glare. Skipped for DRAWING only — the field still does its
+        // damage and its slow.
+        if (f.shape == sim::FieldShape::Cone && f.lifetime <= 0.0f) continue;
+
         FieldGpuInstance inst{};
 
         switch (f.shape) {
@@ -1213,7 +1340,11 @@ void Renderer::submit_fields(const sim::DamageField* fields, usize count) {
             inst.scale_x = math::max(sz.x, 0.05f);
             inst.scale_y = math::max(sz.y, 0.05f);
             inst.rotation = 0.0f; // sim::Rect is always axis-aligned
-            inst.arc_cos = -1.0f;
+            // arc_cos is dead weight for a Rect, so it carries the box's
+            // ASPECT instead: field.frag needs to know which of the two axes
+            // the beam runs along to put its hot centreline down the right one,
+            // and the normalized local frame it shades in has lost that.
+            inst.arc_cos = inst.scale_x / inst.scale_y;
             inst.shape_id = 1;
             break;
         }
@@ -1248,7 +1379,14 @@ void Renderer::submit_fields(const sim::DamageField* fields, usize count) {
             inst.scale_y = diameter;
             inst.rotation = 0.0f;
             inst.arc_cos = -1.0f;
-            inst.shape_id = 0;
+            // Circle is the one shape two towers share, so it splits by
+            // lifetime — the only thing that distinguishes them here, and it
+            // happens to distinguish them cleanly. A PERSISTENT circle is the
+            // NK Cell's rotor disc, permanently on and pinned to a tower; a
+            // TIMED one is a Macrophage shell landing (or a Histamine Flare,
+            // which is a nova and should read like one). Drawing both as the
+            // same steady toxin cloud was why a mortar hit had no punch.
+            inst.shape_id = (f.lifetime <= 0.0f) ? 4u : 0u;
             break;
         }
         }
@@ -1276,27 +1414,31 @@ void Renderer::submit_fields(const sim::DamageField* fields, usize count) {
             inst.intensity = math::saturate(f.lifetime / kFieldBurstFadeWindow);
         }
 
-        Vec4 tint = kCircleTint;
+        Vec4 tint = kMortarTint;
         switch (f.shape) {
         case sim::FieldShape::Rect:  tint = kRectTint;  break;
         case sim::FieldShape::Cone:  tint = kConeTint;  break;
         case sim::FieldShape::Chain: tint = kChainTint; break;
-        case sim::FieldShape::Circle: default: tint = kCircleTint; break;
+        case sim::FieldShape::Circle:
+        default:
+            // Same persistent-vs-timed split the shape id above makes.
+            tint = (f.lifetime <= 0.0f) ? kBladeTint : kMortarTint;
+            break;
         }
         if (f.friendly_fire) tint = kFriendlyFireTint;
         inst.tint_rgba8 = pack_rgba8(tint);
 
-        region_base[i] = inst;
+        region_base[written++] = inst;
     }
 
     const ShaderProgram prog = imp.shaders.get("field");
-    if (prog.valid() && draw_count > 0) {
+    if (prog.valid() && written > 0) {
         glUseProgram(prog.gl_id);
         glUniformMatrix4fv(0, 1, GL_FALSE, glm::value_ptr(imp.view_projection));
         glUniform1f(1, imp.time);
         imp.field_vao.bind();
         const u32 base_instance = imp.field_region * kMaxFieldInstances;
-        glDrawArraysInstancedBaseInstance(GL_TRIANGLE_FAN, 0, 4, static_cast<GLsizei>(draw_count),
+        glDrawArraysInstancedBaseInstance(GL_TRIANGLE_FAN, 0, 4, static_cast<GLsizei>(written),
                                           base_instance);
         ++stats_.draw_calls;
     }
@@ -1361,6 +1503,72 @@ void Renderer::submit_projectiles(const sim::ProjectileBuffers& projectiles) {
     stats_.submit_ms += timer.elapsed_ms();
 }
 
+
+void Renderer::submit_swarmers(const sim::SwarmerBuffers& swarmers) {
+    // The Cytotoxic T's granules. Drawn after the projectile pass and before
+    // the particles, for the same reason rounds are: these are matter, and the
+    // additive cosmetic layer should composite on top of them.
+    const usize count = swarmers.count();
+    stats_.swarmer_instances_drawn = static_cast<u32>(count);
+    if (!ready_ || !impl_ || count == 0) return;
+    Impl& imp = *impl_;
+    WallClock timer;
+
+    const u32 draw_count = math::min(static_cast<u32>(count), imp.max_swarmer_instances);
+
+    imp.swarmer_fence.wait(imp.swarmer_region);
+    SwarmerGpuInstance* base = imp.swarmer_instances.mapped_as<SwarmerGpuInstance>() +
+        static_cast<usize>(imp.swarmer_region) * imp.max_swarmer_instances;
+
+    // The Cytotoxic T's violet, matching both the tower body (entity.frag) and
+    // the palette the VFX layer uses for the same tower. Granules carry a tier
+    // in visual_id but not a TowerType, and today only this tower releases
+    // them, so the hue is a constant here rather than a per-granule lookup.
+    for (u32 i = 0; i < draw_count; ++i) {
+        SwarmerGpuInstance inst{};
+        inst.x = swarmers.pos_x[i];
+        inst.y = swarmers.pos_y[i];
+        inst.vx = swarmers.vel_x[i];
+        inst.vy = swarmers.vel_y[i];
+
+        // Size tracks tier, and every granule is small on purpose: the read is
+        // "there are a lot of them", which a bigger sprite actively destroys.
+        const f32 tier = static_cast<f32>(math::clamp<u16>(swarmers.visual_id[i], 1u, 3u));
+        inst.radius = 0.20f + 0.035f * tier;
+
+        // Hashed off the slot so the cloud does not pulse in lockstep, same
+        // rationale as ChaffInstance::anim_phase and the projectile pass.
+        const u32 h = (swarmers.seed[i] * 2654435761u) ^ 0x85EBCA6Bu;
+        inst.phase = static_cast<f32>(h & 0xFFFFu) * (math::kTwoPi / 65536.0f);
+
+        // Fade the last half-second of life instead of popping out. Granules
+        // dissolve constantly, and a cloud where dozens blink out per second
+        // reads as flicker rather than as turnover.
+        const f32 fade = math::saturate(swarmers.life[i] * 2.0f);
+        inst.r = 0.78f; inst.g = 0.68f; inst.b = 1.0f;
+        inst.a = 0.55f + 0.45f * fade;
+
+        inst.flags = (swarmers.flags[i] & sim::swarmer_flags::kAttached) != 0 ? 1u : 0u;
+        base[i] = inst;
+    }
+
+    const ShaderProgram prog = imp.shaders.get("swarmer");
+    if (prog.valid()) {
+        glUseProgram(prog.gl_id);
+        glUniformMatrix4fv(0, 1, GL_FALSE, glm::value_ptr(imp.view_projection));
+        glUniform1f(1, imp.time);
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        imp.swarmer_vao.bind();
+        glDrawArraysInstancedBaseInstance(GL_TRIANGLE_FAN, 0, 4, static_cast<GLsizei>(draw_count),
+                                          imp.swarmer_region * imp.max_swarmer_instances);
+        ++stats_.draw_calls;
+    }
+
+    imp.swarmer_fence.signal(imp.swarmer_region);
+    imp.swarmer_region = (imp.swarmer_region + 1) % kInstanceRegions;
+    stats_.submit_ms += timer.elapsed_ms();
+}
 void Renderer::submit_particles(const vfx::ParticleInstance* instances, usize count,
                                 vfx::BlendMode blend) {
     // One instanced draw for the whole span. The CPU never builds per-particle

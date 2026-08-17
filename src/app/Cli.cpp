@@ -44,6 +44,8 @@ const char* usage_text() {
 "  immune --screenshot <level> --tick N --out <f.png>  deterministic frame capture\n"
 "      --towers                                        place every tower type first,\n"
 "                                                      so the shot shows real combat\n"
+"      --exec \"<gym commands>\"                         run gym commands first        \n"
+"                                                      (e.g. \"spawn all 300; tower all\")\n"
 "  immune --list-scenarios                             print available bench scenarios\n"
 "\n"
 "OPTIONS\n"
@@ -110,6 +112,8 @@ Options parse_args(int argc, char** argv) {
             o.focus = Vec2{std::strtof(xy.substr(0, comma).c_str(), nullptr),
                            std::strtof(xy.substr(comma + 1).c_str(), nullptr)};
             o.has_focus = true;
+        } else if (a == "--exec") {
+            if (!next_value(argc, argv, i, a, o.exec, o.error)) break;
         } else if (a == "--level") {
             if (!next_value(argc, argv, i, a, o.level, o.error)) break;
         } else if (a == "--scenario") {

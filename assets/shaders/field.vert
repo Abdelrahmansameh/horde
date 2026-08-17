@@ -6,11 +6,16 @@
 // implementation detail mirrored only here, since no other consumer reads it.
 //
 // Shape-specific meaning of i_scale/i_rotation/i_arc_cos:
-//   Circle/Chain (shape 0/3): i_scale.xy = diameter (2*radius), i_rotation = 0.
+//   Circle      (shape 0/4): i_scale.xy = diameter (2*radius), i_rotation = 0.
+//                              0 is a timed burst, 4 a persistent disc — see
+//                              Renderer::submit_fields for why they split.
 //   Rect         (shape 1):   i_scale.xy = full rect width/height, rotation = 0
-//                              (sim::Rect is axis-aligned, never rotated).
+//                              (sim::Rect is axis-aligned, never rotated), and
+//                              i_arc_cos carries width/height so the fragment
+//                              stage can tell which axis the beam runs along.
 //   Cone         (shape 2):   i_scale.xy = diameter (2*radius), i_rotation =
 //                              atan2(direction), i_arc_cos = cos(arc_radians).
+//   Chain        (shape 3):   i_scale.xy = diameter (2*radius), i_rotation = 0.
 //
 // v_local is passed as the corner *before* the per-instance scale/rotate, so
 // the fragment stage always does its SDF math in a fixed normalized frame

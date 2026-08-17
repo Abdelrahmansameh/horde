@@ -6,10 +6,35 @@
   "max_chaff": 5000,
   "level": "assets/levels/capillary_2_forking_vessels.json",
   "actions": [
-    { "tick": 0, "type": "spawn_chaff", "family": "bacteria", "count": 20, "pos": [10, 50],  "radius": 3 },
-    { "tick": 0, "type": "spawn_chaff", "family": "bacteria", "count": 20, "pos": [10, 130], "radius": 3 }
+    {
+      "tick": 0,
+      "type": "spawn_chaff",
+      "family": "bacteria",
+      "count": 20,
+      "pos": [
+        5.75,
+        28.75
+      ],
+      "radius": 1.72
+    },
+    {
+      "tick": 0,
+      "type": "spawn_chaff",
+      "family": "bacteria",
+      "count": 20,
+      "pos": [
+        5.75,
+        74.75
+      ],
+      "radius": 1.72
+    }
   ],
   "assertions": [
-    { "tick": 3600, "metric": "chaff_leaked_total", "op": ">", "value": 0 }
+    {
+      "tick": 3600,
+      "metric": "chaff_leaked_total",
+      "op": ">",
+      "value": 0
+    }
   ]
 }

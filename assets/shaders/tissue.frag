@@ -127,58 +127,74 @@ vec3 worley(vec2 p) {
 // ---------------------------------------------------------------------------
 // INTERSTITIUM — the flesh the vessel is carved out of.
 //
-// Three scales stacked, because that is what stops any procedural surface from
-// reading as wallpaper: lobules (organ substructure, ~13 world units), cells
-// (~3 world units), and ridged collagen fibre bundles threading between them.
-// The whole thing is domain-warped first so the packing is irregular rather
-// than a tidy Voronoi diagram.
+// Deep saturated crimson, built from big epithelial plates with GLOWING seams.
+// Two things here are the opposite of what a "recede into the background" layer
+// normally wants, and both are deliberate:
 //
-// Kept very dark and very low contrast on purpose — this is the majority of the
-// screen on a narrow-vessel level and it is the one region that must never
-// attract the eye.
+//   BRIGHT SEAMS, NOT DARK ONES. Creasing the boundary between cells reads as
+//   dried mud or cracked stone. Lighting it reads as wet tissue with fluid in
+//   the intercellular space, which is what the medical-illustration look is
+//   actually made of — the plates sit in shadow and the borders catch light.
+//
+//   BIG PLATES. ~10 world units across rather than ~3. At gameplay zoom small
+//   cells collapse into uniform grain and the eye reads texture, not anatomy;
+//   at this size you can see individual cells and the field reads as flesh.
+//
+// The saturation is high enough that this no longer "loses to the foreground"
+// on value alone the way a near-black substrate did. What keeps the horde
+// readable now is hue and edge: the pathogen families are yellow-green, teal
+// and magenta against a red field, every agent carries a drop shadow, and the
+// interstitium's own contrast stays low *within itself* even though its overall
+// level is high.
 // ---------------------------------------------------------------------------
 vec3 interstitium(vec2 p, vec3 lane_hue) {
-    vec2 wp = p + vec2(fbm(p * 0.14), fbm(p * 0.14 + 31.4)) * 3.8;
+    vec2 wp = p + vec2(fbm(p * 0.14), fbm(p * 0.14 + 31.4)) * 4.6;
 
-    vec3 cells = worley(wp * 0.22);
-    vec3 lobes = worley(wp * 0.055);
+    vec3 cells = worley(wp * 0.105);
+    vec3 lobes = worley(wp * 0.035);
 
-    // 0 exactly on the seam between two cells, 1 well inside one. The contrast
-    // here is deliberately weak: strong seams turn the whole field into cracked
-    // stone and start reading as level geometry, which is the one thing the
-    // back layer must never do.
-    float membrane = smoothstep(0.015, 0.20, cells.y - cells.x);
-    float nucleus  = 1.0 - smoothstep(0.06, 0.15, cells.x);
+    // 1 exactly on the seam between two plates, falling off into the plate.
+    // Thin: the reference's borders are hairlines between broad soft plates,
+    // not a wide glowing web.
+    float seam = 1.0 - smoothstep(0.0, 0.13, cells.y - cells.x);
+    // Each plate domed slightly: brightest at its own centre, so a plate reads
+    // as a swollen cell rather than a flat tile.
+    float dome = 1.0 - smoothstep(0.0, 0.55, cells.x);
 
-    vec3 col = vec3(0.083, 0.048, 0.058);
-    // Per-cell brightness jitter: cytoplasm is never uniform, and this is what
-    // makes the packing legible without drawing an outline around every cell.
-    col *= 0.90 + 0.20 * cells.z;
-    col *= mix(0.84, 1.03, membrane);
-    col = mix(col, vec3(0.108, 0.060, 0.086), nucleus * 0.28);
+    // Sampled straight off the reference: plates read ~#5A0A1C, borders only
+    // modestly brighter at ~#7E1028. The whole field there spans barely 24
+    // luminance levels from p05 to p95 — it is a FLAT, saturated red, and the
+    // structure is carried by hue and soft doming rather than by contrast. An
+    // earlier pass made the seams properly bright and it immediately read as
+    // glowing lava cracks, which is the failure mode to watch for here.
+    const vec3 kPlate = vec3(0.256, 0.054, 0.121); // cell interior, in shadow
+    const vec3 kSeam  = vec3(0.403, 0.091, 0.184); // intercellular fluid, lit
 
-    // Lobule-scale shading: a slow swell across many cells at once, so the
-    // texture has a silhouette at screen scale and not only at pixel scale, and
-    // a cool/warm shift with it so the field is not one flat maroon.
+    vec3 col = kPlate;
+    // Per-plate jitter: no two cells hold quite the same amount of blood.
+    col *= 0.88 + 0.22 * cells.z;
+    col += kPlate * 0.32 * dome;
+    col = mix(col, kSeam, seam * 0.48);
+
+    // Lobule-scale swell across many plates at once, so the field has a
+    // silhouette at screen scale and not only at pixel scale.
     float lobe = smoothstep(0.04, 0.60, lobes.y - lobes.x);
-    col *= 0.88 + 0.22 * lobe;
-    col = mix(col, col * vec3(0.86, 0.94, 1.14), (1.0 - lobe) * 0.45);
+    col *= 0.88 + 0.20 * lobe;
 
     // Collagen. Ridged noise (1 - |2n-1|) gives creases instead of blobs, and
     // the anisotropic frequency stretches them into fibre bundles.
     float fibre = 1.0 - abs(2.0 * fbm(p * vec2(0.40, 0.90) + 7.0) - 1.0);
-    col += vec3(0.020, 0.019, 0.028) * pow(fibre, 4.0);
+    col += vec3(0.033, 0.012, 0.016) * pow(fibre, 4.0);
 
     // Micro-vasculature: the same ridged trick at a much higher exponent, which
-    // narrows the crest into a thin branching filament rather than a band. Warm
-    // and very faint — a capillary bed feeding the flesh, readable only when
-    // the eye rests on it.
+    // narrows the crest into a thin branching filament rather than a band — a
+    // capillary bed feeding the flesh.
     float capillary = pow(1.0 - abs(2.0 * fbm(p * 0.17 + 19.0) - 1.0), 15.0);
-    col += vec3(0.055, 0.017, 0.021) * capillary;
+    col += vec3(0.045, 0.014, 0.020) * capillary;
 
-    // A whisper of the lane's identity, so the surrounding flesh belongs to the
-    // vessel running through it rather than being a neutral backdrop.
-    col = mix(col, col * (0.55 + lane_hue), 0.40);
+    // The lane's identity bleeds into the flesh around it, so a lymph channel
+    // does not sit in arterial tissue.
+    col = mix(col, col * (0.45 + lane_hue * 1.15), 0.45);
     return col;
 }
 
@@ -246,12 +262,12 @@ void main() {
     //   flesh   d < -W        soft blend outward, so the wall sits *in* the
     //                         tissue instead of on top of it.
     // =======================================================================
-    const float kWallThick = 2.6;
+    const float kWallThick = 3.9;
 
     float inside = smoothstep(-0.12, 0.32, d);
     // 0 at the lumen boundary, 1 at the wall's outer surface.
     float wall_t = clamp(-d / kWallThick, 0.0, 1.0);
-    float in_wall = (1.0 - inside) * (1.0 - smoothstep(0.55, 1.0, wall_t));
+    float in_wall = (1.0 - inside) * (1.0 - smoothstep(0.78, 1.0, wall_t));
 
     // Fake directional light for the §9.1 tilted-camera read. `nrm` points into
     // the lumen, so the wall facing the light catches a highlight and the far
@@ -272,28 +288,41 @@ void main() {
     // plus a highlight on whichever side rolls over toward the light. Biasing
     // the *occlusion* by `lit` instead was tried and reads backwards — it puts
     // the heavy shadow on the lip the light is hitting.
+    // Softened hard, for the same reason the sheath went: with a bright wall
+    // against dark flesh, an occlusion band just outside it reads as a second
+    // outline rather than as seating.
     float lip = (1.0 - smoothstep(0.0, 4.5, -d - kWallThick * 0.5)) * (1.0 - inside);
-    col *= 1.0 - 0.24 * lip;
-    col *= 1.0 + 0.30 * lip * max(-lit, 0.0);
+    col *= 1.0 - 0.10 * lip;
+    col *= 1.0 + 0.16 * lip * max(-lit, 0.0);
 
     if (inside > 0.004) {
-        // Plasma. Warm and pale per DESIGN.md §9.3's "pinks/creams floor",
-        // carrying only a minority fraction of the lane hue so lane identity
-        // never eats the saturation budget the pathogen families need.
-        vec3 plasma = mix(vec3(0.60, 0.47, 0.45), lane_hue, 0.42);
+        // Plasma. Vivid and high-key: the lumen is the brightest thing on
+        // screen and the lane's colour identity lives here, so it takes the
+        // majority of the lane hue rather than a pale wash of it. Lifted toward
+        // a hot crimson-white rather than toward neutral, which is what keeps
+        // it reading as backlit fluid instead of as tinted fog.
+        // Calibrated against the reference's lumen median (#CF314D, luminance
+        // 84/255). The first attempt at "vivid" drove the red channel to 255
+        // and clipped, which flattens all the flow detail into a single blown
+        // pink — brighter is not more vibrant once a channel saturates.
+        vec3 plasma = mix(lane_hue, vec3(0.828, 0.407, 0.485), 0.25) * 0.85;
 
         // The lumen is a channel with depth: it lifts toward the middle and
         // falls into contact shadow against the wall. `d` is in world units, so
         // this is a physically consistent gradient at any vessel width.
         float depth = smoothstep(0.0, 8.0, d);
-        plasma *= mix(0.58, 0.98, depth);
+        // Shallow on purpose. A profile across the reference shows its lumen
+        // holding luminance 64-70 right up to the wall — there is no dark
+        // trough between fluid and vessel. A steep ramp here put one there, and
+        // it read as a bruise ringing every lane.
+        plasma *= mix(0.86, 1.06, depth);
         // Contact shadow where the plasma meets the wall. Split into a constant
         // part and a directional part on purpose: the plasma touches the wall
         // on BOTH sides, so both get a contact shadow, and only its depth
         // follows the light. Driving the whole term off `lit` gave the lit side
         // essentially no contact shadow at all, which was half of why the two
         // edges of a lane read as different materials.
-        plasma *= 1.0 - (1.0 - depth) * (0.09 + 0.13 * (0.5 - 0.5 * lit));
+        plasma *= 1.0 - (1.0 - depth) * (0.03 + 0.05 * (0.5 - 0.5 * lit));
 
         // Flow-aligned striations. Seven taps of value noise along the flow
         // direction are a miniature line-integral convolution: it destroys
@@ -314,7 +343,11 @@ void main() {
         // Centred on the mean so the streaks both brighten and darken; a purely
         // additive smear just washes the lane out. The gain is high because
         // averaging seven taps has already collapsed most of the variance.
-        plasma *= 1.0 + 0.52 * (lic - 0.5);
+        plasma *= 1.0 + 0.46 * (lic - 0.5);
+        // Silk sheen on the crests of those striations. A high power keeps it
+        // to the few brightest filaments, which is what reads as light skating
+        // off moving fluid rather than as the whole lane getting lighter.
+        plasma += vec3(0.17, 0.105, 0.110) * pow(max(lic - 0.54, 0.0) * 2.2, 2.0) * depth;
 
         // A faster, finer filament layer over the top, strongest where the
         // plasma drags against the wall — the same place a real velocity
@@ -357,30 +390,36 @@ void main() {
         // laminae across kWallThick, which is as many as survive at the zoom
         // the game is actually played at.
         float lamina = sin(d * 4.4 + fbm(p * 0.50) * 8.0);
-        float layered = smoothstep(-0.2, 1.0, lamina);
+        float layered = smoothstep(-0.75, 0.95, lamina);
 
-        // Distinctly lighter and greyer than the flesh behind it: the wall has
-        // to read as a *structure containing* the lane, so it needs its own
-        // value, not a slightly different shade of the surround.
-        vec3 wall = mix(vec3(0.225, 0.132, 0.140), lane_hue * 0.40, 0.24);
-        wall *= 0.68 + 0.62 * layered;
-        // Ranged rather than centred on 1.0: the shadowed half of a groove wall
-        // still has to hold a readable value, and a full +-60% swing crushed it
-        // to black, which turned every vessel into a thick outline.
-        //
-        // The floor here is load-bearing and was tuned by measurement, not by
-        // eye. `nrm` points into the lumen, so on a horizontal lane the two
-        // walls sit at lit = -0.91 and +0.91 — the widest possible split. At
-        // the old 0.80 +- 0.40 that put the shadowed wall at 0.44x, which
-        // landed its mean luminance within ~2/255 of the surrounding flesh: the
-        // wall did not read as a wall at all on that side, and the vessel
-        // looked like it had an outline along one edge and nothing along the
-        // other. Keep the swing narrow enough that BOTH walls stay clearly
-        // separated from the flesh behind them.
-        wall *= 0.86 + 0.30 * lit;
-        // Falls off into the flesh across its outer half, so there is no seam
-        // where the ring ends.
-        wall *= mix(1.0, 0.55, smoothstep(0.15, 1.0, wall_t));
+        // THE WALL IS BRIGHTER THAN THE FLESH, NOT DARKER. This is the single
+        // biggest structural difference from the earlier version, and it came
+        // out of profiling the reference rather than out of taste: a slice
+        // crossing its lower wall runs 59 -> 97 -> 68 -> 49 -> 36 -> 20 in
+        // luminance. The wall is a band of bright crimson ribbons sitting
+        // between a bright lumen and DARK interstitium, with a hot specular
+        // crest on one fold. There is no dark outline anywhere in that
+        // transition. Rendering the wall as a shadow (which is what a
+        // physically-lit groove wants) is what produced the black ring the old
+        // version drew around every vessel.
+        vec3 wall = mix(vec3(0.605, 0.172, 0.243), lane_hue * 0.85, 0.30);
+        // Ribbon contrast, centred so the darkest fold still reads as red.
+        // Narrow. The reference's folds move between luminance 59 and 89 —
+        // a gentle swell. A wide range renders them as alternating bright and
+        // near-black stripes, which reads as ribbing on a hose, not as tissue.
+        wall *= 0.88 + 0.26 * layered;
+        // Gentle directional term. Deliberately much weaker than a physical
+        // groove would want: in the reference the relief is carried by the
+        // ribbons themselves, not by a global light gradient across the vessel,
+        // and a strong gradient here is what used to make the two edges of a
+        // lane look like different materials.
+        wall *= 0.94 + 0.16 * lit;
+        // Specular crest on the outermost fold — the reference's hot #EC395E
+        // hairline. A high power keeps it to the crest only.
+        wall += vec3(0.026, 0.013, 0.015) * pow(layered, 3.0) * (0.55 + 0.45 * max(lit, 0.0));
+        // Ramps down into the dark flesh across the outer half. This is where
+        // the value drop belongs — after the wall, not between it and the lumen.
+        wall *= mix(1.0, 0.46, smoothstep(0.45, 1.0, wall_t));
 
         // Bounce light. The lumen is the brightest thing on screen and it sits
         // directly against this surface, so the wall face turned away from the
@@ -399,11 +438,11 @@ void main() {
 
         col = mix(col, wall, in_wall);
 
-        // Adventitia: a thin dark sheath on the wall's outer surface. Without
-        // it the lit side of the wall bleeds into the flesh and the vessel
-        // loses its outline exactly where the light is strongest.
-        float sheath = 1.0 - smoothstep(0.0, 0.9, abs(-d - kWallThick * 0.92));
-        col *= 1.0 - 0.20 * sheath * (1.0 - inside);
+        // NOTE: no adventitial dark sheath. There used to be one here, to stop
+        // the lit wall bleeding into the flesh. Now that the wall is the bright
+        // element and the flesh is the dark one, the value drop does that job
+        // on its own, and a dark band on top of it reads as an inked outline —
+        // the reference has nothing of the kind anywhere in the transition.
     }
 
     // NOTE: there is deliberately no bright endothelial hairline on the lumen
@@ -431,7 +470,7 @@ void main() {
     // this sits on the frame and not on the world — it darkens the periphery
     // and pushes the eye to the middle of the action.
     vec2 vig = v_screen - 0.5;
-    col *= 1.0 - 0.36 * dot(vig, vig);
+    col *= 1.0 - 0.26 * dot(vig, vig);
 
     // Static (not time-varying) film grain: it breaks up the smooth gradients
     // that would otherwise band in 8-bit, without adding a crawling dither.

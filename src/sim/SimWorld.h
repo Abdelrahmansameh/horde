@@ -35,6 +35,7 @@
 #include "sim/ecs/EcsWorld.h"
 #include "sim/flowfield/FlowField.h"
 #include "sim/projectile/Projectiles.h"
+#include "sim/swarm/Swarmers.h"
 #include "sim/spatial/SpatialHash.h"
 
 #include <string>
@@ -52,6 +53,10 @@ struct SimDesc {
     /// continuous stream, and a dropped round is invisible but a reallocation
     /// mid-tick is forbidden outright.
     usize max_projectiles = 8192;
+    /// Live Cytotoxic T swarmers. Spawn rate against lifetime sets the standing
+    /// cloud size (see sim/swarm/Swarmers.h); this only has to be above the
+    /// equilibrium a full board of maxed T-cells reaches.
+    usize max_swarmers = 24576;
     /// Per-tick combat-event capacity. Sized well above the expected rate so
     /// the VFX layer never starves during a heavy volley; overflow is counted,
     /// not silent.
@@ -125,6 +130,12 @@ public:
     const ProjectileBuffers& projectiles() const { return projectiles_; }
     ProjectileSystem& projectile_system() { return projectile_system_; }
 
+    /// The Cytotoxic T's live swarmers. Towers push straight into this store,
+    /// same arrangement as projectiles.
+    SwarmerBuffers& swarmers() { return swarmers_; }
+    const SwarmerBuffers& swarmers() const { return swarmers_; }
+    SwarmerSystem& swarmer_system() { return swarmer_system_; }
+
     /// Instantaneous combat happenings raised during the tick, drained once per
     /// frame by the VFX layer. This is an OUTPUT of the tick: nothing in the
     /// sim ever reads it back, so a full sink cannot perturb state_hash().
@@ -140,6 +151,19 @@ public:
     /// load a real level.
     const std::vector<SpawnPortalRuntime>& portals() const { return portals_; }
     void set_portals(std::vector<SpawnPortalRuntime> portals) { portals_ = std::move(portals); }
+
+    /// Overwrites the objective's remaining integrity, clamped at zero.
+    ///
+    /// Nothing in the sim ever *raises* this -- tick() only subtracts the chaff
+    /// that reached the goal -- so this is not a gameplay path and no system
+    /// inside sim/ calls it. It exists for the gym's "objective invulnerable"
+    /// toggle (game/gym), which re-applies it after each tick so a leak still
+    /// counts as a leak while the run cannot end. Safe for determinism:
+    /// objective_integrity_ is not part of state_hash(), and nothing in the
+    /// tick reads it back.
+    void set_objective_integrity(f32 value) {
+        objective_integrity_ = value < 0.0f ? 0.0f : value;
+    }
 
     /// DamageStats from the most recently completed tick. Economy reads
     /// density_removed from this to credit kill income -- aggregate damage
@@ -166,6 +190,8 @@ private:
     DamageSystem damage_;
     ProjectileBuffers projectiles_;
     ProjectileSystem projectile_system_;
+    SwarmerBuffers swarmers_;
+    SwarmerSystem swarmer_system_;
     CombatEventSink combat_events_;
     EcsWorld ecs_;
 

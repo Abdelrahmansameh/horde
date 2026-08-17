@@ -130,14 +130,15 @@ TEST_CASE("chokepoint_pinch.json loads, validates, and bakes a flow field reachi
     REQUIRE(loader.instantiate(def, world).ok);
     REQUIRE(world.flow().reachable(def.portals[0].position));
 
-    // The pinch's narrowest point (x=128, along the lane's y=72 centerline)
-    // must still be walkable (it's on the vessel), but a point 4 world units
-    // off the centerline there -- well inside the wide sections' radius but
-    // outside the ~2.5-wide pinch's -- must not be, proving the width profile
-    // actually narrows partway down the lane rather than staying uniformly wide.
-    const IVec2 pinch_center = world.tissue().world_to_cell(Vec2{128.0f, 72.0f});
-    const IVec2 pinch_off = world.tissue().world_to_cell(Vec2{128.0f, 76.0f});
-    const IVec2 wide_off = world.tissue().world_to_cell(Vec2{20.0f, 76.0f});
+    // The pinch's narrowest point (x=67.56, along the lane's y=38 centerline)
+    // must still be walkable (it's on the vessel), but a point ~2.1 world
+    // units off the centerline there -- well inside the wide sections' radius
+    // but outside the ~2.5-wide pinch's -- must not be, proving the width
+    // profile actually narrows partway down the lane rather than staying
+    // uniformly wide.
+    const IVec2 pinch_center = world.tissue().world_to_cell(Vec2{67.56f, 38.0f});
+    const IVec2 pinch_off = world.tissue().world_to_cell(Vec2{67.56f, 40.11f});
+    const IVec2 wide_off = world.tissue().world_to_cell(Vec2{10.56f, 40.11f});
     REQUIRE(world.tissue().walkable(pinch_center.x, pinch_center.y));
     REQUIRE_FALSE(world.tissue().walkable(pinch_off.x, pinch_off.y));
     REQUIRE(world.tissue().walkable(wide_off.x, wide_off.y));
@@ -162,9 +163,10 @@ TEST_CASE("floodplain_mucosal.json loads, validates, and bakes a flow field from
         REQUIRE(world.flow().reachable(p.position));
     }
 
-    // Open floodplain: a point 9 world units off the trunk's centerline (well
-    // inside a ~2-3 wide chokepoint's radius, but inside this level's ~24-wide
-    // trunk) must be walkable, proving the lane is wide rather than a thin path.
-    const IVec2 wide_off = world.tissue().world_to_cell(Vec2{170.0f, 81.0f});
+    // Open floodplain: a point ~5.9 world units off the trunk's centerline
+    // (well inside a ~1.3-1.6 wide chokepoint's radius, but inside this
+    // level's ~30-wide trunk) must be walkable, proving the lane is wide
+    // rather than a thin path.
+    const IVec2 wide_off = world.tissue().world_to_cell(Vec2{110.97f, 52.88f});
     REQUIRE(world.tissue().walkable(wide_off.x, wide_off.y));
 }

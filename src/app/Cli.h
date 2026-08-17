@@ -11,6 +11,10 @@
 //
 // Global options: --seed N, --level <path>, --width N, --height N, --verbose,
 //                 --quiet, --threads N, --list-scenarios, --help
+//
+// --exec "<gym commands>" runs game/gym commands against the world
+// before a screenshot's ticks, so any state a human can set up by hand in the
+// in-game console is also reachable from a script and from CI.
 #pragma once
 
 #include "core/Types.h"
@@ -55,6 +59,13 @@ struct Options {
     /// --focus <x,y>: camera centre for --screenshot. Defaults to level centre.
     Vec2 focus{0.0f, 0.0f};
     bool has_focus = false;
+
+    /// --exec "<gym commands>": semicolon-separated game/gym commands,
+    /// run once against the world before --screenshot advances any ticks. The
+    /// point is that a visual bug found by typing into the console can be
+    /// reproduced by a command line, and captured in a regression shot, without
+    /// anyone first inventing a bespoke CLI flag for it.
+    std::string exec;
 
     u64 ticks = 600;            ///< --ticks / --tick
     u64 seed = 0x1234'5678'9abc'def0ULL;

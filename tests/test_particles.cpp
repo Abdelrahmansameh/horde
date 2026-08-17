@@ -12,6 +12,10 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
+#include <cmath>
+#include <vector>
+
 using namespace immune;
 using namespace immune::vfx;
 
@@ -141,4 +145,116 @@ TEST_CASE("emit_for_events drains a whole span", "[vfx][particles]") {
     ps.emit_for_events(batch.data(), batch.size());
     REQUIRE(ps.live_count() > 0);
     REQUIRE(ps.stats().spawned_this_frame > 0);
+}
+
+// ---------------------------------------------------------------------------
+// Cytotoxic T: the travelling-granule chain.
+//
+// The look these guard is "a lytic granule physically flies target to target",
+// which has two properties a screenshot cannot check and a refactor can very
+// easily break in silence:
+//
+//   - later hops are STAGED, not simultaneous. The sim raises every hop of a
+//     chain in one tick, so the walk exists only because this layer delays hop
+//     k by k * kCtlHopSeconds, and it recovers k by inverting the falloff the
+//     sim baked into CombatEvent::magnitude. Get that inversion wrong and the
+//     chain silently collapses back into an instantaneous flash.
+//   - the granule ARRIVES. Staged particles keep integrating while their age
+//     is negative, so a moving one has to be born behind its start point to
+//     land in the right place. Drop that compensation and the payload departs
+//     from somewhere it was never fired from.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// Mirrors kCtlHopFalloff / kTeslaHopFalloff. A hop's magnitude is falloff^k.
+constexpr f32 kHopFalloff = 0.72f;
+
+sim::CombatEvent make_chain_hop(u32 hop, Vec2 from, Vec2 to) {
+    sim::CombatEvent e = make_event(sim::CombatEventType::ChainArc, TowerType::CytotoxicT, 1);
+    e.origin = from;
+    e.secondary = to;
+    e.direction = Vec2{1.0f, 0.0f};
+    f32 weight = 1.0f;
+    for (u32 k = 0; k < hop; ++k) weight *= kHopFalloff;
+    e.magnitude = weight;
+    return e;
+}
+
+usize visible_count(const ParticleSystem& ps) {
+    std::vector<ParticleInstance> out;
+    usize n = 0;
+    ps.build_instances(BlendMode::Additive, out);
+    n += out.size();
+    ps.build_instances(BlendMode::AlphaBlend, out);
+    n += out.size();
+    return n;
+}
+
+} // namespace
+
+TEST_CASE("a later chain hop is staged behind the earlier ones, not fired with them",
+          "[vfx][particles][cytotoxic]") {
+    // Hop 0 leaves immediately; hop 3 must still be entirely invisible at the
+    // instant of emission, because the granule has three earlier hops to fly
+    // first. Both events arrive in the SAME tick — the stagger is this layer's
+    // work alone.
+    ParticleSystem first;
+    first.init(4096, 4242);
+    first.emit_for_event(make_chain_hop(0, Vec2{0.0f, 0.0f}, Vec2{4.0f, 0.0f}));
+    REQUIRE(visible_count(first) > 0);
+
+    ParticleSystem later;
+    later.init(4096, 4242);
+    later.emit_for_event(make_chain_hop(3, Vec2{0.0f, 0.0f}, Vec2{4.0f, 0.0f}));
+    REQUIRE(later.live_count() > 0);          // it was emitted...
+    REQUIRE(visible_count(later) == 0);       // ...but nothing is on screen yet.
+
+    // Advance past hop 3's start (3 * 45 ms) and it appears.
+    later.update(0.15f, nullptr);
+    REQUIRE(visible_count(later) > 0);
+}
+
+TEST_CASE("the chain resolves quickly: every hop has landed well inside a quarter second",
+          "[vfx][particles][cytotoxic]") {
+    // The brief is "not instant, but very very quick". Guard the upper end:
+    // the last hop of a maximum-length chain must have started flying long
+    // before the player would read the tower as firing a slow projectile.
+    ParticleSystem ps;
+    ps.init(8192, 77);
+    ps.emit_for_event(make_chain_hop(5, Vec2{0.0f, 0.0f}, Vec2{4.0f, 0.0f}));
+    REQUIRE(visible_count(ps) == 0);
+    ps.update(0.25f, nullptr);
+    REQUIRE(visible_count(ps) > 0);
+}
+
+TEST_CASE("the granule arrives at the target it was fired at",
+          "[vfx][particles][cytotoxic]") {
+    // Hop 1, so the spawn is staged and the pre-birth-drift compensation is
+    // actually exercised: a particle born at `start` instead of
+    // `start - velocity * delay` would sail straight past the target.
+    const Vec2 from{0.0f, 0.0f};
+    const Vec2 to{6.0f, 0.0f};
+
+    ParticleSystem ps;
+    ps.init(4096, 31337);
+    ps.emit_for_event(make_chain_hop(1, from, to));
+
+    // One hop's delay (0.045) plus one hop's flight (0.045). Stepped in small
+    // slices because the integrator is Euler and one giant step is not the
+    // same path the render loop takes.
+    for (int i = 0; i < 18; ++i) ps.update(0.005f, nullptr);
+
+    std::vector<ParticleInstance> out;
+    ps.build_instances(BlendMode::Additive, out);
+    REQUIRE_FALSE(out.empty());
+
+    f32 nearest = 1e9f;
+    for (const ParticleInstance& p : out) {
+        const f32 dx = p.x - to.x;
+        const f32 dy = p.y - to.y;
+        nearest = std::min(nearest, std::sqrt(dx * dx + dy * dy));
+    }
+    INFO("nearest additive particle sat " << nearest << " units from the target");
+    REQUIRE(nearest < 1.0f);
 }

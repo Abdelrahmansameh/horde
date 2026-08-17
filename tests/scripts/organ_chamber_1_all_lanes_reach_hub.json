@@ -6,13 +6,68 @@
   "max_chaff": 20000,
   "level": "assets/levels/organ_chamber_1_lymph_node_core.json",
   "actions": [
-    { "tick": 0, "type": "spawn_chaff", "family": "virus", "count": 30, "pos": [10, 20],  "radius": 3 },
-    { "tick": 0, "type": "spawn_chaff", "family": "virus", "count": 30, "pos": [10, 280], "radius": 3 },
-    { "tick": 0, "type": "spawn_chaff", "family": "virus", "count": 30, "pos": [290, 20], "radius": 3 },
-    { "tick": 0, "type": "spawn_chaff", "family": "virus", "count": 30, "pos": [290, 280], "radius": 3 },
-    { "tick": 0, "type": "spawn_chaff", "family": "virus", "count": 30, "pos": [10, 150], "radius": 3 }
+    {
+      "tick": 0,
+      "type": "spawn_chaff",
+      "family": "virus",
+      "count": 30,
+      "pos": [
+        3.0,
+        6.0
+      ],
+      "radius": 0.9
+    },
+    {
+      "tick": 0,
+      "type": "spawn_chaff",
+      "family": "virus",
+      "count": 30,
+      "pos": [
+        3.0,
+        84.0
+      ],
+      "radius": 0.9
+    },
+    {
+      "tick": 0,
+      "type": "spawn_chaff",
+      "family": "virus",
+      "count": 30,
+      "pos": [
+        87.0,
+        6.0
+      ],
+      "radius": 0.9
+    },
+    {
+      "tick": 0,
+      "type": "spawn_chaff",
+      "family": "virus",
+      "count": 30,
+      "pos": [
+        87.0,
+        84.0
+      ],
+      "radius": 0.9
+    },
+    {
+      "tick": 0,
+      "type": "spawn_chaff",
+      "family": "virus",
+      "count": 30,
+      "pos": [
+        3.0,
+        45.0
+      ],
+      "radius": 0.9
+    }
   ],
   "assertions": [
-    { "tick": 1800, "metric": "chaff_leaked_total", "op": ">", "value": 0 }
+    {
+      "tick": 1800,
+      "metric": "chaff_leaked_total",
+      "op": ">",
+      "value": 0
+    }
   ]
 }

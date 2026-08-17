@@ -90,20 +90,31 @@ void main() {
         half_w = 0.5 * i_size * (1.0 - 0.45 * age);
         axis   = dir;
         center = i_position - dir * (0.5 * streak);
-    } else if (kind == kBeam) {
-        float len = max(speed, i_size * 4.0);
+    } else if (kind == kBeam || kind == kBolt) {
+        // SEGMENT KINDS. For these two i_size is the segment's LENGTH, not a
+        // diameter — vfx/Particles.cpp's BeamFired and ChainArc cases both
+        // spawn with `velocity = unit direction, size = segment length`, and
+        // the endpoint has nowhere else to travel (ParticleInstance packs the
+        // direction into vx/vy and has no endpoint field).
+        //
+        // This branch used to read i_size as a WIDTH as well, via
+        //     len    = max(speed, i_size * 4.0)
+        //     half_w = 0.5 * max(i_size, len * 0.012)
+        // and since the emitter's velocity is a unit vector, speed is always 1
+        // and the i_size*4 fallback always won. A 20-unit beam was therefore
+        // drawn 80 units long and 20 units WIDE — the exact opposite of the
+        // hairline this file and particle.frag both promise, and the reason the
+        // Laser rendered as a blown-out white smear four times longer than the
+        // beam it was supposed to be showing. The Bolt overshot the same way.
+        float len = max(i_size, 1e-3);
         half_l = 0.5 * len;
-        // Deliberately hairline: a Beam is a clean straight line of energy.
-        half_w = 0.5 * max(i_size, len * 0.012);
-        axis   = dir;
-        center = i_position + dir * (0.5 * len);
-    } else if (kind == kBolt) {
-        float len = max(speed, i_size * 4.0);
-        half_l = 0.5 * len;
-        // Wide enough to hold the jagged centreline AND its branch. This is
-        // the structural reason a Bolt can never be mistaken for a Beam: its
-        // quad is ~25x wider for the same segment length.
-        half_w = 0.5 * max(i_size * 2.0, len * 0.30);
+        // Hairline for a Beam (a clean straight line of energy), broad for a
+        // Bolt (wide enough to hold the jagged centreline AND its branch). The
+        // ~25x ratio between them is structural: it is why a Bolt can never be
+        // mistaken for a Beam, and particle.frag's header cites it. The floors
+        // stop a very short segment collapsing to sub-pixel.
+        half_w = (kind == kBeam) ? 0.5 * max(len * 0.012, 0.05)
+                                 : 0.5 * max(len * 0.30, 0.10);
         axis   = dir;
         center = i_position + dir * (0.5 * len);
     } else if (kind == kRing) {

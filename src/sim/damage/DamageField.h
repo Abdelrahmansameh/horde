@@ -128,13 +128,34 @@ public:
                         const DamageField& region) const;
 
     const std::vector<DamageField>& fields() const { return fields_; }
-    void clear_all() { fields_.clear(); }
+
+    /// The fields exactly as `apply()` last saw them — the correct list for
+    /// anything running BETWEEN ticks, which in practice means the renderer.
+    ///
+    /// `fields()` is not that list. It is the submission buffer, and
+    /// clear_transient() runs at the END of SimWorld::tick(), so by the time a
+    /// frame is drawn every persistent field has already been dropped on the
+    /// grounds that its owner will re-submit next tick. That is right for the
+    /// sim and wrong for the screen: the Cryo cone, the Laser beam and the NK
+    /// rotor are all persistent, so a renderer reading fields() sees the three
+    /// AoEs that are permanently on as permanently absent, and those towers
+    /// draw no attack at all. This snapshot is taken before that cull.
+    const std::vector<DamageField>& rendered_fields() const { return rendered_; }
+
+    void clear_all() {
+        fields_.clear();
+        rendered_.clear();
+    }
 
     /// Reserves field storage so submit() never allocates during a tick.
-    void reserve(usize max_fields) { fields_.reserve(max_fields); }
+    void reserve(usize max_fields) {
+        fields_.reserve(max_fields);
+        rendered_.reserve(max_fields);
+    }
 
 private:
     std::vector<DamageField> fields_;
+    std::vector<DamageField> rendered_;
     ThinningMode mode_ = ThinningMode::DensityThinning;
 };
 

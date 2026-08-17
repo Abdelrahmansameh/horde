@@ -105,8 +105,11 @@ float sdf_bacteria(vec2 p, float r, float phase, float pulse, out float flagellu
     // of it, leaving the flagellum about a tenth of a body length -- a stub
     // that read as a rendering artifact rather than a tail. Offsetting the body
     // buys the rear half of the quad for the flagellum without widening the
-    // quad (which would cost fill rate on all ten thousand instances).
-    const float kBodyOffset = 0.20;
+    // quad (which would cost fill rate on all ten thousand instances). Pushed
+    // to 0.30 (from 0.20) to claw back the front margin the body wasn't using
+    // -- front cap+radius lands at ~0.91, tail tip at ~0.91 behind, both still
+    // shy of the 0.95 pad -- so the longer flagellum below has somewhere to go.
+    const float kBodyOffset = 0.30;
     vec2 bp = p - vec2(kBodyOffset, 0.0);
 
     float half_len = r * 0.52;
@@ -115,12 +118,12 @@ float sdf_bacteria(vec2 p, float r, float phase, float pulse, out float flagellu
     // Flagellum: a long, tapering, beating filament trailing the rear cap.
     float rear = kBodyOffset - half_len;           // x of the rear cap centre
     float tail_x = p.x - rear;                     // 0 at the cap, negative behind
-    float along = clamp(-tail_x / 0.80, 0.0, 1.0); // 0 at cap, 1 at the tip
+    float along = clamp(-tail_x / 0.90, 0.0, 1.0); // 0 at cap, 1 at the tip
 
     // Amplitude grows toward the tip, which is what a real beating filament
     // does and what makes it read as propulsion rather than a drawn line.
     float beat = sin(tail_x * 11.0 - phase * 3.0) * (0.02 + 0.075 * along);
-    float thickness = mix(0.028, 0.006, along);    // tapers to a point
+    float thickness = mix(0.042, 0.010, along);    // tapers to a point
     float tail_d = abs(p.y - beat) - thickness;
 
     // Behind the rod only, and fading out at the tip so it does not end in a
@@ -154,8 +157,17 @@ void main() {
     float body_alpha = 1.0 - smoothstep(-0.06 * rim_scale, 0.0, body_d);
     body_alpha = max(body_alpha, flagellum);
 
-    float shadow_d = length(v_local - v_shadow_offset) - 0.46;
-    float shadow_alpha = (1.0 - smoothstep(-0.14, 0.0, shadow_d)) * 0.28;
+    // Drop shadow. Weighted much harder than it used to be, because the
+    // substrate is no longer a dark low-saturation floor that every agent
+    // automatically out-values. Against a vivid red lumen, two of the six
+    // families (Virus and the FungalSpore's brown) sit within a hundredth of
+    // the background's luminance — hue is all that separates them, and hue
+    // alone does not carry a six-pixel sprite. A dark contact shadow plus the
+    // bright rim below gives EVERY family its own local contrast regardless of
+    // what it is sitting on, which is exactly how the medical-illustration
+    // reference reads magenta virions against red plasma.
+    float shadow_d = length(v_local - v_shadow_offset) - 0.52;
+    float shadow_alpha = (1.0 - smoothstep(-0.18, 0.02, shadow_d)) * 0.46;
 
     if (body_alpha <= 0.0 && shadow_alpha <= 0.0) discard;
 
@@ -167,9 +179,9 @@ void main() {
     // cytoplasm. This is the whole "biological" budget at this sprite size, and
     // it is what separates a cell from a flat dot.
     float depth = clamp(-body_d * 3.4, 0.0, 1.0);          // 0 at edge, 1 deep inside
-    rgb *= mix(1.18, 0.72, depth);                          // bright rim, dark core
-    float rim = 1.0 - smoothstep(0.0, 0.10, abs(body_d));
-    rgb = mix(rgb, mix(rgb, vec3(1.0), 0.55), rim * 0.65);  // membrane highlight
+    rgb *= mix(1.30, 0.62, depth);                          // bright rim, dark core
+    float rim = 1.0 - smoothstep(0.0, 0.11, abs(body_d));
+    rgb = mix(rgb, mix(rgb, vec3(1.0), 0.72), rim * 0.80);  // membrane highlight
 
     if (family == FAM_VIRUS) {
         // Dense genetic core: a small hot centre, which is what makes a virion

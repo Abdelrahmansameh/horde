@@ -37,6 +37,7 @@
 #include "sim/flowfield/FlowField.h"
 #include "sim/flowfield/TissueRaster.h"
 #include "sim/projectile/Projectiles.h"
+#include "sim/swarm/Swarmers.h"
 #include "sim/spatial/SpatialHash.h"
 
 #include <algorithm>
@@ -144,14 +145,52 @@ constexpr f32 kMortarBurstSeconds = 0.30f;
 /// tower's footprint — the mortar is the "consequential" answer to a clump.
 constexpr f32 kMortarBurstRadius[3] = {5.00f, 5.75f, 6.50f};
 
-/// TESLA: how long one chain discharge's Chain field lives.
-constexpr f32 kTeslaArcSeconds = 0.12f;
-/// TESLA: jump distance between hops (the FIRST hop uses the tower's range).
-constexpr f32 kTeslaHopRadius[3] = {3.0f, 4.0f, 5.0f};
-/// TESLA: hops per discharge, and the per-hop energy falloff carried in
-/// CombatEvent::magnitude (vfx/Particles.cpp reads exactly that).
-constexpr u32 kTeslaMaxHops = 6;
-constexpr f32 kTeslaHopFalloff = 0.72f;
+/// CYTOTOXIC T — the swarm. This tower used to discharge a Chain field: one
+/// disc of damage, one flash, done. The disc was the problem. An area glow says
+/// "this region is being hurt" and says nothing at all about a cell that kills
+/// other cells one at a time, which is the entire identity of a CTL.
+///
+/// It now releases SWARMERS (sim/swarm/Swarmers.h) — individual lytic granules
+/// that fly out of the synapse electrode, pick a pathogen, latch on, drain it,
+/// and move to the next one when it dies. Each dissolves after its own
+/// lifetime, and the tower keeps releasing more the whole time, so the cloud
+/// settles at a standing population instead of growing without bound.
+///
+/// The equilibrium size is what the player actually reads, and it is just
+/// (release rate) * (lifetime): at tier 1 that is 36 per 0.9s * 6.8s ~ 270 live
+/// granules, at tier 3 it is 78 per 0.6s * 8.4s ~ 1090. A tier-3 T-cell is
+/// therefore not "a small horde of its own" any more — it is a horde outright,
+/// and a board of them is the reason SimDesc::max_swarmers is five figures.
+///
+/// Counts and per-granule damage move as a PAIR, and this tuning deliberately
+/// moves BOTH up: 3x the release rate, 2x the lifetime, 2x the damage and 2x
+/// the speed. That is ~6x the standing population; MEASURED kill throughput
+/// against a finite horde went 241 -> 750 per 300 ticks, i.e. about 3x, not 6x,
+/// because a tower that has cleared its own range holds fire and the surplus
+/// granules find nothing to drain. The ceiling is far higher than the observed
+/// figure and only shows up under sustained pressure.
+///
+/// This makes the Cytotoxic T the strongest anti-chaff tower in the roster by a
+/// clear margin (Interferon 574, Macrophage 137 on the same scenario). That is
+/// an explicit balance decision, not an accident of chasing the look — and if
+/// it ever needs pulling back the honest lever is dps, because cutting the
+/// count also cuts the spectacle that motivated the whole design.
+constexpr u32 kCtlReleasePerShot[3] = {36u, 57u, 78u};
+constexpr f32 kCtlSwarmerLifetime[3] = {6.8f, 7.6f, 8.4f};
+/// Travel speed. Fast enough that granules cross the tower's whole range in
+/// well under a second, so the cloud reads as darting rather than drifting.
+constexpr f32 kCtlSwarmerSpeed[3] = {26.0f, 30.0f, 34.0f};
+/// Density drained per second by ONE attached granule.
+constexpr f32 kCtlSwarmerDps[3] = {4.2f, 6.4f, 8.4f};
+/// How close a granule gets before it latches, and how far it will look for a
+/// new host once it is loose. The search radius is generous relative to the
+/// tower's own range on purpose — a granule already in the field should chase
+/// the horde rather than expire politely at the edge of its parent's reach.
+constexpr f32 kCtlAttachRadius = 0.55f;
+constexpr f32 kCtlSearchRadius[3] = {9.0f, 11.0f, 13.0f};
+/// Launch cone half-angle. Wide, because a tight cone reads as a burst of
+/// bullets and a wide one reads as a cloud being released.
+constexpr f32 kCtlLaunchSpread = 0.85f;
 
 /// GUNNER: muzzle velocity per tier, in world units/second. Bounded on purpose:
 /// Projectiles.cpp documents that a round whose per-tick step greatly exceeds
@@ -400,9 +439,10 @@ void restore_footprint(sim::TissueMask& mask, const priv::TowerRecord& rec) {
 //   - acquire_focus()  reads per-cell OCCUPANCY over the cells a range circle
 //     overlaps (tens of integers), then averages the positions of exactly ONE
 //     cell's agents. Never a scan of the store.
-//   - nearest_chaff()  is the Tesla's hop search. Bounded by hop radius (3-5
-//     units => a handful of cells) and by kTeslaMaxHops, and it runs only on a
-//     discharge tick.
+//   - nearest_chaff()  is a generic "closest agent" helper. Bounded by the
+//     caller's radius (a handful of cells) and used only on ticks where a
+//     tower actually needs one. The Cytotoxic T no longer calls it at all --
+//     its granules do their own searching in sim/swarm, on their own budget.
 //   - the Cryo and Blade passes set chaff_flags / emit contact events over the
 //     agents in their (small) shape. Flags and events have no aggregate path at
 //     all — DamageField publishes damage, not state — so this is the only way
@@ -859,76 +899,107 @@ void system_cryo(TowerSystem& self, sim::SystemContext& ctx) {
 }
 
 // ---------------------------------------------------------------------------
-// TESLA — Cytotoxic T. One Chain field per discharge, plus one ChainArc event
-// per hop so the VFX layer draws each jagged link individually.
+// SWARM — Cytotoxic T. Releases a volley of lytic granules from its synapse
+// electrode on every cooldown; the granules do the rest themselves.
+//
+// This tower publishes NO DamageField. It is the only anti-chaff tower in the
+// roster that does not, and that is the whole point of the redesign: the
+// aggregate path can only ever draw a region, and this tower needed to read as
+// a population. All of its chaff damage now comes from sim/swarm, one attached
+// granule at a time. See kCtl* above for the numbers and sim/swarm/Swarmers.h
+// for what a granule does once released.
+//
+// The tower still needs an aim point, but only to orient the release cone and
+// to keep the body sprite facing its work — it does not need a target to hit,
+// because it is not hitting anything. When nothing is in range it holds fire
+// rather than seeding granules into empty tissue.
 // ---------------------------------------------------------------------------
-void system_tesla(TowerSystem& self, sim::SystemContext& ctx) {
+void system_swarm(TowerSystem& self, sim::SystemContext& ctx) {
     auto view = ctx.registry.view<comp::Tower, comp::Transform>();
     for (auto e : view) {
         comp::Tower& tw = view.get<comp::Tower>(e);
         if (tw.type != TowerType::CytotoxicT) continue;
         comp::Transform& tf = view.get<comp::Transform>(e);
         const TowerStats& st = self.stats(tw.type, tw.tier);
-        const f32 hop_radius = kTeslaHopRadius[tier_slot(tw.tier)];
+        const u32 slot = tier_slot(tw.tier);
 
         Vec2 aim_point{};
-        if (acquire_aim_point(self, ctx, tf.position, st, false, aim_point)) {
+        const bool have_aim = acquire_aim_point(self, ctx, tf.position, st, false, aim_point);
+        if (have_aim) {
             const Vec2 d = math::normalize_safe(aim_point - tf.position);
             if (d.x != 0.0f || d.y != 0.0f) tf.rotation = std::atan2(d.y, d.x);
         }
         if (tw.cooldown > 0.0f) continue;
+        if (!have_aim) continue;
 
-        // Walk the chain once, read-only, to learn where the links go. This is
-        // ONLY for the events; the damage is applied by the aggregate Chain
-        // field below, which re-walks the same "nearest unvisited" rule.
-        u32 visited[kTeslaMaxHops];
-        u32 hops = 0;
-        Vec2 cursor = tf.position;
-        Vec2 hit{};
-        f32 weight = 1.0f;
-        u32 idx = nearest_chaff(ctx.world, cursor, st.range, st.family_mask, visited, 0, hit);
-        Vec2 first_hit = hit;
-        const sim::ChaffBuffers& chaff = ctx.world.chaff();
+        const Vec2 aim = math::normalize_safe(aim_point - tf.position);
+        const Vec2 facing = (aim.x == 0.0f && aim.y == 0.0f) ? Vec2{1.0f, 0.0f} : aim;
 
-        while (idx != kNoIndex && hops < kTeslaMaxHops) {
-            sim::CombatEvent arc = tower_event(sim::CombatEventType::ChainArc, tw.type, tw.tier, cursor);
-            arc.secondary = hit;
-            arc.direction = math::normalize_safe(hit - cursor);
-            arc.target_family = static_cast<PathogenFamily>(chaff.family[idx]);
-            arc.magnitude = weight;
-            ctx.world.combat_events().push(arc);
+        // Granules leave the tip of the electrode, not the middle of the cell.
+        // entity.frag's sdf_cytotoxic puts that tip at local +x 0.50 on a quad
+        // drawn at footprint_radius * 2, so the tip is footprint_radius out.
+        const Vec2 muzzle = tf.position + facing * st.footprint_radius;
 
-            visited[hops++] = idx;
-            cursor = hit;
-            weight *= kTeslaHopFalloff;
-            idx = nearest_chaff(ctx.world, cursor, hop_radius, st.family_mask, visited, hops, hit);
+        const u32 release = kCtlReleasePerShot[slot];
+        sim::SwarmerBuffers& swarm = ctx.world.swarmers();
+
+        for (u32 k = 0; k < release; ++k) {
+            // Granule identity. Everything stochastic about this release is
+            // derived from this one word rather than drawn from the shared sim
+            // Rng: a per-granule draw would make every downstream system's
+            // numbers depend on the tier of every T-cell on the board.
+            u32 gseed = (static_cast<u32>(ctx.tick * 2654435761ull) ^ (k * 0x9E3779B9u) ^
+                         static_cast<u32>(ctx.world.ecs().to_id(e).value * 0x85EBCA6Bull)) | 1u;
+            const auto draw = [&gseed]() {
+                gseed = gseed * 1664525u + 1013904223u;
+                return static_cast<f32>((gseed >> 8) & 0xFFFFu) / 65535.0f;   // [0,1]
+            };
+
+            // SCATTER the cone, do not fan it evenly. An even fan launched from
+            // one point arrives as a crescent of dots — a tidy arc is the one
+            // shape a swarm must never make, and it survives speed jitter
+            // because every granule still sits on the same expanding circle.
+            const f32 offset = (draw() * 2.0f - 1.0f) * kCtlLaunchSpread;
+            const f32 ca = std::cos(offset);
+            const f32 sa = std::sin(offset);
+            const Vec2 dir{facing.x * ca - facing.y * sa, facing.x * sa + facing.y * ca};
+
+            // Spread the origin across the electrode's mouth too, so a volley
+            // does not visibly emanate from a single pixel.
+            const Vec2 across{-facing.y, facing.x};
+            const Vec2 origin = muzzle + across * ((draw() - 0.5f) * 0.7f)
+                                       + facing * ((draw() - 0.5f) * 0.5f);
+
+            // Speed spread on top, so granules launched on the same bearing
+            // still separate along it.
+            const f32 jitter = 0.60f + 0.80f * draw();
+
+            sim::SwarmerSpawnParams p;
+            p.position = origin;
+            p.velocity = dir * (kCtlSwarmerSpeed[slot] * jitter);
+            p.damage_per_second = kCtlSwarmerDps[slot];
+            p.lifetime = kCtlSwarmerLifetime[slot];
+            p.attach_radius = kCtlAttachRadius;
+            p.search_radius = kCtlSearchRadius[slot];
+            p.speed = kCtlSwarmerSpeed[slot];
+            p.family_mask = st.family_mask;
+            p.owner = ctx.world.ecs().to_id(e);
+            p.visual_id = tw.tier;
+            p.seed = gseed;
+            swarm.spawn(p);
         }
 
-        if (hops > 0) {
-            // Anchored on the first victim, not on the tower: DamageSystem's
-            // chain walk starts at field.origin and jumps within field.radius,
-            // so anchoring here reproduces the same link sequence the events
-            // just described while keeping the jump distance a per-tier knob
-            // independent of the tower's own acquisition range.
-            sim::DamageField chain;
-            chain.shape = sim::FieldShape::Chain;
-            chain.origin = first_hit;
-            chain.radius = hop_radius;
-            chain.kill_rate = st.kill_rate;
-            chain.family_mask = st.family_mask;
-            chain.marked_multiplier = 1.5f;
-            chain.lifetime = kTeslaArcSeconds;
-            chain.owner = ctx.world.ecs().to_id(e);
-            ctx.world.damage().submit(chain);
-
-            sim::CombatEvent charge =
-                tower_event(sim::CombatEventType::MuzzleFlash, tw.type, tw.tier, tf.position);
-            charge.direction = math::normalize_safe(first_hit - tf.position);
-            ctx.world.combat_events().push(charge);
-        }
+        // One release event for the VFX layer: the secretion at the electrode.
+        // The granules themselves are simulated and drawn from sim state, so
+        // there is deliberately no per-granule cosmetic event.
+        sim::CombatEvent fired =
+            tower_event(sim::CombatEventType::MuzzleFlash, tw.type, tw.tier, muzzle);
+        fired.direction = facing;
+        fired.magnitude = static_cast<f32>(release);
+        ctx.world.combat_events().push(fired);
 
         strike_named(self, ctx, tw, tf.position, st, false);
-        if (hops > 0 || st.damage > 0.0f) tw.cooldown = st.fire_interval;
+        tw.cooldown = st.fire_interval;
     }
 }
 
@@ -1503,8 +1574,8 @@ void TowerSystem::register_systems(sim::SimWorld& world) {
                    [this](sim::SystemContext& ctx) { system_mortar(*this, ctx); });
     ecs.add_system(sim::SystemPhase::Combat, "tower_cryo", 2,
                    [this](sim::SystemContext& ctx) { system_cryo(*this, ctx); });
-    ecs.add_system(sim::SystemPhase::Combat, "tower_tesla", 3,
-                   [this](sim::SystemContext& ctx) { system_tesla(*this, ctx); });
+    ecs.add_system(sim::SystemPhase::Combat, "tower_swarm", 3,
+                   [this](sim::SystemContext& ctx) { system_swarm(*this, ctx); });
     ecs.add_system(sim::SystemPhase::Combat, "tower_laser", 4,
                    [this](sim::SystemContext& ctx) { system_laser(*this, ctx); });
     ecs.add_system(sim::SystemPhase::Combat, "tower_blade", 5,

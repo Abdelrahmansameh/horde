@@ -20,6 +20,7 @@
 #include "game/abilities/ActiveAbilities.h"
 #include "game/economy/Economy.h"
 #include "game/enemies/EnemyRoster.h"
+#include "game/gym/GymCommands.h"
 #include "game/level/Level.h"
 #include "game/meta/MetaProgression.h"
 #include "game/towers/TowerSystem.h"
@@ -29,6 +30,7 @@
 #include "render/Camera.h"
 #include "render/Renderer.h"
 #include "sim/SimWorld.h"
+#include "ui/GymPanel.h"
 #include "ui/Hud.h"
 #include "ui/Menu.h"
 #include "vfx/Particles.h"
@@ -62,6 +64,12 @@ private:
     /// Draws whichever front-end screen the current state calls for and
     /// applies the resulting MenuAction. Runs inside Hud's ImGui frame.
     void build_menus();
+    /// Binds the live subsystems (and the app-level hooks the command layer
+    /// cannot reach on its own: level loading, HUD overlays, the cursor) into
+    /// one context for the gym panel. Rebuilt every frame rather than cached
+    /// because `sim_` is re-inited on every level load, which would leave a
+    /// cached context pointing at a world that no longer exists.
+    game::GymContext make_gym_context();
 
     Options options_{};
     GameStateMachine state_;
@@ -76,6 +84,9 @@ private:
     audio::AudioEngine audio_;
     ui::Hud hud_;
     ui::Menu menu_;
+    /// The gym level's control window (game/gym). Opens itself on that level
+    /// and is toggleable with ` or F2 anywhere; costs nothing while hidden.
+    ui::GymPanel gym_panel_;
     std::vector<ui::LevelEntry> levels_;
     std::string current_level_path_;  ///< Path to the currently loaded level, for restart.
     /// True once a level has actually been loaded into sim_. Guards the render
@@ -91,6 +102,13 @@ private:
     game::Economy economy_;
     game::MetaProgression meta_;
     game::ActiveAbilitySystem abilities_;
+    /// Remainder of any gym `spawn` too large for a single burst. Ticked with
+    /// the sim so it streams in like a wave; empty and free in a normal run.
+    game::GymSpawnQueue gym_spawns_;
+    /// Per-tick gym settings, chiefly the gym level's default "the objective
+    /// cannot be destroyed while you are experimenting". Applied after each
+    /// tick and before the win/loss check.
+    game::GymToggles gym_toggles_;
 
     /// Cosmetic only, and deliberately outside sim_: own RNG, render clock.
     vfx::ParticleSystem particles_;

@@ -147,6 +147,29 @@ Vec4 family_tint(PathogenFamily f) {
 constexpr f32 kFamilyTintWeight = 0.18f;
 
 // ---------------------------------------------------------------------------
+// The travelling-granule CHAIN look.
+//
+// NO TOWER RAISES ChainArc ANY MORE. The Cytotoxic T used to, back when it was
+// a chain weapon; it now releases real simulated granules instead
+// (sim/swarm/Swarmers.h), which steer and choose their own targets and are
+// therefore drawn from sim state by the renderer, not from events here.
+//
+// The case below is kept because ChainArc is still a live CombatEventType —
+// the gym's `vfx chain` raises it, test_particles.cpp requires every type to
+// render something, and any future chain weapon gets a finished look for free.
+// If a chain tower ever comes back, this is what it should look like: a payload
+// physically flying target to target with a pore-and-spill at each landing,
+// never an instantaneous electrical arc.
+constexpr f32 kCtlHopSeconds = 0.045f;
+
+// The per-hop energy falloff a chain source is expected to bake into
+// CombatEvent::magnitude, which is the only per-hop ordering information that
+// reaches this layer — inverting it is how a hop learns its own index, and the
+// index is what staggers the flight. A source that does not follow this
+// convention merely loses the stagger and draws its hops together.
+constexpr f32 kCtlHopFalloff = 0.72f;
+
+// ---------------------------------------------------------------------------
 // The integrator. Deliberately branch-free and pointer-based: MSVC will
 // auto-vectorize this (all streams are distinct f32 arrays, hence __restrict)
 // and it is the only thing that runs over all 250k particles every frame.
@@ -508,50 +531,78 @@ void ParticleSystem::emit_for_event(const sim::CombatEvent& event) {
 
         case TowerType::Interferon: {
             // CRYO. The cone itself is ConePulse; this is just the emitter
-            // lighting up, so it stays small and cold.
+            // lighting up, so it stays small and cold. Used to also throw a
+            // Ring here, but the Interferon pulses on every cooldown tick, so
+            // that read as a small blue circle popping at the tower non-stop
+            // rather than as a discrete muzzle flash.
             p.kind = ParticleKind::Spark;
             p.color = pal.accent;
             p.size = 0.26f;
             p.lifetime = 0.10f;
             p.drag = 4.0f;
             push(p);
-
-            ParticleSpawnParams r;
-            r.kind = ParticleKind::Ring;
-            r.blend = BlendMode::Additive;
-            r.position = event.origin;
-            r.color = Vec4{pal.primary.r, pal.primary.g, pal.primary.b, 0.55f};
-            r.size = 0.8f + 0.15f * tierf;
-            r.lifetime = 0.16f;
-            push(r);
             break;
         }
 
         case TowerType::CytotoxicT: {
-            // TESLA. Charge stubs at the receptor arms: (1 + tier) short bolts
-            // radiating from the cell body. This is the "more receptor arms"
-            // tier escalation, and it reads as *electrical* before the chain
-            // even leaves.
+            // CYTOTOXIC T. The volley of lytic granules leaving the synapse.
+            // The granules THEMSELVES are not here — they are simulated
+            // entities (sim/swarm/Swarmers.h) drawn from sim state, because
+            // they steer, choose targets, and do damage. What this case draws
+            // is only the release: the flare at the electrode and the spray of
+            // plasma that goes with it.
+            //
+            // `event.origin` is ALREADY the electrode tip — system_swarm raises
+            // this event at the muzzle it launched from, not at the tower's
+            // centre — so nothing here may add an offset of its own. It used to,
+            // back when the tower fired from its middle, and adding both put the
+            // flash a full cell in front of the spike it is supposed to sit on.
+            //
+            // `magnitude` carries the granule count, so a tier-3 release reads
+            // as a bigger event than a tier-1 one without this layer having to
+            // re-derive the tower's tables.
+            const Vec2 tip = event.origin;
+            const f32 released = math::clamp(event.magnitude, 1.0f, 40.0f);
+
+            // The synapse lighting up.
             p.kind = ParticleKind::Spark;
-            p.color = pal.accent;
-            p.size = 0.30f;
-            p.lifetime = 0.08f;
-            p.drag = 5.0f;
+            p.position = tip;
+            p.color = mix4(pal.accent, Vec4{1.0f, 1.0f, 1.0f, 1.0f}, 0.3f);
+            p.size = 0.30f + 0.012f * released;
+            p.lifetime = 0.10f;
+            p.drag = 6.0f;
             push(p);
 
-            const u32 arms = 1u + tier;
-            for (u32 a = 0; a < arms; ++a) {
-                const f32 ang = math::kTwoPi * static_cast<f32>(a) / static_cast<f32>(arms)
-                              + pcg_range(rs, -0.35f, 0.35f);
-                ParticleSpawnParams b;
-                b.kind = ParticleKind::Bolt;
-                b.blend = BlendMode::Additive;
-                b.position = event.origin;
-                b.velocity = Vec2{std::cos(ang), std::sin(ang)};  // UNIT: segment direction
-                b.size = pcg_range(rs, 0.6f, 1.2f);               // segment LENGTH
-                b.color = mix4(pal.primary, pal.accent, 0.4f);
-                b.lifetime = pcg_range(rs, 0.05f, 0.09f);
-                push(b, pcg_range(rs, 0.0f, 0.03f));
+            // Exocytosis spray, scaled by how much was actually released.
+            const u32 droplets = 3u + static_cast<u32>(released * 0.5f);
+            for (u32 k = 0; k < droplets; ++k) {
+                const Vec2 out = rotate_by(dir, pcg_range(rs, -0.55f, 0.55f));
+                ParticleSpawnParams t2;
+                t2.kind = ParticleKind::Tracer;
+                t2.blend = BlendMode::Additive;
+                t2.position = tip + perp(dir) * pcg_range(rs, -0.14f, 0.14f);
+                t2.velocity = out * pcg_range(rs, 5.0f, 12.0f);
+                t2.color = mix4(pal.primary, pal.accent, pcg_f32(rs));
+                t2.size = pcg_range(rs, 0.06f, 0.12f);
+                t2.lifetime = pcg_range(rs, 0.06f, 0.13f);
+                t2.drag = 7.0f;
+                push(t2, pcg_range(rs, 0.0f, 0.03f));
+            }
+
+            // Secreted plasma at the mouth of the electrode. AlphaBlend so it
+            // occludes: this is fluid being pushed out, not light.
+            for (u32 k = 0; k < 3u; ++k) {
+                ParticleSpawnParams m;
+                m.kind = ParticleKind::Mist;
+                m.blend = BlendMode::AlphaBlend;
+                m.position = tip + perp(dir) * pcg_range(rs, -0.16f, 0.16f);
+                m.velocity = dir * pcg_range(rs, 1.0f, 2.6f);
+                m.color = Vec4{pal.primary.r, pal.primary.g, pal.primary.b, 0.30f};
+                m.size = pcg_range(rs, 0.16f, 0.30f);
+                m.lifetime = pcg_range(rs, 0.12f, 0.22f);
+                m.drag = 5.0f;
+                m.spin = pcg_signed(rs) * 2.0f;
+                push(m);
             }
             break;
         }
@@ -659,12 +710,21 @@ void ParticleSystem::emit_for_event(const sim::CombatEvent& event) {
             // lifetime — the sim raises all of a sweep's impacts in one tick,
             // and identical timings turn them into one continuous sweep rather
             // than a string of individual explosions.
+            //
+            // ALPHA IS DELIBERATELY LOW HERE, and this is the one impact case
+            // where that matters. A pierce raises one of these per pathogen on
+            // the line, so the count scales with how dense the horde is —
+            // exactly the situation the player most wants to see through. At
+            // full brightness a hundred simultaneous flashes stack additively
+            // into a white hole with the horde invisible inside it. Kept dim,
+            // the same hundred stack into a bright band along the beam, which
+            // is what a pierce through a crowd should look like.
             ParticleSpawnParams s;
             s.kind = ParticleKind::Spark;
             s.blend = BlendMode::Additive;
             s.position = event.origin;
-            s.color = pal.accent;
-            s.size = pop * 1.15f;
+            s.color = Vec4{pal.accent.r, pal.accent.g, pal.accent.b, 0.42f};
+            s.size = pop * 1.05f;
             s.lifetime = 0.12f;
             s.drag = 7.0f;
             push(s);
@@ -673,8 +733,8 @@ void ParticleSystem::emit_for_event(const sim::CombatEvent& event) {
             r.kind = ParticleKind::Ring;
             r.blend = BlendMode::Additive;
             r.position = event.origin;
-            r.color = Vec4{pal.primary.r, pal.primary.g, pal.primary.b, 0.8f};
-            r.size = pop * 2.2f;
+            r.color = Vec4{pal.primary.r, pal.primary.g, pal.primary.b, 0.45f};
+            r.size = pop * 2.0f;
             r.lifetime = 0.12f;
             push(r);
             break;
@@ -917,83 +977,174 @@ void ParticleSystem::emit_for_event(const sim::CombatEvent& event) {
     }
 
     // -----------------------------------------------------------------------
-    // ChainArc — one TESLA hop. INSTANTANEOUS, JAGGED, BRANCHING. Short
-    // lifetimes (< 0.09s) are what sell "instantaneous"; the branches are what
-    // stop it reading like the Laser's clean straight line. `magnitude` carries
-    // the sim's per-hop falloff, so each jump in a chain is slightly smaller
-    // without this layer having to track hop indices.
+    // ChainArc — one CYTOTOXIC T hop. A LYTIC GRANULE IN FLIGHT, not an
+    // electrical arc. See the kCtl* constants above for why the archetype's
+    // "chain" is drawn as serial killing rather than as lightning.
+    //
+    // Three beats per hop, and the ordering between them is the whole effect:
+    //
+    //   1. the granule flies origin -> secondary in kCtlHopSeconds,
+    //   2. a secretory thread of plasma smears along the path behind it,
+    //   3. it lands: a perforin pore opens and granzymes spill into the target.
+    //
+    // Hop k is staggered by k * kCtlHopSeconds so the payload visibly walks the
+    // chain instead of every link igniting at once. The sim raises every hop's
+    // event in ONE tick, so the stagger has to be reconstructed here — `mag`
+    // carries the sim's per-hop falloff, so inverting the falloff recovers k.
+    //
+    // DELAYED PARTICLES THAT MOVE: build_instances() hides a particle while its
+    // age is negative, but the integrator still runs on it, so a staged mover
+    // has already drifted `velocity * delay` by the time it becomes visible.
+    // Every moving spawn below is therefore born at `start - velocity * delay`
+    // and must keep drag and buoyancy at zero, which makes that pre-birth drift
+    // exactly linear and the compensation exact.
     // -----------------------------------------------------------------------
     case sim::CombatEventType::ChainArc: {
         const f32 weight = math::clamp(mag, 0.3f, 1.6f);
 
-        // Main link, doubled at higher tiers with a different seed so the two
-        // jag patterns cross and the arc looks genuinely forked.
-        const u32 strands = 1u + tier / 2u;
-        for (u32 k = 0; k < strands; ++k) {
-            ParticleSpawnParams b;
-            b.kind = ParticleKind::Bolt;
-            b.blend = BlendMode::Additive;
-            b.position = event.origin;
-            b.velocity = seg_dir;
-            b.size = seg_len;
-            b.color = k == 0 ? pal.accent : mix4(pal.primary, pal.accent, 0.3f);
-            b.lifetime = pcg_range(rs, 0.05f, 0.08f);
-            b.rotation = std::atan2(seg_dir.y, seg_dir.x);
-            push(b);
-        }
+        // Recover this hop's index from the falloff the sim baked into
+        // magnitude: weight == kCtlHopFalloff^k, so k == log(weight)/log(f).
+        // Uses the RAW magnitude, not the clamped `mag`, because the clamp
+        // floor collapses the last two hops onto the same value.
+        const f32 raw = event.magnitude > 0.01f ? event.magnitude : 1.0f;
+        const f32 hopf = std::log(math::clamp(raw, 0.05f, 1.0f)) / std::log(kCtlHopFalloff);
+        const u32 hop = static_cast<u32>(math::clamp(hopf + 0.5f, 0.0f, 7.0f));
+        const f32 t_fly = kCtlHopSeconds * static_cast<f32>(hop);   // flight begins
+        const f32 t_hit = t_fly + kCtlHopSeconds;                   // payload lands
 
-        // Branches: short bolts peeling off the main link at a sharp angle.
-        // Tier is the branch count — "more crystal branches" for the T-cell.
-        const u32 branches = tier;
-        for (u32 k = 0; k < branches; ++k) {
-            const f32 along = pcg_range(rs, 0.15f, 0.85f) * seg_len;
-            const f32 off = (pcg_f32(rs) < 0.5f ? -1.0f : 1.0f) * pcg_range(rs, 0.45f, 0.95f);
-            ParticleSpawnParams b;
-            b.kind = ParticleKind::Bolt;
-            b.blend = BlendMode::Additive;
-            b.position = event.origin + seg_dir * along;
-            b.velocity = rotate_by(seg_dir, off);
-            b.size = seg_len * pcg_range(rs, 0.20f, 0.45f);
-            b.color = Vec4{pal.primary.r, pal.primary.g, pal.primary.b, 0.75f};
-            b.lifetime = pcg_range(rs, 0.04f, 0.07f);
-            push(b);
-        }
+        // Every hop launches from wherever the raiser said it did: hop 0 from
+        // the source's muzzle, later hops from the previous victim. This layer
+        // deliberately applies no muzzle offset of its own — only the raiser
+        // knows where its payload actually leaves from, and guessing here is
+        // what put the old Cytotoxic T's flash a cell in front of its spike.
+        const Vec2 from = event.origin;
+        const Vec2 to = event.secondary;
+        Vec2 path = to - from;
+        f32 path_len = math::length(path);
+        const Vec2 path_dir = path_len > math::kEpsilon ? path / path_len : seg_dir;
+        if (path_len < 0.25f) path_len = 0.25f;
 
-        // Every hit: bright white flash, tiny circular shockwave, and the
-        // target briefly reading as white.
+        // Constant flight TIME, not constant speed: every hop takes
+        // kCtlHopSeconds whatever its length, so the chain's rhythm stays even
+        // and predictable no matter how the targets happen to be spaced.
+        const Vec2 fly = path_dir * (path_len / kCtlHopSeconds);
+
+        // --- beat 1: the granule itself. A round wet bead, plus a couple of
+        // smaller ones tumbling just behind it, because one dot travelling
+        // alone reads as a bullet and a tight clutch reads as ejected matter.
         {
-            const Vec2 hit = event.origin + seg_dir * seg_len;
-            ParticleSpawnParams s;
-            s.kind = ParticleKind::Spark;
-            s.blend = BlendMode::Additive;
-            s.position = hit;
-            s.color = Vec4{1.0f, 1.0f, 1.0f, 1.0f};
-            s.size = 0.45f * weight;
-            s.lifetime = 0.07f;
-            s.drag = 8.0f;
-            push(s);
+            ParticleSpawnParams g;
+            g.kind = ParticleKind::Spark;
+            g.blend = BlendMode::Additive;
+            g.position = from - fly * t_fly;
+            g.velocity = fly;
+            g.color = mix4(pal.accent, Vec4{1.0f, 1.0f, 1.0f, 1.0f}, 0.35f);
+            g.size = 0.30f * weight;
+            g.lifetime = kCtlHopSeconds;
+            push(g, t_fly);
 
+            const u32 escorts = 1u + tier / 2u;
+            for (u32 k = 0; k < escorts; ++k) {
+                const Vec2 off = perp(path_dir) * pcg_range(rs, -0.13f, 0.13f)
+                               - path_dir * pcg_range(rs, 0.10f, 0.30f);
+                ParticleSpawnParams e2;
+                e2.kind = ParticleKind::Tracer;
+                e2.blend = BlendMode::Additive;
+                e2.position = from + off - fly * t_fly;
+                e2.velocity = fly;
+                e2.color = mix4(pal.primary, pal.accent, pcg_f32(rs));
+                e2.size = pcg_range(rs, 0.09f, 0.15f);
+                e2.lifetime = kCtlHopSeconds;
+                push(e2, t_fly);
+            }
+        }
+
+        // --- beat 2: the secretory thread. Slow, alpha-blended puffs dropped
+        // along the path as the granule passes each point, so they occlude and
+        // read as fluid rather than glowing like an arc. This is the single
+        // biggest reason the hop no longer looks electrical: the trail is WET
+        // and it lingers past the flight, where a bolt is dry and instant.
+        {
+            const u32 beads = 3u + tier;
+            for (u32 k = 0; k < beads; ++k) {
+                const f32 frac = (static_cast<f32>(k) + 0.5f) / static_cast<f32>(beads);
+                ParticleSpawnParams m;
+                m.kind = ParticleKind::Mist;
+                m.blend = BlendMode::AlphaBlend;
+                m.position = from + path_dir * (path_len * frac)
+                           + perp(path_dir) * pcg_range(rs, -0.14f, 0.14f);
+                m.velocity = perp(path_dir) * pcg_signed(rs) * 0.5f;
+                m.color = Vec4{pal.primary.r, pal.primary.g, pal.primary.b, 0.34f};
+                m.size = pcg_range(rs, 0.13f, 0.24f) * weight;
+                m.lifetime = pcg_range(rs, 0.11f, 0.19f);
+                m.drag = 4.0f;
+                m.spin = pcg_signed(rs) * 2.5f;
+                // Appears as the granule reaches it, never before.
+                push(m, t_fly + kCtlHopSeconds * frac);
+            }
+        }
+
+        // --- beat 3: arrival. Perforin punches the membrane and granzymes go
+        // in. A pore RING that opens, a soft warm core (deliberately not the
+        // old 1,1,1 electrical white), matter spilling outward, and — at
+        // higher tiers — apoptotic blebs, which is what granzyme entry
+        // actually does to a cell.
+        {
             ParticleSpawnParams r;
             r.kind = ParticleKind::Ring;
             r.blend = BlendMode::Additive;
-            r.position = hit;
-            r.color = Vec4{1.0f, 1.0f, 1.0f, 0.85f};
-            r.size = 1.1f * weight;
-            r.lifetime = 0.13f;
-            push(r);
+            r.position = to;
+            r.color = mix4(pal.accent, fam, kFamilyTintWeight);
+            r.size = 0.85f * weight;
+            r.lifetime = 0.16f;
+            push(r, t_hit);
 
-            for (u32 k = 0; k < 2u + tier; ++k) {
+            ParticleSpawnParams s;
+            s.kind = ParticleKind::Spark;
+            s.blend = BlendMode::Additive;
+            s.position = to;
+            s.color = mix4(pal.accent, Vec4{1.0f, 1.0f, 1.0f, 1.0f}, 0.45f);
+            s.size = 0.40f * weight;
+            s.lifetime = 0.09f;
+            s.drag = 7.0f;
+            push(s, t_hit);
+
+            // Granzyme spill: matter, so AlphaBlend and a slow settle.
+            const u32 spill = 3u + tier;
+            for (u32 k = 0; k < spill; ++k) {
                 const f32 a = pcg_range(rs, 0.0f, math::kTwoPi);
-                ParticleSpawnParams t2;
-                t2.kind = ParticleKind::Tracer;
-                t2.blend = BlendMode::Additive;
-                t2.position = hit;
-                t2.velocity = Vec2{std::cos(a), std::sin(a)} * pcg_range(rs, 4.0f, 11.0f);
-                t2.color = mix4(pal.primary, fam, kFamilyTintWeight);
-                t2.size = 0.07f;
-                t2.lifetime = pcg_range(rs, 0.06f, 0.12f);
-                t2.drag = 6.0f;
-                push(t2);
+                const Vec2 radial{std::cos(a), std::sin(a)};
+                ParticleSpawnParams m;
+                m.kind = ParticleKind::Mist;
+                m.blend = BlendMode::AlphaBlend;
+                m.position = to + radial * 0.10f;
+                m.velocity = radial * pcg_range(rs, 1.2f, 3.4f);
+                m.color = mix4(pal.primary, fam, 0.45f);
+                m.size = pcg_range(rs, 0.11f, 0.20f) * weight;
+                m.lifetime = pcg_range(rs, 0.14f, 0.24f);
+                m.drag = 5.0f;
+                m.spin = pcg_signed(rs) * 3.0f;
+                push(m, t_hit);
+            }
+
+            // Membrane blebbing. Tier-gated because a tier-1 tap should look
+            // like a wound and a tier-3 one like the cell coming apart.
+            const u32 blebs = tier;
+            for (u32 k = 0; k < blebs; ++k) {
+                const f32 a = pcg_range(rs, 0.0f, math::kTwoPi);
+                const Vec2 radial{std::cos(a), std::sin(a)};
+                ParticleSpawnParams sh;
+                sh.kind = ParticleKind::Shard;
+                sh.blend = BlendMode::AlphaBlend;
+                sh.position = to + radial * 0.14f;
+                sh.velocity = radial * pcg_range(rs, 2.0f, 5.0f);
+                sh.color = mix4(pal.primary, fam, kFamilyTintWeight);
+                sh.size = pcg_range(rs, 0.07f, 0.14f);
+                sh.lifetime = pcg_range(rs, 0.12f, 0.20f);
+                sh.drag = 4.5f;
+                sh.rotation = a;
+                sh.spin = pcg_signed(rs) * 8.0f;
+                push(sh, t_hit);
             }
         }
         break;
@@ -1044,17 +1195,6 @@ void ParticleSystem::emit_for_event(const sim::CombatEvent& event) {
             push(m);
         }
 
-        // Emitter ripple, so the pulse has an origin the eye can find.
-        {
-            ParticleSpawnParams r;
-            r.kind = ParticleKind::Ring;
-            r.blend = BlendMode::Additive;
-            r.position = event.origin;
-            r.color = Vec4{pal.primary.r, pal.primary.g, pal.primary.b, 0.5f};
-            r.size = reach * 0.35f;
-            r.lifetime = 0.20f;
-            push(r);
-        }
         break;
     }
 

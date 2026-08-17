@@ -145,6 +145,68 @@ PlacementZoneTag parse_placement_zone_tag(const json& j) {
     return tag;
 }
 
+/// Level JSON speaks the same family names as the enemy roster and the
+/// sim-test scripts ("virus", "bacteria", "fungal_spore", ...). Unlike the
+/// vessel_type case, an unrecognized family is an error rather than a silent
+/// default: a typo'd family name changes which horde a wave sends, and that is
+/// exactly the kind of mistake a level author needs told about.
+PathogenFamily parse_family(const std::string& s, const std::string& ctx) {
+    static const char* kNames[kFamilyCount] = {
+        "virus", "bacteria", "fungal_spore", "parasite", "cancer_cell", "allergen"};
+    for (u32 f = 0; f < kFamilyCount; ++f) {
+        if (s == kNames[f]) return static_cast<PathogenFamily>(f);
+    }
+    throw std::runtime_error(ctx + ": unknown family '" + s + "'");
+}
+
+WaveModifier parse_wave_modifier(const std::string& s, const std::string& ctx) {
+    if (s.empty() || s == "none") return WaveModifier::None;
+    if (s == "allergen" || s == "allergen_overreaction") return WaveModifier::AllergenOverreaction;
+    if (s == "fever") return WaveModifier::Fever;
+    if (s == "swarm") return WaveModifier::Swarm;
+    throw std::runtime_error(ctx + ": unknown modifier '" + s + "'");
+}
+
+SpawnEntry parse_spawn_entry(const json& j, const std::string& ctx) {
+    if (!j.is_object()) throw std::runtime_error(ctx + " must be an object");
+    SpawnEntry e;
+    e.family = parse_family(j.value("family", std::string("virus")), ctx);
+    e.elite_id = j.value("elite_id", u16{0});
+    e.count = j.value("count", u32{0});
+    e.start_time = j.value("start_time", 0.0f);
+    e.duration = j.value("duration", 1.0f);
+    e.portal_id = j.value("portal_id", std::string{});
+    // A zero-length window would make the whole count due on the first tick of
+    // the entry, which is a spawn spike, not a wave. Treated as an authoring
+    // error rather than clamped, since the intent ("all at once") is better
+    // expressed as a short duration the author picked.
+    if (e.duration <= 0.0f) throw std::runtime_error(ctx + ": 'duration' must be > 0");
+    if (e.start_time < 0.0f) throw std::runtime_error(ctx + ": 'start_time' must be >= 0");
+    return e;
+}
+
+WaveDef parse_wave(const json& j, usize index) {
+    const std::string ctx = "waves[" + std::to_string(index) + "]";
+    if (!j.is_object()) throw std::runtime_error(ctx + " must be an object");
+    WaveDef w;
+    // Not authorable: array position IS the index the director walks.
+    w.index = static_cast<u32>(index);
+    w.name = j.value("name", std::string{});
+    w.prep_time = j.value("prep_time", 20.0f);
+    w.atp_reward = j.value("atp_reward", u32{0});
+    w.modifier = parse_wave_modifier(j.value("modifier", std::string{}), ctx);
+    if (!j.contains("spawns")) throw std::runtime_error(ctx + ": missing 'spawns'");
+    const json& arr = j.at("spawns");
+    if (!arr.is_array() || arr.empty()) {
+        throw std::runtime_error(ctx + ": 'spawns' must be a non-empty array");
+    }
+    w.spawns.reserve(arr.size());
+    for (usize i = 0; i < arr.size(); ++i) {
+        w.spawns.push_back(parse_spawn_entry(arr[i], ctx + ".spawns[" + std::to_string(i) + "]"));
+    }
+    return w;
+}
+
 } // namespace
 
 LevelLoadResult LevelLoader::load_string(const std::string& text, LevelDef& out) const {
@@ -217,6 +279,12 @@ LevelLoadResult LevelLoader::load_string(const std::string& text, LevelDef& out)
         if (j.contains("ambient_drift")) {
             def.ambient_drift = parse_vec2(j.at("ambient_drift"), "ambient_drift");
         }
+        if (j.contains("waves")) {
+            const json& arr = j.at("waves");
+            if (!arr.is_array()) throw std::runtime_error("'waves' must be an array");
+            def.waves.reserve(arr.size());
+            for (usize i = 0; i < arr.size(); ++i) def.waves.push_back(parse_wave(arr[i], i));
+        }
     } catch (const std::exception& e) {
         return LevelLoadResult{false, std::string("level JSON malformed: ") + e.what(), 0};
     }
@@ -238,6 +306,24 @@ LevelLoadResult LevelLoader::validate(const LevelDef& def) const {
     if (def.vessels.empty()) return LevelLoadResult{false, "level has no vessels", 0};
     if (def.portals.empty()) return LevelLoadResult{false, "level has no spawn portals", 0};
     if (def.objectives.empty()) return LevelLoadResult{false, "level has no objectives", 0};
+    // Authored waves only: a named portal that doesn't exist would make
+    // WaveDirector fall back to the first portal at runtime, so the wave would
+    // silently come out of the wrong lane instead of failing loudly here.
+    for (const WaveDef& w : def.waves) {
+        for (const SpawnEntry& e : w.spawns) {
+            if (e.portal_id.empty()) continue;
+            bool found = false;
+            for (const SpawnPortal& p : def.portals) {
+                if (p.id == e.portal_id) { found = true; break; }
+            }
+            if (!found) {
+                return LevelLoadResult{false,
+                                       "wave '" + w.name + "' spawns from unknown portal '" +
+                                           e.portal_id + "'",
+                                       0};
+            }
+        }
+    }
     return LevelLoadResult{true, "", 0};
 }
 

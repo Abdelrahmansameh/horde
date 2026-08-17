@@ -130,6 +130,9 @@ void step_combat(SimWorld& world) {
     world.projectile_system().update(world.projectiles(), world.chaff(), world.spatial(),
                                      world.desc().world_bounds, world.rng(), kFixedDt,
                                      &world.combat_events());
+    world.swarmer_system().update(world.swarmers(), world.chaff(), world.spatial(),
+                                  world.desc().world_bounds, world.rng(), kFixedDt,
+                                  &world.combat_events());
     world.damage().clear_transient(kFixedDt);
 }
 
@@ -809,11 +812,11 @@ TEST_CASE("CRYO hits and slows what is in front of its cone and nothing behind i
 }
 
 // ---------------------------------------------------------------------------
-// TESLA — Cytotoxic T. Chain geometry.
+// SWARM — Cytotoxic T. Granule release and serial killing.
 // ---------------------------------------------------------------------------
 
-TEST_CASE("TESLA chains from target to target, one ChainArc event per hop, each hop weaker",
-          "[towers][combat][tesla]") {
+TEST_CASE("SWARM releases granules from the tower and publishes no damage field",
+          "[towers][combat][swarm]") {
     SimWorld world = make_world();
     TowerSystem ts;
     ts.register_systems(world);
@@ -821,46 +824,124 @@ TEST_CASE("TESLA chains from target to target, one ChainArc event per hop, each 
     REQUIRE(tower.valid());
     ready_now(world, tower);
 
-    // A ladder of isolated agents 2.5 units apart: further than any single
-    // tower field would cover as one blob, but inside the 3.0-unit hop radius.
-    const Vec2 rungs[4] = {{14.0f, 10.0f}, {16.5f, 10.0f}, {19.0f, 10.0f}, {21.5f, 10.0f}};
-    for (const Vec2& p : rungs) spawn_one(world, p, /*density=*/40.0f);
-    std::vector<f32> before(world.chaff().count());
-    for (usize i = 0; i < world.chaff().count(); ++i) before[i] = world.chaff().density[i];
+    spawn_one(world, Vec2{16.0f, 10.0f}, /*density=*/40.0f);
+    REQUIRE(world.swarmers().count() == 0);
 
     step_combat(world);
 
-    const usize arcs = count_events(world, CombatEventType::ChainArc, TowerType::CytotoxicT);
-    INFO("chain arcs raised: " << arcs);
-    REQUIRE(arcs >= 3);
+    // A volley, not a shot.
+    INFO("swarmers released: " << world.swarmers().count());
+    REQUIRE(world.swarmers().count() >= 8);
 
-    // Per-hop falloff is carried in magnitude, which is exactly what the VFX
-    // layer reads to make each successive link smaller.
-    f32 prev_mag = 1.0e9f;
-    Vec2 prev_secondary{-999.0f, -999.0f};
-    for (const CombatEvent& e : world.combat_events().events()) {
-        if (e.type != CombatEventType::ChainArc || e.source != TowerType::CytotoxicT) continue;
-        REQUIRE(e.magnitude < prev_mag);
-        REQUIRE(e.secondary != prev_secondary);   // every link ends somewhere new
-        REQUIRE(math::length(e.secondary - e.origin) > 0.0f);
-        prev_mag = e.magnitude;
-        prev_secondary = e.secondary;
-    }
-
-    // The damage itself goes through the aggregate Chain field, and reaches
-    // more than one rung.
-    bool found_chain = false;
+    // This is the one anti-chaff tower that publishes NO field. If a Chain
+    // field ever comes back the circular AoE is back with it, which is the
+    // exact thing the redesign removed.
     for (const DamageField& f : world.damage().fields()) {
-        if (f.owner == tower && f.shape == FieldShape::Chain) found_chain = true;
+        INFO("tower published a field of shape " << static_cast<int>(f.shape));
+        REQUIRE(f.owner != tower);
     }
-    REQUIRE(found_chain);
 
-    for (int i = 0; i < 10; ++i) step_combat(world);
-    usize damaged = 0;
-    for (usize i = 0; i < world.chaff().count(); ++i)
-        if (world.chaff().density[i] < before[i]) ++damaged;
-    INFO("rungs damaged: " << damaged);
-    REQUIRE(damaged >= 3);
+    // The release is announced once per volley, from the electrode rather than
+    // from the cell's centre.
+    REQUIRE(count_events(world, CombatEventType::MuzzleFlash, TowerType::CytotoxicT) == 1);
+}
+
+TEST_CASE("SWARM granules fly to a pathogen, latch on, and drain it",
+          "[towers][combat][swarm]") {
+    SimWorld world = make_world();
+    TowerSystem ts;
+    ts.register_systems(world);
+    const EntityId tower = ts.place(world, TowerType::CytotoxicT, kRoomCenterLeft);
+    REQUIRE(tower.valid());
+    ready_now(world, tower);
+
+    spawn_one(world, Vec2{16.0f, 10.0f}, /*density=*/400.0f);
+    const f32 before = world.chaff().density[0];
+
+    // Nothing should have been touched on the release tick: the granules have
+    // to cross the gap first. That gap is the whole difference between this and
+    // the instantaneous field it replaced.
+    step_combat(world);
+    REQUIRE(world.chaff().count() == 1);
+    REQUIRE(world.chaff().density[0] == before);
+
+    bool ever_attached = false;
+    for (int i = 0; i < 60 && !ever_attached; ++i) {
+        step_combat(world);
+        for (usize k = 0; k < world.swarmers().count(); ++k) {
+            if ((world.swarmers().flags[k] & swarmer_flags::kAttached) != 0) ever_attached = true;
+        }
+    }
+    REQUIRE(ever_attached);
+    REQUIRE(world.chaff().density[0] < before);
+}
+
+TEST_CASE("SWARM granules move on to another pathogen once their host dies",
+          "[towers][combat][swarm]") {
+    // The serial-killing property, and the reason a granule holds a
+    // ChaffHandle rather than an index: it has to notice its host is gone and
+    // pick again, across a compaction that moves every survivor's slot.
+    SimWorld world = make_world();
+    TowerSystem ts;
+    ts.register_systems(world);
+    const EntityId tower = ts.place(world, TowerType::CytotoxicT, kRoomCenterLeft);
+    REQUIRE(tower.valid());
+    ready_now(world, tower);
+
+    // A frail one right in front, and behind it one that must SURVIVE the whole
+    // run so the assertion below can distinguish "the swarm moved on to it"
+    // from "the swarm killed it too". Its density is deliberately absurd rather
+    // than merely large: this test is about retargeting, not about balance, and
+    // it should not start failing every time the tower's damage is retuned.
+    spawn_one(world, Vec2{15.0f, 10.0f}, /*density=*/1.0f);
+    spawn_one(world, Vec2{18.0f, 10.0f}, /*density=*/1.0e6f);
+    const f32 tough_before = world.chaff().density[1];
+
+    bool frail_gone = false;
+    for (int i = 0; i < 400; ++i) {
+        step_combat(world);
+        world.chaff().compact();
+        // Note when the frail one dies but KEEP STEPPING: the whole point is
+        // what the swarm does afterwards, so breaking out here would assert on
+        // the tick before the behaviour under test has had a chance to happen.
+        if (!frail_gone && world.chaff().count() == 1) frail_gone = true;
+    }
+
+    REQUIRE(frail_gone);
+    REQUIRE(world.chaff().count() == 1);               // only the tough one is left
+    INFO("tough agent density " << world.chaff().density[0] << " (was " << tough_before << ")");
+    REQUIRE(world.chaff().density[0] < tough_before);  // and the swarm moved on to it
+}
+
+TEST_CASE("SWARM granules dissolve on their own lifetime, so the cloud stays bounded",
+          "[towers][combat][swarm]") {
+    // Spawn rate against lifetime is what sets the standing cloud size. If
+    // granules stopped expiring the population would grow without bound for
+    // as long as a tower had anything to shoot at.
+    SimWorld world = make_world();
+    TowerSystem ts;
+    ts.register_systems(world);
+    const EntityId tower = ts.place(world, TowerType::CytotoxicT, kRoomCenterLeft);
+    REQUIRE(tower.valid());
+    ready_now(world, tower);
+
+    // The tower holds fire with nothing in range, so it needs one target to
+    // release a volley at all.
+    spawn_one(world, Vec2{16.0f, 10.0f}, /*density=*/4.0f);
+    step_combat(world);
+    const usize released = world.swarmers().count();
+    INFO("granules released by one volley: " << released);
+    REQUIRE(released > 0);
+
+    // Clear the lane. Nothing is left to shoot at, so no further volley is
+    // released and the standing cloud has to drain to nothing on its own.
+    for (usize i = 0; i < world.chaff().count(); ++i) world.chaff().kill(i);
+    world.chaff().compact();
+    REQUIRE(world.chaff().count() == 0);
+
+    for (int i = 0; i < 600; ++i) step_combat(world);
+    INFO("granules still alive after 10s with no targets: " << world.swarmers().count());
+    REQUIRE(world.swarmers().count() == 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -1017,7 +1098,7 @@ TEST_CASE("every tower stamps its own TowerType and tier onto the events it rais
         {TowerType::Neutrophil, CombatEventType::MuzzleFlash},
         {TowerType::Macrophage, CombatEventType::Explosion},
         {TowerType::Interferon, CombatEventType::ConePulse},
-        {TowerType::CytotoxicT, CombatEventType::ChainArc},
+        {TowerType::CytotoxicT, CombatEventType::MuzzleFlash},
         {TowerType::BCell, CombatEventType::BeamFired},
         {TowerType::NKCell, CombatEventType::BladeSlash},
     };

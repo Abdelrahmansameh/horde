@@ -6,12 +6,57 @@
   "max_chaff": 10000,
   "level": "assets/levels/mucosal_1_gut_lining.json",
   "actions": [
-    { "tick": 0, "type": "spawn_chaff", "family": "virus", "count": 15, "pos": [10, 20],  "radius": 4 },
-    { "tick": 0, "type": "spawn_chaff", "family": "virus", "count": 15, "pos": [10, 70],  "radius": 4 },
-    { "tick": 0, "type": "spawn_chaff", "family": "virus", "count": 15, "pos": [10, 130], "radius": 4 },
-    { "tick": 0, "type": "spawn_chaff", "family": "virus", "count": 15, "pos": [10, 180], "radius": 4 }
+    {
+      "tick": 0,
+      "type": "spawn_chaff",
+      "family": "virus",
+      "count": 15,
+      "pos": [
+        4.9,
+        9.8
+      ],
+      "radius": 1.96
+    },
+    {
+      "tick": 0,
+      "type": "spawn_chaff",
+      "family": "virus",
+      "count": 15,
+      "pos": [
+        4.9,
+        34.31
+      ],
+      "radius": 1.96
+    },
+    {
+      "tick": 0,
+      "type": "spawn_chaff",
+      "family": "virus",
+      "count": 15,
+      "pos": [
+        4.9,
+        63.73
+      ],
+      "radius": 1.96
+    },
+    {
+      "tick": 0,
+      "type": "spawn_chaff",
+      "family": "virus",
+      "count": 15,
+      "pos": [
+        4.9,
+        88.24
+      ],
+      "radius": 1.96
+    }
   ],
   "assertions": [
-    { "tick": 3400, "metric": "chaff_leaked_total", "op": ">", "value": 0 }
+    {
+      "tick": 3400,
+      "metric": "chaff_leaked_total",
+      "op": ">",
+      "value": 0
+    }
   ]
 }

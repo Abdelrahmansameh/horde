@@ -292,6 +292,14 @@ Removed density is attributed to the owning tower and to the economy via
 aggregate damage, only the damage system knows when a density threshold was
 crossed.
 
+**Renderers must read `rendered_fields()`, not `fields()`.** `fields()` is the
+submission buffer, and `clear_transient()` runs at the *end* of `SimWorld::tick`,
+dropping every persistent field on the grounds that its owner re-submits next
+tick. That is right for the sim and wrong for the screen: the Cryo cone, the
+Laser beam and the NK rotor are all persistent, so anything drawing after the
+tick sees the three permanently-on AoEs as permanently absent.
+`rendered_fields()` is the snapshot taken just before that cull.
+
 ### 4.6 `sim/ecs` — the small half
 
 EnTT registry for named agents (≤200) and towers. Chaff never enters the
@@ -342,6 +350,30 @@ zero binary assets, shader source is the *only* on-disk art, so hot reload is th
 entire art iteration loop. A failed recompile logs the GLSL error and **keeps the
 previous working program**, so a typo never blanks the screen.
 
+**Tower art lives in two shaders, and they have to agree.** A tower's *body* is a
+procedural SDF in `entity.frag`, selected by `shape_id = 16 + TowerType` (16
+GUNNER, 17 MORTAR, 18 CRYO, 19 TESLA, 20 LASER, 21 BLADE); its *attack* is a
+`DamageField` drawn by `field.frag`. Three rules hold them together:
+
+- **Identity hue is one colour per tower, everywhere.** `palette_for()` in
+  `vfx/Particles.cpp` is the source; the body tints toward it, the particles use
+  it, and `submit_fields` tints the AoE with it. Hue is the only channel that
+  survives a glance at 60 fps (DESIGN.md §9.3), so a tower must never say two
+  different things in two places.
+- **Silhouette is the fallback channel, so no two bodies share one.** Five of the
+  six are amoeboid blobs; the Interferon is deliberately the hard-edged crystal,
+  the B-Cell the only elongated one, and the NK Cell the only rotor. Each also
+  carries a *directional* feature aligned to local +x — the Macrophage's maw, the
+  Cytotoxic T's electrode, the B-Cell's secretion pole — which `entity.vert` has
+  already rotated onto the aim.
+- **Tier is spent on something countable.** `EntityInstance::shape_param` carries
+  the raw tier, and each body turns it into phagosomes / crystal reach /
+  microvilli / antibodies / blades, so an upgrade shows in the silhouette rather
+  than only in the stat panel.
+
+The one field shape two towers share is Circle, split by lifetime: persistent is
+the NK Cell's rotor disc, timed is a Macrophage shell or a Histamine nova.
+
 `Screenshot` writes PNGs via `stb_image_write` and handles the GL bottom-up →
 PNG top-down flip. This is the project's primary visual verification channel.
 
@@ -372,6 +404,12 @@ PNG top-down flip. This is the project's primary visual verification channel.
   income is credited from `DamageStats`, never inferred from count deltas.
 - **`meta/`** — versioned JSON save. Loading an older version must migrate;
   loading a *newer* version must fail loudly rather than silently drop fields.
+- **`gym/`** — the debug/authoring command language (`spawn`, `tower`, `wave`,
+  `cast`, `vfx`, …) behind the gym level's control panel (`ui/GymPanel.h`),
+  `--sim-test`'s `cmd` action, and `--exec`. A pure function of (context, line) with no UI of its own, so the same
+  command string runs interactively, in a script, and in a test. Reaches the sim
+  only through the same public APIs `app/` uses for player intents. See
+  `docs/GYM.md` and `assets/levels/gym.json`.
 
 ---
 
@@ -434,11 +472,17 @@ schema v1 is documented at the top of the `--sim-test` section in
 `total_density`, `objective_integrity`, `chaff_killed_total`,
 `chaff_leaked_total`, `tick`, `state_hash`.
 
+Actions are `spawn_chaff`, `place_tower`, and `cmd` — the last runs a gym
+command (`docs/GYM.md`), so anything reachable from the in-game console is
+scriptable as a regression test without inventing a new action type first.
+
 ### `--screenshot <level> --tick N --out <file.png>`
 
 Advances the deterministic sim to tick N, creates a headless GL 4.5 context,
 renders one frame, and writes a PNG. Also prints a JSON metadata block including
 `state_hash`, so a visual diff can be correlated with a sim-state diff.
+`--exec "<gym commands>"` sets the world up first, so a look found by hand in the
+console can be reproduced as a capture.
 
 ---
 

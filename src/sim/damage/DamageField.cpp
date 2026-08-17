@@ -253,6 +253,13 @@ u32 DamageSystem::submit(const DamageField& field) {
 }
 
 void DamageSystem::clear_transient(f32 dt) {
+    // Snapshot BEFORE the cull, for rendered_fields(). This is the only moment
+    // the full set of fields that were actually live this tick still exists:
+    // the loop below is about to drop every persistent one. assign() into a
+    // member reuses the capacity reserve() already took, so the steady state is
+    // a memcpy of a few hundred structs and no allocation.
+    rendered_.assign(fields_.begin(), fields_.end());
+
     usize write = 0;
     for (usize i = 0; i < fields_.size(); ++i) {
         DamageField f = fields_[i];

@@ -72,6 +72,7 @@ add_library(immune_sim STATIC
   src/sim/ecs/NamedAgents.cpp
   src/sim/flowfield/FlowField.cpp
   src/sim/projectile/Projectiles.cpp
+  src/sim/swarm/Swarmers.cpp
   src/sim/spatial/SpatialHash.cpp)
 target_link_libraries(immune_sim PUBLIC immune_core EnTT::EnTT)
 
@@ -91,6 +92,7 @@ add_library(immune_game STATIC
   src/game/abilities/ActiveAbilities.cpp
   src/game/economy/Economy.cpp
   src/game/enemies/EnemyRoster.cpp
+  src/game/gym/GymCommands.cpp
   src/game/level/Level.cpp
   src/game/meta/MetaProgression.cpp
   src/game/towers/TowerSystem.cpp
@@ -98,7 +100,8 @@ add_library(immune_game STATIC
 target_link_libraries(immune_game PUBLIC immune_core immune_sim immune_render
   nlohmann_json::nlohmann_json)
 
-add_library(immune_ui STATIC src/ui/Hud.cpp src/ui/Menu.cpp src/ui/Fonts.cpp)
+add_library(immune_ui STATIC src/ui/Hud.cpp src/ui/Menu.cpp src/ui/Fonts.cpp
+  src/ui/GymPanel.cpp)
 target_link_libraries(immune_ui PUBLIC immune_core immune_platform immune_render immune_game
   PRIVATE imgui::imgui)
 

@@ -39,6 +39,7 @@ class FlowField;
 class TissueMask;
 class DistanceField;
 class ProjectileBuffers;
+class SwarmerBuffers;
 struct DamageField;
 }
 
@@ -59,6 +60,10 @@ struct RendererDesc {
     u32 max_entity_instances = 4096;
     /// Live simulated rounds drawable in one frame.
     u32 max_projectile_instances = 16384;
+    /// Live Cytotoxic T granules. See sim/swarm/Swarmers.h for how the standing
+    /// cloud size is set; this only has to clear the equilibrium a full board
+    /// of maxed T-cells reaches.
+    u32 max_swarmer_instances = 49152;
     /// Cosmetic particles drawable per blend mode per frame. Sized for the
     /// Gunner's "continuous stream" brief; this is the single biggest instance
     /// buffer in the renderer and is expected to run near full at high tiers.
@@ -137,6 +142,7 @@ struct FrameStats {
     u32 entity_instances_drawn = 0;
     u32 vfx_fields_drawn = 0;
     u32 projectile_instances_drawn = 0;
+    u32 swarmer_instances_drawn = 0;
     u32 particle_instances_drawn = 0;
     f64 submit_ms = 0.0;
 };
@@ -190,6 +196,12 @@ public:
     /// are the Gunner's actual simulated rounds — the cosmetic tracer trails
     /// that follow them are particles, submitted separately below.
     void submit_projectiles(const sim::ProjectileBuffers& projectiles);
+
+    /// The Cytotoxic T's live granules (sim/swarm/Swarmers.h). Its own pass
+    /// rather than part of submit_projectiles: a round is a streaked slug and a
+    /// granule is a wobbling body, and at swarm density the two looks cannot
+    /// share a shader without one of them losing.
+    void submit_swarmers(const sim::SwarmerBuffers& swarmers);
 
     /// One instanced draw of an already-built particle instance span, for one
     /// blend mode. Called once per blend mode per frame, additive first so

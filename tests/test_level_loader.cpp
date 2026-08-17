@@ -236,9 +236,9 @@ TEST_CASE("instantiate on capillary_test.json points the flow field from the por
 
     REQUIRE(world.flow().reachable(def.portals[0].position));
 
-    // Portal sits at (8,72), objective at (248,72): flow at the portal should
-    // point strongly toward +x (toward the objective), not zero and not
-    // backward.
+    // Portal sits at (6.48,44), objective at (153.14,44): flow at the portal
+    // should point strongly toward +x (toward the objective), not zero and
+    // not backward.
     const Vec2 dir = world.flow().sample(def.portals[0].position);
     REQUIRE(dir.x > 0.5f);
     REQUIRE(std::abs(dir.y) < 0.7f);

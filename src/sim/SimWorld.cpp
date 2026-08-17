@@ -27,6 +27,7 @@ void SimWorld::init(const SimDesc& desc, JobSystem* jobs) {
 
     damage_.reserve(desc.max_damage_fields);
     projectiles_.reserve(desc.max_projectiles);
+    swarmers_.reserve(desc.max_swarmers);
     combat_events_.reserve(desc.max_combat_events);
     damage_.clear_all();
 
@@ -75,6 +76,13 @@ void SimWorld::tick(Profiler* profiler) {
     // same agent on the same tick both get their damage counted.
     projectile_system_.update(projectiles_, chaff_, spatial_, desc_.world_bounds,
                               rng_, kFixedDt, &combat_events_);
+
+    // 4c. Swarmers. Same placement rule and the same reason as projectiles
+    // above: after the ECS tick so this tick's newly released granules exist,
+    // and before the single chaff compaction so a swarmer's drain and a field's
+    // damage on the same agent on the same tick both get counted.
+    swarmer_system_.update(swarmers_, chaff_, spatial_, desc_.world_bounds,
+                           rng_, kFixedDt, &combat_events_);
 
     // 5. Compaction / kill accounting.
     killed_total_ += chaff_.compact();

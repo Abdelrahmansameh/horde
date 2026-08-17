@@ -810,7 +810,7 @@ void EnemyRoster::apply_to_tuning(sim::ChaffTuning& tuning) const {
         // Family-specific mechanics, straight off the flag bits: only
         // FungalSpore drifts, only Virus replicates.
         p.drift_bias = d.drifts ? 0.75f : 0.0f;
-        p.replication_rate = d.replicates ? 0.05f : 0.0f;
+        p.replication_rate = d.replicates ? 0.2f : 0.0f;
     }
 
     // Nothing else currently owns a world "wind" direction; give kDrifting

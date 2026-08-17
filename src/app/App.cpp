@@ -191,12 +191,26 @@ bool App::load_level(const std::string& path) {
 
     towers_.register_systems(sim_);
     enemies_.register_systems(sim_);
-    // A fresh, deterministic wave table per level -- generate() only needs
-    // the region name and a wave count today; per-region tuning is Wave 3A's
-    // remaining scope, not something this minimal wiring blocks on.
-    waves_.set_waves(game::WaveDirector::generate(level.region, 8, sim_.rng()));
+    // A fresh, deterministic wave table per level. A level that authors its
+    // own `waves` block owns its pressure curve outright (Level.h); everything
+    // else asks generate(), which shapes a table from the region name alone.
+    if (!level.waves.empty()) {
+        IMMUNE_LOG_INFO("level '%s' uses its own authored wave table (%zu waves)",
+                        level.name.c_str(), level.waves.size());
+        waves_.set_waves(level.waves);
+    } else {
+        waves_.set_waves(game::WaveDirector::generate(level.region, 8, sim_.rng()));
+    }
     waves_.start(sim_);
     state_.set_current_level_id(level.name);
+
+    // The gym level defends its own objective by default: a run that ends
+    // because a lane leaked while you were three commands into setting up an
+    // experiment is pure friction, and the leak counters still record what
+    // happened. Every other level gets the real loss condition back.
+    gym_toggles_ = game::GymToggles{};
+    gym_toggles_.hold_integrity = sim_.snapshot().objective_integrity;
+    gym_toggles_.objective_invulnerable = (level.name == "gym");
 
     // Camera framing moved here from init(): with a front end, a level can be
     // loaded long after startup, and each one has its own world bounds.
@@ -211,6 +225,12 @@ bool App::load_level(const std::string& path) {
     particles_.clear();
     economy_.configure(game::EconomyConfig{});
     abilities_.load_defaults();
+    gym_spawns_.clear();
+
+    // The gym level is the one that exists to be driven from the panel, so it
+    // brings the panel up with it; every other level leaves it as the player
+    // left it.
+    gym_panel_.set_level(level.name);
 
     level_loaded_ = true;
     current_level_path_ = path;
@@ -232,6 +252,25 @@ void App::handle_input() {
         state_.request(GameStateId::Quitting);
         running_ = false;
     }
+    // The gym panel eats Escape first: with it open, Escape means "close the
+    // panel", not "abandon the run". Nothing else in the app can express that,
+    // since the panel is not a GameStateId.
+    if (gym_panel_.visible() && input_.action_pressed(platform::Action::CancelPlacement)) {
+        gym_panel_.set_visible(false);
+        return;
+    }
+    // Screenshot is checked before the UI-capture guard below: capturing the
+    // frame is never a gameplay action, and the one frame you most want to
+    // capture is often the one with a console or panel open on top of it.
+    if (input_.action_pressed(platform::Action::Screenshot)) {
+        render::capture_framebuffer_png("shot.png", window_.width(), window_.height());
+        IMMUNE_LOG_INFO("wrote shot.png");
+    }
+    // Typing a command must not also drive the game. ui_capture_keyboard is set
+    // from the previous frame's ImGui state (Hud::begin_frame), which is exactly
+    // the frame whose keystrokes are being classified here.
+    if (input_.ui_capture_keyboard()) return;
+
     // Escape backs out one level of the front end. From inside a level it
     // opens the pause menu rather than immediately abandoning the run; the
     // pause menu itself offers resume/restart/main-menu.
@@ -266,10 +305,6 @@ void App::handle_input() {
     }
     if (input_.action_pressed(platform::Action::ToggleDebugOverlay)) {
         hud_.set_debug_overlay_visible(!hud_.debug_overlay_visible());
-    }
-    if (input_.action_pressed(platform::Action::Screenshot)) {
-        render::capture_framebuffer_png("shot.png", window_.width(), window_.height());
-        IMMUNE_LOG_INFO("wrote shot.png");
     }
 }
 
@@ -310,8 +345,14 @@ void App::apply_intents(const std::vector<ui::Intent>& intents) {
 }
 
 void App::tick_sim() {
+    // Before the wave director, so a console-queued spawn and an authored wave
+    // spawning into the same portal on the same tick resolve in a fixed order.
+    gym_spawns_.tick(sim_);
     waves_.tick(sim_, sim_.rng(), kFixedDt);
     sim_.tick(&profiler_);
+    // Before the win/loss check below reads the snapshot, so an enabled hold
+    // actually prevents the loss instead of racing it.
+    gym_toggles_.apply(sim_);
     economy_.tick(kFixedDt);
     economy_.credit_kills(sim_.last_damage_stats().density_removed);
     economy_.credit_bounty(waves_.take_pending_atp_reward());
@@ -335,6 +376,57 @@ void App::tick_sim() {
     }
 }
 
+game::GymContext App::make_gym_context() {
+    game::GymContext ctx;
+    ctx.world = level_loaded_ ? &sim_ : nullptr;
+    ctx.towers = &towers_;
+    ctx.enemies = &enemies_;
+    ctx.waves = &waves_;
+    ctx.economy = &economy_;
+    ctx.abilities = &abilities_;
+    ctx.spawns = &gym_spawns_;
+    ctx.toggles = &gym_toggles_;
+    ctx.clock = &clock_;
+    ctx.camera = &camera_;
+    if (level_loaded_) {
+        ctx.cursor = camera_.screen_to_world(input_.mouse_pos());
+        ctx.has_cursor = true;
+    }
+
+    // `level <name>`: accepts a path, a file stem, or the level's display name,
+    // resolved against the same list the level-select screen renders, so the
+    // console and the menu can never disagree about what levels exist.
+    ctx.load_level = [this](const std::string& wanted) {
+        std::string path = wanted;
+        if (!platform::file_exists(path)) {
+            path.clear();
+            for (const ui::LevelEntry& e : levels_) {
+                const usize slash = e.path.find_last_of("/\\");
+                const std::string file = slash == std::string::npos ? e.path : e.path.substr(slash + 1);
+                const std::string stem = file.substr(0, file.rfind(".json"));
+                if (wanted == e.display_name || wanted == stem || wanted == file) {
+                    path = e.path;
+                    break;
+                }
+            }
+        }
+        if (path.empty() || !load_level(path)) return false;
+        enter_state(GameStateId::InLevel);
+        return true;
+    };
+    ctx.restart_level = [this]() {
+        if (current_level_path_.empty() || !load_level(current_level_path_)) return false;
+        enter_state(GameStateId::InLevel);
+        return true;
+    };
+    ctx.set_overlay = [this](const std::string& name, bool on) {
+        if (name == "debug") { hud_.set_debug_overlay_visible(on); return true; }
+        if (name == "threat") { hud_.set_threat_overlay_visible(on); return true; }
+        return false;
+    };
+    return ctx;
+}
+
 void App::render_frame() {
     // Menu states run before any level exists, so every pass below would be
     // reading an uninitialised SimWorld. Draw a bare frame plus the front end
@@ -345,6 +437,11 @@ void App::render_frame() {
         renderer_.end_frame();
         hud_.begin_frame(input_);
         build_menus();
+        // Available from the front end too: `level gym` is the fastest way in,
+        // and a panel that vanished with the world would be useless exactly
+        // when a level failed to load.
+        game::GymContext gym = make_gym_context();
+        gym_panel_.build(gym);
         hud_.render();
         window_.swap();
         return;
@@ -378,8 +475,13 @@ void App::render_frame() {
     renderer_.submit_tissue(sim_.tissue(), sim_.sdf(), 0.0f, &decor);
     renderer_.submit_chaff(sim_.chaff(), sim_.spatial());
     renderer_.submit_entities(sim_.ecs());
-    renderer_.submit_fields(sim_.damage().fields().data(), sim_.damage().fields().size());
+    // rendered_fields(), not fields(): the persistent cone/beam/rotor AoEs
+    // have already been culled from the submission buffer by this point.
+    // See DamageSystem::rendered_fields().
+    renderer_.submit_fields(sim_.damage().rendered_fields().data(),
+                            sim_.damage().rendered_fields().size());
     renderer_.submit_projectiles(sim_.projectiles());
+    renderer_.submit_swarmers(sim_.swarmers());
     // Additive first so the alpha-blended mist composites OVER the glow rather
     // than under it (vfx/Particles.h documents this ordering requirement).
     particles_.build_instances(vfx::BlendMode::Additive, particle_scratch_);
@@ -405,6 +507,11 @@ void App::render_frame() {
         hud_.build(sim_, economy_, waves_, towers_, abilities_, camera_, input_, intents_);
         apply_intents(intents_);
     }
+
+    // Drawn last so it sits above the HUD and the pause/results screens, and
+    // outside the state switch above so it stays usable while paused.
+    game::GymContext gym = make_gym_context();
+    gym_panel_.build(gym);
 
     hud_.render();
     window_.swap();

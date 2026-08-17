@@ -1,0 +1,39 @@
+{
+  "schema": 1,
+  "name": "elbow_turn",
+  "region": "capillary",
+  "world": {
+    "min": [0, 0],
+    "max": [230, 230],
+    "cell_size": 0.5
+  },
+  "vessels": [
+    {
+      "id": "main",
+      "points": [
+        { "p": [20, 190],        "w": 36.0 },
+        { "p": [105, 190],       "w": 36.0 },
+        { "p": [180, 190],       "w": 36.0 },
+        { "p": [183.827, 189.239], "w": 36.0 },
+        { "p": [187.071, 187.071], "w": 36.0 },
+        { "p": [189.239, 183.827], "w": 36.0 },
+        { "p": [190, 180],       "w": 36.0 },
+        { "p": [190, 105],       "w": 36.0 },
+        { "p": [190, 20],        "w": 36.0 }
+      ],
+      "children": []
+    }
+  ],
+  "portals": [
+    { "id": "p0", "pos": [20, 190], "radius": 14.0 }
+  ],
+  "objectives": [
+    { "id": "organ", "pos": [190, 20], "radius": 9.0, "integrity": 100 }
+  ],
+  "placement_zones": [
+    { "min": [20, 162], "max": [190, 218], "concentrated": false, "priority": 1.0 },
+    { "min": [163, 20], "max": [217, 190], "concentrated": false, "priority": 1.0 },
+    { "min": [140, 140], "max": [220, 220], "concentrated": true, "priority": 2.0 }
+  ],
+  "ambient_drift": [0.0, 0.0]
+}

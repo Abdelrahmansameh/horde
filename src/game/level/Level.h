@@ -57,9 +57,32 @@
 //   "placement_zones": [
 //     { "min":[20,50], "max":[200,100], "concentrated": false, "priority": 1.0 }
 //   ],
-//   "ambient_drift": [0.0, 0.0]
+//   "ambient_drift": [0.0, 0.0],
+//   "waves": [                                 // optional; see below
+//     { "name": "flood_1", "prep_time": 20.0, "atp_reward": 60,
+//       "modifier": "none",                    // none|allergen|fever|swarm
+//       "spawns": [
+//         { "family": "virus", "count": 900, "start_time": 0.0,
+//           "duration": 6.0, "portal_id": "p0", "elite_id": 0 }
+//       ] }
+//   ]
 // }
 // Unknown fields are ignored; a missing "schema" is an error, not a default.
+//
+// AUTHORED WAVES (optional)
+// `waves` is absent from every level authored before it existed, and absence
+// keeps the previous behavior exactly: the app asks WaveDirector::generate()
+// for a region-shaped table. When present it *replaces* that table, because a
+// generated table is a function of the region string alone and therefore
+// cannot express a level whose whole point is its own pressure curve (a
+// stress/floodplain level, a scripted set piece). Loading is the only thing
+// this file does with it — scheduling and spawning stay WaveDirector's job,
+// and the parsed vector is a plain std::vector<WaveDef>, the same type
+// generate() returns, so callers pick one source or the other and nothing
+// downstream can tell the difference.
+// Per-field defaults match WaveDef/SpawnEntry's own defaults; `index` is not
+// authorable (it is assigned from array position, so it cannot disagree with
+// the order the director walks).
 //
 // WORKED MULTI-LANE EXAMPLE (see assets/levels/lane_schema_test.json for the
 // full runnable fixture): three lanes -- an artery, a lymph channel, and a
@@ -89,6 +112,7 @@
 #pragma once
 
 #include "core/Types.h"
+#include "game/wave/WaveDirector.h"   // WaveDef, for optional authored waves.
 
 #include <string>
 #include <vector>
@@ -173,6 +197,9 @@ struct LevelDef {
     /// Same size and order as placement_zones; see PlacementZoneTag.
     std::vector<PlacementZoneTag> placement_zone_tags;
     Vec2 ambient_drift{0.0f, 0.0f};
+    /// Optional authored wave table (see the header comment). Empty means "no
+    /// opinion" -- the caller falls back to WaveDirector::generate().
+    std::vector<WaveDef> waves;
 };
 
 /// Coarse per-cell "which lane owns this point" grid, built by

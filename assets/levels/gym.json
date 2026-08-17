@@ -1,0 +1,736 @@
+{
+  "schema": 1,
+  "name": "gym",
+  "region": "organ_chamber",
+  "world": {
+    "min": [
+      0,
+      0
+    ],
+    "max": [
+      240.0,
+      150.0
+    ],
+    "cell_size": 0.5
+  },
+  "vessels": [
+    {
+      "id": "lymph_chamber",
+      "lane_id": "lymph_lane",
+      "vessel_type": "lymphatic",
+      "points": [
+        {
+          "p": [
+            6.0,
+            75.0
+          ],
+          "w": 46.0
+        },
+        {
+          "p": [
+            50.0,
+            75.0
+          ],
+          "w": 42.0
+        }
+      ],
+      "children": [
+        "lymph_trunk"
+      ]
+    },
+    {
+      "id": "lymph_trunk",
+      "lane_id": "lymph_lane",
+      "vessel_type": "lymphatic",
+      "points": [
+        {
+          "p": [
+            50.0,
+            75.0
+          ],
+          "w": 42.0
+        },
+        {
+          "p": [
+            96.0,
+            75.0
+          ],
+          "w": 26.0
+        },
+        {
+          "p": [
+            142.0,
+            75.0
+          ],
+          "w": 24.0
+        },
+        {
+          "p": [
+            180.0,
+            75.0
+          ],
+          "w": 20.0
+        },
+        {
+          "p": [
+            198.0,
+            75.0
+          ],
+          "w": 15.0
+        }
+      ],
+      "children": []
+    },
+    {
+      "id": "artery_chamber",
+      "lane_id": "artery_lane",
+      "vessel_type": "artery",
+      "points": [
+        {
+          "p": [
+            6.0,
+            25.0
+          ],
+          "w": 42.0
+        },
+        {
+          "p": [
+            50.0,
+            27.0
+          ],
+          "w": 36.0
+        }
+      ],
+      "children": [
+        "artery_trunk"
+      ]
+    },
+    {
+      "id": "artery_trunk",
+      "lane_id": "artery_lane",
+      "vessel_type": "artery",
+      "points": [
+        {
+          "p": [
+            50.0,
+            27.0
+          ],
+          "w": 36.0
+        },
+        {
+          "p": [
+            96.0,
+            36.0
+          ],
+          "w": 16.0
+        },
+        {
+          "p": [
+            142.0,
+            52.0
+          ],
+          "w": 13.0
+        },
+        {
+          "p": [
+            180.0,
+            68.0
+          ],
+          "w": 12.0
+        },
+        {
+          "p": [
+            200.0,
+            73.0
+          ],
+          "w": 12.0
+        }
+      ],
+      "children": []
+    },
+    {
+      "id": "vein_chamber",
+      "lane_id": "vein_lane",
+      "vessel_type": "vein",
+      "points": [
+        {
+          "p": [
+            6.0,
+            125.0
+          ],
+          "w": 42.0
+        },
+        {
+          "p": [
+            50.0,
+            123.0
+          ],
+          "w": 36.0
+        }
+      ],
+      "children": [
+        "vein_trunk"
+      ]
+    },
+    {
+      "id": "vein_trunk",
+      "lane_id": "vein_lane",
+      "vessel_type": "vein",
+      "points": [
+        {
+          "p": [
+            50.0,
+            123.0
+          ],
+          "w": 36.0
+        },
+        {
+          "p": [
+            96.0,
+            114.0
+          ],
+          "w": 16.0
+        },
+        {
+          "p": [
+            142.0,
+            98.0
+          ],
+          "w": 13.0
+        },
+        {
+          "p": [
+            180.0,
+            82.0
+          ],
+          "w": 12.0
+        },
+        {
+          "p": [
+            200.0,
+            77.0
+          ],
+          "w": 12.0
+        }
+      ],
+      "children": []
+    },
+    {
+      "id": "nerve_chamber",
+      "lane_id": "nerve_lane",
+      "vessel_type": "nerve_adjacent",
+      "points": [
+        {
+          "p": [
+            87.0,
+            144.0
+          ],
+          "w": 40.0
+        },
+        {
+          "p": [
+            89.0,
+            116.0
+          ],
+          "w": 34.0
+        }
+      ],
+      "children": [
+        "nerve_trunk"
+      ]
+    },
+    {
+      "id": "nerve_trunk",
+      "lane_id": "nerve_lane",
+      "vessel_type": "nerve_adjacent",
+      "points": [
+        {
+          "p": [
+            89.0,
+            116.0
+          ],
+          "w": 34.0
+        },
+        {
+          "p": [
+            124.0,
+            102.0
+          ],
+          "w": 11.0
+        },
+        {
+          "p": [
+            160.0,
+            88.0
+          ],
+          "w": 10.0
+        },
+        {
+          "p": [
+            188.0,
+            80.0
+          ],
+          "w": 10.0
+        },
+        {
+          "p": [
+            200.0,
+            77.0
+          ],
+          "w": 10.0
+        }
+      ],
+      "children": []
+    },
+    {
+      "id": "mucosa_chamber",
+      "lane_id": "mucosa_lane",
+      "vessel_type": "mucosal_fold",
+      "points": [
+        {
+          "p": [
+            87.0,
+            6.0
+          ],
+          "w": 40.0
+        },
+        {
+          "p": [
+            89.0,
+            34.0
+          ],
+          "w": 34.0
+        }
+      ],
+      "children": [
+        "mucosa_trunk"
+      ]
+    },
+    {
+      "id": "mucosa_trunk",
+      "lane_id": "mucosa_lane",
+      "vessel_type": "mucosal_fold",
+      "points": [
+        {
+          "p": [
+            89.0,
+            34.0
+          ],
+          "w": 34.0
+        },
+        {
+          "p": [
+            124.0,
+            48.0
+          ],
+          "w": 16.0
+        },
+        {
+          "p": [
+            160.0,
+            62.0
+          ],
+          "w": 14.0
+        },
+        {
+          "p": [
+            188.0,
+            71.0
+          ],
+          "w": 12.0
+        },
+        {
+          "p": [
+            200.0,
+            73.0
+          ],
+          "w": 11.0
+        }
+      ],
+      "children": []
+    }
+  ],
+  "portals": [
+    {
+      "id": "p_lymph",
+      "pos": [
+        30.0,
+        75.0
+      ],
+      "radius": 10.0,
+      "lane_id": "lymph_lane"
+    },
+    {
+      "id": "p_artery",
+      "pos": [
+        30.0,
+        25.0
+      ],
+      "radius": 9.0,
+      "lane_id": "artery_lane"
+    },
+    {
+      "id": "p_vein",
+      "pos": [
+        30.0,
+        125.0
+      ],
+      "radius": 9.0,
+      "lane_id": "vein_lane"
+    },
+    {
+      "id": "p_nerve",
+      "pos": [
+        87.0,
+        130.0
+      ],
+      "radius": 8.0,
+      "lane_id": "nerve_lane"
+    },
+    {
+      "id": "p_mucosa",
+      "pos": [
+        87.0,
+        20.0
+      ],
+      "radius": 8.0,
+      "lane_id": "mucosa_lane"
+    }
+  ],
+  "objectives": [
+    {
+      "id": "organ",
+      "pos": [
+        204.0,
+        75.0
+      ],
+      "radius": 6.0,
+      "integrity": 100
+    }
+  ],
+  "placement_zones": [
+    {
+      "min": [
+        4.0,
+        3.0
+      ],
+      "max": [
+        232.0,
+        147.0
+      ],
+      "concentrated": false,
+      "priority": 0.5
+    },
+    {
+      "min": [
+        156.0,
+        48.0
+      ],
+      "max": [
+        228.0,
+        104.0
+      ],
+      "concentrated": true,
+      "priority": 2.0
+    },
+    {
+      "min": [
+        96.0,
+        62.0
+      ],
+      "max": [
+        142.0,
+        88.0
+      ],
+      "concentrated": true,
+      "priority": 1.5
+    }
+  ],
+  "ambient_drift": [
+    0.45,
+    0.12
+  ],
+  "waves": [
+    {
+      "name": "gym_1_one_of_each_family",
+      "prep_time": 120.0,
+      "atp_reward": 250,
+      "spawns": [
+        {
+          "family": "virus",
+          "count": 300,
+          "start_time": 0.0,
+          "duration": 10.0,
+          "portal_id": "p_lymph"
+        },
+        {
+          "family": "bacteria",
+          "count": 200,
+          "start_time": 0.0,
+          "duration": 10.0,
+          "portal_id": "p_artery"
+        },
+        {
+          "family": "fungal_spore",
+          "count": 200,
+          "start_time": 0.0,
+          "duration": 10.0,
+          "portal_id": "p_vein"
+        },
+        {
+          "family": "parasite",
+          "count": 150,
+          "start_time": 0.0,
+          "duration": 10.0,
+          "portal_id": "p_nerve"
+        },
+        {
+          "family": "cancer_cell",
+          "count": 150,
+          "start_time": 0.0,
+          "duration": 10.0,
+          "portal_id": "p_mucosa"
+        },
+        {
+          "family": "allergen",
+          "count": 150,
+          "start_time": 4.0,
+          "duration": 8.0,
+          "portal_id": "p_lymph"
+        }
+      ]
+    },
+    {
+      "name": "gym_2_every_elite",
+      "prep_time": 60.0,
+      "atp_reward": 300,
+      "spawns": [
+        {
+          "family": "parasite",
+          "count": 2,
+          "start_time": 0.0,
+          "duration": 2.0,
+          "portal_id": "p_nerve",
+          "elite_id": 1
+        },
+        {
+          "family": "bacteria",
+          "count": 2,
+          "start_time": 1.0,
+          "duration": 2.0,
+          "portal_id": "p_artery",
+          "elite_id": 2
+        },
+        {
+          "family": "cancer_cell",
+          "count": 2,
+          "start_time": 2.0,
+          "duration": 2.0,
+          "portal_id": "p_mucosa",
+          "elite_id": 3
+        },
+        {
+          "family": "bacteria",
+          "count": 1,
+          "start_time": 3.0,
+          "duration": 2.0,
+          "portal_id": "p_lymph",
+          "elite_id": 4
+        },
+        {
+          "family": "fungal_spore",
+          "count": 1,
+          "start_time": 4.0,
+          "duration": 2.0,
+          "portal_id": "p_vein",
+          "elite_id": 5
+        },
+        {
+          "family": "virus",
+          "count": 300,
+          "start_time": 0.0,
+          "duration": 12.0,
+          "portal_id": "p_lymph"
+        }
+      ]
+    },
+    {
+      "name": "gym_3_allergen_modifier",
+      "prep_time": 45.0,
+      "atp_reward": 200,
+      "modifier": "allergen",
+      "spawns": [
+        {
+          "family": "virus",
+          "count": 500,
+          "start_time": 0.0,
+          "duration": 10.0,
+          "portal_id": "p_lymph"
+        },
+        {
+          "family": "bacteria",
+          "count": 250,
+          "start_time": 0.0,
+          "duration": 10.0,
+          "portal_id": "p_artery"
+        },
+        {
+          "family": "allergen",
+          "count": 150,
+          "start_time": 1.0,
+          "duration": 9.0,
+          "portal_id": "p_vein"
+        }
+      ]
+    },
+    {
+      "name": "gym_4_fever_modifier",
+      "prep_time": 45.0,
+      "atp_reward": 200,
+      "modifier": "fever",
+      "spawns": [
+        {
+          "family": "virus",
+          "count": 500,
+          "start_time": 0.0,
+          "duration": 10.0,
+          "portal_id": "p_lymph"
+        },
+        {
+          "family": "bacteria",
+          "count": 250,
+          "start_time": 0.0,
+          "duration": 10.0,
+          "portal_id": "p_artery"
+        },
+        {
+          "family": "allergen",
+          "count": 150,
+          "start_time": 1.0,
+          "duration": 9.0,
+          "portal_id": "p_vein"
+        }
+      ]
+    },
+    {
+      "name": "gym_5_swarm_modifier",
+      "prep_time": 45.0,
+      "atp_reward": 200,
+      "modifier": "swarm",
+      "spawns": [
+        {
+          "family": "virus",
+          "count": 500,
+          "start_time": 0.0,
+          "duration": 10.0,
+          "portal_id": "p_lymph"
+        },
+        {
+          "family": "bacteria",
+          "count": 250,
+          "start_time": 0.0,
+          "duration": 10.0,
+          "portal_id": "p_artery"
+        },
+        {
+          "family": "allergen",
+          "count": 150,
+          "start_time": 1.0,
+          "duration": 9.0,
+          "portal_id": "p_vein"
+        }
+      ]
+    },
+    {
+      "name": "gym_6_all_lanes_at_once",
+      "prep_time": 45.0,
+      "atp_reward": 350,
+      "spawns": [
+        {
+          "family": "virus",
+          "count": 400,
+          "start_time": 0.0,
+          "duration": 8.0,
+          "portal_id": "p_lymph"
+        },
+        {
+          "family": "bacteria",
+          "count": 400,
+          "start_time": 0.0,
+          "duration": 8.0,
+          "portal_id": "p_artery"
+        },
+        {
+          "family": "fungal_spore",
+          "count": 400,
+          "start_time": 0.0,
+          "duration": 8.0,
+          "portal_id": "p_vein"
+        },
+        {
+          "family": "parasite",
+          "count": 400,
+          "start_time": 0.0,
+          "duration": 8.0,
+          "portal_id": "p_nerve"
+        },
+        {
+          "family": "cancer_cell",
+          "count": 400,
+          "start_time": 0.0,
+          "duration": 8.0,
+          "portal_id": "p_mucosa"
+        }
+      ]
+    },
+    {
+      "name": "gym_7_max_horde",
+      "prep_time": 60.0,
+      "atp_reward": 600,
+      "spawns": [
+        {
+          "family": "virus",
+          "count": 2400,
+          "start_time": 0.0,
+          "duration": 10.0,
+          "portal_id": "p_lymph"
+        },
+        {
+          "family": "bacteria",
+          "count": 1200,
+          "start_time": 0.0,
+          "duration": 10.0,
+          "portal_id": "p_artery"
+        },
+        {
+          "family": "fungal_spore",
+          "count": 1200,
+          "start_time": 0.0,
+          "duration": 10.0,
+          "portal_id": "p_vein"
+        },
+        {
+          "family": "parasite",
+          "count": 800,
+          "start_time": 0.0,
+          "duration": 10.0,
+          "portal_id": "p_nerve"
+        },
+        {
+          "family": "cancer_cell",
+          "count": 800,
+          "start_time": 0.0,
+          "duration": 10.0,
+          "portal_id": "p_mucosa"
+        },
+        {
+          "family": "allergen",
+          "count": 800,
+          "start_time": 2.0,
+          "duration": 8.0,
+          "portal_id": "p_lymph"
+        }
+      ]
+    }
+  ]
+}

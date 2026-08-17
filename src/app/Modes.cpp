@@ -5,9 +5,13 @@
 #include "core/Log.h"
 #include "core/Profiler.h"
 #include "core/Rng.h"
+#include "game/abilities/ActiveAbilities.h"
+#include "game/economy/Economy.h"
 #include "game/enemies/EnemyRoster.h"
+#include "game/gym/GymCommands.h"
 #include "game/level/Level.h"
 #include "game/towers/TowerSystem.h"
+#include "game/wave/WaveDirector.h"
 #include "vfx/Particles.h"
 #include "platform/FileIO.h"
 #include "platform/Window.h"
@@ -301,7 +305,8 @@ int run_bench(const Options& opt) {
             renderer.submit_tissue(world.tissue(), world.sdf(), 0.0f);
             renderer.submit_chaff(world.chaff(), world.spatial());
             renderer.submit_entities(world.ecs());
-            renderer.submit_fields(world.damage().fields().data(), world.damage().fields().size());
+            renderer.submit_fields(world.damage().rendered_fields().data(),
+                                   world.damage().rendered_fields().size());
             renderer.end_frame();
             profiler.record(prof_key::kRenderSubmit, submit.elapsed_ms());
         } else {
@@ -333,7 +338,8 @@ int run_bench(const Options& opt) {
 //   "actions": [
 //     {"tick": 0,  "type": "spawn_chaff", "family": "virus", "count": 500,
 //      "pos": [16, 72], "radius": 4},
-//     {"tick": 60, "type": "place_tower", "tower": "macrophage", "pos": [100, 72]}
+//     {"tick": 60, "type": "place_tower", "tower": "macrophage", "pos": [100, 72]},
+//     {"tick": 90, "type": "cmd", "cmd": "spawn bacteria 300 at p0; tower all"}
 //   ],
 //   "assertions": [
 //     {"tick": 600, "metric": "chaff_count", "op": "<", "value": 100},
@@ -342,6 +348,12 @@ int run_bench(const Options& opt) {
 // }
 // Assertions run immediately after the named tick completes. Every assertion is
 // evaluated (no early exit) so one run reports every failure.
+//
+// The "cmd" action runs a gym command (game/gym/GymCommands.h) against the same
+// world, which is how a thing you found by hand in the console becomes a
+// regression test without anyone porting it into a new action type first.
+// Multiple commands may be separated by ';'. A failing command is logged and
+// does not abort the run -- the assertions are what decide pass/fail.
 
 int run_sim_test(const Options& opt) {
     const auto text = platform::read_text_file(opt.script_path);
@@ -386,6 +398,31 @@ int run_sim_test(const Options& opt) {
     game::TowerSystem towers;
     towers.register_systems(world);
 
+    // The extra systems exist purely so a "cmd" action reaches the same surface
+    // the in-game console does. A script that never issues one is unaffected:
+    // none of them tick here, exactly as before.
+    game::EnemyRoster roster;
+    roster.load_defaults();
+    game::WaveDirector waves;
+    game::Economy economy;
+    economy.configure(game::EconomyConfig{});
+    game::ActiveAbilitySystem abilities;
+    abilities.load_defaults();
+
+    game::GymSpawnQueue gym_spawns;
+    // Default OFF headlessly: a script asserting that integrity depletes must
+    // still be able to observe that. `cmd: "invuln on"` turns it on explicitly.
+    game::GymToggles gym_toggles;
+    game::GymContext gym;
+    gym.world = &world;
+    gym.spawns = &gym_spawns;
+    gym.toggles = &gym_toggles;
+    gym.towers = &towers;
+    gym.enemies = &roster;
+    gym.waves = &waves;
+    gym.economy = &economy;
+    gym.abilities = &abilities;
+
     auto run_actions_for_tick = [&](u64 tick) {
         for (const auto& a : actions) {
             if (a.value("tick", u64{0}) != tick) continue;
@@ -420,6 +457,15 @@ int run_sim_test(const Options& opt) {
                         IMMUNE_LOG_WARN("sim-test: place_tower '%s' at (%.1f,%.1f) failed validation",
                                         tname.c_str(), world_pos.x, world_pos.y);
                     }
+                }
+            } else if (type == "cmd") {
+                const std::string line = a.value("cmd", std::string{});
+                const game::GymResult r = game::gym_execute_script(gym, line);
+                if (!r.ok) {
+                    IMMUNE_LOG_WARN("sim-test: cmd '%s' failed: %s", line.c_str(),
+                                    r.message.c_str());
+                } else if (!r.message.empty()) {
+                    IMMUNE_LOG_INFO("sim-test: cmd '%s' -> %s", line.c_str(), r.message.c_str());
                 }
             } else {
                 IMMUNE_LOG_WARN("sim-test: unknown action type '%s'", type.c_str());
@@ -460,7 +506,9 @@ int run_sim_test(const Options& opt) {
     check_assertions_for_tick(0);
     for (u64 t = 1; t <= total_ticks; ++t) {
         run_actions_for_tick(t);
+        gym_spawns.tick(world);
         world.tick(nullptr);
+        gym_toggles.apply(world);
         check_assertions_for_tick(t);
     }
 
@@ -549,6 +597,37 @@ int run_screenshot(const Options& opt) {
         IMMUNE_LOG_INFO("screenshot: placed %u/%u towers", placed, kTowerTypeCount);
     }
 
+    // Gym commands, before any ticking: --exec is how a console session becomes
+    // a reproducible capture. The spawn queue is drained alongside the sim
+    // below, so a command that asks for more agents than one burst can hold
+    // still delivers all of them.
+    game::GymSpawnQueue gym_spawns;
+    game::GymToggles gym_toggles;
+    if (!opt.exec.empty()) {
+        game::EnemyRoster exec_roster;
+        exec_roster.load_defaults();
+        game::Economy exec_economy;
+        exec_economy.configure(game::EconomyConfig{});
+        game::ActiveAbilitySystem exec_abilities;
+        exec_abilities.load_defaults();
+        game::WaveDirector exec_waves;
+
+        game::GymContext gym;
+        gym.world = &world;
+        gym.towers = &towers;
+        gym.enemies = &exec_roster;
+        gym.waves = &exec_waves;
+        gym.economy = &exec_economy;
+        gym.abilities = &exec_abilities;
+        gym.spawns = &gym_spawns;
+        gym.toggles = &gym_toggles;
+        const game::GymResult r = game::gym_execute_script(gym, opt.exec);
+        IMMUNE_LOG_INFO("--exec: %s", r.message.c_str());
+        if (!r.ok) {
+            IMMUNE_LOG_ERROR("--exec failed; capturing anyway so the failure is visible");
+        }
+    }
+
     // Advance the deterministic sim to the requested tick before rendering,
     // draining combat events and stepping particles ONCE PER TICK as we go --
     // exactly the cadence App::render_frame() uses at 60 FPS. Draining once at
@@ -562,7 +641,9 @@ int run_screenshot(const Options& opt) {
     vfx::ParticleSystem particles;
     particles.init(vfx::ParticleSystem::kDefaultCapacity, opt.seed ^ 0xA5A5'5A5AULL);
     for (u64 i = 0; i < opt.ticks; ++i) {
+        gym_spawns.tick(world);
         world.tick(nullptr);
+        gym_toggles.apply(world);
         const auto& evts = world.combat_events().events();
         particles.emit_for_events(evts.data(), evts.size());
         world.combat_events().clear();
@@ -601,15 +682,21 @@ int run_screenshot(const Options& opt) {
     renderer.submit_tissue(world.tissue(), world.sdf(), 0.0f, &decor);
     renderer.submit_chaff(world.chaff(), world.spatial());
     renderer.submit_entities(world.ecs());
-    renderer.submit_fields(world.damage().fields().data(), world.damage().fields().size());
+    renderer.submit_fields(world.damage().rendered_fields().data(),
+                           world.damage().rendered_fields().size());
     renderer.submit_projectiles(world.projectiles());
+    renderer.submit_swarmers(world.swarmers());
     particles.build_instances(vfx::BlendMode::Additive, pinst);
     renderer.submit_particles(pinst.data(), pinst.size(), vfx::BlendMode::Additive);
     particles.build_instances(vfx::BlendMode::AlphaBlend, pinst);
     renderer.submit_particles(pinst.data(), pinst.size(), vfx::BlendMode::AlphaBlend);
     renderer.end_frame();
-    IMMUNE_LOG_INFO("screenshot: %zu live rounds, %zu live particles",
-                    world.projectiles().count(), particles.live_count());
+    // Field count included because a missing AoE is otherwise indistinguishable
+    // from an AoE that drew at zero alpha, and the two have very different fixes.
+    IMMUNE_LOG_INFO("screenshot: %zu live rounds, %zu live swarmers, %zu live particles, "
+                    "%zu damage fields",
+                    world.projectiles().count(), world.swarmers().count(),
+                    particles.live_count(), world.damage().rendered_fields().size());
 
     if (!render::capture_framebuffer_png(opt.out_path, window.width(), window.height())) {
         IMMUNE_LOG_ERROR("PNG write failed: %s", opt.out_path.c_str());

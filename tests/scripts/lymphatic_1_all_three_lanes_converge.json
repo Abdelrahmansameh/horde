@@ -6,11 +6,46 @@
   "max_chaff": 10000,
   "level": "assets/levels/lymphatic_1_nodal_junction.json",
   "actions": [
-    { "tick": 0, "type": "spawn_chaff", "family": "virus", "count": 20, "pos": [10, 90],  "radius": 3 },
-    { "tick": 0, "type": "spawn_chaff", "family": "virus", "count": 20, "pos": [10, 30],  "radius": 3 },
-    { "tick": 0, "type": "spawn_chaff", "family": "virus", "count": 20, "pos": [10, 150], "radius": 3 }
+    {
+      "tick": 0,
+      "type": "spawn_chaff",
+      "family": "virus",
+      "count": 20,
+      "pos": [
+        5.44,
+        49.0
+      ],
+      "radius": 1.63
+    },
+    {
+      "tick": 0,
+      "type": "spawn_chaff",
+      "family": "virus",
+      "count": 20,
+      "pos": [
+        5.44,
+        16.33
+      ],
+      "radius": 1.63
+    },
+    {
+      "tick": 0,
+      "type": "spawn_chaff",
+      "family": "virus",
+      "count": 20,
+      "pos": [
+        5.44,
+        81.67
+      ],
+      "radius": 1.63
+    }
   ],
   "assertions": [
-    { "tick": 2600, "metric": "chaff_leaked_total", "op": ">", "value": 0 }
+    {
+      "tick": 2600,
+      "metric": "chaff_leaked_total",
+      "op": ">",
+      "value": 0
+    }
   ]
 }
