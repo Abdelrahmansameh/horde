@@ -29,6 +29,9 @@ int main(int argc, char** argv) {
         case app::Mode::ListScenarios:
             return app::run_list_scenarios();
 
+        case app::Mode::DumpConfig:
+            return app::run_dump_config(options);
+
         case app::Mode::Bench:
             return app::run_bench(options);
 

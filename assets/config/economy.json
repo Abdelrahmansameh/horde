@@ -1,0 +1,7 @@
+{
+  "atp_per_density": 0.5,
+  "passive_income_per_second": 4.0,
+  "refund_fraction": 0.7,
+  "schema": 1,
+  "starting_atp": 300
+}

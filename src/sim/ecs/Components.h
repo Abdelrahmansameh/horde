@@ -82,8 +82,10 @@ struct Tower {
     EntityId current_target{};
 };
 
-/// Debuff applied by Dendritic Cells / B-Cell antibodies. On chaff this is a
-/// flag bit; on named agents it is this component.
+/// The named-agent half of the weaken debuff (chaff_flags::kMarked is the chaff
+/// half). Currently applied only by the Goblet Cell (see system_hydro in
+/// game/towers/TowerSystem.cpp), which also owns decaying and removing it —
+/// this component carries no lifecycle of its own.
 struct Marked {
     f32 remaining = 0.0f;
     f32 damage_multiplier = 1.5f;

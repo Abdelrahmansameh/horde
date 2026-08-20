@@ -18,6 +18,7 @@
 #include "core/JobSystem.h"
 #include "core/Profiler.h"
 #include "game/abilities/ActiveAbilities.h"
+#include "game/config/GameConfig.h"
 #include "game/economy/Economy.h"
 #include "game/enemies/EnemyRoster.h"
 #include "game/gym/GymCommands.h"
@@ -57,6 +58,15 @@ private:
     void render_frame();
     void enter_state(GameStateId id);
     bool load_level(const std::string& path);
+    /// Reads assets/config (or --config) into config_ and binds it for the gym
+    /// console. False if any file is missing or malformed.
+    bool load_tuning_config();
+    /// Pushes config_ into every system that can accept it at any time.
+    /// Called at init, on every level load, and after a hot reload.
+    void apply_tuning_config();
+    /// Content-compares the config files and re-applies them if they changed.
+    /// Off when --config pinned the directory.
+    void poll_config_reload(f32 dt);
     /// Scans the levels directory once and fills `levels_`. Cheap enough to do
     /// at startup (a dozen small JSON parses) and keeps the level list a pure
     /// function of what is on disk rather than a hardcoded table.
@@ -95,6 +105,14 @@ private:
     bool level_loaded_ = false;
 
     sim::SimWorld sim_;
+    /// Tuning loaded from assets/config. Owned here because App is the only
+    /// thing that outlives a level: a hot reload has to survive load_level().
+    config::ConfigStore config_store_;
+    game::GameConfig config_;
+    /// Seconds until the next config poll. Polling every frame would stat
+    /// seven files at 60 Hz for a file a human edits every few minutes.
+    f32 config_poll_timer_ = 0.0f;
+
     game::TowerSystem towers_;
     game::LaneOwnershipMap lane_map_;
     game::EnemyRoster enemies_;

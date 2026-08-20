@@ -77,8 +77,11 @@ struct DamageField {
     /// Lets NK Cells hit only kHidden targets, Cytotoxic T favour elites, etc.
     u8 family_mask = 0xFF;
 
-    /// Multiplier applied to agents carrying chaff_flags::kMarked
-    /// (Dendritic/B-Cell synergy).
+    /// Multiplier applied to agents carrying chaff_flags::kMarked (the Goblet
+    /// Cell's weaken debuff). Most casters set this to
+    /// chaff_flags::kMarkedDamageMultiplier; left at 1.0 it is a no-op, which is
+    /// the right default for a field that should not care whether its target is
+    /// weakened (friendly-fire hazards, for instance).
     f32 marked_multiplier = 1.0f;
 
     /// Seconds remaining. <= 0 means "persistent, refreshed by its owner each

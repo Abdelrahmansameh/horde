@@ -41,13 +41,25 @@ namespace immune::sim {
 /// Per-agent bit flags. Fits in a u8; keep it that way.
 namespace chaff_flags {
 inline constexpr u8 kAlive      = 1u << 0; ///< Slot occupied.
-inline constexpr u8 kMarked     = 1u << 1; ///< Dendritic-cell debuff: takes bonus damage.
+/// Weaken debuff: every damage source in the sim (DamageField.cpp,
+/// Projectiles.cpp, Swarmers.cpp) checks this bit and, if set, multiplies its
+/// own damage by kMarkedDamageMultiplier. Originally the Dendritic Cell's and
+/// the old B-Cell's job; the Goblet Cell's mucus coverage is the current (and
+/// only) source — see sim/fluid/Fluid.cpp. Nothing ever clears the bit once
+/// set, same as kSlowed below: a soaked agent stays weakened for the rest of
+/// its life, not just while fluid is actively touching it.
+inline constexpr u8 kMarked     = 1u << 1;
 inline constexpr u8 kSlowed     = 1u << 2; ///< In a NET / snare field.
 inline constexpr u8 kClumped    = 1u << 3; ///< Part of a bacterial biofilm; separation disabled.
 inline constexpr u8 kHidden     = 1u << 4; ///< Burrowed; only NK Cells may target.
 inline constexpr u8 kDrifting   = 1u << 5; ///< Fungal spore: ignores flow, follows ambient drift.
 inline constexpr u8 kReplicated = 1u << 6; ///< Spawned by viral replication (replication budget).
 inline constexpr u8 kPendingKill= 1u << 7; ///< Scheduled for removal by the next compact().
+
+/// The one weaken multiplier every kMarked-consuming damage path uses, so the
+/// number cannot drift between DamageField, Projectiles, Swarmers, and the
+/// named-agent comp::Marked component in sim/ecs/Components.h.
+inline constexpr f32 kMarkedDamageMultiplier = 1.5f;
 } // namespace chaff_flags
 
 /// Stable reference to a chaff agent across compaction. Rarely needed.

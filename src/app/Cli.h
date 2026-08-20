@@ -8,6 +8,7 @@
 //   immune --bench <scenario> --ticks N        Headless sim, JSON timings -> stdout.
 //   immune --sim-test <script.json>            Scripted scenario, exit 0 pass / 1 fail.
 //   immune --screenshot <level> --tick N --out <file.png>
+//   immune --dump-config <dir>                 Write the live tuning values as JSON.
 //
 // Global options: --seed N, --level <path>, --width N, --height N, --verbose,
 //                 --quiet, --threads N, --list-scenarios, --help
@@ -30,6 +31,7 @@ enum class Mode : u8 {
     SimTest,
     Screenshot,
     ListScenarios,
+    DumpConfig,
     Help,
     Invalid,
 };
@@ -66,6 +68,17 @@ struct Options {
     /// reproduced by a command line, and captured in a regression shot, without
     /// anyone first inventing a bespoke CLI flag for it.
     std::string exec;
+
+    /// --config <dir>: directory holding the tuning JSON. Empty means the
+    /// default, assets/config, resolved through platform::asset_path. Passing
+    /// it explicitly also pins the config: hot reload stays off, so a run
+    /// driven from a script cannot be retuned underneath itself.
+    std::string config_dir;
+    bool config_pinned = false;
+    /// --dump-config <dir>: write the live tuning values out as a complete set
+    /// of JSON files and exit. This is how assets/config is generated from the
+    /// code rather than transcribed by hand.
+    std::string dump_config_dir;
 
     u64 ticks = 600;            ///< --ticks / --tick
     u64 seed = 0x1234'5678'9abc'def0ULL;

@@ -1,0 +1,9 @@
+{
+  "base_run_reward": 10,
+  "chaff_per_point": 200,
+  "per_boss_reward": 50,
+  "per_elite_reward": 8,
+  "per_wave_reward": 15,
+  "schema": 1,
+  "win_bonus": 40
+}

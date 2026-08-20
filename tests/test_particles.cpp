@@ -61,7 +61,7 @@ TEST_CASE("each tower source produces particles for its own signature event",
         {TowerType::Macrophage, sim::CombatEventType::Explosion},
         {TowerType::Interferon, sim::CombatEventType::ConePulse},
         {TowerType::CytotoxicT, sim::CombatEventType::ChainArc},
-        {TowerType::BCell,      sim::CombatEventType::BeamFired},
+        {TowerType::GobletCell, sim::CombatEventType::MuzzleFlash},
         {TowerType::NKCell,     sim::CombatEventType::BladeSlash},
     };
     for (const auto& [tower, event] : cases) {
@@ -129,7 +129,7 @@ TEST_CASE("build_instances returns only the requested blend mode", "[vfx][partic
 TEST_CASE("clear retires everything", "[vfx][particles]") {
     ParticleSystem ps;
     ps.init(1024, 3);
-    ps.emit_for_event(make_event(sim::CombatEventType::BeamFired, TowerType::BCell, 4));
+    ps.emit_for_event(make_event(sim::CombatEventType::MuzzleFlash, TowerType::GobletCell, 4));
     REQUIRE(ps.live_count() > 0);
     ps.clear();
     REQUIRE(ps.live_count() == 0);

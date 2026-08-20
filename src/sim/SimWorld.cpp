@@ -28,6 +28,9 @@ void SimWorld::init(const SimDesc& desc, JobSystem* jobs) {
     damage_.reserve(desc.max_damage_fields);
     projectiles_.reserve(desc.max_projectiles);
     swarmers_.reserve(desc.max_swarmers);
+    fluid_.reserve(desc.max_fluid_particles);
+    fluid_.clear();
+    fluid_system_.configure(desc.world_bounds, desc.fluid_tuning);
     combat_events_.reserve(desc.max_combat_events);
     damage_.clear_all();
 
@@ -84,6 +87,16 @@ void SimWorld::tick(Profiler* profiler) {
     swarmer_system_.update(swarmers_, chaff_, spatial_, desc_.world_bounds,
                            rng_, kFixedDt, &combat_events_);
 
+    // 4d. Fluid. Same placement rule and the same reason again -- after the ECS
+    // tick so this tick's freshly emitted jet exists, and before the single
+    // chaff compaction so the mucus film's damage lands in the same accounting
+    // pass as everything else. It runs LAST of the three on purpose: the solver
+    // reads the chaff spatial hash for crowd braking, and running it after the
+    // other two means a round or a granule that already killed an agent this
+    // tick has not yet moved that agent's slot out from under the grid.
+    fluid_system_.update(fluid_, chaff_, spatial_, sdf_, desc_.world_bounds,
+                         kFixedDt, &combat_events_);
+
     // 5. Compaction / kill accounting.
     killed_total_ += chaff_.compact();
     damage_.clear_transient(kFixedDt);
@@ -135,6 +148,15 @@ u64 SimWorld::state_hash() const {
         mix(chaff_.density.data(), n * sizeof(f32));
         mix(chaff_.family.data(), n * sizeof(u8));
         mix(chaff_.flags.data(), n * sizeof(u8));
+    }
+    // The fluid is gameplay state -- it damages, it slows, and where it lands
+    // decides both -- so it belongs in the hash. Positions only: velocity and
+    // density are recomputed from them every substep, so hashing those too
+    // would cost three streams to detect nothing extra.
+    const usize fn = fluid_.count();
+    if (fn > 0) {
+        mix(fluid_.pos_x.data(), fn * sizeof(f32));
+        mix(fluid_.pos_y.data(), fn * sizeof(f32));
     }
     mix(&killed_total_, sizeof(killed_total_));
     mix(&leaked_total_, sizeof(leaked_total_));

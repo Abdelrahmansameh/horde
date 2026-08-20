@@ -62,6 +62,17 @@ else()
 endif()
 target_link_libraries(immune_platform PUBLIC immune_core glad::glad ${IMMUNE_SDL2_TARGET})
 
+# Tuning config. Sits above platform and below sim so that sim never needs a
+# JSON dependency: the config produces plain structs, and game/ + app/ inject
+# them into SimDesc/ChaffTuning at construction time.
+add_library(immune_config STATIC
+  src/config/ConfigStore.cpp
+  src/config/Field.cpp
+  src/config/Json.cpp
+  src/config/Registry.cpp)
+target_link_libraries(immune_config PUBLIC immune_core immune_platform
+  nlohmann_json::nlohmann_json)
+
 add_library(immune_sim STATIC
   src/sim/SimWorld.cpp
   src/sim/chaff/ChaffBuffers.cpp
@@ -71,6 +82,7 @@ add_library(immune_sim STATIC
   src/sim/ecs/EcsWorld.cpp
   src/sim/ecs/NamedAgents.cpp
   src/sim/flowfield/FlowField.cpp
+  src/sim/fluid/Fluid.cpp
   src/sim/projectile/Projectiles.cpp
   src/sim/swarm/Swarmers.cpp
   src/sim/spatial/SpatialHash.cpp)
@@ -89,7 +101,11 @@ add_library(immune_vfx STATIC src/vfx/Particles.cpp)
 target_link_libraries(immune_vfx PUBLIC immune_core immune_sim)
 
 add_library(immune_game STATIC
+  src/game/abilities/AbilityConfigApply.cpp
   src/game/abilities/ActiveAbilities.cpp
+  src/game/config/EnemyWaveConfig.cpp
+  src/game/config/GameConfig.cpp
+  src/game/config/TowerConfig.cpp
   src/game/economy/Economy.cpp
   src/game/enemies/EnemyRoster.cpp
   src/game/gym/GymCommands.cpp
@@ -97,7 +113,7 @@ add_library(immune_game STATIC
   src/game/meta/MetaProgression.cpp
   src/game/towers/TowerSystem.cpp
   src/game/wave/WaveDirector.cpp)
-target_link_libraries(immune_game PUBLIC immune_core immune_sim immune_render
+target_link_libraries(immune_game PUBLIC immune_core immune_config immune_sim immune_render
   nlohmann_json::nlohmann_json)
 
 add_library(immune_ui STATIC src/ui/Hud.cpp src/ui/Menu.cpp src/ui/Fonts.cpp

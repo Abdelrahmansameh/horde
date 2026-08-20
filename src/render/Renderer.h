@@ -40,6 +40,7 @@ class TissueMask;
 class DistanceField;
 class ProjectileBuffers;
 class SwarmerBuffers;
+class FluidBuffers;
 struct DamageField;
 }
 
@@ -143,6 +144,7 @@ struct FrameStats {
     u32 vfx_fields_drawn = 0;
     u32 projectile_instances_drawn = 0;
     u32 swarmer_instances_drawn = 0;
+    u32 fluid_instances_drawn = 0;
     u32 particle_instances_drawn = 0;
     f64 submit_ms = 0.0;
 };
@@ -191,6 +193,30 @@ public:
     /// Damage/AoE fields as fluid shader effects (DESIGN.md §8.5): toxin clouds,
     /// histamine blooms, antibody tides, complement lightning.
     void submit_fields(const sim::DamageField* fields, usize count);
+
+    /// The Goblet Cell's live mucus (sim/fluid/Fluid.h), surfaced as a real
+    /// liquid rather than as a cloud of sprites.
+    ///
+    /// WHY THIS IS TWO PASSES AND NOT ONE
+    /// Every other particle-ish pass in this renderer draws one blended sprite
+    /// per element and is done. That is exactly wrong for a fluid: a thousand
+    /// overlapping soft discs read as fog, and the one thing that makes liquid
+    /// look like liquid is a SURFACE — a hard, continuous, curved boundary with
+    /// a highlight on it. A surface cannot be produced by any single sprite,
+    /// because it is a property of where the particles are *together*.
+    ///
+    /// So the particles are accumulated additively into an offscreen thickness
+    /// buffer (pass one), and a fullscreen pass then thresholds that field into
+    /// a surface and shades it — normals from the screen-space gradient of
+    /// thickness, specular and fresnel off those normals, depth tint from the
+    /// thickness itself (pass two). This is the standard screen-space fluid
+    /// approach and it is the reason two adjacent droplets MERGE into one body
+    /// with a single unbroken outline instead of showing a seam.
+    ///
+    /// `particle_radius` comes from FluidSystem::draw_radius(): the solver owns
+    /// how far apart particles sit, so it also owns how big they must be drawn
+    /// for the field to close up between them.
+    void submit_fluid(const sim::FluidBuffers& fluid, f32 particle_radius);
 
     /// Live projectile rounds, as one instanced draw over the SoA store. These
     /// are the Gunner's actual simulated rounds — the cosmetic tracer trails
@@ -250,6 +276,9 @@ private:
 /// pathogen colour — UI, VFX, and the instance tint all read this so the
 /// "colour = family" rule cannot drift between systems.
 Vec4 family_color(PathogenFamily family);
+/// Overrides the family colour code. assets/config/enemies.json calls this at
+/// load; the compiled-in values remain the defaults.
+void set_family_color(PathogenFamily family, Vec4 color);
 
 /// Packs a linear RGBA colour to the u32 layout ChaffInstance::tint_rgba8 uses.
 u32 pack_rgba8(Vec4 color);

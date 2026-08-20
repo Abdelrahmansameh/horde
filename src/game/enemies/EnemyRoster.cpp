@@ -9,6 +9,8 @@
 // couple of small registered systems) rather than a class hierarchy.
 #include "game/enemies/EnemyRoster.h"
 
+#include "game/enemies/EnemyConfigApply.h"
+
 #include "core/Math.h"
 #include "render/ChaffBatcher.h"
 #include "render/Renderer.h"
@@ -44,16 +46,13 @@ struct SpeedProfile {
     f32 jitter;
 };
 
+/// The four tiers, now read from assets/config/enemies.json. Erratic
+/// deliberately reads through jitter rather than raw top speed: sudden,
+/// unpredictable impulses rather than a flat-out sprint (DESIGN.md's Parasite
+/// tempo).
 SpeedProfile speed_profile(SpeedTier tier) {
-    switch (tier) {
-        case SpeedTier::Slow:    return SpeedProfile{5.625f, 20.25f, 0.12f};
-        case SpeedTier::Normal:  return SpeedProfile{10.125f, 36.0f, 0.30f};
-        case SpeedTier::Fast:    return SpeedProfile{16.875f, 63.0f, 0.45f};
-        // Erratic reads through jitter, not raw top speed: sudden, unpredictable
-        // impulses rather than a flat-out sprint (DESIGN.md's Parasite tempo).
-        case SpeedTier::Erratic: return SpeedProfile{12.375f, 45.0f, 1.00f};
-    }
-    return SpeedProfile{9.0f, 36.0f, 0.30f};
+    const SpeedProfileParams& p = enemy_speed_profile(tier);
+    return SpeedProfile{p.max_speed, p.acceleration, p.jitter};
 }
 
 // ---------------------------------------------------------------------------
@@ -783,8 +782,10 @@ const EliteDef* EnemyRoster::find_elite(std::string_view name) const {
 }
 
 void EnemyRoster::apply_to_tuning(sim::ChaffTuning& tuning) const {
+    const EnemyConfig& cfg = enemy_config();
     for (u32 i = 0; i < kFamilyCount; ++i) {
         const FamilyDef& d = families_[i];
+        const FamilyChaffParams& fc = cfg.families[i].chaff;
         sim::ChaffFamilyParams& p = tuning.family[i];
         const SpeedProfile sp = speed_profile(d.speed_tier);
 
@@ -793,32 +794,46 @@ void EnemyRoster::apply_to_tuning(sim::ChaffTuning& tuning) const {
         p.jitter = sp.jitter;
         p.base_density = d.base_density;
 
-        // Physical footprint mirrors the renderer's silhouette table
-        // (render::family_visual, Wave 1C) so a chaff agent's collision size
-        // can never disagree with what's drawn — the same "single source of
-        // truth" reasoning FamilyDef::color's doc comment states for colour,
-        // just applied to size instead of tint.
+        // Physical footprint mirrors the renderer's silhouette so a chaff
+        // agent's collision size can never disagree with what is drawn -- the
+        // same "single source of truth" reasoning FamilyDef::color's comment
+        // states for colour, applied to size instead. Both multipliers are
+        // authorable now, so the relationship stays visible and adjustable
+        // rather than buried in this function.
         const f32 silhouette = render::family_visual(d.family).silhouette;
-        p.radius = silhouette * 0.5f;
-        p.separation_radius = p.radius * 2.4f;
-        // Denser/tankier families push harder apart so they read as distinct
-        // mass rather than an overlapping pile. chaff_flags::kClumped
-        // (set per-instance, e.g. by the biofilm elite's pulse) overrides this
-        // to zero regardless — see ChaffSystem::update's accumulate pass.
-        p.separation_strength = math::min(6.0f + d.base_density * 1.5f, 12.0f);
+        p.radius = silhouette * fc.radius_from_silhouette;
+        p.separation_radius = p.radius * fc.separation_radius_mul;
+        // Until a config is applied, the three values enemies.json now owns are
+        // still DERIVED here, exactly as they always were. Without this a bare
+        // EnemyRoster -- a unit test, and more importantly default_game_config()
+        // generating the shipped files -- would read the empty seed and produce
+        // a virus that does not replicate and a spore that does not drift.
+        const bool from_config = enemy_config_applied();
+        p.separation_strength = from_config
+                                    ? fc.separation_strength
+                                    : math::min(6.0f + d.base_density * 1.5f, 12.0f);
 
-        // Family-specific mechanics, straight off the flag bits: only
-        // FungalSpore drifts, only Virus replicates.
-        p.drift_bias = d.drifts ? 0.75f : 0.0f;
-        p.replication_rate = d.replicates ? 0.2f : 0.0f;
+        // The fluid-feel block. Every one of these was unreachable from any
+        // data path before the config existed: struct defaults nothing wrote.
+        p.alignment_radius = fc.alignment_radius;
+        p.alignment_strength = fc.alignment_strength;
+        p.pressure_threshold = fc.pressure_threshold;
+        p.pressure_gain = fc.pressure_gain;
+        p.pressure_max = fc.pressure_max;
+        p.wall_restitution = fc.wall_restitution;
+        p.wall_splash = fc.wall_splash;
+        p.contact_spacing = fc.contact_spacing;
+        p.contact_stiffness = fc.contact_stiffness;
+
+        p.drift_bias = from_config ? fc.drift_bias : (d.drifts ? 0.75f : 0.0f);
+        p.replication_rate = from_config ? fc.replication_rate : (d.replicates ? 0.2f : 0.0f);
     }
 
-    // Nothing else currently owns a world "wind" direction; give kDrifting
-    // fungal spores somewhere to drift rather than standing still with only
-    // jitter to move them. A future level/weather system can override this
-    // per level — SimDesc::chaff_tuning is copied into ChaffSystem at
-    // SimWorld::init(), so whichever call sets it last wins.
-    tuning.ambient_drift = Vec2{0.5f, 0.28f};
+    // NOTE: ambient_drift is deliberately NOT set here any more. This function
+    // used to stamp a hardcoded Vec2{0.5, 0.28} over the whole tuning, which
+    // silently overrode LevelDef::ambient_drift -- a field the level schema has
+    // parsed and then discarded since it was written. sim.json now supplies the
+    // default and the level file overrides it, both applied by the caller.
 }
 
 EntityId EnemyRoster::spawn_elite(sim::SimWorld& world, u16 elite_id, Vec2 pos) const {
@@ -901,6 +916,94 @@ void allergen_overreaction(sim::SimWorld& world, Vec2 origin, f32 radius, f32 ki
     field.lifetime = duration;
     field.friendly_fire = true;
     world.damage().submit(field);
+}
+
+// ---------------------------------------------------------------------------
+// Config application (game/enemies/EnemyConfigApply.h)
+// ---------------------------------------------------------------------------
+
+namespace {
+
+/// The live tuning apply_to_tuning() and speed_profile() read.
+///
+/// It starts out holding exactly the values this file used to hardcode, so a
+/// roster that never sees enemies.json behaves as it always did -- and so
+/// default_game_config() can read the shipped defaults back out of here
+/// instead of restating them.
+EnemyConfig& mutable_enemy_config() {
+    static EnemyConfig cfg = [] {
+        EnemyConfig seed;
+        seed.speed_tiers[static_cast<u32>(SpeedTier::Slow)] =
+            SpeedProfileParams{5.625f, 20.25f, 0.12f};
+        seed.speed_tiers[static_cast<u32>(SpeedTier::Normal)] =
+            SpeedProfileParams{10.125f, 36.0f, 0.30f};
+        seed.speed_tiers[static_cast<u32>(SpeedTier::Fast)] =
+            SpeedProfileParams{16.875f, 63.0f, 0.45f};
+        seed.speed_tiers[static_cast<u32>(SpeedTier::Erratic)] =
+            SpeedProfileParams{12.375f, 45.0f, 1.00f};
+        return seed;
+    }();
+    return cfg;
+}
+
+bool g_enemy_config_applied = false;
+
+} // namespace
+
+const EnemyConfig& enemy_config() { return mutable_enemy_config(); }
+
+bool enemy_config_applied() { return g_enemy_config_applied; }
+
+const SpeedProfileParams& enemy_speed_profile(SpeedTier tier) {
+    const u32 i = static_cast<u32>(tier);
+    return mutable_enemy_config().speed_tiers[i < 4u ? i : 1u];
+}
+
+void apply_enemy_config(EnemyRoster& roster, const EnemyConfig& cfg) {
+    mutable_enemy_config() = cfg;
+    g_enemy_config_applied = true;
+
+    // render/ cannot see game/, so the family look has to be pushed down.
+    // Do this BEFORE load_defaults(), which reads render::family_color back
+    // out into FamilyDef::color.
+    for (u32 i = 0; i < kFamilyCount; ++i) {
+        const auto family = static_cast<PathogenFamily>(i);
+        const FamilyVisualParams& v = cfg.families[i].visual;
+        render::set_family_visual(family, render::FamilyVisual{v.silhouette, v.tempo, v.wobble});
+        render::set_family_color(family, v.color);
+    }
+
+    roster.load_defaults();
+
+    for (u32 i = 0; i < kFamilyCount; ++i) {
+        const FamilyConfig& fc = cfg.families[i];
+        FamilyDef& d = roster.families_[i];
+        d.speed_tier = fc.speed_tier;
+        d.base_density = fc.behavior.base_density;
+        d.replicates = fc.behavior.replicates;
+        d.clumps = fc.behavior.clumps;
+        d.drifts = fc.behavior.drifts;
+        d.can_hide = fc.behavior.can_hide;
+        d.leaves_hazard = fc.behavior.leaves_hazard;
+    }
+
+    // Elites are matched by id, not by position: reordering the JSON array
+    // must not silently reassign one archetype's health to another. An id the
+    // roster does not know is ignored rather than fatal -- the behaviour code
+    // for it would not exist either.
+    for (const EliteConfig& ec : cfg.elites) {
+        for (EliteDef& def : roster.elites_) {
+            if (def.id != ec.id) continue;
+            def.max_health = ec.stats.max_health;
+            def.armor = ec.stats.armor;
+            def.speed = ec.stats.speed;
+            def.sprite_size = ec.stats.sprite_size;
+            def.ability_cooldown = ec.stats.ability_cooldown;
+            def.telegraph_duration = ec.stats.telegraph_duration;
+            def.atp_bounty = ec.stats.atp_bounty;
+            break;
+        }
+    }
 }
 
 } // namespace immune::game

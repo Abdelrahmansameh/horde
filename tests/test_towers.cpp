@@ -20,7 +20,7 @@
 //
 // WAVE 6C COMBAT TESTS
 // Each role gets a test that proves its CHARACTERISTIC GEOMETRY, not merely
-// that it did damage: the cone hits in front and not behind, the laser hits
+// that it did damage: the cone hits in front and not behind, the jet hits
 // along its line and not off-axis, the blade hits adjacent and not distant,
 // the mortar's burst is genuinely large, the tesla chains across separated
 // targets, and the gunner puts real rounds into world.projectiles() that then
@@ -28,6 +28,7 @@
 // whole particle layer is downstream of those events and renders nothing
 // without them.
 #include "game/towers/TowerSystem.h"
+#include "game/towers/TowerMechanics.h"
 
 #include "core/JobSystem.h"
 #include "core/Math.h"
@@ -43,6 +44,7 @@
 #include "sim/ecs/NamedAgents.h"
 #include "vfx/Particles.h"
 
+#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 #include <cstdio>
@@ -133,12 +135,14 @@ void step_combat(SimWorld& world) {
     world.swarmer_system().update(world.swarmers(), world.chaff(), world.spatial(),
                                   world.desc().world_bounds, world.rng(), kFixedDt,
                                   &world.combat_events());
+    world.fluid_system().update(world.fluid(), world.chaff(), world.spatial(), world.sdf(),
+                                world.desc().world_bounds, kFixedDt, &world.combat_events());
     world.damage().clear_transient(kFixedDt);
 }
 
 /// Just the submission half of a step. Needed because step_combat() ends with
 /// clear_transient(), which by contract drops every `lifetime <= 0` field —
-/// i.e. exactly the PERSISTENT fields the Cryo/Laser/Blade resubmit each tick.
+/// i.e. exactly the PERSISTENT fields the Cryo and the Blade resubmit each tick.
 /// A test that wants to look at those has to look between submission and
 /// expiry, which is the same window sim/damage itself evaluates them in.
 void submit_only(SimWorld& world) {
@@ -252,7 +256,7 @@ TEST_CASE("the six roles occupy genuinely different niches in the stats table", 
     const TowerStats mortar = ts.stats(TowerType::Macrophage, 1);
     const TowerStats cryo   = ts.stats(TowerType::Interferon, 1);
     const TowerStats tesla  = ts.stats(TowerType::CytotoxicT, 1);
-    const TowerStats laser  = ts.stats(TowerType::BCell, 1);
+    const TowerStats hydro  = ts.stats(TowerType::GobletCell, 1);
     const TowerStats blade  = ts.stats(TowerType::NKCell, 1);
 
     // GUNNER is the only tower with no damage field at all: its damage is
@@ -262,27 +266,37 @@ TEST_CASE("the six roles occupy genuinely different niches in the stats table", 
     REQUIRE(gunner.fire_interval < cryo.fire_interval);
     REQUIRE(gunner.fire_interval < tesla.fire_interval);
 
-    // MORTAR: slowest cadence in the roster by a wide margin, longest single
-    // burst, and the highest instantaneous kill_rate.
-    REQUIRE(mortar.fire_interval > 5.0f * laser.fire_interval);
+    // MORTAR: slowest cadence in the roster, longest single burst, and the
+    // highest instantaneous kill_rate.
+    REQUIRE(mortar.fire_interval > gunner.fire_interval);
+    REQUIRE(mortar.fire_interval > cryo.fire_interval);
+    REQUIRE(mortar.fire_interval > tesla.fire_interval);
+    REQUIRE(mortar.fire_interval > hydro.fire_interval);
+    REQUIRE(mortar.fire_interval > blade.fire_interval);
     REQUIRE(mortar.kill_rate > tesla.kill_rate);
 
     // CRYO: the weakest killer in the roster. Its value is the slow.
     REQUIRE(cryo.kill_rate < mortar.kill_rate);
     REQUIRE(cryo.kill_rate < tesla.kill_rate);
-    REQUIRE(cryo.kill_rate < laser.kill_rate);
+    REQUIRE(cryo.kill_rate < hydro.kill_rate);
     REQUIRE(cryo.kill_rate < blade.kill_rate);
 
-    // LASER reaches furthest of the continuous towers; BLADE reaches least far
-    // of anything, by a lot.
-    REQUIRE(laser.range > gunner.range);
-    REQUIRE(laser.range > cryo.range);
+    // HYDRO is the slow-cadence area denier: it reloads between bursts rather
+    // than firing continuously, so its interval sits far above every tower that
+    // does fire continuously, and well below the Mortar's.
+    REQUIRE(hydro.fire_interval > cryo.fire_interval);
+    REQUIRE(hydro.fire_interval > blade.fire_interval);
+    REQUIRE(hydro.fire_interval < mortar.fire_interval);
+    // ...and it out-reaches the contact tower by a wide margin while staying
+    // inside the Cryo's signalling range.
+    REQUIRE(hydro.range > blade.range);
+    REQUIRE(hydro.range < cryo.range);
     REQUIRE(blade.range < 0.5f * gunner.range);
 
     // Cost ordering: the cheap workhorse, then the wall, then the specialists.
     REQUIRE(gunner.build_cost < blade.build_cost);
     REQUIRE(blade.build_cost < cryo.build_cost);
-    REQUIRE(laser.build_cost > mortar.build_cost);
+    REQUIRE(hydro.build_cost > mortar.build_cost);
 }
 
 TEST_CASE("tower_type_name/parse_tower_type round-trip for every roster type", "[towers][naming]") {
@@ -309,13 +323,17 @@ TEST_CASE("tower_type_name/parse_tower_type round-trip for every roster type", "
 //   TESLA   kill_rate * arc_time / interval      exists for a fraction of the
 //                                                cycle, so the duty cycle is
 //                                                part of the output.
+//   HYDRO   kill_rate * burst    / interval   -- also a burst role: the mucus
+//                                                is only leaving the nozzle for
+//                                                part of the cycle.
 //   CRYO    kill_rate                         -- continuous, persistent field
-//   LASER   kill_rate                            resubmitted every tick.
-//   BLADE   kill_rate
+//   BLADE   kill_rate                            resubmitted every tick.
 //
 // kMortarBurstSeconds / kTeslaArcSeconds are the same constants declared at the
 // top of src/game/towers/TowerSystem.cpp; they have nowhere to live in the
-// frozen TowerStats struct.
+// frozen TowerStats struct. The Hydro's burst length DOES have a home -- it is
+// a tunable in HydroParams -- so it is read back through tower_mechanics()
+// rather than mirrored here, and the two cannot drift.
 // ---------------------------------------------------------------------------
 
 namespace {
@@ -323,14 +341,19 @@ namespace {
 constexpr f32 kMortarBurstSeconds = 0.30f;
 constexpr f32 kTeslaArcSeconds = 0.12f;
 
-f32 tower_output(TowerType type, const TowerStats& s) {
+f32 tower_output(TowerType type, u8 tier, const TowerStats& s) {
     const f32 rate = s.fire_interval > 0.0f ? 1.0f / s.fire_interval : 0.0f;
     switch (type) {
     case TowerType::Neutrophil: return s.damage * rate;
     case TowerType::Macrophage: return s.kill_rate * kMortarBurstSeconds * rate;
     case TowerType::CytotoxicT: return s.kill_rate * kTeslaArcSeconds * rate;
+    // HYDRO sprays for burst_seconds out of every fire_interval, so its output
+    // is a duty cycle exactly like the Mortar's and the Tesla's -- not the flat
+    // kill_rate the continuous towers get. The burst also LENGTHENS with tier,
+    // which is part of the upgrade, so the tier has to be in the formula.
+    case TowerType::GobletCell:
+        return s.kill_rate * tower_mechanics(type, tier).hydro.burst_seconds * rate;
     case TowerType::Interferon:
-    case TowerType::BCell:
     case TowerType::NKCell:
     default:                    return s.kill_rate;
     }
@@ -355,9 +378,9 @@ TEST_CASE("upgrading is a better ATP-per-output deal than a fresh tower, for eve
         REQUIRE(s2.upgrade_cost < s1.upgrade_cost);
         REQUIRE(s2.upgrade_cost > 0);
 
-        const f32 o1 = tower_output(type, s1);
-        const f32 o2 = tower_output(type, s2);
-        const f32 o3 = tower_output(type, s3);
+        const f32 o1 = tower_output(type, 1, s1);
+        const f32 o2 = tower_output(type, 2, s2);
+        const f32 o3 = tower_output(type, 3, s3);
         REQUIRE(o1 > 0.0f);
 
         // Accelerating value: tier 2 pushes output well above 2x tier 1's,
@@ -945,57 +968,246 @@ TEST_CASE("SWARM granules dissolve on their own lifetime, so the cloud stays bou
 }
 
 // ---------------------------------------------------------------------------
-// LASER — B-Cell. Beam geometry.
+// HYDRO - Goblet Cell. Fluid behaviour.
+//
+// These are behavioural, not geometric, and that is the point of the tower:
+// there is no beam rectangle left to assert on. What has to be true is that the
+// fluid LEAVES, TRAVELS, LANDS, SPREADS, and EXPIRES -- and that damage follows
+// where the fluid actually went rather than a shape the tower declared.
 // ---------------------------------------------------------------------------
 
-TEST_CASE("LASER pierces everything along its line at once and misses everything off-axis",
-          "[towers][combat][laser]") {
+TEST_CASE("HYDRO fires in bursts: fluid leaves, then the nozzle closes and reloads",
+          "[towers][combat][hydro]") {
     SimWorld world = make_world();
     TowerSystem ts;
     ts.register_systems(world);
-    const EntityId tower = ts.place(world, TowerType::BCell, kRoomCenterLeft);
+    const EntityId tower = ts.place(world, TowerType::GobletCell, kRoomCenterLeft);
+    REQUIRE(tower.valid());
+    ready_now(world, tower);
+    spawn_chaff_cluster(world, kRoomCenterLeft + Vec2{8.0f, 0.0f}, 30, 6.0f, /*spread=*/0.8f);
+
+    // The nozzle must actually open.
+    for (int i = 0; i < 4; ++i) step_combat(world);
+    INFO("particles emitted in the first 4 ticks: " << world.fluid().count());
+    REQUIRE(world.fluid().count() > 0);
+
+    // ...and it must CLOSE. burst_seconds is well under the reload interval, so
+    // once the burst ends the live count can only fall: nothing new is leaving
+    // while plenty is still expiring.
+    const f32 burst = tower_mechanics(TowerType::GobletCell, 1).hydro.burst_seconds;
+    const int burst_ticks = static_cast<int>(burst * 60.0f) + 2;
+    for (int i = 4; i < burst_ticks; ++i) step_combat(world);
+    const usize at_burst_end = world.fluid().count();
+    for (int i = 0; i < 8; ++i) step_combat(world);
+    INFO("at burst end " << at_burst_end << ", eight ticks later " << world.fluid().count());
+    REQUIRE(world.fluid().count() <= at_burst_end);
+}
+
+TEST_CASE("HYDRO fluid expires on its own, so a burst is a moment and not terrain",
+          "[towers][combat][hydro]") {
+    SimWorld world = make_world();
+    TowerSystem ts;
+    ts.register_systems(world);
+    const EntityId tower = ts.place(world, TowerType::GobletCell, kRoomCenterLeft);
+    REQUIRE(tower.valid());
+    ready_now(world, tower);
+    spawn_chaff_cluster(world, kRoomCenterLeft + Vec2{8.0f, 0.0f}, 20, 6.0f, /*spread=*/0.8f);
+
+    for (int i = 0; i < 20; ++i) step_combat(world);
+    REQUIRE(world.fluid().count() > 0);
+
+    // Sell the tower, then run past the longest droplet lifetime. Every
+    // particle must be gone: a fluid that leaked slots would be a slow-motion
+    // capacity exhaustion the player would only ever notice as the game dying.
+    REQUIRE(ts.sell(world, tower) > 0u);
+    const f32 longest = tower_mechanics(TowerType::GobletCell, 3).hydro.droplet_lifetime;
+    const int ticks = static_cast<int>(longest * 60.0f) + 30;
+    for (int i = 0; i < ticks; ++i) step_combat(world);
+    INFO("fluid still alive " << longest << "s after the tower was sold: "
+         << world.fluid().count());
+    REQUIRE(world.fluid().count() == 0);
+}
+
+TEST_CASE("HYDRO fluid travels downrange, damages what it lands on, and weakens it",
+          "[towers][combat][hydro]") {
+    SimWorld world = make_world();
+    TowerSystem ts;
+    ts.register_systems(world);
+    const EntityId tower = ts.place(world, TowerType::GobletCell, kRoomCenterLeft);
     REQUIRE(tower.valid());
     ready_now(world, tower);
 
-    const Vec2 near_on_axis{16.0f, 10.0f};
-    const Vec2 far_on_axis{24.0f, 10.0f};
-    const Vec2 off_axis{20.0f, 13.5f};
-    spawn_chaff_cluster(world, near_on_axis, 30, 4.0f, /*spread=*/0.25f);  // wins the aim
-    spawn_chaff_cluster(world, far_on_axis, 10, 4.0f, /*spread=*/0.25f);
-    spawn_chaff_cluster(world, off_axis, 10, 4.0f, /*spread=*/0.25f);
+    const Vec2 downrange = kRoomCenterLeft + Vec2{8.0f, 0.0f};
+    const Vec2 behind = kRoomCenterLeft - Vec2{6.0f, 0.0f};
+    spawn_chaff_cluster(world, downrange, 40, 6.0f, /*spread=*/0.9f);
+    spawn_chaff_cluster(world, behind, 10, 6.0f, /*spread=*/0.5f);
 
-    const f32 near_before = density_in(world, near_on_axis, 1.0f);
-    const f32 far_before = density_in(world, far_on_axis, 1.0f);
-    const f32 off_before = density_in(world, off_axis, 1.0f);
+    const f32 downrange_before = density_in(world, downrange, 2.0f);
+    const f32 behind_before = density_in(world, behind, 2.0f);
 
-    for (int i = 0; i < 30; ++i) step_combat(world);
+    // Long enough for a burst to leave, cross eight units, and soak.
+    for (int i = 0; i < 60; ++i) step_combat(world);
 
-    const CombatEvent* beam = first_event(world, CombatEventType::BeamFired, TowerType::BCell);
-    REQUIRE(beam != nullptr);
-    REQUIRE(math::length(beam->secondary - beam->origin) >= 14.0f);   // spans the full reach
-    REQUIRE(beam->direction.x > 0.5f);
+    INFO("downrange " << downrange_before << "->" << density_in(world, downrange, 2.0f)
+         << "  behind " << behind_before << "->" << density_in(world, behind, 2.0f));
+    REQUIRE(density_in(world, downrange, 2.0f) < downrange_before);
+    // Nothing behind the nozzle is touched. Unlike the damage FIELDS the rest
+    // of the roster publishes, there is no shape centred on the tower that
+    // could clip something standing at its back.
+    REQUIRE(density_in(world, behind, 2.0f) == behind_before);
 
-    INFO("near " << near_before << "->" << density_in(world, near_on_axis, 1.0f)
-         << "  far " << far_before << "->" << density_in(world, far_on_axis, 1.0f)
-         << "  off " << off_before << "->" << density_in(world, off_axis, 1.0f));
-
-    // Pierces: BOTH on-axis clusters lose density in the same window, including
-    // the one hiding behind the first.
-    REQUIRE(density_in(world, near_on_axis, 1.0f) < near_before);
-    REQUIRE(density_in(world, far_on_axis, 1.0f) < far_before);
-    // ...and the off-axis cluster, only 3.5 units to the side, is untouched.
-    REQUIRE(density_in(world, off_axis, 1.0f) == off_before);
-
-    submit_only(world);
-    bool found_rect = false;
-    for (const DamageField& f : world.damage().fields()) {
-        if (f.owner != tower) continue;
-        REQUIRE(f.shape == FieldShape::Rect);
-        const Vec2 size = f.rect.size();
-        REQUIRE(math::max(size.x, size.y) > 8.0f * math::min(size.x, size.y));  // long and thin
-        found_rect = true;
+    // Soaked chaff is also weakened, which is the tower's real contribution --
+    // and NOT slowed: the Goblet Cell is a force multiplier for the rest of
+    // the roster, not a second root alongside Interferon's cone and
+    // Neutrophil's NET.
+    const ChaffBuffers& chaff = world.chaff();
+    u32 marked = 0, slowed = 0;
+    for (usize i = 0; i < chaff.count(); ++i) {
+        if (math::length_sq(Vec2{chaff.pos_x[i], chaff.pos_y[i]} - downrange) > 4.0f) continue;
+        if ((chaff.flags[i] & chaff_flags::kMarked) != 0) ++marked;
+        if ((chaff.flags[i] & chaff_flags::kSlowed) != 0) ++slowed;
     }
-    REQUIRE(found_rect);
+    INFO("marked agents downrange: " << marked << ", slowed: " << slowed);
+    REQUIRE(marked > 0);
+    REQUIRE(slowed == 0);
+}
+
+TEST_CASE("HYDRO publishes no damage field at all", "[towers][combat][hydro]") {
+    // The whole redesign in one assertion. The old LASER in this slot submitted
+    // a persistent axis-aligned Rect every tick, and the beam the player saw was
+    // a picture of that rect. The Goblet Cell's damage comes from where its
+    // fluid actually ended up, so there is nothing to submit -- and if anything
+    // ever starts submitting one, picture and kill zone can drift apart again.
+    SimWorld world = make_world();
+    TowerSystem ts;
+    ts.register_systems(world);
+    const EntityId tower = ts.place(world, TowerType::GobletCell, kRoomCenterLeft);
+    REQUIRE(tower.valid());
+    ready_now(world, tower);
+    spawn_chaff_cluster(world, kRoomCenterLeft + Vec2{8.0f, 0.0f}, 30, 6.0f, /*spread=*/0.8f);
+
+    for (int i = 0; i < 10; ++i) step_combat(world);
+    submit_only(world);
+    for (const DamageField& f : world.damage().fields()) {
+        INFO("unexpected damage field owned by the Goblet Cell");
+        REQUIRE(f.owner != tower);
+    }
+}
+
+TEST_CASE("HYDRO fluid piles against a wall instead of passing through it",
+          "[towers][combat][hydro]") {
+    // Aimed into the left room's north wall (y >= 16 is solid). The jet must
+    // stop AT the boundary and spread along it, which is the splash mechanism
+    // itself, and no particle may end up buried inside the tissue.
+    SimWorld world = make_world();
+    TowerSystem ts;
+    ts.register_systems(world);
+    const EntityId tower = ts.place(world, TowerType::GobletCell, Vec2{12.0f, 10.0f});
+    REQUIRE(tower.valid());
+    ready_now(world, tower);
+
+    // The only chaff is jammed against the wall, so the tower aims north.
+    spawn_chaff_cluster(world, Vec2{12.0f, 15.0f}, 40, 6.0f, /*spread=*/0.6f);
+
+    f32 widest = 0.0f;
+    for (int i = 0; i < 90; ++i) {
+        step_combat(world);
+        const FluidBuffers& fl = world.fluid();
+        f32 lo = 1e9f;
+        f32 hi = -1e9f;
+        for (usize k = 0; k < fl.count(); ++k) {
+            // Nothing may sit inside solid tissue. The tolerance is not slack:
+            // the solver parks contacts a fraction of the rest spacing outside
+            // the surface and the SDF is bilinear, so exact zero is not the
+            // contract -- "not buried" is.
+            REQUIRE(world.sdf().sample(Vec2{fl.pos_x[k], fl.pos_y[k]}) > -0.35f);
+            if (fl.pos_y[k] < 14.0f) continue;   // only the fluid at the wall
+            lo = math::min(lo, fl.pos_x[k]);
+            hi = math::max(hi, fl.pos_x[k]);
+        }
+        if (hi > lo) widest = math::max(widest, hi - lo);
+    }
+
+    // It spread. The nozzle is under two units across at tier 1, so a lateral
+    // extent well past that at the wall can only have come from fluid being
+    // shoved sideways by the fluid arriving behind it.
+    INFO("widest lateral extent of fluid at the wall: " << widest);
+    REQUIRE(widest > 3.0f);
+}
+
+TEST_CASE("a marked named agent takes bonus damage from a tower other than the Goblet Cell",
+          "[towers][combat][hydro][marked]") {
+    // The named-agent half of the weaken debuff, end to end: the Goblet Cell's
+    // own strike_named call refreshes comp::Marked on whatever it hits
+    // (TowerSystem.cpp), and every other tower's strike_named call already
+    // reads it back. Two identical targets, two identical Macrophages, and the
+    // only difference between them is which one sits near a Goblet Cell.
+    //
+    // Macrophage, not Neutrophil: the placeholder elite's armor is 2.0
+    // (NamedAgents.cpp), and a tier-1 Gunner's 1.4 damage cannot even clear
+    // armor, let alone leave a measurable margin between a 1x and a 1.5x hit.
+    SimWorld world = make_world();
+    TowerSystem ts;
+    ts.register_systems(world);
+
+    const EntityId goblet = ts.place(world, TowerType::GobletCell, kRoomCenterLeft);
+    REQUIRE(goblet.valid());
+    ready_now(world, goblet);
+    const EntityId marked_target = spawn_named(world, kRoomCenterLeft + Vec2{4.0f, 0.0f});
+    const entt::entity marked_te = world.ecs().from_id(marked_target);
+
+    // Far enough from the Goblet Cell (range 16-20) that it can never reach
+    // here, in the other room make_world() carves out.
+    const EntityId plain_target = spawn_named(world, kRoomCenterRight + Vec2{4.0f, 0.0f});
+    const entt::entity plain_te = world.ecs().from_id(plain_target);
+
+    for (int i = 0; i < 90; ++i) step_combat(world);
+    REQUIRE(world.ecs().registry().all_of<comp::Marked>(marked_te));
+    REQUIRE_FALSE(world.ecs().registry().all_of<comp::Marked>(plain_te));
+
+    // 6 units clear of the Goblet Cell, not 3: the two footprints (2.0 + 1.4)
+    // reject anything closer as Overlapping.
+    const EntityId mortar_a = ts.place(world, TowerType::Macrophage, kRoomCenterLeft - Vec2{6.0f, 0.0f});
+    const EntityId mortar_b = ts.place(world, TowerType::Macrophage, kRoomCenterRight - Vec2{6.0f, 0.0f});
+    REQUIRE(mortar_a.valid());
+    REQUIRE(mortar_b.valid());
+    ready_now(world, mortar_a);
+    ready_now(world, mortar_b);
+
+    const f32 marked_before = world.ecs().registry().get<comp::Health>(marked_te).current;
+    const f32 plain_before = world.ecs().registry().get<comp::Health>(plain_te).current;
+
+    step_combat(world);
+
+    const f32 marked_loss = marked_before - world.ecs().registry().get<comp::Health>(marked_te).current;
+    const f32 plain_loss = plain_before - world.ecs().registry().get<comp::Health>(plain_te).current;
+    INFO("plain hit " << plain_loss << ", marked-target hit " << marked_loss);
+    REQUIRE(plain_loss > 0.0f);
+    REQUIRE(marked_loss == Catch::Approx(plain_loss * chaff_flags::kMarkedDamageMultiplier));
+}
+
+TEST_CASE("a named agent's weaken mark decays and clears once nothing refreshes it",
+          "[towers][combat][hydro][marked]") {
+    SimWorld world = make_world();
+    TowerSystem ts;
+    ts.register_systems(world);
+    const EntityId tower = ts.place(world, TowerType::GobletCell, kRoomCenterLeft);
+    REQUIRE(tower.valid());
+    ready_now(world, tower);
+    const EntityId target = spawn_named(world, kRoomCenterLeft + Vec2{4.0f, 0.0f});
+    const entt::entity te = world.ecs().from_id(target);
+
+    for (int i = 0; i < 90; ++i) step_combat(world);
+    REQUIRE(world.ecs().registry().all_of<comp::Marked>(te));
+
+    // Sell the tower so nothing ever refreshes the mark again, then outlast
+    // the longest mark_seconds the roster can produce, comfortably.
+    REQUIRE(ts.sell(world, tower) > 0u);
+    const f32 longest = tower_mechanics(TowerType::GobletCell, 3).hydro.mark_seconds;
+    const int ticks = static_cast<int>(longest * 60.0f) + 30;
+    for (int i = 0; i < ticks; ++i) step_combat(world);
+
+    REQUIRE_FALSE(world.ecs().registry().all_of<comp::Marked>(te));
 }
 
 // ---------------------------------------------------------------------------
@@ -1099,7 +1311,7 @@ TEST_CASE("every tower stamps its own TowerType and tier onto the events it rais
         {TowerType::Macrophage, CombatEventType::Explosion},
         {TowerType::Interferon, CombatEventType::ConePulse},
         {TowerType::CytotoxicT, CombatEventType::MuzzleFlash},
-        {TowerType::BCell, CombatEventType::BeamFired},
+        {TowerType::GobletCell, CombatEventType::MuzzleFlash},
         {TowerType::NKCell, CombatEventType::BladeSlash},
     };
 
@@ -1246,7 +1458,11 @@ TEST_CASE("a full roster of towers against a 10k horde stays inside the ecs_tick
 }
 
 // ---------------------------------------------------------------------------
-// Neutrophil's NET ability (kept from Wave 2B) and Interferon's flash freeze.
+// Neutrophil's NET ability (kept from Wave 2B). Interferon has no active
+// ability: it used to have a Flash Freeze nova, removed because it rendered
+// as a burst-Circle field, which the field shader tints amber regardless of
+// the casting tower — an unrelated yellow flash on an otherwise all-cyan
+// tower, with no shape of its own to tell it apart from a Macrophage shell.
 // ---------------------------------------------------------------------------
 
 TEST_CASE("Neutrophil's NET ability slows chaff and spawns drifting micro-units",
@@ -1273,25 +1489,13 @@ TEST_CASE("Neutrophil's NET ability slows chaff and spawns drifting micro-units"
     }
 }
 
-TEST_CASE("Interferon's flash-freeze ability locks down a full circle and raises Freeze events",
-          "[towers][ability][interferon]") {
+TEST_CASE("Interferon has no active ability", "[towers][ability][interferon]") {
     SimWorld world = make_world();
     TowerSystem ts;
     ts.register_systems(world);
     const EntityId tower = ts.place(world, TowerType::Interferon, kRoomCenterLeft);
     REQUIRE(tower.valid());
-    // Behind the tower as well as in front: the ability is a nova, not a cone.
-    spawn_chaff_cluster(world, kRoomCenterLeft + Vec2{4.0f, 0.0f}, 6, 2.0f, 0.2f);
-    spawn_chaff_cluster(world, kRoomCenterLeft - Vec2{4.0f, 0.0f}, 6, 2.0f, 0.2f);
-    rebuild_spatial(world);
-
-    REQUIRE(ts.trigger_ability(world, tower));
-    REQUIRE(world.ecs().registry().get<comp::Tower>(world.ecs().from_id(tower)).ability_cooldown > 0.0f);
-    for (usize i = 0; i < world.chaff().count(); ++i) {
-        REQUIRE((world.chaff().flags[i] & chaff_flags::kSlowed) != 0);
-    }
-    REQUIRE(count_events(world, CombatEventType::Freeze, TowerType::Interferon) > 0);
-    REQUIRE_FALSE(ts.trigger_ability(world, tower));   // on cooldown now
+    REQUIRE_FALSE(ts.trigger_ability(world, tower));
 }
 
 // ---------------------------------------------------------------------------
@@ -1366,6 +1570,8 @@ bool capture(SimWorld& world, vfx::ParticleSystem& particles, render::Renderer& 
     renderer.submit_entities(world.ecs());
     renderer.submit_fields(world.damage().fields().data(), world.damage().fields().size());
     renderer.submit_projectiles(world.projectiles());
+    renderer.submit_swarmers(world.swarmers());
+    renderer.submit_fluid(world.fluid(), world.fluid_system().draw_radius());
     particles.build_instances(vfx::BlendMode::Additive, scratch);
     renderer.submit_particles(scratch.data(), scratch.size(), vfx::BlendMode::Additive);
     particles.build_instances(vfx::BlendMode::AlphaBlend, scratch);
@@ -1396,7 +1602,7 @@ TEST_CASE("VISUAL: all six towers fire at once, with live projectiles and partic
         {TowerType::Macrophage, {22.0f, 18.0f}, {34.0f, 18.0f}},   // MORTAR
         {TowerType::Interferon, {62.0f, 50.0f}, {69.0f, 50.0f}},   // CRYO
         {TowerType::CytotoxicT, {62.0f, 18.0f}, {67.0f, 18.0f}},   // TESLA
-        {TowerType::BCell,      {98.0f, 50.0f}, {108.0f, 50.0f}},  // LASER
+        {TowerType::GobletCell, {98.0f, 50.0f}, {108.0f, 50.0f}},  // HYDRO
         {TowerType::NKCell,     {98.0f, 18.0f}, {100.0f, 18.0f}},  // BLADE
     };
 
@@ -1481,6 +1687,79 @@ TEST_CASE("VISUAL: all six towers fire at once, with live projectiles and partic
                      close.particle_instances_drawn, close.projectile_instances_drawn);
     }
 
+    renderer.shutdown();
+}
+
+TEST_CASE("VISUAL: a HYDRO burst travels as a beam and splashes where it lands",
+          "[towers][combat][visual][gl][hydro]") {
+    // Three frames of one burst, from the same run: leaving the nozzle, in
+    // flight, and piled against the far wall. The whole design claim of this
+    // tower is that those are three visibly different pictures produced by one
+    // simulation, so they are captured rather than described.
+    HeadlessGl gl(1400, 800);
+    if (!gl.ok) { WARN("headless GL unavailable; skipping"); return; }
+
+    SimWorld world = make_showcase_world(31337);
+    TowerSystem ts;
+    ts.register_systems(world);
+
+    const Vec2 tower_pos{30.0f, 34.0f};
+    const EntityId tower = ts.place(world, TowerType::GobletCell, tower_pos);
+    REQUIRE(tower.valid());
+    REQUIRE(ts.upgrade(world, tower) == 2);
+    REQUIRE(ts.upgrade(world, tower) == 3);
+
+    // A thin picket of chaff far downrange, just inside the tower's reach. It
+    // is there to give the nozzle something to aim at and to be the thing the
+    // jet ploughs into -- NOT to be a wall, so the leading edge still carries
+    // through to the tissue behind it.
+    spawn_chaff_cluster(world, tower_pos + Vec2{18.0f, 0.0f}, 26, 6.0f, /*spread=*/1.4f);
+
+    vfx::ParticleSystem particles;
+    particles.init(vfx::ParticleSystem::kDefaultCapacity, 0xF10D'BEEFull);
+
+    render::RendererDesc rd;
+    rd.framebuffer_width = gl.window.width();
+    rd.framebuffer_height = gl.window.height();
+    rd.max_chaff_instances = static_cast<u32>(world.desc().max_chaff);
+    render::Renderer renderer;
+    REQUIRE(renderer.init(rd));
+
+    render::Camera camera;
+    camera.set_viewport(gl.window.width(), gl.window.height());
+    camera.set_bounds(world.desc().world_bounds);
+    camera.set_center(tower_pos + Vec2{14.0f, 0.0f});
+    camera.set_view_height(34.0f);
+    camera.clamp_to_bounds();
+
+    ready_now(world, tower);
+
+    struct Shot { int tick; const char* name; };
+    const Shot shots[] = {
+        {6,  "hydro_1_muzzle"},   // the nozzle is open, the slug is forming
+        {22, "hydro_2_inflight"}, // a coherent column crossing open tissue
+        {75, "hydro_3_splash"},   // arrived, piled up, spreading
+    };
+
+    usize peak_fluid = 0;
+    usize shot_index = 0;
+    for (int t = 0; t <= shots[2].tick; ++t) {
+        world.tick();
+        pump_vfx(world, particles, kFixedDt);
+        peak_fluid = math::max(peak_fluid, world.fluid().count());
+        if (shot_index < 3 && t == shots[shot_index].tick) {
+            render::FrameStats fs{};
+            const std::string path =
+                scratch_path(std::string(shots[shot_index].name) + ".png");
+            REQUIRE(capture(world, particles, renderer, camera, path, fs));
+            std::fprintf(stderr, "[hydro] %s fluid=%u particles=%u draws=%u\n", path.c_str(),
+                         fs.fluid_instances_drawn, fs.particle_instances_drawn, fs.draw_calls);
+            ++shot_index;
+        }
+    }
+
+    INFO("peak live fluid particles across the burst: " << peak_fluid);
+    REQUIRE(peak_fluid > 100);
     renderer.shutdown();
 }
 

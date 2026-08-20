@@ -1,5 +1,11 @@
 #include "app/App.h"
 
+#include "app/Modes.h"
+#include "game/abilities/AbilityConfigApply.h"
+#include "game/enemies/EnemyConfigApply.h"
+#include "game/wave/WaveConfigApply.h"
+#include "game/towers/TowerMechanics.h"
+
 #include "core/Log.h"
 #include "game/level/Level.h"
 #include "platform/FileIO.h"
@@ -44,10 +50,18 @@ bool App::init(const Options& options) {
         return false;
     }
 
-    enemies_.load_defaults();
+    // Tuning first: every system below is configured from it. A config that
+    // will not load is fatal rather than papered over -- the files are
+    // authoritative, so running on a half-applied table would be worse than
+    // not running.
+    if (!load_tuning_config()) return false;
+
+    // apply_enemy_config() calls load_defaults() itself, then overrides from
+    // the file -- so this replaces the bare load_defaults() that used to be
+    // here rather than following it.
+    game::apply_enemy_config(enemies_, config_.enemies);
     meta_.reset_to_new_game();
-    economy_.configure(game::EconomyConfig{});
-    abilities_.load_defaults();
+    apply_tuning_config();
 
     // Seeded from the run seed so a replay looks the same, but stepped on its
     // own stream -- vfx never draws from the sim's Rng (see vfx/Particles.h).
@@ -158,6 +172,69 @@ void App::build_menus() {
     }
 }
 
+bool App::load_tuning_config() {
+    const std::string dir = resolve_config_dir(options_);
+    std::string err;
+    if (!game::load_game_config(config_store_, dir, config_, err)) {
+        IMMUNE_LOG_ERROR("config load failed: %s", err.c_str());
+        return false;
+    }
+    game::bind_game_config(config_store_.registry(), config_);
+    IMMUNE_LOG_INFO("tuning config loaded from %s (hash %016llx)", dir.c_str(),
+                    static_cast<unsigned long long>(config_store_.hash()));
+    return true;
+}
+
+void App::apply_tuning_config() {
+    // Everything here is safe to re-apply at any time, which is what makes the
+    // hot reload possible: each call fully overwrites the system's tuning
+    // rather than adjusting it incrementally.
+    game::apply_tower_config(towers_, config_.towers);
+    game::apply_enemy_config(enemies_, config_.enemies);
+    economy_.configure(config_.economy);
+    game::apply_ability_config(abilities_, config_.abilities);
+    // Only affects the NEXT generated table; a wave already in flight keeps
+    // the one it started with.
+    game::apply_wave_config(config_.waves);
+}
+
+void App::poll_config_reload(f32 dt) {
+    // Off in every deterministic mode and whenever --config pinned the
+    // directory: a run that can be retuned underneath itself is not a run
+    // anyone can reproduce.
+    if (options_.config_pinned) return;
+
+    constexpr f32 kPollInterval = 0.5f;
+    config_poll_timer_ -= dt;
+    if (config_poll_timer_ > 0.0f) return;
+    config_poll_timer_ = kPollInterval;
+
+    std::string err;
+    if (!config_store_.poll_changed(err)) {
+        if (!err.empty()) IMMUNE_LOG_WARN("config reload failed, keeping the last good one: %s", err.c_str());
+        return;
+    }
+    game::GameConfig fresh;
+    if (!game::parse_game_config(config_store_, fresh, err)) {
+        IMMUNE_LOG_WARN("config reload failed, keeping the last good one: %s", err.c_str());
+        return;
+    }
+    const bool capacities_changed =
+        fresh.sim.capacities.max_chaff != config_.sim.capacities.max_chaff ||
+        fresh.sim.capacities.max_projectiles != config_.sim.capacities.max_projectiles ||
+        fresh.sim.capacities.max_swarmers != config_.sim.capacities.max_swarmers ||
+        fresh.sim.globals.spatial_cell_size != config_.sim.globals.spatial_cell_size;
+
+    config_ = std::move(fresh);
+    game::bind_game_config(config_store_.registry(), config_);
+    apply_tuning_config();
+    IMMUNE_LOG_INFO("tuning config reloaded (hash %016llx)",
+                    static_cast<unsigned long long>(config_store_.hash()));
+    if (capacities_changed) {
+        IMMUNE_LOG_WARN("sim capacities/cell size changed; restart the level to apply them");
+    }
+}
+
 bool App::load_level(const std::string& path) {
     game::LevelLoader loader;
     game::LevelDef level;
@@ -175,7 +252,29 @@ bool App::load_level(const std::string& path) {
     sim::SimDesc desc;
     desc.seed = options_.seed;
     desc.world_bounds = level.world_bounds;
+    // Capacities and the spatial grid are fixed at init() and cannot change
+    // without rebuilding the world, which is exactly why they are read here
+    // rather than applied by a hot reload.
+    desc.max_chaff = config_.sim.capacities.max_chaff;
+    desc.max_damage_fields = config_.sim.capacities.max_damage_fields;
+    desc.max_projectiles = config_.sim.capacities.max_projectiles;
+    desc.max_swarmers = config_.sim.capacities.max_swarmers;
+    desc.max_fluid_particles = config_.sim.capacities.max_fluid_particles;
+    desc.max_combat_events = config_.sim.capacities.max_combat_events;
+    desc.fluid_tuning = config_.sim.fluid;
+    desc.spatial_cell_size = config_.sim.globals.spatial_cell_size;
+    desc.flow_rebake_budget_ms = config_.sim.globals.flow_rebake_budget_ms;
     enemies_.apply_to_tuning(desc.chaff_tuning);
+    desc.chaff_tuning.max_replications_per_tick = config_.sim.globals.max_replications_per_tick;
+    desc.chaff_tuning.max_neighbors_sampled = config_.sim.globals.max_neighbors_sampled;
+    desc.chaff_tuning.ambient_drift = config_.sim.globals.ambient_drift;
+    // The level gets the last word on drift: sim.json supplies the default and
+    // a level that authors `ambient_drift` overrides it. That field has been
+    // parsed and then ignored since the schema was written, because
+    // apply_to_tuning() unconditionally stamped a global value over it.
+    if (level.ambient_drift != Vec2{0.0f, 0.0f}) {
+        desc.chaff_tuning.ambient_drift = level.ambient_drift;
+    }
     sim_.init(desc, jobs_.get());
 
     const auto res = loader.instantiate(level, sim_);
@@ -199,7 +298,8 @@ bool App::load_level(const std::string& path) {
                         level.name.c_str(), level.waves.size());
         waves_.set_waves(level.waves);
     } else {
-        waves_.set_waves(game::WaveDirector::generate(level.region, 8, sim_.rng()));
+        waves_.set_waves(game::WaveDirector::generate(
+            level.region, config_.waves.globals.default_wave_count, sim_.rng()));
     }
     waves_.start(sim_);
     state_.set_current_level_id(level.name);
@@ -223,8 +323,7 @@ bool App::load_level(const std::string& path) {
     // A fresh level must not inherit the previous one's sparks, nor a stale
     // economy/ability state from a run that already ended.
     particles_.clear();
-    economy_.configure(game::EconomyConfig{});
-    abilities_.load_defaults();
+    apply_tuning_config();
     gym_spawns_.clear();
 
     // The gym level is the one that exists to be driven from the panel, so it
@@ -393,6 +492,36 @@ game::GymContext App::make_gym_context() {
         ctx.has_cursor = true;
     }
 
+    // The tuning surface. `config set` writes through the same registry the
+    // JSON loader fills and then re-applies, so a value changed in the console
+    // and a value changed in the file take effect identically.
+    ctx.config_get = [this](const std::string& path, std::string& out) {
+        std::string err;
+        if (config_store_.registry().get(path, out, err)) return true;
+        out = err;
+        return false;
+    };
+    ctx.config_set = [this](const std::string& path, const std::string& value, std::string& err) {
+        if (!config_store_.registry().set(path, value, err)) return false;
+        apply_tuning_config();
+        return true;
+    };
+    ctx.config_reload = [this](std::string& err) {
+        const std::string dir = resolve_config_dir(options_);
+        game::GameConfig fresh;
+        config::ConfigStore store;
+        if (!game::load_game_config(store, dir, fresh, err)) return false;
+        config_ = std::move(fresh);
+        config_store_ = std::move(store);
+        game::bind_game_config(config_store_.registry(), config_);
+        apply_tuning_config();
+        return true;
+    };
+    ctx.config_dump = [this](std::string& err) {
+        return game::write_game_config(config_, resolve_config_dir(options_), err);
+    };
+    ctx.config_paths = [this]() { return config_store_.registry().field_paths(); };
+
     // `level <name>`: accepts a path, a file stem, or the level's display name,
     // resolved against the same list the level-select screen renders, so the
     // console and the menu can never disagree about what levels exist.
@@ -433,6 +562,7 @@ void App::render_frame() {
     // and return.
     if (!level_loaded_) {
         renderer_.poll_shader_reload();
+        poll_config_reload(static_cast<f32>(kFixedDtSeconds));
         renderer_.begin_frame(camera_, 0.0f);
         renderer_.end_frame();
         hud_.begin_frame(input_);
@@ -458,6 +588,7 @@ void App::render_frame() {
 
     WallClock submit;
     renderer_.poll_shader_reload();
+    poll_config_reload(static_cast<f32>(clock_.frame_delta()));
     renderer_.begin_frame(camera_, clock_.alpha());
     // Lane identity (DESIGN.md §9.2) plus the flow field the plasma streamlines
     // follow. lane_map_ is a pure function of the level file, so this is just
@@ -482,6 +613,11 @@ void App::render_frame() {
                             sim_.damage().rendered_fields().size());
     renderer_.submit_projectiles(sim_.projectiles());
     renderer_.submit_swarmers(sim_.swarmers());
+    // After the other matter passes and before the additive particle layer.
+    // The fluid is opaque-ish stuff that has to occlude the agents it has
+    // buried, and the cosmetic spray thrown off a splash has to composite on
+    // top of the surface that threw it.
+    renderer_.submit_fluid(sim_.fluid(), sim_.fluid_system().draw_radius());
     // Additive first so the alpha-blended mist composites OVER the glow rather
     // than under it (vfx/Particles.h documents this ordering requirement).
     particles_.build_instances(vfx::BlendMode::Additive, particle_scratch_);

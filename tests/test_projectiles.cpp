@@ -164,6 +164,33 @@ TEST_CASE("a round hits an agent in its own cell and damage lands via density lo
     REQUIRE(h.rounds.count() == 0);
 }
 
+TEST_CASE("a round hits harder on chaff the Goblet Cell has marked",
+          "[sim][projectile][damage][marked]") {
+    // The mirror of test_damage_field.cpp's "kMarked agents take the
+    // marked_multiplier bonus": a round never touches a DamageField, it tests
+    // its own spatial-hash cell directly, so the weaken bonus has to be
+    // re-applied right here in Projectiles.cpp or a marked agent downrange of
+    // a Gunner would be exactly as tanky as an unmarked one.
+    Harness h;
+    const usize plain = h.add_chaff(50.0f, 50.0f, 1000.0f);
+    const usize marked = h.add_chaff(60.0f, 50.0f, 1000.0f);
+    h.chaff.flags[marked] |= chaff_flags::kMarked;
+
+    // Same 2-units-short setup as the plain hit test above, so both rounds
+    // connect on the second step.
+    h.add_round(Vec2{48.0f, 50.0f}, Vec2{60.0f, 0.0f}, /*damage*/ 10.0f);
+    h.add_round(Vec2{58.0f, 50.0f}, Vec2{60.0f, 0.0f}, /*damage*/ 10.0f);
+
+    h.step();
+    const ProjectileStats s = h.step();
+    REQUIRE(s.impacts == 2);
+
+    const f32 plain_loss = 1000.0f - h.chaff.density[plain];
+    const f32 marked_loss = 1000.0f - h.chaff.density[marked];
+    REQUIRE(plain_loss == Catch::Approx(10.0f));
+    REQUIRE(marked_loss == Catch::Approx(plain_loss * chaff_flags::kMarkedDamageMultiplier));
+}
+
 TEST_CASE("a round in a different cell than the agent does not hit it",
           "[sim][projectile]") {
     // The approximation under test: collision is cell-local by design. These

@@ -5,11 +5,16 @@
 #include "core/Log.h"
 #include "core/Profiler.h"
 #include "core/Rng.h"
+#include "game/abilities/AbilityConfigApply.h"
 #include "game/abilities/ActiveAbilities.h"
+#include "game/config/GameConfig.h"
 #include "game/economy/Economy.h"
 #include "game/enemies/EnemyRoster.h"
 #include "game/gym/GymCommands.h"
 #include "game/level/Level.h"
+#include "game/enemies/EnemyConfigApply.h"
+#include "game/wave/WaveConfigApply.h"
+#include "game/towers/TowerMechanics.h"
 #include "game/towers/TowerSystem.h"
 #include "game/wave/WaveDirector.h"
 #include "vfx/Particles.h"
@@ -69,8 +74,36 @@ bool build_world(sim::SimWorld& world, const Options& opt, usize max_chaff,
     // roster is the single source of truth so the sim kernel and the roster
     // table can never disagree (EnemyRoster.h's own rationale).
     game::EnemyRoster roster;
-    roster.load_defaults();
-    roster.apply_to_tuning(desc.chaff_tuning);
+    {
+        // The headless paths must run on the same tuning the game does, or a
+        // passing --sim-test proves nothing about what a player sees.
+        std::string cfg_err;
+        config::ConfigStore store;
+        game::GameConfig cfg;
+        if (game::load_game_config(store, resolve_config_dir(opt), cfg, cfg_err)) {
+            game::apply_enemy_config(roster, cfg.enemies);
+            game::apply_wave_config(cfg.waves);
+            desc.max_damage_fields = cfg.sim.capacities.max_damage_fields;
+            desc.max_projectiles = cfg.sim.capacities.max_projectiles;
+            desc.max_swarmers = cfg.sim.capacities.max_swarmers;
+            desc.max_fluid_particles = cfg.sim.capacities.max_fluid_particles;
+            desc.max_combat_events = cfg.sim.capacities.max_combat_events;
+            desc.fluid_tuning = cfg.sim.fluid;
+            desc.spatial_cell_size = cfg.sim.globals.spatial_cell_size;
+            desc.flow_rebake_budget_ms = cfg.sim.globals.flow_rebake_budget_ms;
+            roster.apply_to_tuning(desc.chaff_tuning);
+            desc.chaff_tuning.max_replications_per_tick = cfg.sim.globals.max_replications_per_tick;
+            desc.chaff_tuning.max_neighbors_sampled = cfg.sim.globals.max_neighbors_sampled;
+            desc.chaff_tuning.ambient_drift = cfg.sim.globals.ambient_drift;
+        } else {
+            IMMUNE_LOG_ERROR("config load failed: %s", cfg_err.c_str());
+            error = cfg_err;
+            return false;
+        }
+    }
+    if (level.ambient_drift != Vec2{0.0f, 0.0f}) {
+        desc.chaff_tuning.ambient_drift = level.ambient_drift;
+    }
     world.init(desc, jobs);
 
     const auto res = loader.instantiate(level, world);
@@ -218,6 +251,59 @@ const BenchScenario* find_bench_scenario(const std::string& name) {
     return nullptr;
 }
 
+std::string resolve_config_dir(const Options& options) {
+    return options.config_dir.empty() ? platform::asset_path("config") : options.config_dir;
+}
+
+int run_dump_config(const Options& options) {
+    // Dumped from the values the game is running on right now, so the shipped
+    // files start out byte-for-byte equivalent to the compiled-in tuning and
+    // the migration cannot silently move a number.
+    const game::GameConfig cfg = game::default_game_config();
+    std::string err;
+    if (!game::write_game_config(cfg, options.dump_config_dir, err)) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    for (const std::string& name : game::config_file_names()) {
+        std::fprintf(stderr, "wrote %s/%s\n", options.dump_config_dir.c_str(), name.c_str());
+    }
+    return 0;
+}
+
+namespace {
+
+/// Loads assets/config (or --config) for a headless run and applies the parts
+/// a headless path can use.
+///
+/// The headless modes are this project's verification substrate, so they must
+/// run on the SAME tuning the interactive game does -- otherwise a --sim-test
+/// that passes proves nothing about what a player actually sees. Hot reload is
+/// never enabled here: the config is a determinism input, and run_sim_test
+/// reports its hash alongside state_hash so a run records exactly which
+/// tuning produced it.
+struct HeadlessConfig {
+    config::ConfigStore store;
+    game::GameConfig cfg;
+    bool ok = false;
+    u64 hash = 0;
+};
+
+HeadlessConfig load_headless_config(const Options& opt) {
+    HeadlessConfig out;
+    std::string err;
+    if (!game::load_game_config(out.store, resolve_config_dir(opt), out.cfg, err)) {
+        IMMUNE_LOG_ERROR("config load failed: %s", err.c_str());
+        return out;
+    }
+    out.ok = true;
+    out.hash = out.store.hash();
+    return out;
+}
+
+} // namespace
+
+
 int run_list_scenarios() {
     json j = json::array();
     for (const auto& s : bench_scenarios()) {
@@ -362,6 +448,9 @@ int run_sim_test(const Options& opt) {
         return 1;
     }
 
+    const HeadlessConfig tuning = load_headless_config(opt);
+    if (!tuning.ok) return 1;
+
     json script;
     try {
         script = json::parse(*text);
@@ -397,6 +486,7 @@ int run_sim_test(const Options& opt) {
 
     game::TowerSystem towers;
     towers.register_systems(world);
+    game::apply_tower_config(towers, tuning.cfg.towers);
 
     // The extra systems exist purely so a "cmd" action reaches the same surface
     // the in-game console does. A script that never issues one is unaffected:
@@ -405,7 +495,7 @@ int run_sim_test(const Options& opt) {
     roster.load_defaults();
     game::WaveDirector waves;
     game::Economy economy;
-    economy.configure(game::EconomyConfig{});
+    economy.configure(tuning.cfg.economy);
     game::ActiveAbilitySystem abilities;
     abilities.load_defaults();
 
@@ -422,6 +512,37 @@ int run_sim_test(const Options& opt) {
     gym.waves = &waves;
     gym.economy = &economy;
     gym.abilities = &abilities;
+
+    // Read/write the tuning from a script, so a balance regression can be
+    // expressed as a sim-test rather than a hand-run experiment. Reload and
+    // dump stay OFF headlessly: re-reading the files mid-run would change a
+    // determinism input, and the report already pins the config hash.
+    {
+        // The store outlives the context: `tuning` is a local of this function
+        // and the gym context never escapes it either.
+        auto* registry = const_cast<config::Registry*>(&tuning.store.registry());
+        game::bind_game_config(*registry, const_cast<game::GameConfig&>(tuning.cfg));
+        gym.config_get = [registry](const std::string& path, std::string& out) {
+            std::string err;
+            if (registry->get(path, out, err)) return true;
+            out = err;
+            return false;
+        };
+        gym.config_set = [registry, &tuning, &towers, &roster, &economy, &abilities](
+                             const std::string& path, const std::string& value, std::string& err) {
+            if (!registry->set(path, value, err)) return false;
+            // Push the change through to the live systems, or `config set`
+            // would only edit a struct nothing reads.
+            auto& cfg = const_cast<game::GameConfig&>(tuning.cfg);
+            game::apply_tower_config(towers, cfg.towers);
+            game::apply_enemy_config(roster, cfg.enemies);
+            game::apply_wave_config(cfg.waves);
+            economy.configure(cfg.economy);
+            game::apply_ability_config(abilities, cfg.abilities);
+            return true;
+        };
+        gym.config_paths = [registry]() { return registry->field_paths(); };
+    }
 
     auto run_actions_for_tick = [&](u64 tick) {
         for (const auto& a : actions) {
@@ -523,6 +644,10 @@ int run_sim_test(const Options& opt) {
     report["assertions"] = results;
     report["final_state"] = snapshot_to_json(world.snapshot());
     report["state_hash"] = world.state_hash();
+    // Config is a determinism input now: the same seed and script only
+    // reproduce a run if the tuning matches too.
+    report["config_hash"] = tuning.hash;
+    report["config_dir"] = resolve_config_dir(opt);
     report["result"] = failed == 0 ? "PASS" : "FAIL";
 
     std::printf("%s\n", report.dump(2).c_str());
@@ -569,6 +694,11 @@ int run_screenshot(const Options& opt) {
     // diagnostic, not a gameplay guarantee.
     game::TowerSystem towers;
     towers.register_systems(world);
+    {
+        const HeadlessConfig tuning = load_headless_config(opt);
+        if (!tuning.ok) return 1;
+        game::apply_tower_config(towers, tuning.cfg.towers);
+    }
     if (opt.place_towers) {
         TowerType only = TowerType::Count;
         if (!opt.tower_filter.empty()) {
@@ -607,7 +737,7 @@ int run_screenshot(const Options& opt) {
         game::EnemyRoster exec_roster;
         exec_roster.load_defaults();
         game::Economy exec_economy;
-        exec_economy.configure(game::EconomyConfig{});
+        exec_economy.configure(load_headless_config(opt).cfg.economy);
         game::ActiveAbilitySystem exec_abilities;
         exec_abilities.load_defaults();
         game::WaveDirector exec_waves;
@@ -686,6 +816,7 @@ int run_screenshot(const Options& opt) {
                            world.damage().rendered_fields().size());
     renderer.submit_projectiles(world.projectiles());
     renderer.submit_swarmers(world.swarmers());
+    renderer.submit_fluid(world.fluid(), world.fluid_system().draw_radius());
     particles.build_instances(vfx::BlendMode::Additive, pinst);
     renderer.submit_particles(pinst.data(), pinst.size(), vfx::BlendMode::Additive);
     particles.build_instances(vfx::BlendMode::AlphaBlend, pinst);
@@ -693,9 +824,9 @@ int run_screenshot(const Options& opt) {
     renderer.end_frame();
     // Field count included because a missing AoE is otherwise indistinguishable
     // from an AoE that drew at zero alpha, and the two have very different fixes.
-    IMMUNE_LOG_INFO("screenshot: %zu live rounds, %zu live swarmers, %zu live particles, "
-                    "%zu damage fields",
-                    world.projectiles().count(), world.swarmers().count(),
+    IMMUNE_LOG_INFO("screenshot: %zu live rounds, %zu live swarmers, %zu fluid particles, "
+                    "%zu live particles, %zu damage fields",
+                    world.projectiles().count(), world.swarmers().count(), world.fluid().count(),
                     particles.live_count(), world.damage().rendered_fields().size());
 
     if (!render::capture_framebuffer_png(opt.out_path, window.width(), window.height())) {

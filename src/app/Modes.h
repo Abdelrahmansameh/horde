@@ -33,6 +33,15 @@ struct BenchScenario {
 const std::vector<BenchScenario>& bench_scenarios();
 const BenchScenario* find_bench_scenario(const std::string& name);
 
+/// Directory the tuning JSON is read from: --config if given, else
+/// assets/config resolved through platform::asset_path.
+std::string resolve_config_dir(const Options& options);
+
+/// Writes the live tuning values to --dump-config <dir> as a complete set of
+/// JSON files. Exit 0 on success. This is the bootstrap that generates
+/// assets/config from the code's own numbers instead of by transcription.
+int run_dump_config(const Options& options);
+
 int run_bench(const Options& options);
 int run_sim_test(const Options& options);
 int run_screenshot(const Options& options);

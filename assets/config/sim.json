@@ -1,0 +1,49 @@
+{
+  "capacities": {
+    "max_chaff": 16384,
+    "max_combat_events": 8192,
+    "max_damage_fields": 512,
+    "max_fluid_particles": 8192,
+    "max_projectiles": 8192,
+    "max_swarmers": 24576
+  },
+  "fluid": {
+    "chaff_drag": 9.0,
+    "chaff_full_occupancy": 12.0,
+    "coverage_cell_size": 1.0,
+    "coverage_full": 5.0,
+    "drag": 0.55,
+    "max_speed": 70.0,
+    "max_splash_events": 24,
+    "near_stiffness": 90.0,
+    "rest_spacing": 0.4,
+    "smoothing_radius": 0.95,
+    "splash_speed_threshold": 5.5,
+    "stiffness": 520.0,
+    "substeps": 2,
+    "viscosity_linear": 0.9,
+    "viscosity_quadratic": 0.35,
+    "wall_friction": 0.72
+  },
+  "globals": {
+    "ambient_drift": [
+      0.5,
+      0.28
+    ],
+    "damage_max_chain_links": 8,
+    "flow_rebake_budget_ms": 0.5,
+    "flow_rebake_margin_cells": 16,
+    "max_neighbors_sampled": 24,
+    "max_replications_per_tick": 128,
+    "objective_damage_per_leak": 1.0,
+    "slowed_speed_multiplier": 0.4,
+    "spatial_cell_size": 4.0
+  },
+  "schema": 1,
+  "swarmers": {
+    "damp": 1.5,
+    "ring_offset_fraction": 0.6,
+    "turn_gain": 9.0,
+    "wander_gain": 0.45
+  }
+}

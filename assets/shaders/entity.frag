@@ -14,7 +14,7 @@
 // TowerType declaration order, so id == 16 + TowerType:
 //   16 = GUNNER (Neutrophil)   17 = MORTAR (Macrophage)
 //   18 = CRYO   (Interferon)   19 = TESLA  (Cytotoxic T)
-//   20 = LASER  (B-Cell)       21 = BLADE  (NK Cell)
+//   20 = HYDRO  (Goblet Cell)   21 = BLADE  (NK Cell)
 // Any other id falls back to the filled blob.
 
 in vec2  v_local;
@@ -565,65 +565,84 @@ float sdf_cytotoxic(vec2 p, float phase, float tier, out float nucleus_d,
 }
 
 // ---------------------------------------------------------------------------
-// LASER — B-Cell.
+// HYDRO — Goblet Cell.
 //
-// A plasma B-cell is a factory: eccentric "clock-face" nucleus shoved to one
-// end and the whole rest of the cell packed with rough endoplasmic reticulum
-// churning out antibody. So this is the only ELONGATED body — an ovoid on the
-// beam axis, nucleus at the back, secretion pole bored open at the front, which
-// makes the entire cell point down its own beam.
+// This slot used to be the B Cell, whose body was an elongated antibody factory
+// pointing down its own beam. There is no beam any more, so there is no reason
+// to keep the shape: the tower now fires bursts of simulated fluid, and its
+// silhouette should say "reservoir with a mouth", not "emitter with a barrel".
 //
-// The identity cue is literal: actual Y-shaped immunoglobulins drift in the
-// cytoplasm. A Y is three capsules off one hub and it survives being drawn at
-// forty pixels, which is more than most "readable at a glance" motifs manage.
-// Their count is 2 + tier, so a maxed B-Cell is visibly busier.
+// A goblet cell is called that because it is literally goblet-shaped: a narrow
+// basal stalk, a swollen theca crammed with mucin granules, and a flared apical
+// mouth those granules are dumped out of. That reads at forty pixels, it points
+// down the jet the same way the old body pointed down the beam, and it makes
+// the tower legible even when it is between bursts and nothing is coming out.
+//
+// The granules are the animated part and they are not decoration — they DRIFT
+// APICALLY, toward the mouth, and they thin out near it, so the cell always
+// looks like it is loading itself. That is the only cue available for a tower
+// whose actual weapon lives entirely outside the sprite.
 // ---------------------------------------------------------------------------
-float sdf_bcell(vec2 p, float phase, float tier, out float nucleus_d,
-                out float er_band, out float ab_glow, out float port_glow) {
-    float wx = fbm(p * 5.5 + vec2(phase * 0.08, 0.0)) - 0.5;
-    float wy = fbm(p * 5.5 + vec2(2.9, -phase * 0.07)) - 0.5;
-    vec2 wp = p + vec2(wx, wy) * 0.055;
+float sdf_goblet(vec2 p, float phase, float tier, out float nucleus_d,
+                 out float granule, out float mouth_glow, out float rim_band) {
+    // Membrane wobble, same trick every other cell body here uses: enough to
+    // stop the outline reading as vector art, not enough to lose the goblet.
+    float wx = fbm(p * 5.0 + vec2(phase * 0.07, 0.0)) - 0.5;
+    float wy = fbm(p * 5.0 + vec2(3.7, -phase * 0.06)) - 0.5;
+    vec2 wp = p + vec2(wx, wy) * 0.050;
 
-    // Anisotropic scale BEFORE the length() is what makes an ovoid out of a
-    // circle: 0.80 on x stretches the body along the beam, 1.16 on y pinches it.
-    float body = length(wp * vec2(0.80, 1.16)) - 0.255;
-    // Secretion pole: a TAPERED BOX, not a fused disc. A disc big enough to
-    // protrude past the ovoid also widens the whole front of the cell, and a
-    // plasma cell's secretion pole is narrow — this keeps the snout slim and
-    // gives the bore below something with a tip left to hollow.
-    float st = clamp((p.x - 0.14) / 0.30, 0.0, 1.0);
-    float snout = max(abs(p.y) - (0.108 - 0.048 * st), max(0.14 - p.x, p.x - 0.445));
-    body = smin(body, snout, 0.075);
-    // Hollow only the very tip, into a cup the beam leaves from.
-    body = smax(body, -(length(p - vec2(0.480, 0.0)) - 0.058), 0.030);
-    port_glow = 1.0 - smoothstep(0.0, 0.110, length(p - vec2(0.400, 0.0)));
+    // Basal stalk: a slim capsule anchoring the cell into the tissue behind it.
+    float stalk = sdf_segment(wp, vec2(-0.430, 0.0), vec2(-0.145, 0.0), 0.088);
 
-    nucleus_d = length(p - vec2(-0.135, 0.015)) - 0.112;
+    // Theca: the swollen reservoir. Slightly taller than it is long, so the
+    // cell reads as a cup seen from the side rather than as a ball.
+    float theca = length((wp - vec2(0.050, 0.0)) * vec2(1.06, 0.90)) - 0.285;
 
-    // Rough ER: concentric lamellae swirling out from just ahead of the nucleus.
-    float er = abs(fract(length(p - vec2(0.045, -0.010)) * 12.0 - phase * 0.10) - 0.5);
-    er_band = 1.0 - smoothstep(0.14, 0.34, er);
+    // Apical lip: a box that WIDENS toward +x, which is what turns a ball with
+    // a hole in it into a goblet. Tier flares it a little more, so an upgraded
+    // cell visibly has a bigger mouth on it.
+    float flare = 0.185 + 0.150 * clamp((p.x - 0.090) / 0.330, 0.0, 1.0)
+                + 0.012 * tier;
+    float lip = max(abs(wp.y) - flare, max(0.070 - wp.x, wp.x - 0.425));
 
-    float ab = 1e9;
-    float antibodies = 2.0 + tier;
-    for (int k = 0; k < 5; ++k) {
-        if (float(k) >= antibodies) break;
+    float body = smin(stalk, theca, 0.085);
+    body = smin(body, lip, 0.070);
+
+    // Hollow the mouth out. The bore runs from mid-theca to past the lip, so
+    // the cell is genuinely OPEN at the front — light gets into the reservoir
+    // and the jet has somewhere to have come from.
+    float bore_w = 0.105 + 0.135 * clamp((p.x + 0.020) / 0.430, 0.0, 1.0);
+    float bore = max(abs(wp.y) - bore_w, max(-0.060 - wp.x, wp.x - 0.560));
+    body = smax(body, -bore, 0.045);
+
+    // Nucleus: squashed into the base, which is exactly where a real goblet
+    // cell keeps it — shoved down by the mass of granules above.
+    nucleus_d = length((p - vec2(-0.235, 0.0)) * vec2(1.35, 0.85)) - 0.105;
+
+    // Mucin granules. They rise apically on a loop and shrink as they near the
+    // mouth, as though being discharged; the loop is per-granule and offset, so
+    // the reservoir churns instead of pulsing in unison.
+    float g = 1e9;
+    float count = 4.0 + 2.0 * tier;
+    for (int k = 0; k < 10; ++k) {
+        if (float(k) >= count) break;
         float fk = float(k);
-        float oa = phase * 0.20 + fk * 2.3990;
-        vec2 c = vec2(0.045, 0.0)
-               + vec2(cos(oa), sin(oa)) * (0.115 + 0.030 * fract(sin(fk * 61.7) * 43758.5453));
-        // Tumble each glyph at a rate incommensurate with its orbit, so they
-        // never all present the same face at once.
-        vec2 q = rot2(p - c, oa * 1.6);
-        float d = sdf_segment(q, vec2(0.0), vec2(-0.050, 0.0), 0.0115);
-        d = min(d, sdf_segment(q, vec2(0.0), vec2(0.033,  0.033), 0.0105));
-        d = min(d, sdf_segment(q, vec2(0.0), vec2(0.033, -0.033), 0.0105));
-        ab = min(ab, d);
+        float lane = fract(sin(fk * 34.31) * 43758.5453);
+        float rise = fract(phase * 0.055 + fk * 0.173);
+        // Path: up out of the base, along the axis, out through the bore.
+        vec2 c = vec2(mix(-0.135, 0.330, rise),
+                      (lane - 0.5) * mix(0.230, 0.070, rise));
+        float r = mix(0.048, 0.020, rise) * (0.75 + 0.5 * lane);
+        g = min(g, length(p - c) - r);
     }
-    ab_glow = 1.0 - smoothstep(0.0, 0.010, ab);
+    granule = 1.0 - smoothstep(0.0, 0.014, g);
+
+    // The wet meniscus sitting in the mouth, and the ring of lip around it.
+    mouth_glow = 1.0 - smoothstep(0.0, 0.150, length(p - vec2(0.360, 0.0)));
+    rim_band = (1.0 - smoothstep(0.0, 0.035, abs(bore)))
+             * smoothstep(0.10, 0.20, p.x);
     return body;
 }
-
 
 // ---------------------------------------------------------------------------
 // Tower drop shadow.
@@ -923,49 +942,50 @@ void main() {
         if (o_color.a <= 0.001) discard;
         return;
     } else if (v_shape_id == 20u) {
-        // LASER (B-Cell).
-        float nucleus_d, er_band, ab_glow, port_glow;
-        float body_d = sdf_bcell(v_local, v_anim_phase, v_shape_param,
-                                 nucleus_d, er_band, ab_glow, port_glow);
+        // HYDRO (Goblet Cell).
+        float nucleus_d, granule, mouth_glow, rim_band;
+        float body_d = sdf_goblet(v_local, v_anim_phase, v_shape_param,
+                                  nucleus_d, granule, mouth_glow, rim_band);
 
         float a = 1.0 - smoothstep(-0.022, 0.008, body_d);
         float sh = entity_shadow(v_local, 0.30);
         if (a <= 0.0 && sh <= 0.0) discard;
-        // The port glows a little past the membrane, so the muzzle is lit even
-        // on the frames between beam pulses.
-        a = max(a, port_glow * 0.55);
+        // The meniscus sitting in the mouth reads slightly past the membrane,
+        // so the cell looks charged even on the frames between bursts.
+        a = max(a, mouth_glow * 0.45);
 
         float depth = clamp(-body_d * 5.5, 0.0, 1.0);
-        const vec3 kBCellHue = vec3(0.62, 1.00, 0.80);
+        const vec3 kMucinHue = vec3(0.55, 0.98, 0.74);
 
-        vec3 cytoplasm = mix(vec3(0.94, 1.00, 0.96), vec3(0.52, 0.87, 0.72), depth);
-        cytoplasm = mix(cytoplasm, kBCellHue, 0.32);
+        // Cytoplasm reads WET rather than solid: a pale surface over a deeper,
+        // more saturated interior, which is the same value structure the fluid
+        // pass gives an actual puddle. The tower and its output then look like
+        // the same substance, which is most of why the weapon reads as coming
+        // out of this specific cell.
+        vec3 cytoplasm = mix(vec3(0.93, 1.00, 0.95), vec3(0.30, 0.72, 0.56), depth);
+        cytoplasm = mix(cytoplasm, kMucinHue, 0.34);
+        vec3 rgb = cytoplasm;
 
-        // Rough ER, cytoplasm only — lamellae over the nucleus would read as a
-        // moire artifact rather than as an organelle.
+        // Mucin granules: bright, slightly milky beads. Suppressed over the
+        // nucleus so the two organelles never fight for the same pixels.
         float in_cyto = smoothstep(0.0, 0.04, nucleus_d);
-        vec3 rgb = mix(cytoplasm, vec3(0.36, 0.74, 0.62), er_band * in_cyto * 0.45);
+        rgb = mix(rgb, vec3(0.88, 1.00, 0.88), granule * in_cyto * 0.85);
+        rgb = mix(rgb, vec3(1.00, 1.00, 0.96), pow(granule * in_cyto, 3.0) * 0.55);
 
-        // Clock-face heterochromatin: radial wedges of dense chromatin, which
-        // is the one thing a plasma cell's nucleus is famous for looking like.
-        // Angle is measured about the nucleus centre, not the quad's.
+        // Basal nucleus, flattened against the stalk end.
         float nuc = 1.0 - smoothstep(-0.010, 0.010, nucleus_d);
-        vec2 nq = v_local - vec2(-0.135, 0.015);
-        float clock = 0.5 + 0.5 * sin(atan(nq.y, nq.x) * 7.0);
-        // Fade the wedges out at the hub. Every wedge converges there, and the
-        // pattern's own singularity otherwise draws a bright pinprick dead in
-        // the middle of the nucleus.
-        clock = mix(0.5, clock, smoothstep(0.0, 0.050, length(nq)));
-        rgb = mix(rgb, mix(vec3(0.40, 0.68, 0.62), vec3(0.16, 0.36, 0.40), clock), nuc * 0.90);
-        rgb = mix(rgb, vec3(0.80, 1.00, 0.92),
-                  (1.0 - smoothstep(0.0, 0.016, abs(nucleus_d))) * 0.50);
+        rgb = mix(rgb, vec3(0.20, 0.45, 0.44), nuc * 0.88);
+        rgb = mix(rgb, vec3(0.74, 0.98, 0.88),
+                  (1.0 - smoothstep(0.0, 0.014, abs(nucleus_d))) * 0.45);
 
-        rgb = mix(rgb, vec3(1.00, 1.00, 0.96), ab_glow * 0.92);
-        rgb = mix(rgb, vec3(0.66, 1.00, 0.86), port_glow * 0.75);
-        rgb = mix(rgb, vec3(1.0), pow(port_glow, 2.5) * 0.85);
+        // The wet bore: a bright inner wall plus the pooled meniscus, so the
+        // mouth reads as full of liquid rather than as a notch cut out.
+        rgb = mix(rgb, vec3(0.72, 1.00, 0.86), rim_band * 0.70);
+        rgb = mix(rgb, vec3(0.80, 1.00, 0.90), mouth_glow * 0.62);
+        rgb = mix(rgb, vec3(1.0), pow(mouth_glow, 3.0) * 0.75);
 
         float rim = 1.0 - smoothstep(0.0, 0.042, abs(body_d));
-        rgb = mix(rgb, vec3(0.94, 1.00, 0.98), rim * 0.62);
+        rgb = mix(rgb, vec3(0.95, 1.00, 0.97), rim * 0.60);
 
         o_color = over_shadow(rgb, a * v_tint.a, sh);
         if (o_color.a <= 0.001) discard;

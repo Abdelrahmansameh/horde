@@ -267,8 +267,15 @@ ProjectileStats ProjectileSystem::update(ProjectileBuffers& projectiles,
             const f32 dy = cpy[idx] - p.y;
             if (dx * dx + dy * dy > r2) continue;
 
+            // A round landing on an agent the Goblet Cell has already weakened
+            // (chaff_flags::kMarked) hits harder, exactly like every other
+            // damage path in the sim reads the same flag (DamageField.cpp,
+            // Swarmers.cpp, and strike_named's comp::Marked check).
+            const f32 dmg = (af & chaff_flags::kMarked) != 0
+                                ? pdamage[i] * chaff_flags::kMarkedDamageMultiplier
+                                : pdamage[i];
             const f32 before = chaff.density[idx];
-            chaff.apply_density_loss(idx, pdamage[i]);
+            chaff.apply_density_loss(idx, dmg);
             const f32 removed = before - chaff.density[idx];
             if (removed <= 0.0f) continue;   // nothing left to take; keep looking
 

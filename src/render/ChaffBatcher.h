@@ -45,23 +45,21 @@ struct FamilyVisual {
     f32 wobble;       ///< SDF deformation amount; family "texture", not tier.
 };
 
-inline FamilyVisual family_visual(PathogenFamily family) {
-    switch (family) {
-        // Virus: smallest silhouette, fastest tempo (fast/weak/replicating).
-        case PathogenFamily::Virus:       return FamilyVisual{1.53f, 3.4f, 0.55f};
-        // Bacteria: tankier, so a bigger silhouette; slower, clumping tempo.
-        case PathogenFamily::Bacteria:    return FamilyVisual{2.25f, 1.5f, 0.30f};
-        // Fungal spore: mid silhouette, very slow drift.
-        case PathogenFamily::FungalSpore: return FamilyVisual{1.98f, 0.8f, 0.70f};
-        // Parasite: elite tier, large; medium tempo with a burrow twitch.
-        case PathogenFamily::Parasite:    return FamilyVisual{2.79f, 2.2f, 0.45f};
-        // Cancer cell: boss mass, largest and slowest.
-        case PathogenFamily::CancerCell:  return FamilyVisual{3.78f, 0.5f, 0.85f};
-        // Allergen: warning-coded, small and frantic.
-        case PathogenFamily::Allergen:    return FamilyVisual{1.71f, 4.2f, 0.25f};
-        default:                          return FamilyVisual{1.8f, 1.0f, 0.5f};
-    }
-}
+/// Per-family look. Now DATA: assets/config/enemies.json owns these numbers and
+/// pushes them down through set_family_visual() at load.
+///
+/// They live here rather than in game/ because render/ deliberately does not
+/// depend on game/, and the chaff batcher needs them every frame. The values
+/// below are the shipped defaults, so a renderer that is never handed a config
+/// (a unit test, a bare screenshot harness) draws exactly what it always did.
+///
+/// `silhouette` is also the source of a chaff agent's COLLISION radius --
+/// EnemyRoster::apply_to_tuning derives ChaffFamilyParams::radius from it --
+/// which is what keeps what is drawn and what collides from ever disagreeing.
+/// That is why enemy size is one number in one place rather than a visual one
+/// and a physical one.
+const FamilyVisual& family_visual(PathogenFamily family);
+void set_family_visual(PathogenFamily family, const FamilyVisual& visual);
 
 // ---------------------------------------------------------------------------
 // Occupancy view — a non-owning window onto SpatialHash::occupancy().

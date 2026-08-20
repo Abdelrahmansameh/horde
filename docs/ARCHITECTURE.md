@@ -295,9 +295,9 @@ crossed.
 **Renderers must read `rendered_fields()`, not `fields()`.** `fields()` is the
 submission buffer, and `clear_transient()` runs at the *end* of `SimWorld::tick`,
 dropping every persistent field on the grounds that its owner re-submits next
-tick. That is right for the sim and wrong for the screen: the Cryo cone, the
-Laser beam and the NK rotor are all persistent, so anything drawing after the
-tick sees the three permanently-on AoEs as permanently absent.
+tick. That is right for the sim and wrong for the screen: the Cryo cone and the NK
+rotor are both persistent, so anything drawing after the tick sees the
+permanently-on AoEs as permanently absent.
 `rendered_fields()` is the snapshot taken just before that cull.
 
 ### 4.6 `sim/ecs` — the small half
@@ -352,8 +352,10 @@ previous working program**, so a typo never blanks the screen.
 
 **Tower art lives in two shaders, and they have to agree.** A tower's *body* is a
 procedural SDF in `entity.frag`, selected by `shape_id = 16 + TowerType` (16
-GUNNER, 17 MORTAR, 18 CRYO, 19 TESLA, 20 LASER, 21 BLADE); its *attack* is a
-`DamageField` drawn by `field.frag`. Three rules hold them together:
+GUNNER, 17 MORTAR, 18 CRYO, 19 TESLA, 20 HYDRO, 21 BLADE); its *attack* is a
+`DamageField` drawn by `field.frag` — except the Goblet Cell, whose attack is
+simulated fluid drawn by its own pass (see `sim/fluid/Fluid.h`). Three rules
+hold body and attack together:
 
 - **Identity hue is one colour per tower, everywhere.** `palette_for()` in
   `vfx/Particles.cpp` is the source; the body tints toward it, the particles use
@@ -362,14 +364,14 @@ GUNNER, 17 MORTAR, 18 CRYO, 19 TESLA, 20 LASER, 21 BLADE); its *attack* is a
   different things in two places.
 - **Silhouette is the fallback channel, so no two bodies share one.** Five of the
   six are amoeboid blobs; the Interferon is deliberately the hard-edged crystal,
-  the B-Cell the only elongated one, and the NK Cell the only rotor. Each also
-  carries a *directional* feature aligned to local +x — the Macrophage's maw, the
-  Cytotoxic T's electrode, the B-Cell's secretion pole — which `entity.vert` has
-  already rotated onto the aim.
+  the Goblet Cell the only vessel-shaped one, and the NK Cell the only rotor.
+  Each also carries a *directional* feature aligned to local +x — the
+  Macrophage's maw, the Cytotoxic T's electrode, the Goblet Cell's open apical
+  mouth — which `entity.vert` has already rotated onto the aim.
 - **Tier is spent on something countable.** `EntityInstance::shape_param` carries
   the raw tier, and each body turns it into phagosomes / crystal reach /
-  microvilli / antibodies / blades, so an upgrade shows in the silhouette rather
-  than only in the stat panel.
+  microvilli / mucin granules / blades, so an upgrade shows in the silhouette
+  rather than only in the stat panel.
 
 The one field shape two towers share is Circle, split by lifetime: persistent is
 the NK Cell's rotor disc, timed is a Macrophage shell or a Histamine nova.
@@ -525,3 +527,47 @@ A Wave 0 `--screenshot` therefore produces a correctly-formed, uniformly cleared
 frame in the warm tissue-substrate colour. That is the expected result, not a
 bug: the clear path, the GL context, the readback, the flip, and the PNG encode
 are all proven, and Wave 1C only has to add draws.
+
+---
+
+## 11. `config/` — the tuning surface
+
+Every gameplay-numeric value — tower stats and per-role mechanics, enemy family
+size/speed/health and elite stats, the procedural wave curves, crowd physics,
+economy, abilities, meta rewards — lives in `assets/config/*.json` and is loaded
+at startup.
+
+**Module placement.** `immune_config` (`src/config/`) is generic machinery only:
+strict parsing, a field registry, path-addressed get/set, dump, and file
+polling. It links `core` + `platform` + nlohmann_json and knows nothing about
+towers or enemies. The seven schemas live in `src/game/config/`, inside
+`immune_game`, because filling `sim::ChaffTuning` and pushing values into
+`render` both need modules `config/` sits below. Order is unchanged:
+`core → platform → config → sim → render → game → ui → app`.
+
+**One declaration, four behaviours.** A config struct declares its fields once
+as a `Schema` of `{name, kind, offsetof, doc}`. Parse, dump, get-by-path and
+set-by-path are all derived from that list, so a dumped file is guaranteed to
+round-trip and every field that exists is guaranteed to be reachable from
+`config set`. Document *structure* is still hand-written per file.
+
+**Authoritative.** A missing field is an error; an unknown key is an error with
+a did-you-mean suggestion. The shipped files are therefore always a complete,
+self-documenting list of every knob.
+
+**Frozen headers.** Adopting the config changed no frozen contract's public
+surface. Values reach their systems through seams that already existed
+(`TowerSystem::set_stats`, `ChaffSystem::set_tuning`) or through new,
+non-frozen headers (`TowerMechanics.h`, `EnemyConfigApply.h`,
+`AbilityConfigApply.h`, `WaveConfigApply.h`). The two exceptions are additive:
+`Cli.h` gained `--config`/`--dump-config`, and `EnemyRoster.h` gained one friend
+declaration.
+
+**Determinism.** The config is a determinism input, so `--sim-test` and
+`--bench` never hot-reload, `--config <dir>` pins it, and every sim-test report
+carries a `config_hash` beside `state_hash`.
+
+**Bootstrap.** `immune --dump-config <dir>` writes the live values out as a
+complete file set. `assets/config` was generated that way rather than
+transcribed, and `tests/test_config.cpp` asserts the shipped files still equal
+the compiled-in defaults.

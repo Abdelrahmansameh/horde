@@ -11,6 +11,7 @@
 #include "sim/spatial/SpatialHash.h"
 #include "sim/swarm/Swarmers.h"
 
+#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 #include <utility>
@@ -96,6 +97,43 @@ TEST_CASE("a granule crosses the gap, latches on, and drains its host",
     f.step(120);
     REQUIRE(f.any_attached());
     REQUIRE(f.chaff.density[0] < before);
+}
+
+TEST_CASE("an attached granule drains a marked host faster",
+          "[swarm][sim][marked]") {
+    // A granule's drain never goes through a DamageField either -- it applies
+    // density loss directly, same as a projectile impact -- so it needs its
+    // own read of chaff_flags::kMarked (the Goblet Cell's weaken debuff) or a
+    // marked host would attach a swarmer and feel no different from an
+    // unmarked one.
+    // Density 1000, not the 1.0e6 other tests in this file use for "never
+    // dies": at that magnitude f32's mantissa cannot resolve a sub-1-unit
+    // per-tick drain, and before/after subtraction measures rounding noise
+    // instead of the multiplier.
+    Fixture f;
+    const usize plain = f.add_chaff(Vec2{40.0f, 40.0f}, 1000.0f);
+    const usize marked = f.add_chaff(Vec2{80.0f, 40.0f}, 1000.0f);
+    f.chaff.flags[marked] |= chaff_flags::kMarked;
+
+    // Spawned already inside attach_radius (0.55), so both latch on the very
+    // first tick -- letting the two independent granules' own wander jitter
+    // (per-instance seed) drift their attach timing apart before comparing
+    // would confound the measurement with something that has nothing to do
+    // with marking.
+    f.add_swarmer(Vec2{40.1f, 40.0f}, Vec2{0.0f, 0.0f});
+    f.add_swarmer(Vec2{80.1f, 40.0f}, Vec2{0.0f, 0.0f});
+
+    const f32 plain_before = f.chaff.density[plain];
+    const f32 marked_before = f.chaff.density[marked];
+
+    f.step(1);
+    REQUIRE(f.any_attached());
+
+    const f32 plain_loss = plain_before - f.chaff.density[plain];
+    const f32 marked_loss = marked_before - f.chaff.density[marked];
+    INFO("plain lost " << plain_loss << ", marked lost " << marked_loss);
+    REQUIRE(plain_loss > 0.0f);
+    REQUIRE(marked_loss == Catch::Approx(plain_loss * chaff_flags::kMarkedDamageMultiplier).epsilon(0.001));
 }
 
 TEST_CASE("a granule whose host dies finds another instead of dissolving with it",

@@ -2,6 +2,8 @@
 // ActiveAbilities.h contract. Owner: Wave 4C.
 #include "game/abilities/ActiveAbilities.h"
 
+#include "game/abilities/AbilityConfigApply.h"
+
 #include "core/Math.h"
 #include "sim/SimWorld.h"
 #include "sim/damage/DamageField.h"
@@ -11,28 +13,25 @@
 namespace immune::game {
 
 void ActiveAbilitySystem::load_defaults() {
-    // DESIGN.md §5.6. Numeric balance is intentionally rough -- the shape
-    // (three abilities, long independent cooldowns, no placement UI beyond a
-    // point) is the contract; exact numbers are a post-prototype tuning pass
-    // like everything else in the design doc.
-    AbilityDef& cascade = defs_[static_cast<u32>(AbilityId::ComplementCascadeBurst)];
-    cascade.name = "Complement Cascade Burst";
-    cascade.cooldown_seconds = 90.0f;
-    cascade.radius = 6.0f;       // per-link radius; Chain resolves multiple links
-    cascade.kill_rate = 120.0f;  // instant-feeling: high rate over a short lifetime
-
-    AbilityDef& flare = defs_[static_cast<u32>(AbilityId::HistamineFlare)];
-    flare.name = "Histamine Flare";
-    flare.cooldown_seconds = 45.0f;
-    flare.radius = 14.0f;
-    flare.kill_rate = 30.0f;
-    flare.field_duration = 1.5f;
-
-    AbilityDef& fever = defs_[static_cast<u32>(AbilityId::FeverResponse)];
-    fever.name = "Fever Response";
-    fever.cooldown_seconds = 60.0f;
-    fever.fever_cooldown_relief = 3.0f;
-
+    // Names are identity, not tuning, so they stay here; every number comes
+    // from assets/config/abilities.json (or, until one is applied, from the
+    // DESIGN.md §5.6 values seeded in AbilityConfigApply.cpp).
+    static const char* kNames[kAbilityCount] = {
+        "Complement Cascade Burst",
+        "Histamine Flare",
+        "Fever Response",
+    };
+    const AbilityConfig& cfg = ability_config();
+    for (u32 i = 0; i < kAbilityCount; ++i) {
+        AbilityDef& d = defs_[i];
+        const AbilityTuning& t = cfg.ability[i];
+        d.name = kNames[i];
+        d.cooldown_seconds = t.cooldown_seconds;
+        d.radius = t.radius;
+        d.kill_rate = t.kill_rate;
+        d.field_duration = t.field_duration;
+        d.fever_cooldown_relief = t.fever_cooldown_relief;
+    }
     for (f32& r : cooldown_remaining_) r = 0.0f;
 }
 

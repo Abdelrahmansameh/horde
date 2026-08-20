@@ -153,6 +153,7 @@ const CombatEventName kCombatEventNames[] = {
     {"freeze", sim::CombatEventType::Freeze},
     {"shatter", sim::CombatEventType::Shatter},
     {"slash", sim::CombatEventType::BladeSlash},
+    {"splash", sim::CombatEventType::FluidSplash},
 };
 
 // ---------------------------------------------------------------------------
@@ -339,6 +340,8 @@ const std::vector<GymCommandInfo>& command_table() {
         {"portals", "", "List this level's spawn portals and its objective."},
         {"level", "<name|path>", "Load another level."},
         {"restart", "", "Reload the current level from scratch."},
+        {"config", "<get|set|list|reload|dump> [path] [value]",
+         "Read or retune assets/config/*.json live. 'list' takes a filter."},
     };
     return table;
 }
@@ -1122,6 +1125,75 @@ const std::vector<const char*>& gym_vfx_event_names() {
     return names;
 }
 
+
+/// `config` — the tuning surface, reachable from the panel, from --exec, and
+/// from a --sim-test "cmd" action like everything else here.
+///
+/// Deliberately narrow: it addresses fields by the same dotted path the config
+/// registry uses, and it never invents a value. `set` writes through to the
+/// live systems immediately; `dump` is how an experiment that worked gets kept.
+GymResult cmd_config(GymContext& ctx, const std::vector<std::string>& tok) {
+    if (tok.size() < 2) return fail("usage: config <get|set|list|reload|dump> [path] [value]");
+    const std::string sub = lower(tok[1]);
+
+    if (sub == "reload") {
+        if (!ctx.config_reload) return fail("this context has no config");
+        std::string err;
+        if (!ctx.config_reload(err)) return fail("config reload failed: " + err);
+        return okay("config reloaded");
+    }
+
+    if (sub == "dump") {
+        if (!ctx.config_dump) return fail("this context has no config");
+        std::string err;
+        if (!ctx.config_dump(err)) return fail("config dump failed: " + err);
+        return okay("config written");
+    }
+
+    if (sub == "list") {
+        if (!ctx.config_paths) return fail("this context has no config");
+        const std::string filter = tok.size() > 2 ? lower(tok[2]) : std::string{};
+        std::string out;
+        u32 shown = 0;
+        for (const std::string& path : ctx.config_paths()) {
+            if (!filter.empty() && lower(path).find(filter) == std::string::npos) continue;
+            // A bare `config list` would print several hundred lines into a
+            // console panel; cap it and say so rather than flooding.
+            if (shown >= 40u) {
+                out += "... (filter with 'config list <text>')";
+                break;
+            }
+            if (!out.empty()) out += "\n";
+            out += path;
+            ++shown;
+        }
+        if (out.empty()) return fail("no config field matches '" + filter + "'");
+        return okay(out);
+    }
+
+    if (sub == "get") {
+        if (!ctx.config_get) return fail("this context has no config");
+        if (tok.size() < 3) return fail("usage: config get <path>");
+        std::string out;
+        if (!ctx.config_get(tok[2], out)) return fail(out);
+        return okay(tok[2] + " = " + out);
+    }
+
+    if (sub == "set") {
+        if (!ctx.config_set) return fail("this context has no config");
+        if (tok.size() < 4) return fail("usage: config set <path> <value>");
+        // Vec2/Vec4 fields are written "0.5,0.28"; tokenize() splits on spaces
+        // only, so a value with spaces around the commas is rejoined here.
+        std::string value = tok[3];
+        for (usize i = 4; i < tok.size(); ++i) value += tok[i];
+        std::string err;
+        if (!ctx.config_set(tok[2], value, err)) return fail(err);
+        return okay(tok[2] + " = " + value);
+    }
+
+    return fail("unknown config subcommand '" + tok[1] + "'");
+}
+
 GymResult gym_execute(GymContext& ctx, std::string_view line) {
     const std::vector<std::string> tok = tokenize(line);
     if (tok.empty() || tok[0][0] == '#') return okay("");
@@ -1153,6 +1225,7 @@ GymResult gym_execute(GymContext& ctx, std::string_view line) {
     if (cmd == "portals") return cmd_portals(ctx);
     if (cmd == "level") return cmd_level(ctx, tok);
     if (cmd == "restart") return cmd_restart(ctx);
+    if (cmd == "config") return cmd_config(ctx, tok);
 
     return fail("unknown command '" + tok[0] + "' — type 'help'");
 }

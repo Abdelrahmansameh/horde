@@ -54,6 +54,8 @@ struct EliteDef {
     u32 atp_bounty = 50;
 };
 
+struct EnemyConfig;
+
 class EnemyRoster {
 public:
     /// Populates the canonical six families and the elite table.
@@ -72,6 +74,12 @@ public:
 
     /// Registers the enemy behaviour ECS systems.
     void register_systems(sim::SimWorld& world);
+
+    /// assets/config/enemies.json is applied through this free function
+    /// (game/enemies/EnemyConfigApply.h) rather than through a method, so this
+    /// frozen header's public surface is unchanged. It needs access to the
+    /// same private tables load_defaults() fills.
+    friend void apply_enemy_config(EnemyRoster& roster, const EnemyConfig& cfg);
 
 private:
     FamilyDef families_[kFamilyCount]{};

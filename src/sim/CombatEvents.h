@@ -57,7 +57,19 @@ enum class CombatEventType : u8 {
     /// Blade rotor passed through an agent. `origin` = contact point,
     /// `direction` = blade travel, for the slash arc.
     BladeSlash = 9,
-    Count = 10,
+    /// A fluid particle was stopped hard — by a vessel wall or by a thick
+    /// enough crowd. `origin` = the contact point, `direction` = the heading it
+    /// had just before, `magnitude` = the speed it lost. Raised at most
+    /// FluidTuning::max_splash_events times a tick, because the fluid layer can
+    /// have hundreds of particles land in the same frame and one shared sink
+    /// serves every tower on the board.
+    ///
+    /// NOTE this is a cosmetic GARNISH, not the splash itself. The actual
+    /// splashing is the fluid solver moving real particles, and it is drawn
+    /// from live sim state by the fluid render pass. These events only feed the
+    /// fine droplet spray that a particle-based surface cannot resolve.
+    FluidSplash = 10,
+    Count = 11,
 };
 
 /// One instantaneous combat happening. Trivially copyable, kept small and flat

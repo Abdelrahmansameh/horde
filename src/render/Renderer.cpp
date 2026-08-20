@@ -8,11 +8,12 @@
 // shader passes that read them.
 #include "render/Renderer.h"
 
+#include "render/ChaffBatcher.h"
+
 #include "core/Clock.h"
 #include "core/Log.h"
 #include "core/Math.h"
 #include "render/Camera.h"
-#include "render/ChaffBatcher.h"
 #include "render/Gl.h"
 #include "render/Screenshot.h"
 #include "render/Shader.h"
@@ -22,6 +23,7 @@
 #include "sim/ecs/NamedAgents.h"
 #include "sim/flowfield/FlowField.h"
 #include "sim/projectile/Projectiles.h"
+#include "sim/fluid/Fluid.h"
 #include "sim/swarm/Swarmers.h"
 #include "sim/spatial/SpatialHash.h"
 #include "vfx/Particles.h"
@@ -36,48 +38,74 @@
 
 namespace immune::render {
 
-Vec4 family_color(PathogenFamily family) {
-    // DESIGN.md §6 colour code. Single source of truth.
-    //
-    // Retuned when the substrate went vivid red. §9.3 fixes the family coding
-    // as the constant that never shifts *with lane or region* — it does not
-    // require the values to survive a change of floor unexamined, and two of
-    // them did not. Measured against the new lumen (#D23548, luminance 0.34):
-    //
-    //   Virus       old (0.72,0.20,0.62): luminance contrast 0.01, hue gap 41 deg
-    //   FungalSpore old (0.48,0.33,0.18): luminance contrast 0.02, hue gap 37 deg
-    //
-    // Both were effectively invisible on the lane — identical in value to the
-    // plasma and too near it in hue for that to rescue them. The other four
-    // measured 0.41 to 0.59 and are untouched.
-    //
-    // VIRUS IS NOW GREEN, not the red-purple DESIGN.md §6.2's table still
-    // lists. No amount of adjustment inside "red-purple" solved it: the Virus
-    // is the most numerous family and a purple that stays purple is always the
-    // nearest thing on the wheel to a red lane, so it was the one family
-    // fighting its own background everywhere it appeared. Moving it out of the
-    // red sector entirely is the fix; §6.2's table wants updating to match.
-    //
-    // The specific green is picked to sit between the two families already in
-    // that half of the wheel rather than beside either: Bacteria's yellow-green
-    // is at hue 68 deg and Parasite's teal at 178 deg, so 135 deg leaves ~66
-    // deg of clearance on one side and ~43 on the other. It also runs far
-    // lighter than the plasma (luminance contrast 0.54 against it, up from
-    // 0.01), so it separates on value as well as hue.
-    //
-    // Silhouette still does the rest of the work where hue gets crowded: a
-    // spiked capsid against Bacteria's rod-and-flagellum is not a confusion
-    // anyone makes twice, which is exactly what §6.2's "colour = family,
-    // silhouette size = threat tier" trio is for.
-    switch (family) {
-        case PathogenFamily::Virus:       return Vec4{0.20f, 0.94f, 0.38f, 1.0f}; // vivid green
-        case PathogenFamily::Bacteria:    return Vec4{0.72f, 0.80f, 0.22f, 1.0f}; // yellow-green
-        case PathogenFamily::FungalSpore: return Vec4{0.34f, 0.20f, 0.10f, 1.0f}; // brown, darkened
-        case PathogenFamily::Parasite:    return Vec4{0.16f, 0.70f, 0.68f, 1.0f}; // teal
-        case PathogenFamily::CancerCell:  return Vec4{0.72f, 0.60f, 0.70f, 1.0f}; // grey-pink
-        case PathogenFamily::Allergen:    return Vec4{1.00f, 0.86f, 0.10f, 1.0f}; // warning yellow
-        default:                          return Vec4{1.0f, 1.0f, 1.0f, 1.0f};
+namespace {
+
+/// The DESIGN.md §6 colour code, and the per-family look from ChaffBatcher.h.
+/// Both are defaults now rather than constants: assets/config/enemies.json
+/// overrides them at load through set_family_color/set_family_visual. Keeping
+/// the compiled-in values here means a renderer that never sees a config --
+/// a unit test, a bare screenshot harness -- looks exactly as it always did.
+struct FamilyTables {
+    Vec4 color[kFamilyCount];
+    FamilyVisual visual[kFamilyCount];
+
+    FamilyTables() {
+        // Retuned when the substrate went vivid red. §9.3 fixes the family
+        // coding as the constant that never shifts *with lane or region*; it
+        // does not require the values to survive a change of floor unexamined,
+        // and two of them did not. Measured against the lumen (#D23548,
+        // luminance 0.34), the old Virus and FungalSpore hues scored 0.01 and
+        // 0.02 luminance contrast -- effectively invisible on the lane.
+        //
+        // VIRUS IS GREEN, not the red-purple DESIGN.md §6.2's table still
+        // lists. No purple solved it: the Virus is the most numerous family and
+        // a purple is always the nearest thing on the wheel to a red lane. The
+        // specific green sits between Bacteria's yellow-green (hue 68 deg) and
+        // Parasite's teal (178 deg) rather than beside either.
+        color[static_cast<u32>(PathogenFamily::Virus)]       = Vec4{0.20f, 0.94f, 0.38f, 1.0f};
+        color[static_cast<u32>(PathogenFamily::Bacteria)]    = Vec4{0.72f, 0.80f, 0.22f, 1.0f};
+        color[static_cast<u32>(PathogenFamily::FungalSpore)] = Vec4{0.34f, 0.20f, 0.10f, 1.0f};
+        color[static_cast<u32>(PathogenFamily::Parasite)]    = Vec4{0.16f, 0.70f, 0.68f, 1.0f};
+        color[static_cast<u32>(PathogenFamily::CancerCell)]  = Vec4{0.72f, 0.60f, 0.70f, 1.0f};
+        color[static_cast<u32>(PathogenFamily::Allergen)]    = Vec4{1.00f, 0.86f, 0.10f, 1.0f};
+
+        // silhouette = THREAT tier, tempo = SPEED tier, wobble = family
+        // texture. Virus smallest and fastest; cancer cell largest and slowest.
+        visual[static_cast<u32>(PathogenFamily::Virus)]       = FamilyVisual{1.53f, 3.4f, 0.55f};
+        visual[static_cast<u32>(PathogenFamily::Bacteria)]    = FamilyVisual{2.25f, 1.5f, 0.30f};
+        visual[static_cast<u32>(PathogenFamily::FungalSpore)] = FamilyVisual{1.98f, 0.8f, 0.70f};
+        visual[static_cast<u32>(PathogenFamily::Parasite)]    = FamilyVisual{2.79f, 2.2f, 0.45f};
+        visual[static_cast<u32>(PathogenFamily::CancerCell)]  = FamilyVisual{3.78f, 0.5f, 0.85f};
+        visual[static_cast<u32>(PathogenFamily::Allergen)]    = FamilyVisual{1.71f, 4.2f, 0.25f};
     }
+};
+
+FamilyTables& family_tables() {
+    static FamilyTables tables;
+    return tables;
+}
+
+u32 family_slot(PathogenFamily family) {
+    const u32 i = static_cast<u32>(family);
+    return i < kFamilyCount ? i : 0u;
+}
+
+} // namespace
+
+Vec4 family_color(PathogenFamily family) {
+    return family_tables().color[family_slot(family)];
+}
+
+void set_family_color(PathogenFamily family, Vec4 color) {
+    family_tables().color[family_slot(family)] = color;
+}
+
+const FamilyVisual& family_visual(PathogenFamily family) {
+    return family_tables().visual[family_slot(family)];
+}
+
+void set_family_visual(PathogenFamily family, const FamilyVisual& visual) {
+    family_tables().visual[family_slot(family)] = visual;
 }
 
 u32 pack_rgba8(Vec4 c) {
@@ -151,6 +179,33 @@ struct SwarmerGpuInstance {
     f32 r, g, b, a;
     u32 flags;      ///< bit 0: attached to a host. Mirrors swarmer.frag.
 };
+
+/// Per-instance data for the fluid thickness pass. Mirrored only in
+/// assets/shaders/fluid.vert.
+///
+/// `vx/vy` is the particle's motion over the last substep, not a normalized
+/// heading: the vertex stage stretches the splat along it, which is what gives
+/// fast mucus its streak and lets a jet read as moving even while every
+/// individual particle is a featureless blob.
+struct FluidGpuInstance {
+    f32 x, y;
+    f32 vx, vy;
+    f32 radius;
+    f32 density;   ///< Relaxed density / rest density. Surface vs body cue.
+    f32 fade;      ///< 0..1 lifetime fade, already resolved on the CPU.
+    f32 foam;      ///< 0..1 how churned this particle is (splashed / on a wall).
+};
+
+/// Divisor between the framebuffer and the fluid thickness target.
+///
+/// Half resolution is not a corner cut here, it is the correct filter. The
+/// composite reads a screen-space GRADIENT of thickness to build its normals,
+/// and a gradient taken at full resolution over a field made of overlapping
+/// discs picks up the individual discs as bumps. Halving the resolution (and
+/// sampling it back bilinearly) low-passes exactly the frequency the discs live
+/// at, so the surface comes out smooth and continuous. It also quarters the
+/// fill cost of the single most overdrawn pass in the frame.
+constexpr i32 kFluidTargetDivisor = 2;
 
 /// Elite death-burst timing. The renderer has no access to the spawning
 /// entity's archetype's `ArchetypeBehavior::death_fade` (sim/ecs internals,
@@ -440,6 +495,18 @@ struct Renderer::Impl {
     u32 particle_region = 0;
     u32 max_particle_instances = 0;
 
+    // Fluid pass. Two stages with two very different shapes: an instanced
+    // additive splat into `fluid_target`, then one fullscreen composite that
+    // turns that thickness field into a shaded surface.
+    gl::VertexArray fluid_vao;
+    gl::Buffer fluid_instances;
+    gl::FenceRing<kInstanceRegions> fluid_fence;
+    u32 fluid_region = 0;
+    u32 max_fluid_instances = 0;
+    gl::ColorTarget fluid_target;
+    i32 fluid_target_w = 0;
+    i32 fluid_target_h = 0;
+
     // Blob + tissue passes both just need the shared quad's position attrib.
     gl::VertexArray screen_quad_vao;
 
@@ -459,13 +526,14 @@ struct Renderer::Impl {
     gl::Texture2D tissue_flow_tex;
     i32 flow_tex_w = 0;
     i32 flow_tex_h = 0;
-    std::vector<f32> flow_scratch; // rgb32f staging
+    std::vector<f32> flow_scratch; // rgba32f staging (dir.xy, cost, coherence)
     std::vector<u8> flow_valid;    // hole-fill mask, parallel to flow_scratch
     bool flow_tex_valid = false;
     // Change detector for the flow field; see submit_tissue.
     f64 flow_bake_ms = -1.0;
     u32 flow_cells_visited = 0xFFFFFFFFu;
     u32 flow_regions = 0xFFFFFFFFu;
+    bool flow_rebuild_queued = false;
 
     // Lane-hue texture: built once per level. Lane ownership is a pure function
     // of the level file and never changes at runtime, so the source pointer
@@ -490,6 +558,31 @@ struct Renderer::Impl {
     Rect visible_bounds{};
     f32 alpha = 0.0f;
 };
+
+namespace {
+
+/// (Re)creates the offscreen thickness target for a given framebuffer size.
+/// Separate from init() because resize() has to run it again: the target is in
+/// SCREEN space, so a window resize invalidates it outright. Takes the pieces
+/// rather than the Impl so it can stay a file-local free function — Impl is a
+/// private nested type and naming it out here would not compile.
+void ensure_fluid_target(gl::ColorTarget& target, i32& cached_w, i32& cached_h,
+                         i32 fb_width, i32 fb_height) {
+    const i32 w = math::max(1, fb_width / kFluidTargetDivisor);
+    const i32 h = math::max(1, fb_height / kFluidTargetDivisor);
+    if (target.valid() && cached_w == w && cached_h == h) return;
+    if (!target.create(w, h, GL_RGBA16F)) {
+        IMMUNE_LOG_WARN("fluid: failed to create the %dx%d thickness target; "
+                        "the fluid pass will not draw", w, h);
+        cached_w = 0;
+        cached_h = 0;
+        return;
+    }
+    cached_w = w;
+    cached_h = h;
+}
+
+} // namespace
 
 Renderer::Renderer() = default;
 Renderer::~Renderer() { shutdown(); }
@@ -615,6 +708,28 @@ bool Renderer::init(const RendererDesc& desc) {
     imp.swarmer_vao.attrib_float(5, 1, 4, GL_FLOAT, false, offsetof(SwarmerGpuInstance, r));
     imp.swarmer_vao.attrib_int(6, 1, 1, GL_UNSIGNED_INT, offsetof(SwarmerGpuInstance, flags));
 
+    // ---- Fluid pass. Attribute locations mirror fluid.vert. ---------------
+    // Sized from the swarmer cap rather than given its own knob: both are
+    // "however many small sim-owned bodies can be alive", and SimDesc caps the
+    // fluid store an order of magnitude below the swarmer store anyway.
+    imp.max_fluid_instances = math::max(desc_.max_swarmer_instances, 1u);
+    if (!imp.fluid_vao.create()) { error_ = "failed to create the fluid VAO"; return false; }
+    imp.fluid_vao.bind_vertex_buffer(0, imp.quad_vbo, sizeof(Vec2), 0, 0);
+    imp.fluid_vao.attrib_float(0, 0, 2, GL_FLOAT, false, 0);
+    const usize fluid_bytes = static_cast<usize>(imp.max_fluid_instances) *
+                              sizeof(FluidGpuInstance) * kInstanceRegions;
+    if (!imp.fluid_instances.create_persistent(fluid_bytes)) {
+        error_ = "failed to allocate the fluid instance buffer";
+        return false;
+    }
+    imp.fluid_vao.bind_vertex_buffer(1, imp.fluid_instances, sizeof(FluidGpuInstance), 0, 1);
+    imp.fluid_vao.attrib_float(1, 1, 2, GL_FLOAT, false, offsetof(FluidGpuInstance, x));
+    imp.fluid_vao.attrib_float(2, 1, 2, GL_FLOAT, false, offsetof(FluidGpuInstance, vx));
+    imp.fluid_vao.attrib_float(3, 1, 1, GL_FLOAT, false, offsetof(FluidGpuInstance, radius));
+    imp.fluid_vao.attrib_float(4, 1, 1, GL_FLOAT, false, offsetof(FluidGpuInstance, density));
+    imp.fluid_vao.attrib_float(5, 1, 1, GL_FLOAT, false, offsetof(FluidGpuInstance, fade));
+    imp.fluid_vao.attrib_float(6, 1, 1, GL_FLOAT, false, offsetof(FluidGpuInstance, foam));
+
     // ---- Particle pass. Attribute locations mirror particle.vert, and the
     // instance layout mirrors vfx::ParticleInstance byte for byte (that one IS
     // a frozen contract -- see vfx/Particles.h).
@@ -655,6 +770,14 @@ bool Renderer::init(const RendererDesc& desc) {
         return false;
     }
 
+    // ---- Fluid thickness target ------------------------------------------
+    // RGBA16F, not RGBA8: thickness is an unbounded additive sum (a hundred
+    // overlapping droplets is a legitimate value) and the velocity channels are
+    // signed. An 8-bit target would clip both, and clipped thickness means a
+    // flat-topped surface with no normals in the middle of every puddle.
+    ensure_fluid_target(imp.fluid_target, imp.fluid_target_w, imp.fluid_target_h,
+                        desc.framebuffer_width, desc.framebuffer_height);
+
     // ---- Flow-field debug overlay VAO (buffer allocated lazily) -----------
     glCreateVertexArrays(1, &imp.flow_vao);
     glEnableVertexArrayAttrib(imp.flow_vao, 0);
@@ -678,6 +801,9 @@ bool Renderer::init(const RendererDesc& desc) {
     imp.shaders.load_graphics("field", "field.vert", "field.frag");
     imp.shaders.load_graphics("projectile", "projectile.vert", "projectile.frag");
     imp.shaders.load_graphics("swarmer", "swarmer.vert", "swarmer.frag");
+    imp.shaders.load_graphics("fluid", "fluid.vert", "fluid.frag");
+    imp.shaders.load_graphics("fluid_composite", "fluid_composite.vert",
+                              "fluid_composite.frag");
     imp.shaders.load_graphics("particle", "particle.vert", "particle.frag");
     imp.shaders.load_graphics("flow_debug", "flow_debug.vert", "flow_debug.frag");
     if (!imp.shaders.get("chaff").valid()) {
@@ -703,7 +829,14 @@ void Renderer::shutdown() {
 void Renderer::resize(i32 width, i32 height) {
     desc_.framebuffer_width = width;
     desc_.framebuffer_height = height;
-    if (ready_) glViewport(0, 0, width, height);
+    if (!ready_) return;
+    glViewport(0, 0, width, height);
+    // The fluid thickness target is a screen-space buffer, so it has to be
+    // rebuilt at the new size or the composite would sample a stale aspect.
+    if (impl_) {
+        ensure_fluid_target(impl_->fluid_target, impl_->fluid_target_w,
+                            impl_->fluid_target_h, width, height);
+    }
 }
 
 void Renderer::begin_frame(const Camera& camera, f32 alpha) {
@@ -779,7 +912,7 @@ void Renderer::submit_tissue(const sim::TissueMask& mask, const sim::DistanceFie
         const i32 fw = math::min(src_w, kFlowTexMax);
         const i32 fh = math::min(src_h, kFlowTexMax);
         if (imp.flow_tex_w != fw || imp.flow_tex_h != fh) {
-            if (imp.tissue_flow_tex.create(fw, fh, GL_RGB16F, GL_LINEAR, GL_LINEAR,
+            if (imp.tissue_flow_tex.create(fw, fh, GL_RGBA16F, GL_LINEAR, GL_LINEAR,
                                            GL_CLAMP_TO_EDGE)) {
                 imp.flow_tex_w = fw;
                 imp.flow_tex_h = fh;
@@ -793,32 +926,54 @@ void Renderer::submit_tissue(const sim::TissueMask& mask, const sim::DistanceFie
         // comparisons. It exposes no version counter, but pump_rebake() returns
         // before touching `stats` when nothing is dirty (sim/flowfield/
         // FlowField.cpp), which makes the stats triple a serviceable one:
-        // a rebake always moves it. Worst case if it ever failed to, the plasma
-        // keeps flowing along the previous routing for a frame or two, which is
-        // cosmetic and self-corrects at the next rebake.
+        // a rebake always moves it.
+        //
+        // WAIT FOR THE REBAKE TO FINISH. A rebake is amortised across frames
+        // against SimWorld's flow_rebake_budget_ms, which defaults to half a
+        // millisecond -- so re-solving a floodplain-sized dirty region runs for
+        // dozens of frames. This condition used to include has_pending_rebake()
+        // directly, which meant every one of those frames rebuilt the whole
+        // texture from a HALF-SOLVED Dijkstra sweep: costs and directions that
+        // are partly new and partly stale, with a different `max_cost` each
+        // time, so `to_goal` renormalised globally every frame. The lane's
+        // striations and systolic banding boiled for the better part of a
+        // second after every tower placement, and each of those frames paid the
+        // multi-millisecond rebuild on top of the sim's own re-solve.
+        //
+        // Latch the request instead and service it once, on the first frame the
+        // field is whole again. The plasma flows along the previous routing in
+        // the meantime, which is exactly the "cosmetic, self-corrects" tradeoff
+        // this cache was always documented as making.
         const sim::RebakeStats& rs = flow.stats();
+        const bool pending = flow.has_pending_rebake();
+        if (pending) imp.flow_rebuild_queued = true;
         const bool changed = !imp.flow_tex_valid ||
-                             flow.has_pending_rebake() ||
+                             imp.flow_rebuild_queued ||
                              rs.last_bake_ms != imp.flow_bake_ms ||
                              rs.cells_visited != imp.flow_cells_visited ||
                              rs.regions_processed != imp.flow_regions;
 
-        if (imp.flow_tex_w == fw && imp.flow_tex_h == fh && changed) {
+        if (imp.flow_tex_w == fw && imp.flow_tex_h == fh && changed && !pending) {
             const usize texels = static_cast<usize>(fw) * static_cast<usize>(fh);
-            imp.flow_scratch.resize(texels * 3);
+            imp.flow_scratch.resize(texels * 4);
             imp.flow_valid.assign(texels, 0);
             const Vec2* dirs = flow.directions();
             const f32* costs = flow.costs();
             f32 max_cost = 0.0f;
             for (i32 y = 0; y < fh; ++y) {
-                const i32 sy = y * src_h / fh;
+                // Centre-aligned pick. `y * src_h / fh` takes the top-left
+                // corner of each coarse cell, which shifts the whole field half
+                // a cell up and left against the SDF the shader samples with
+                // the same uv -- small, but it is a systematic misregistration
+                // between a lumen and the plasma flowing inside it.
+                const i32 sy = math::min((2 * y + 1) * src_h / (2 * fh), src_h - 1);
                 for (i32 x = 0; x < fw; ++x) {
-                    const i32 sx = x * src_w / fw;
+                    const i32 sx = math::min((2 * x + 1) * src_w / (2 * fw), src_w - 1);
                     const usize src = static_cast<usize>(sy) * static_cast<usize>(src_w) +
                                       static_cast<usize>(sx);
                     const usize texel = static_cast<usize>(y) * static_cast<usize>(fw) +
                                         static_cast<usize>(x);
-                    const usize dst = texel * 3;
+                    const usize dst = texel * 4;
                     imp.flow_scratch[dst + 0] = dirs[src].x;
                     imp.flow_scratch[dst + 1] = dirs[src].y;
                     // Unreachable cells hold infinity; park them at -1 and
@@ -829,6 +984,12 @@ void Renderer::submit_tissue(const sim::TissueMask& mask, const sim::DistanceFie
                     if (finite) max_cost = math::max(max_cost, cost);
                     const bool has_dir = math::length_sq(dirs[src]) > 1e-4f;
                     imp.flow_valid[texel] = (finite && has_dir) ? u8{1} : u8{0};
+                    // Coherence seed: 1 where the field is real guidance, 0
+                    // where there is none. It is blurred alongside everything
+                    // else below, which turns it into a smooth "how far should
+                    // the plasma trust this direction" weight instead of a
+                    // binary mask with a hard edge in it.
+                    imp.flow_scratch[dst + 3] = (finite && has_dir) ? 1.0f : 0.0f;
                 }
             }
 
@@ -872,16 +1033,22 @@ void Renderer::submit_tissue(const sim::TissueMask& mask, const sim::DistanceFie
                             const usize nt = static_cast<usize>(ny) * static_cast<usize>(fw) +
                                              static_cast<usize>(nx);
                             if (imp.flow_valid[nt] == 0) continue;
-                            sx_sum += imp.flow_scratch[nt * 3 + 0];
-                            sy_sum += imp.flow_scratch[nt * 3 + 1];
-                            c_sum += imp.flow_scratch[nt * 3 + 2];
+                            sx_sum += imp.flow_scratch[nt * 4 + 0];
+                            sy_sum += imp.flow_scratch[nt * 4 + 1];
+                            c_sum += imp.flow_scratch[nt * 4 + 2];
                             ++hits;
                         }
                         if (hits == 0) continue;
                         const f32 inv = 1.0f / static_cast<f32>(hits);
-                        next[texel * 3 + 0] = sx_sum * inv;
-                        next[texel * 3 + 1] = sy_sum * inv;
-                        next[texel * 3 + 2] = c_sum * inv;
+                        next[texel * 4 + 0] = sx_sum * inv;
+                        next[texel * 4 + 1] = sy_sum * inv;
+                        next[texel * 4 + 2] = c_sum * inv;
+                        // Invented, not measured. The cell joins the field so
+                        // the blur has something continuous to work with, but
+                        // it carries zero coherence, so the striations fade
+                        // across a footprint rather than being drawn
+                        // confidently along a direction nobody computed.
+                        next[texel * 4 + 3] = 0.0f;
                         next_valid[texel] = 1;
                         filled_any = true;
                     }
@@ -911,7 +1078,7 @@ void Renderer::submit_tissue(const sim::TissueMask& mask, const sim::DistanceFie
             // renormalising each pass so a convergence cannot cancel the field
             // to nothing. This also dissolves the 8-way staircase, which is
             // worth having on its own.
-            constexpr i32 kSmoothPasses = 8;
+            constexpr i32 kSmoothPasses = 12;
             for (i32 pass = 0; pass < kSmoothPasses; ++pass) {
                 for (i32 axis = 0; axis < 2; ++axis) {
                     const i32 sx = (axis == 0) ? 1 : 0;
@@ -920,7 +1087,7 @@ void Renderer::submit_tissue(const sim::TissueMask& mask, const sim::DistanceFie
                         for (i32 x = 0; x < fw; ++x) {
                             const usize texel = static_cast<usize>(y) * static_cast<usize>(fw) +
                                                 static_cast<usize>(x);
-                            f32 ax = 0.0f, ay = 0.0f, ac = 0.0f, wsum = 0.0f;
+                            f32 ax = 0.0f, ay = 0.0f, ac = 0.0f, ak = 0.0f, wsum = 0.0f;
                             if (imp.flow_valid[texel] != 0) {
                                 for (i32 k = -1; k <= 1; ++k) {
                                     const i32 nx = x + k * sx;
@@ -931,23 +1098,26 @@ void Renderer::submit_tissue(const sim::TissueMask& mask, const sim::DistanceFie
                                                      static_cast<usize>(nx);
                                     if (imp.flow_valid[nt] == 0) continue;
                                     const f32 kw = (k == 0) ? 2.0f : 1.0f;
-                                    ax += imp.flow_scratch[nt * 3 + 0] * kw;
-                                    ay += imp.flow_scratch[nt * 3 + 1] * kw;
-                                    ac += imp.flow_scratch[nt * 3 + 2] * kw;
+                                    ax += imp.flow_scratch[nt * 4 + 0] * kw;
+                                    ay += imp.flow_scratch[nt * 4 + 1] * kw;
+                                    ac += imp.flow_scratch[nt * 4 + 2] * kw;
+                                    ak += imp.flow_scratch[nt * 4 + 3] * kw;
                                     wsum += kw;
                                 }
                             }
                             if (wsum <= 0.0f) {
                                 // Invalid, or fully surrounded by invalid: pass
-                                // it through untouched.
-                                next[texel * 3 + 0] = imp.flow_scratch[texel * 3 + 0];
-                                next[texel * 3 + 1] = imp.flow_scratch[texel * 3 + 1];
-                                next[texel * 3 + 2] = imp.flow_scratch[texel * 3 + 2];
+                                // it through untouched, with no coherence.
+                                next[texel * 4 + 0] = imp.flow_scratch[texel * 4 + 0];
+                                next[texel * 4 + 1] = imp.flow_scratch[texel * 4 + 1];
+                                next[texel * 4 + 2] = imp.flow_scratch[texel * 4 + 2];
+                                next[texel * 4 + 3] = 0.0f;
                             } else {
                                 const f32 inv = 1.0f / wsum;
-                                next[texel * 3 + 0] = ax * inv;
-                                next[texel * 3 + 1] = ay * inv;
-                                next[texel * 3 + 2] = ac * inv;
+                                next[texel * 4 + 0] = ax * inv;
+                                next[texel * 4 + 1] = ay * inv;
+                                next[texel * 4 + 2] = ac * inv;
+                                next[texel * 4 + 3] = ak * inv;
                             }
                         }
                     }
@@ -956,22 +1126,112 @@ void Renderer::submit_tissue(const sim::TissueMask& mask, const sim::DistanceFie
                 }
                 for (usize t = 0; t < texels; ++t) {
                     if (imp.flow_valid[t] == 0) continue;
-                    const f32 vx = imp.flow_scratch[t * 3 + 0];
-                    const f32 vy = imp.flow_scratch[t * 3 + 1];
+                    const f32 vx = imp.flow_scratch[t * 4 + 0];
+                    const f32 vy = imp.flow_scratch[t * 4 + 1];
                     const f32 len = std::sqrt(vx * vx + vy * vy);
                     if (len < 1e-4f) continue; // leave a true convergence alone
-                    imp.flow_scratch[t * 3 + 0] = vx / len;
-                    imp.flow_scratch[t * 3 + 1] = vy / len;
+                    imp.flow_scratch[t * 4 + 0] = vx / len;
+                    imp.flow_scratch[t * 4 + 1] = vy / len;
+                }
+            }
+
+            // ---- Directional agreement ---------------------------------
+            // Some places have no single plausible flow direction at all, and
+            // no amount of smoothing invents one: the objective, which the
+            // whole field points AT from every side; a vessel's dead-end cap;
+            // the wedge an incremental re-solve leaves beside a tower. The LIC
+            // in tissue.frag integrates along whatever vector it is handed, so
+            // at those points it drew a starburst of streamlines radiating out
+            // of one texel -- easily the loudest artifact on an untouched lane.
+            //
+            // Detect them by blurring a COPY of the unit directions WITHOUT
+            // renormalising and taking the magnitude. Averaging unit vectors
+            // gives ~1 where they agree and collapses to ~0 where they fan out,
+            // and because the estimate is built by repeated blurring, a defect
+            // spreads a wide, soft halo of low agreement around itself rather
+            // than a single dark texel. That halo is exactly the region the
+            // striations have to give up on, so it is what the coherence
+            // channel needs to carry.
+            //
+            // Note this is *not* the same as reading the length back out of the
+            // smoothing loop above, which renormalises after every pass and so
+            // throws the measurement away as fast as it accumulates.
+            {
+                // A-trous strides. The defect this has to find is not a single
+                // bad texel -- a cap fans its directions across a good 15-texel
+                // radius -- and a stack of adjacent 3-taps grows its support
+                // only as sqrt(passes), so reaching that radius directly would
+                // take of order two hundred sweeps on every tower placement.
+                // Doubling the tap spacing instead reaches a ~9-texel sigma in
+                // eight, and a coherence estimate is exactly the kind of smooth
+                // low-frequency quantity that does not care about the aliasing
+                // a strided kernel would introduce in an image.
+                const i32 kAgreeStrides[] = {1, 2, 4, 8, 1, 2, 4, 8};
+                std::vector<f32> agree(texels * 2);
+                for (usize t = 0; t < texels; ++t) {
+                    agree[t * 2 + 0] = imp.flow_scratch[t * 4 + 0];
+                    agree[t * 2 + 1] = imp.flow_scratch[t * 4 + 1];
+                }
+                std::vector<f32> agree_next(texels * 2);
+                for (const i32 stride : kAgreeStrides) {
+                    for (i32 axis = 0; axis < 2; ++axis) {
+                        const i32 sx = (axis == 0) ? stride : 0;
+                        const i32 sy = (axis == 0) ? 0 : stride;
+                        for (i32 y = 0; y < fh; ++y) {
+                            for (i32 x = 0; x < fw; ++x) {
+                                const usize t = static_cast<usize>(y) *
+                                                static_cast<usize>(fw) + static_cast<usize>(x);
+                                f32 ax = 0.0f, ay = 0.0f, wsum = 0.0f;
+                                if (imp.flow_valid[t] != 0) {
+                                    for (i32 k = -1; k <= 1; ++k) {
+                                        const i32 nx = x + k * sx;
+                                        const i32 ny = y + k * sy;
+                                        if (nx < 0 || ny < 0 || nx >= fw || ny >= fh) continue;
+                                        const usize nt = static_cast<usize>(ny) *
+                                                         static_cast<usize>(fw) +
+                                                         static_cast<usize>(nx);
+                                        if (imp.flow_valid[nt] == 0) continue;
+                                        const f32 kw = (k == 0) ? 2.0f : 1.0f;
+                                        ax += agree[nt * 2 + 0] * kw;
+                                        ay += agree[nt * 2 + 1] * kw;
+                                        wsum += kw;
+                                    }
+                                }
+                                const f32 inv = (wsum > 0.0f) ? 1.0f / wsum : 0.0f;
+                                agree_next[t * 2 + 0] = ax * inv;
+                                agree_next[t * 2 + 1] = ay * inv;
+                            }
+                        }
+                        agree.swap(agree_next);
+                    }
+                }
+                // Shaped here rather than in the shader so the thresholds sit
+                // next to the process that produced the number. A lane's body
+                // measures ~0.95 even through a bend; a fan measures well under
+                // 0.6, and the band between is where the striations hand over.
+                // The band is high and narrow, because the numbers here are
+                // high and close together. Direction spread maps to mean length
+                // as sin(t)/t, so even a hard bend that swings 40 degrees across
+                // the whole window still measures 0.98 -- while a cap, whose
+                // directions fan across 120 degrees or more, measures 0.83. It
+                // is the region above 0.97 that is "a lane", not the region
+                // above a half.
+                for (usize t = 0; t < texels; ++t) {
+                    const f32 a = std::sqrt(agree[t * 2 + 0] * agree[t * 2 + 0] +
+                                            agree[t * 2 + 1] * agree[t * 2 + 1]);
+                    const f32 shaped = math::saturate((a - 0.85f) / 0.12f);
+                    imp.flow_scratch[t * 4 + 3] *= shaped * shaped * (3.0f - 2.0f * shaped);
                 }
             }
 
             const f32 inv_cost = 1.0f / math::max(max_cost, 1e-4f);
-            for (usize i = 2; i < imp.flow_scratch.size(); i += 3) {
+            for (usize i = 2; i < imp.flow_scratch.size(); i += 4) {
                 const f32 c = imp.flow_scratch[i];
                 imp.flow_scratch[i] = (c < 0.0f) ? 1.0f : math::saturate(c * inv_cost);
             }
-            imp.tissue_flow_tex.upload(imp.flow_scratch.data(), GL_RGB, GL_FLOAT);
+            imp.tissue_flow_tex.upload(imp.flow_scratch.data(), GL_RGBA, GL_FLOAT);
             imp.flow_tex_valid = true;
+            imp.flow_rebuild_queued = false;
             imp.flow_bake_ms = rs.last_bake_ms;
             imp.flow_cells_visited = rs.cells_visited;
             imp.flow_regions = rs.regions_processed;
@@ -1153,7 +1413,7 @@ void Renderer::submit_entities(const sim::EcsWorld& ecs) {
 
         // Every tower body spends its tier on a countable feature — the
         // Macrophage's phagosomes, the Interferon crystal's reach, the
-        // Cytotoxic T's microvilli, the B-Cell's antibodies, the NK Cell's
+        // Cytotoxic T's microvilli, the Goblet Cell's granules, the NK Cell's
         // blades — so an upgrade is legible from the silhouette alone rather
         // than only from the stat panel.
         //
@@ -1294,20 +1554,24 @@ void Renderer::submit_fields(const sim::DamageField* fields, usize count) {
     //
     // Before this they were an unrelated per-shape palette, and it actively
     // fought the roster's own legibility rule (DESIGN.md §9.3): the Interferon
-    // is the cyan tower and its cone rendered PINK, the B-Cell is the green
-    // tower and its beam rendered VIOLET. The player's only cheap "who is
+    // is the cyan tower and its cone rendered PINK, and the tower in slot 4 was
+    // green while its attack rendered VIOLET. The player's only cheap "who is
     // shooting" channel is hue, and half the roster was spending it saying
     // something different in two places at once.
     //
     // Shape maps to tower one-to-one across the current roster, so the tower
-    // does not have to be looked up: only the Interferon casts Cones, only the
-    // B-Cell casts Rects, and Chain is the Cytotoxic T (the Complement Cascade
+    // does not have to be looked up: only the Interferon casts Cones, and Chain
+    // is the Cytotoxic T (the Complement Cascade
     // ABILITY also resolves through Chain, and reading as a T-Cell discharge is
     // the right answer there — it is the same mechanism fired by the player).
     // Circle is the one genuine ambiguity and is split below by lifetime.
     const Vec4 kMortarTint{1.00f, 0.66f, 0.24f, 1.0f};  // Macrophage — amber
     const Vec4 kBladeTint{1.00f, 0.52f, 0.86f, 1.0f};   // NK Cell    — magenta
-    const Vec4 kRectTint{0.62f, 1.00f, 0.80f, 1.0f};    // B-Cell     — antibody green
+    // No tower casts a Rect any more -- the Goblet Cell that replaced the old
+    // beam publishes no field at all. Kept because DamageField::Rect is still a
+    // shape a future caster (or a scripted hazard) may submit, and an unhandled
+    // shape would render untinted.
+    const Vec4 kRectTint{0.62f, 1.00f, 0.80f, 1.0f};    // unclaimed  — pale green
     const Vec4 kConeTint{0.52f, 0.84f, 1.00f, 1.0f};    // Interferon — cyan
     const Vec4 kChainTint{0.76f, 0.66f, 1.00f, 1.0f};   // Cytotoxic T— violet
     // friendly_fire fields (the allergen overreaction mechanic) override to a
@@ -1569,6 +1833,105 @@ void Renderer::submit_swarmers(const sim::SwarmerBuffers& swarmers) {
     imp.swarmer_region = (imp.swarmer_region + 1) % kInstanceRegions;
     stats_.submit_ms += timer.elapsed_ms();
 }
+void Renderer::submit_fluid(const sim::FluidBuffers& fluid, f32 particle_radius) {
+    const usize count = fluid.count();
+    stats_.fluid_instances_drawn = static_cast<u32>(count);
+    if (!ready_ || !impl_ || count == 0) return;
+    Impl& imp = *impl_;
+    if (!imp.fluid_target.valid()) return;
+    const ShaderProgram splat = imp.shaders.get("fluid");
+    const ShaderProgram composite = imp.shaders.get("fluid_composite");
+    if (!splat.valid() || !composite.valid()) return;
+    WallClock timer;
+
+    const u32 draw_count = math::min(static_cast<u32>(count), imp.max_fluid_instances);
+
+    imp.fluid_fence.wait(imp.fluid_region);
+    FluidGpuInstance* base = imp.fluid_instances.mapped_as<FluidGpuInstance>() +
+        static_cast<usize>(imp.fluid_region) * imp.max_fluid_instances;
+
+    const f32 radius = math::max(particle_radius, 0.01f);
+    for (u32 i = 0; i < draw_count; ++i) {
+        FluidGpuInstance inst{};
+        inst.x = fluid.pos_x[i];
+        inst.y = fluid.pos_y[i];
+        // The last substep's actual displacement, not the velocity: at 180 Hz
+        // substeps that is already the per-substep motion, which is exactly the
+        // length a motion streak should be. Deriving it from velocity would
+        // need the substep count, which render/ has no business knowing.
+        inst.vx = fluid.pos_x[i] - fluid.prev_x[i];
+        inst.vy = fluid.pos_y[i] - fluid.prev_y[i];
+        inst.radius = radius;
+        inst.density = fluid.density[i];
+
+        // Fade over the last stretch of life. The solver stops depositing
+        // damage over the same window (see kFadeWindow in Fluid.cpp), so what
+        // the player sees dissolving really has stopped burning.
+        inst.fade = math::saturate(fluid.life[i] * 3.0f);
+
+        // Foam: fluid that has been churned. A particle that has hit something
+        // stays marked, and one currently scraping along tissue counts double,
+        // because that is where a real splash goes white and bubbly. This is
+        // the whole reason a splash reads differently from the clean beam that
+        // caused it.
+        f32 foam = (fluid.flags[i] & sim::fluid_flags::kSplashed) != 0 ? 0.55f : 0.0f;
+        if ((fluid.flags[i] & sim::fluid_flags::kOnWall) != 0) foam = 1.0f;
+        inst.foam = foam;
+        base[i] = inst;
+    }
+
+    // ---- Pass 1: accumulate thickness into the offscreen target ------------
+    // Pure addition, no alpha: this is a field being summed, not a picture
+    // being composited, and every particle must contribute its full weight
+    // regardless of draw order.
+    GLint prev_viewport[4];
+    glGetIntegerv(GL_VIEWPORT, prev_viewport);
+
+    imp.fluid_target.bind();
+    glViewport(0, 0, imp.fluid_target_w, imp.fluid_target_h);
+    glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_ONE, GL_ONE);
+
+    glUseProgram(splat.gl_id);
+    glUniformMatrix4fv(0, 1, GL_FALSE, glm::value_ptr(imp.view_projection));
+    glUniform1f(1, imp.time);
+    imp.fluid_vao.bind();
+    glDrawArraysInstancedBaseInstance(GL_TRIANGLE_FAN, 0, 4, static_cast<GLsizei>(draw_count),
+                                      imp.fluid_region * imp.max_fluid_instances);
+    ++stats_.draw_calls;
+
+    // ---- Pass 2: threshold it into a surface and shade it ------------------
+    gl::ColorTarget::bind_default();
+    glViewport(prev_viewport[0], prev_viewport[1], prev_viewport[2], prev_viewport[3]);
+
+    // PREMULTIPLIED alpha, and this matters: it lets the specular highlight
+    // write light beyond what the surface's own opacity would allow, so a thin
+    // sheet of mucus can still throw a hard glint. Straight alpha blending caps
+    // every highlight at the coverage that carries it, and the surface goes
+    // flat and plastic exactly where it should look wettest.
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+
+    glUseProgram(composite.gl_id);
+    glUniform2f(0, 1.0f / static_cast<f32>(imp.fluid_target_w),
+                1.0f / static_cast<f32>(imp.fluid_target_h));
+    glUniform1f(1, imp.time);
+    imp.fluid_target.color().bind_unit(0);
+    imp.screen_quad_vao.bind();
+    glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
+    ++stats_.draw_calls;
+
+    // Leave the pipeline on standard alpha so a later pass never inherits
+    // premultiplied blending by accident.
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+    imp.fluid_fence.signal(imp.fluid_region);
+    imp.fluid_region = (imp.fluid_region + 1) % kInstanceRegions;
+    stats_.submit_ms += timer.elapsed_ms();
+}
+
 void Renderer::submit_particles(const vfx::ParticleInstance* instances, usize count,
                                 vfx::BlendMode blend) {
     // One instanced draw for the whole span. The CPU never builds per-particle

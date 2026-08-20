@@ -11,8 +11,12 @@
 // and reconstructs all of that from three small textures:
 //
 //   u_sdf   R32F   signed distance to the vessel wall, world units, + inside.
-//   u_flow  RGB16F rg = unit flow direction toward the objective,
-//                  b  = normalised cost-to-goal in [0,1] (1 = far, 0 = at it).
+//   u_flow  RGBA16F rg = unit flow direction toward the objective,
+//                   b  = normalised cost-to-goal in [0,1] (1 = far, 0 = at it),
+//                   a  = coherence in [0,1] -- how well-defined that direction
+//                        is. 1 in the body of a lane, falling to 0 over a tower
+//                        footprint, at a dead-end cap, and at the objective
+//                        where the field genuinely radiates.
 //   u_lane  RGBA8  rgb = this point's lane hue, a = lane tempo / 2
 //                  (DESIGN.md §9.2's per-vessel-type identity, flooded and
 //                  blurred CPU-side so it varies smoothly).
@@ -99,6 +103,77 @@ float fbm(vec2 p) {
         a *= 0.5;
     }
     return v;
+}
+
+// ===========================================================================
+// SMOOTH TEXTURE RECONSTRUCTION
+//
+// Both data textures are coarse -- the SDF is the sim's own grid (half a world
+// unit per texel, i.e. ~5 screen pixels at gameplay zoom) and the flow texture
+// is coarser still. Hardware bilinear filtering reconstructs those as a field
+// that is continuous but whose DERIVATIVE jumps at every texel boundary, and
+// this shader reads them through terms that are exquisitely sensitive to
+// exactly that: `sin(d * 4.4)` for the laminae, a 0.44-unit smoothstep for the
+// lumen edge, and a central difference for the wall normal. A kinked field run
+// through those comes out as a lattice of hard creases -- vessel walls that
+// look torn out of paper along little straight facets, and lighting that goes
+// blocky on the texel grid. That is the single most visible artifact this pass
+// had, and it is present with or without a tower on the map.
+//
+// The fix is to reconstruct with a cubic B-spline instead. It is C2, so the
+// gradient is continuous everywhere and there is no texel grid left to see. The
+// standard four-bilinear-tap formulation is used, so it costs 4 samples rather
+// than 16, and the B-spline's slight smoothing is a bonus here: the mask is
+// rasterized by stamping discs (sim/flowfield/TissueRaster.h) and its stair
+// steps are noise, not signal.
+// ===========================================================================
+
+/// Cubic B-spline weights, returned as the two offsets and the lerp factor the
+/// four-tap trick needs. `f` is the fractional texel coordinate.
+void bspline_taps(vec2 f, out vec2 off0, out vec2 off1, out vec2 mixf) {
+    vec2 f2 = f * f;
+    vec2 f3 = f2 * f;
+    vec2 w0 = (1.0 - 3.0 * f + 3.0 * f2 - f3) / 6.0;
+    vec2 w1 = (4.0 - 6.0 * f2 + 3.0 * f3) / 6.0;
+    vec2 w2 = (1.0 + 3.0 * f + 3.0 * f2 - 3.0 * f3) / 6.0;
+    vec2 w3 = f3 / 6.0;
+    vec2 s0 = w0 + w1;
+    vec2 s1 = w2 + w3;   // s0 + s1 == 1 exactly, so s1 *is* the lerp factor
+    off0 = -1.0 + w1 / s0;
+    off1 =  1.0 + w3 / s1;
+    mixf = s1;
+}
+
+float sdf_smooth(vec2 uv) {
+    vec2 ts = vec2(textureSize(u_sdf, 0));
+    vec2 tc = uv * ts - 0.5;
+    vec2 base = floor(tc);
+    vec2 off0, off1, mixf;
+    bspline_taps(tc - base, off0, off1, mixf);
+    vec2 c = (base + 0.5) / ts;
+    vec2 t0 = c + off0 / ts;
+    vec2 t1 = c + off1 / ts;
+    float a = texture(u_sdf, vec2(t0.x, t0.y)).r;
+    float b = texture(u_sdf, vec2(t1.x, t0.y)).r;
+    float e = texture(u_sdf, vec2(t0.x, t1.y)).r;
+    float g = texture(u_sdf, vec2(t1.x, t1.y)).r;
+    return mix(mix(a, b, mixf.x), mix(e, g, mixf.x), mixf.y);
+}
+
+vec4 flow_smooth(vec2 uv) {
+    vec2 ts = vec2(textureSize(u_flow, 0));
+    vec2 tc = uv * ts - 0.5;
+    vec2 base = floor(tc);
+    vec2 off0, off1, mixf;
+    bspline_taps(tc - base, off0, off1, mixf);
+    vec2 c = (base + 0.5) / ts;
+    vec2 t0 = c + off0 / ts;
+    vec2 t1 = c + off1 / ts;
+    vec4 a = texture(u_flow, vec2(t0.x, t0.y));
+    vec4 b = texture(u_flow, vec2(t1.x, t0.y));
+    vec4 e = texture(u_flow, vec2(t0.x, t1.y));
+    vec4 g = texture(u_flow, vec2(t1.x, t1.y));
+    return mix(mix(a, b, mixf.x), mix(e, g, mixf.x), mixf.y);
 }
 
 /// Worley / cellular noise. Returns (F1, F2, cell hash).
@@ -202,16 +277,19 @@ void main() {
     vec2 uv = clamp(v_uv, 0.0, 1.0);
     vec2 p = v_world;
 
-    float d_raw = texture(u_sdf, uv).r;
+    float d_raw = sdf_smooth(uv);
 
     // ---- Wall normal, by central difference on the distance field ----------
     // Points toward increasing clearance, i.e. into the lumen. Only its
     // direction is used, so the texel-to-world scale never has to be known.
+    // Differenced across the SMOOTH reconstruction, and over a full texel each
+    // side: a central difference on the bilinear field is piecewise constant
+    // within a texel, which quantised the wall's lighting into visible blocks.
     vec2 texel = 1.0 / vec2(textureSize(u_sdf, 0));
-    float gx = texture(u_sdf, uv + vec2(texel.x, 0.0)).r -
-               texture(u_sdf, uv - vec2(texel.x, 0.0)).r;
-    float gy = texture(u_sdf, uv + vec2(0.0, texel.y)).r -
-               texture(u_sdf, uv - vec2(0.0, texel.y)).r;
+    float gx = sdf_smooth(uv + vec2(texel.x, 0.0)) -
+               sdf_smooth(uv - vec2(texel.x, 0.0));
+    float gy = sdf_smooth(uv + vec2(0.0, texel.y)) -
+               sdf_smooth(uv - vec2(0.0, texel.y));
     vec2 nrm = vec2(gx, gy);
     float nlen = length(nrm);
     nrm = nlen > 1e-6 ? nrm / nlen : vec2(0.0, 1.0);
@@ -238,13 +316,26 @@ void main() {
     // ---- Flow direction + along-vessel progress ----------------------------
     vec2 flow = vec2(1.0, 0.0);
     float to_goal = 0.5;
+    // How much this point's flow direction can be believed. Everything driven
+    // by `flow` is scaled by it, which is what makes the degenerate places --
+    // a tower footprint, a dead-end cap, the objective the whole field points
+    // at — fade to smooth fluid instead of drawing a starburst of streamlines
+    // radiating out of a single texel.
+    float coherence = 0.0;
     if (u_have_flow > 0.5) {
-        vec3 f = texture(u_flow, uv).rgb;
+        vec4 f = flow_smooth(uv);
         float flen = length(f.xy);
-        // FlowField::sample returns (0,0) for "no guidance" (outside the field
-        // or an unreachable pocket) — never normalise that.
-        if (flen > 0.08) flow = f.xy / flen;
+        // The field is (0,0) wherever there is no guidance (outside it, or an
+        // unreachable pocket) — never normalise that. There is deliberately no
+        // hard cutoff any more: the old `flen > 0.08` test snapped the
+        // direction to +x the instant the interpolation between a real vector
+        // and an empty one crossed it, which drew a discontinuity ring just
+        // inside every wall. Coherence below already fades this out smoothly.
+        if (flen > 1e-4) flow = f.xy / flen;
         to_goal = f.b;
+        // Already shaped CPU-side (Renderer.cpp's directional-agreement pass);
+        // nothing to do here but clamp off interpolation overshoot.
+        coherence = clamp(f.a, 0.0, 1.0);
     }
 
     // =======================================================================
@@ -267,7 +358,21 @@ void main() {
     float inside = smoothstep(-0.12, 0.32, d);
     // 0 at the lumen boundary, 1 at the wall's outer surface.
     float wall_t = clamp(-d / kWallThick, 0.0, 1.0);
-    float in_wall = (1.0 - inside) * (1.0 - smoothstep(0.78, 1.0, wall_t));
+    // NO `(1.0 - inside)` FACTOR. It used to be here, and it is what drew the
+    // thin dark line that ringed every lumen. With it, the wall's own weight
+    // was forced to zero exactly at the lumen boundary, so the fragments in the
+    // ~0.44-unit transition composited PLASMA AGAINST INTERSTITIUM -- and the
+    // interstitium is the darkest material in the frame. The result was a hard
+    // inked outline traced round every vessel, precisely the thing the notes
+    // further down say was deliberately removed.
+    //
+    // The fix is ordering, not weighting: the wall is laid over the flesh at
+    // full strength across its whole thickness (it reaches into the lumen,
+    // where `wall_t` is 0), and the plasma is then composited over the wall
+    // with `inside`. Every fragment on the boundary is now a blend of the two
+    // materials that actually meet there, and there is nothing dark left in
+    // between for the eye to read as a stroke.
+    float in_wall = 1.0 - smoothstep(0.78, 1.0, wall_t);
 
     // Fake directional light for the §9.1 tilted-camera read. `nrm` points into
     // the lumen, so the wall facing the light catches a highlight and the far
@@ -295,95 +400,11 @@ void main() {
     col *= 1.0 - 0.10 * lip;
     col *= 1.0 + 0.16 * lip * max(-lit, 0.0);
 
-    if (inside > 0.004) {
-        // Plasma. Vivid and high-key: the lumen is the brightest thing on
-        // screen and the lane's colour identity lives here, so it takes the
-        // majority of the lane hue rather than a pale wash of it. Lifted toward
-        // a hot crimson-white rather than toward neutral, which is what keeps
-        // it reading as backlit fluid instead of as tinted fog.
-        // Calibrated against the reference's lumen median (#CF314D, luminance
-        // 84/255). The first attempt at "vivid" drove the red channel to 255
-        // and clipped, which flattens all the flow detail into a single blown
-        // pink — brighter is not more vibrant once a channel saturates.
-        vec3 plasma = mix(lane_hue, vec3(0.828, 0.407, 0.485), 0.25) * 0.85;
-
-        // The lumen is a channel with depth: it lifts toward the middle and
-        // falls into contact shadow against the wall. `d` is in world units, so
-        // this is a physically consistent gradient at any vessel width.
-        float depth = smoothstep(0.0, 8.0, d);
-        // Shallow on purpose. A profile across the reference shows its lumen
-        // holding luminance 64-70 right up to the wall — there is no dark
-        // trough between fluid and vessel. A steep ramp here put one there, and
-        // it read as a bruise ringing every lane.
-        plasma *= mix(0.86, 1.06, depth);
-        // Contact shadow where the plasma meets the wall. Split into a constant
-        // part and a directional part on purpose: the plasma touches the wall
-        // on BOTH sides, so both get a contact shadow, and only its depth
-        // follows the light. Driving the whole term off `lit` gave the lit side
-        // essentially no contact shadow at all, which was half of why the two
-        // edges of a lane read as different materials.
-        plasma *= 1.0 - (1.0 - depth) * (0.03 + 0.05 * (0.5 - 0.5 * lit));
-
-        // Flow-aligned striations. Seven taps of value noise along the flow
-        // direction are a miniature line-integral convolution: it destroys
-        // detail across the streamline and keeps it along the streamline, which
-        // is what turns round noise blobs into filaments of moving fluid.
-        // Advecting the sample point upstream makes those filaments travel
-        // downstream at the lane's own tempo.
-        //
-        // Tap spacing MUST stay well under the noise's wavelength (1.0 in `sp`
-        // space). Stepping by ~1.0 samples the same phase of the noise every
-        // time, so the taps correlate instead of averaging out across the
-        // streamline, and the result is just the original isotropic blobs —
-        // the smear silently does nothing.
-        vec2 sp = p * 0.80 - flow * (u_time * 1.00 * tempo);
-        float lic = 0.0;
-        for (int k = -3; k <= 3; ++k) lic += vnoise(sp + flow * (float(k) * 0.38));
-        lic *= 1.0 / 7.0;
-        // Centred on the mean so the streaks both brighten and darken; a purely
-        // additive smear just washes the lane out. The gain is high because
-        // averaging seven taps has already collapsed most of the variance.
-        plasma *= 1.0 + 0.46 * (lic - 0.5);
-        // Silk sheen on the crests of those striations. A high power keeps it
-        // to the few brightest filaments, which is what reads as light skating
-        // off moving fluid rather than as the whole lane getting lighter.
-        plasma += vec3(0.17, 0.105, 0.110) * pow(max(lic - 0.54, 0.0) * 2.2, 2.0) * depth;
-
-        // A faster, finer filament layer over the top, strongest where the
-        // plasma drags against the wall — the same place a real velocity
-        // profile has its steepest gradient.
-        vec2 sp2 = p * 2.10 - flow * (u_time * 1.90 * tempo);
-        float fine = 0.0;
-        for (int k = -2; k <= 2; ++k) fine += vnoise(sp2 + flow * (float(k) * 0.34));
-        fine *= 0.2;
-        plasma *= 1.0 + 0.26 * (fine - 0.5) * (1.0 - 0.55 * depth);
-
-        // Large-scale density mottling. A floodplain lumen can be most of the
-        // screen, and without a term at this scale the streamlines tile it with
-        // one uniform grain; this gives the lane a shape of its own at the
-        // distance the level is actually read from.
-        plasma *= 0.90 + 0.20 * fbm(p * 0.075 + 4.0);
-
-        // Systolic pressure wave, travelling along the vessel toward the
-        // objective. `to_goal` is the only genuine along-vessel coordinate
-        // available, which is exactly what this needs.
-        plasma *= 1.0 + 0.055 * sin(to_goal * 26.0 + u_heartbeat_phase * tempo);
-
-        // Corpuscles drifting downstream. Deliberately near the threshold of
-        // visibility: they add life to an empty lane and must vanish under a
-        // horde rather than dot it.
-        vec2 cp = (p - flow * (u_time * 1.9 * tempo)) * 0.55;
-        vec2 ci = floor(cp);
-        float ch = hash21(ci);
-        float cd = length(fract(cp) - vec2(ch, fract(ch * 17.0)));
-        float corpuscle = (1.0 - smoothstep(0.10, 0.30, cd)) * step(0.88, ch);
-        plasma = mix(plasma, plasma * vec3(1.25, 0.70, 0.68), corpuscle * 0.32 * depth);
-
-        col = mix(col, plasma, inside);
-    }
-
     // ---- Vessel wall -------------------------------------------------------
-    if (in_wall > 0.003) {
+    // `inside < 0.997` is the same early-out the interstitium gets: under a
+    // fully opaque plasma the wall is composited away to nothing, and it is
+    // not worth an fbm to prove it.
+    if (in_wall > 0.003 && inside < 0.997) {
         // Concentric elastic laminae. Banding on `d` alone would read as
         // contour lines on a map; phase-shifting it by low-frequency noise
         // makes the layers wander and pinch the way real ones do. Roughly two
@@ -428,11 +449,9 @@ void main() {
         // flattening the relief: the shadowed wall keeps its own light source
         // rather than just being less dark.
         //
-        // Spread across the whole wall, only *leaning* toward the lumen. It
-        // must not be concentrated at wall_t = 0: `in_wall` below is
-        // (1 - inside) * ..., which goes to zero exactly at the lumen boundary,
-        // so anything piled up there gets multiplied away and the term silently
-        // does nothing at all.
+        // Spread across the whole wall, only *leaning* toward the lumen: the
+        // fragments at wall_t = 0 are the ones the plasma composites over
+        // hardest, so a term piled up there is largely painted out anyway.
         float bounce = max(-lit, 0.0) * (1.0 - 0.55 * wall_t);
         wall += mix(vec3(1.0), lane_hue, 0.65) * (0.10 * bounce);
 
@@ -443,6 +462,120 @@ void main() {
         // element and the flesh is the dark one, the value drop does that job
         // on its own, and a dark band on top of it reads as an inked outline —
         // the reference has nothing of the kind anywhere in the transition.
+    }
+
+    if (inside > 0.004) {
+        // Plasma. Vivid and high-key: the lumen is the brightest thing on
+        // screen and the lane's colour identity lives here, so it takes the
+        // majority of the lane hue rather than a pale wash of it. Lifted toward
+        // a hot crimson-white rather than toward neutral, which is what keeps
+        // it reading as backlit fluid instead of as tinted fog.
+        // Calibrated against the reference's lumen median (#CF314D, luminance
+        // 84/255). The first attempt at "vivid" drove the red channel to 255
+        // and clipped, which flattens all the flow detail into a single blown
+        // pink — brighter is not more vibrant once a channel saturates.
+        vec3 plasma = mix(lane_hue, vec3(0.828, 0.407, 0.485), 0.25) * 0.85;
+
+        // The lumen is a channel with depth: it lifts toward the middle and
+        // falls into contact shadow against the wall. `d` is in world units, so
+        // this is a physically consistent gradient at any vessel width.
+        float depth = smoothstep(0.0, 8.0, d);
+        // Shallow on purpose. A profile across the reference shows its lumen
+        // holding luminance 64-70 right up to the wall — there is no dark
+        // trough between fluid and vessel. A steep ramp here put one there, and
+        // it read as a bruise ringing every lane.
+        plasma *= mix(0.86, 1.06, depth);
+        // Contact shadow where the plasma meets the wall. Split into a constant
+        // part and a directional part on purpose: the plasma touches the wall
+        // on BOTH sides, so both get a contact shadow, and only its depth
+        // follows the light. Driving the whole term off `lit` gave the lit side
+        // essentially no contact shadow at all, which was half of why the two
+        // edges of a lane read as different materials.
+        plasma *= 1.0 - (1.0 - depth) * (0.03 + 0.05 * (0.5 - 0.5 * lit));
+
+        // Flow-aligned striations. Seven taps of value noise along the flow
+        // direction are a miniature line-integral convolution: it destroys
+        // detail across the streamline and keeps it along the streamline, which
+        // is what turns round noise blobs into filaments of moving fluid.
+        // Advecting the sample point upstream makes those filaments travel
+        // downstream at the lane's own tempo.
+        //
+        // Tap spacing MUST stay well under the noise's wavelength (1.0 in `sp`
+        // space). Stepping by ~1.0 samples the same phase of the noise every
+        // time, so the taps correlate instead of averaging out across the
+        // streamline, and the result is just the original isotropic blobs —
+        // the smear silently does nothing.
+        //
+        // Coherence scales the TAP SPACING, not the result. That is the whole
+        // trick: at coherence 1 the taps spread along the streamline and smear
+        // the noise into filaments as before, and as coherence falls they
+        // collapse back onto the sample point, where seven identical taps are
+        // just plain isotropic value noise. So the places with no meaningful
+        // direction lose the streaks and keep the texture, instead of going
+        // flat -- which is what happens if the smeared result is faded out
+        // instead, and a lumen with a bald patch in it is not obviously an
+        // improvement on one with a starburst in it. The plasma still advects
+        // along `flow` at full rate there; it was the smear that read wrong at
+        // a fan, never the motion.
+        vec2 sp = p * 0.80 - flow * (u_time * 1.00 * tempo);
+        float lic = 0.0;
+        for (int k = -3; k <= 3; ++k) {
+            lic += vnoise(sp + flow * (float(k) * 0.38 * coherence));
+        }
+        lic *= 1.0 / 7.0;
+        // Centred on the mean so the streaks both brighten and darken; a purely
+        // additive smear just washes the lane out. The gain is high because
+        // averaging seven taps has already collapsed most of the variance.
+        // The gain compensates the other half of that trick: averaging seven
+        // spread taps collapses most of the variance, and seven collapsed ones
+        // do not, so the same gain would render the isotropic fallback at
+        // roughly twice the contrast of the striations it replaces.
+        plasma *= 1.0 + 0.46 * (lic - 0.5) * mix(0.55, 1.0, coherence);
+        // Silk sheen on the crests of those striations. A high power keeps it
+        // to the few brightest filaments, which is what reads as light skating
+        // off moving fluid rather than as the whole lane getting lighter.
+        plasma += vec3(0.17, 0.105, 0.110) * pow(max(lic - 0.54, 0.0) * 2.2, 2.0) * depth *
+                  coherence;
+
+        // A faster, finer filament layer over the top, strongest where the
+        // plasma drags against the wall — the same place a real velocity
+        // profile has its steepest gradient.
+        vec2 sp2 = p * 2.10 - flow * (u_time * 1.90 * tempo);
+        float fine = 0.0;
+        for (int k = -2; k <= 2; ++k) {
+            fine += vnoise(sp2 + flow * (float(k) * 0.34 * coherence));
+        }
+        fine *= 0.2;
+        plasma *= 1.0 + 0.26 * (fine - 0.5) * (1.0 - 0.55 * depth) *
+                        mix(0.55, 1.0, coherence);
+
+        // Large-scale density mottling. A floodplain lumen can be most of the
+        // screen, and without a term at this scale the streamlines tile it with
+        // one uniform grain; this gives the lane a shape of its own at the
+        // distance the level is actually read from.
+        plasma *= 0.90 + 0.20 * fbm(p * 0.075 + 4.0);
+
+        // Systolic pressure wave, travelling along the vessel toward the
+        // objective. `to_goal` is the only genuine along-vessel coordinate
+        // available, which is exactly what this needs.
+        // Damped by coherence for the same reason as the striations: `to_goal`
+        // is the cost channel of the same field, and where the direction is
+        // degenerate the cost has a kink in it too, which this band structure
+        // renders as a hard contour across the lane.
+        plasma *= 1.0 + 0.055 * sin(to_goal * 26.0 + u_heartbeat_phase * tempo) *
+                        (0.35 + 0.65 * coherence);
+
+        // Corpuscles drifting downstream. Deliberately near the threshold of
+        // visibility: they add life to an empty lane and must vanish under a
+        // horde rather than dot it.
+        vec2 cp = (p - flow * (u_time * 1.9 * tempo)) * 0.55;
+        vec2 ci = floor(cp);
+        float ch = hash21(ci);
+        float cd = length(fract(cp) - vec2(ch, fract(ch * 17.0)));
+        float corpuscle = (1.0 - smoothstep(0.10, 0.30, cd)) * step(0.88, ch);
+        plasma = mix(plasma, plasma * vec3(1.25, 0.70, 0.68), corpuscle * 0.32 * depth);
+
+        col = mix(col, plasma, inside);
     }
 
     // NOTE: there is deliberately no bright endothelial hairline on the lumen

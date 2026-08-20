@@ -74,18 +74,29 @@ inline constexpr u32 kFamilyCount = static_cast<u32>(PathogenFamily::Count);
 ///   Macrophage  MORTAR  slow lobbed vesicle, huge delayed area burst
 ///   Interferon  CRYO    signal cone, slows then fully encases
 ///   CytotoxicT  TESLA   instantaneous jagged chain between targets
-///   BCell       LASER   continuous straight piercing antibody beam
+///   GobletCell  HYDRO   bursts of simulated mucus that splash where they land
 ///   NKCell      BLADE   close-range 360 rotor, continuous contact damage
 ///
 /// Replaces the earlier 8-type roster; Dendritic and MastCell are retired and
 /// ComplementCascade became Interferon (the Complement Cascade survives as an
 /// active ability, see game/abilities, not as a tower).
+///
+/// Slot 4 was the B Cell (LASER), a straight piercing antibody beam. It is now
+/// the GOBLET CELL, and the change is a design one, not a rename: the beam was
+/// an instantaneous line that had to be axis-snapped to fit an AABB damage
+/// field, which made it the one tower whose visual and whose kill zone were
+/// arguing with each other. The Goblet Cell is the mucosal epithelium's
+/// secretory cell — it exists in real tissue to dump viscous mucin over
+/// invaders — so it fires BURSTS OF ACTUAL FLUID (sim/fluid/Fluid.h), which
+/// travel, pile up, splash off walls and crowds, pool, and expire. Nothing
+/// about that needed an axis snap, and the level set it belongs on (the
+/// mucosal and gut-lining maps) is already in the game.
 enum class TowerType : u8 {
     Neutrophil = 0,   ///< GUNNER
     Macrophage = 1,   ///< MORTAR
     Interferon = 2,   ///< CRYO
     CytotoxicT = 3,   ///< TESLA
-    BCell = 4,        ///< LASER
+    GobletCell = 4,   ///< HYDRO
     NKCell = 5,       ///< BLADE
     Count = 6
 };

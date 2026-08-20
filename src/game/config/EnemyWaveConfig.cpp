@@ -1,0 +1,546 @@
+// game/config/EnemyWaveConfig.cpp — enemies.json and waves.json.
+//
+// enemies.json is where "size", "health" and "speed" actually live. Size is
+// deliberately a single number per family (`visual.silhouette`): the renderer
+// draws it and ChaffFamilyParams::radius is derived from it, so what is drawn
+// and what collides cannot drift apart.
+//
+// waves.json describes the PROCEDURAL generator that eleven of the thirteen
+// shipped levels rely on. A level that authors its own `waves` block still
+// overrides this entirely — that path was already data-driven.
+#include "game/config/Schemas.h"
+
+#include <algorithm>
+
+namespace immune::game {
+
+const WaveRegionConfig* WaveConfig::find_region(std::string_view name) const {
+    const WaveRegionConfig* fallback = nullptr;
+    for (const WaveRegionConfig& region : regions) {
+        if (region.name == name) return &region;
+        if (region.name == "flat") fallback = &region;
+    }
+    return fallback;
+}
+
+} // namespace immune::game
+
+namespace immune::game::detail {
+namespace {
+
+using config::Field;
+using config::FieldKind;
+using config::Json;
+using config::Schema;
+
+IMMUNE_CONFIG_SCHEMA_ASSERT(SpeedProfileParams);
+IMMUNE_CONFIG_SCHEMA_ASSERT(FamilyVisualParams);
+IMMUNE_CONFIG_SCHEMA_ASSERT(FamilyBehaviorParams);
+IMMUNE_CONFIG_SCHEMA_ASSERT(FamilyChaffParams);
+IMMUNE_CONFIG_SCHEMA_ASSERT(BaseAttackParams);
+IMMUNE_CONFIG_SCHEMA_ASSERT(FungalHazardParams);
+IMMUNE_CONFIG_SCHEMA_ASSERT(EliteStatsParams);
+IMMUNE_CONFIG_SCHEMA_ASSERT(WaveTrackConfig);
+IMMUNE_CONFIG_SCHEMA_ASSERT(WaveRegionScaling);
+IMMUNE_CONFIG_SCHEMA_ASSERT(WaveGlobals);
+
+// --- enemies.json ------------------------------------------------------
+
+constexpr Field kSpeedProfileFields[] = {
+    IMMUNE_CONFIG_FIELD(SpeedProfileParams, max_speed, FieldKind::F32, "Top speed, world units/sec"),
+    IMMUNE_CONFIG_FIELD(SpeedProfileParams, acceleration, FieldKind::F32, "How fast top speed is reached"),
+    IMMUNE_CONFIG_FIELD(SpeedProfileParams, jitter, FieldKind::F32, "Random impulse magnitude; the 'alive' look"),
+};
+constexpr Schema kSpeedProfileSchema{"speed_profile", kSpeedProfileFields};
+
+constexpr Field kVisualFields[] = {
+    IMMUNE_CONFIG_FIELD(FamilyVisualParams, silhouette, FieldKind::F32, "Sprite diameter AND the source of collision radius"),
+    IMMUNE_CONFIG_FIELD(FamilyVisualParams, tempo, FieldKind::F32, "Animation cycles per second"),
+    IMMUNE_CONFIG_FIELD(FamilyVisualParams, wobble, FieldKind::F32, "SDF deformation amount"),
+    IMMUNE_CONFIG_FIELD(FamilyVisualParams, color, FieldKind::Vec4, "RGBA; the family colour code"),
+};
+constexpr Schema kVisualSchema{"family_visual", kVisualFields};
+
+constexpr Field kBehaviorFields[] = {
+    IMMUNE_CONFIG_FIELD(FamilyBehaviorParams, base_density, FieldKind::F32, "Spawn density / HP contribution per agent"),
+    IMMUNE_CONFIG_FIELD(FamilyBehaviorParams, replicates, FieldKind::Bool, "Virus: exponential pressure"),
+    IMMUNE_CONFIG_FIELD(FamilyBehaviorParams, clumps, FieldKind::Bool, "Bacteria: biofilm"),
+    IMMUNE_CONFIG_FIELD(FamilyBehaviorParams, drifts, FieldKind::Bool, "Fungal spore: lateral drift"),
+    IMMUNE_CONFIG_FIELD(FamilyBehaviorParams, can_hide, FieldKind::Bool, "Parasite: burrows out of targeting"),
+    IMMUNE_CONFIG_FIELD(FamilyBehaviorParams, leaves_hazard, FieldKind::Bool, "Fungal spore: death cloud"),
+};
+constexpr Schema kBehaviorSchema{"family_behavior", kBehaviorFields};
+
+constexpr Field kChaffFields[] = {
+    IMMUNE_CONFIG_FIELD(FamilyChaffParams, radius_from_silhouette, FieldKind::F32, "Collision radius = silhouette * this"),
+    IMMUNE_CONFIG_FIELD(FamilyChaffParams, separation_radius_mul, FieldKind::F32, "Separation radius = radius * this"),
+    IMMUNE_CONFIG_FIELD(FamilyChaffParams, separation_strength, FieldKind::F32, "How hard neighbours push apart"),
+    IMMUNE_CONFIG_FIELD(FamilyChaffParams, alignment_radius, FieldKind::F32, "Radius over which headings are averaged"),
+    IMMUNE_CONFIG_FIELD(FamilyChaffParams, alignment_strength, FieldKind::F32, "Makes a mass read as one moving body"),
+    IMMUNE_CONFIG_FIELD(FamilyChaffParams, pressure_threshold, FieldKind::F32, "Neighbour count above which a crowd is 'packed'"),
+    IMMUNE_CONFIG_FIELD(FamilyChaffParams, pressure_gain, FieldKind::F32, "Extra separation per neighbour past the threshold"),
+    IMMUNE_CONFIG_FIELD(FamilyChaffParams, pressure_max, FieldKind::F32, "Ceiling on the pressure multiplier"),
+    IMMUNE_CONFIG_FIELD(FamilyChaffParams, wall_restitution, FieldKind::F32, "Wall-normal bounce, 0..1"),
+    IMMUNE_CONFIG_FIELD(FamilyChaffParams, wall_splash, FieldKind::F32, "Blocked speed redirected along the wall, 0..1"),
+    IMMUNE_CONFIG_FIELD(FamilyChaffParams, contact_spacing, FieldKind::F32, "Min centre spacing as a multiple of radius"),
+    IMMUNE_CONFIG_FIELD(FamilyChaffParams, contact_stiffness, FieldKind::F32, "Overlap corrected per tick, 0..1"),
+    IMMUNE_CONFIG_FIELD(FamilyChaffParams, drift_bias, FieldKind::F32, "How much ambient drift overrides flow"),
+    IMMUNE_CONFIG_FIELD(FamilyChaffParams, replication_rate, FieldKind::F32, "Expected replications per agent per second"),
+};
+constexpr Schema kChaffSchema{"family_chaff", kChaffFields};
+
+constexpr Field kBaseAttackFields[] = {
+    IMMUNE_CONFIG_FIELD(BaseAttackParams, active, FieldKind::F32, "Seconds the strike is live"),
+    IMMUNE_CONFIG_FIELD(BaseAttackParams, recovery, FieldKind::F32, "Seconds of recovery after a strike"),
+    IMMUNE_CONFIG_FIELD(BaseAttackParams, range, FieldKind::F32, "Distance at which an attack starts"),
+    IMMUNE_CONFIG_FIELD(BaseAttackParams, radius, FieldKind::F32, "Strike radius"),
+    IMMUNE_CONFIG_FIELD(BaseAttackParams, damage, FieldKind::F32, "Damage per strike"),
+    IMMUNE_CONFIG_FIELD(BaseAttackParams, death_fade, FieldKind::F32, "Seconds a corpse takes to fade"),
+};
+constexpr Schema kBaseAttackSchema{"base_attack", kBaseAttackFields};
+
+constexpr Field kHazardFields[] = {
+    IMMUNE_CONFIG_FIELD(FungalHazardParams, radius, FieldKind::F32, ""),
+    IMMUNE_CONFIG_FIELD(FungalHazardParams, kill_rate, FieldKind::F32, ""),
+    IMMUNE_CONFIG_FIELD(FungalHazardParams, duration, FieldKind::F32, ""),
+    IMMUNE_CONFIG_FIELD(FungalHazardParams, cooldown, FieldKind::F32, "Minimum seconds between hazard drops"),
+};
+constexpr Schema kHazardSchema{"fungal_death_hazard", kHazardFields};
+
+constexpr Field kEliteStatsFields[] = {
+    IMMUNE_CONFIG_FIELD(EliteStatsParams, max_health, FieldKind::F32, ""),
+    IMMUNE_CONFIG_FIELD(EliteStatsParams, armor, FieldKind::F32, "Flat damage reduction per hit"),
+    IMMUNE_CONFIG_FIELD(EliteStatsParams, speed, FieldKind::F32, "World units/sec; 0 for a stationary boss"),
+    IMMUNE_CONFIG_FIELD(EliteStatsParams, sprite_size, FieldKind::F32, "Silhouette size; encodes threat tier"),
+    IMMUNE_CONFIG_FIELD(EliteStatsParams, ability_cooldown, FieldKind::F32, ""),
+    IMMUNE_CONFIG_FIELD(EliteStatsParams, telegraph_duration, FieldKind::F32, "Windup the player gets to react to"),
+    IMMUNE_CONFIG_FIELD(EliteStatsParams, atp_bounty, FieldKind::U32, ""),
+};
+constexpr Schema kEliteStatsSchema{"elite_stats", kEliteStatsFields};
+
+constexpr Field kBurrowerFields[] = {
+    IMMUNE_CONFIG_FIELD(BurrowerParams, burrow_interval, FieldKind::F32, "Seconds between burrows"),
+    IMMUNE_CONFIG_FIELD(BurrowerParams, resurface_delay, FieldKind::F32, "Seconds spent underground"),
+    IMMUNE_CONFIG_FIELD(BurrowerParams, spawn_advance, FieldKind::F32, "Seconds after spawn before it advances"),
+};
+constexpr Schema kBurrowerSchema{"burrower", kBurrowerFields};
+
+constexpr Field kBiofilmFields[] = {
+    IMMUNE_CONFIG_FIELD(BiofilmParams, attack_radius, FieldKind::F32, "Radius over which it clumps nearby chaff"),
+    IMMUNE_CONFIG_FIELD(BiofilmParams, attack_damage, FieldKind::F32, "0: the biofilm buffs rather than hits"),
+};
+constexpr Schema kBiofilmSchema{"biofilm", kBiofilmFields};
+
+constexpr Field kTumorFields[] = {
+    IMMUNE_CONFIG_FIELD(TumorParams, growth_rate, FieldKind::F32, "Radius gained per second"),
+    IMMUNE_CONFIG_FIELD(TumorParams, start_radius, FieldKind::F32, ""),
+    IMMUNE_CONFIG_FIELD(TumorParams, max_radius, FieldKind::F32, ""),
+    IMMUNE_CONFIG_FIELD(TumorParams, breach_stages, FieldKind::U32, "Growth stages before it breaches the objective"),
+    IMMUNE_CONFIG_FIELD(TumorParams, breach_damage_per_stage, FieldKind::F32, ""),
+    IMMUNE_CONFIG_FIELD(TumorParams, breach_reach_pad, FieldKind::F32, "Extra reach past its radius when breaching"),
+};
+constexpr Schema kTumorSchema{"tumor", kTumorFields};
+
+constexpr Field kHulkFields[] = {
+    IMMUNE_CONFIG_FIELD(HulkParams, attack_radius, FieldKind::F32, ""),
+    IMMUNE_CONFIG_FIELD(HulkParams, attack_damage, FieldKind::F32, ""),
+    IMMUNE_CONFIG_FIELD(HulkParams, obstruction_radius, FieldKind::F32, "Radius over which it raises path cost"),
+    IMMUNE_CONFIG_FIELD(HulkParams, obstruction_cost_mul, FieldKind::F32, ""),
+    IMMUNE_CONFIG_FIELD(HulkParams, pulse_damage_per_tower, FieldKind::F32, "Damage its pulse deals to each tower in range"),
+};
+constexpr Schema kHulkSchema{"hulk", kHulkFields};
+
+constexpr Field kColossusFields[] = {
+    IMMUNE_CONFIG_FIELD(ColossusParams, attack_radius, FieldKind::F32, ""),
+    IMMUNE_CONFIG_FIELD(ColossusParams, attack_damage, FieldKind::F32, ""),
+    IMMUNE_CONFIG_FIELD(ColossusParams, burst_radius, FieldKind::F32, "Spore burst radius"),
+    IMMUNE_CONFIG_FIELD(ColossusParams, burst_kill_rate, FieldKind::F32, "Friendly-fire kill rate inside the burst"),
+    IMMUNE_CONFIG_FIELD(ColossusParams, burst_duration, FieldKind::F32, ""),
+};
+constexpr Schema kColossusSchema{"colossus", kColossusFields};
+
+struct EliteArm {
+    const Schema* schema;
+    usize offset;
+};
+
+EliteArm elite_arm_of(EliteBehaviorKind kind) {
+    switch (kind) {
+        case EliteBehaviorKind::Burrower: return {&kBurrowerSchema, offsetof(EliteBehaviorParams, burrower)};
+        case EliteBehaviorKind::Biofilm:  return {&kBiofilmSchema,  offsetof(EliteBehaviorParams, biofilm)};
+        case EliteBehaviorKind::Tumor:    return {&kTumorSchema,    offsetof(EliteBehaviorParams, tumor)};
+        case EliteBehaviorKind::Hulk:     return {&kHulkSchema,     offsetof(EliteBehaviorParams, hulk)};
+        case EliteBehaviorKind::Colossus: return {&kColossusSchema, offsetof(EliteBehaviorParams, colossus)};
+    }
+    return {&kBurrowerSchema, offsetof(EliteBehaviorParams, burrower)};
+}
+
+void* elite_arm(EliteBehaviorParams& b, EliteBehaviorKind kind) {
+    return reinterpret_cast<u8*>(&b) + elite_arm_of(kind).offset;
+}
+
+const void* elite_arm(const EliteBehaviorParams& b, EliteBehaviorKind kind) {
+    return reinterpret_cast<const u8*>(&b) + elite_arm_of(kind).offset;
+}
+
+constexpr config::EnumEntry kEliteKindValues[] = {
+    {"burrower", static_cast<i64>(EliteBehaviorKind::Burrower)},
+    {"biofilm", static_cast<i64>(EliteBehaviorKind::Biofilm)},
+    {"tumor", static_cast<i64>(EliteBehaviorKind::Tumor)},
+    {"hulk", static_cast<i64>(EliteBehaviorKind::Hulk)},
+    {"colossus", static_cast<i64>(EliteBehaviorKind::Colossus)},
+    {nullptr, 0},
+};
+
+const char* family_key(PathogenFamily f) {
+    switch (f) {
+        case PathogenFamily::Virus: return "virus";
+        case PathogenFamily::Bacteria: return "bacteria";
+        case PathogenFamily::FungalSpore: return "fungal_spore";
+        case PathogenFamily::Parasite: return "parasite";
+        case PathogenFamily::CancerCell: return "cancer_cell";
+        case PathogenFamily::Allergen: return "allergen";
+        case PathogenFamily::Count: break;
+    }
+    return "virus";
+}
+
+const char* speed_tier_key(SpeedTier t) {
+    switch (t) {
+        case SpeedTier::Slow: return "slow";
+        case SpeedTier::Normal: return "normal";
+        case SpeedTier::Fast: return "fast";
+        case SpeedTier::Erratic: return "erratic";
+    }
+    return "normal";
+}
+
+constexpr std::string_view kFamilyEntryKeys[] = {"speed_tier", "visual", "behavior", "chaff"};
+constexpr std::string_view kEliteEntryKeys[] = {"id",   "name",     "family",
+                                                "tier", "behavior_kind", "stats", "behavior"};
+
+// --- waves.json --------------------------------------------------------
+
+constexpr Field kTrackFields[] = {
+    IMMUNE_CONFIG_ENUM_FIELD(WaveTrackConfig, family, FieldKind::EnumU8, "Which family this track spawns", kFamilyEnum),
+    IMMUNE_CONFIG_FIELD(WaveTrackConfig, from_wave, FieldKind::U32, "First wave index this track appears in"),
+    IMMUNE_CONFIG_FIELD(WaveTrackConfig, count_divisor, FieldKind::U32, "The wave's base count is divided by this"),
+    IMMUNE_CONFIG_FIELD(WaveTrackConfig, count_jitter, FieldKind::F32, "Upper bound of a uniform random count bonus"),
+    IMMUNE_CONFIG_FIELD(WaveTrackConfig, start_time, FieldKind::F32, "Seconds after wave start"),
+    IMMUNE_CONFIG_FIELD(WaveTrackConfig, duration, FieldKind::F32, "Seconds to spread the count over"),
+};
+constexpr Schema kTrackSchema{"wave_track", kTrackFields};
+
+constexpr Field kScalingFields[] = {
+    IMMUNE_CONFIG_FIELD(WaveRegionScaling, prep_first, FieldKind::F32, "Build window before wave 1"),
+    IMMUNE_CONFIG_FIELD(WaveRegionScaling, prep_floor, FieldKind::F32, "Build window the curve descends to"),
+    IMMUNE_CONFIG_FIELD(WaveRegionScaling, atp_base, FieldKind::U32, "Wave-clear reward for wave 1"),
+    IMMUNE_CONFIG_FIELD(WaveRegionScaling, atp_per_wave, FieldKind::U32, "Added to the reward each wave"),
+    IMMUNE_CONFIG_FIELD(WaveRegionScaling, count_base, FieldKind::U32, "Agent count for wave 1"),
+    IMMUNE_CONFIG_FIELD(WaveRegionScaling, count_per_wave, FieldKind::U32, "Added to the count each wave"),
+    IMMUNE_CONFIG_FIELD(WaveRegionScaling, final_count_mul, FieldKind::F32, "Applied to the last wave only"),
+    IMMUNE_CONFIG_FIELD(WaveRegionScaling, final_reward_mul, FieldKind::F32, "Applied to the last wave only"),
+};
+constexpr Schema kScalingSchema{"wave_scaling", kScalingFields};
+
+constexpr Field kWaveGlobalsFields[] = {
+    IMMUNE_CONFIG_FIELD(WaveGlobals, default_wave_count, FieldKind::U32, "Waves in a generated table"),
+    IMMUNE_CONFIG_FIELD(WaveGlobals, clearing_timeout, FieldKind::F32, "Grace period before a stalled wave is force-completed"),
+    IMMUNE_CONFIG_FIELD(WaveGlobals, burst_disc_factor, FieldKind::F32, "Spawn disc = contact_spacing * sqrt(count) * this"),
+};
+constexpr Schema kWaveGlobalsSchema{"wave_globals", kWaveGlobalsFields};
+
+constexpr std::string_view kRegionEntryKeys[] = {"prep_mode", "final_modifier", "scaling", "tracks"};
+
+} // namespace
+
+// ---------------------------------------------------------------------------
+// enemies.json
+// ---------------------------------------------------------------------------
+
+void parse_enemies(const Json& doc, EnemyConfig& out, config::Ctx& ctx) {
+    require_schema_version(doc, ctx);
+
+    {
+        config::Ctx::Scope scope(ctx, "speed_tiers");
+        const Json& tiers = config::require_object(doc, "speed_tiers", ctx);
+        std::string_view keys[4];
+        for (u32 i = 0; i < 4; ++i) keys[i] = speed_tier_key(static_cast<SpeedTier>(i));
+        config::reject_unknown_keys(tiers, keys, ctx);
+        for (u32 i = 0; i < 4; ++i) {
+            const char* key = speed_tier_key(static_cast<SpeedTier>(i));
+            config::Ctx::Scope s(ctx, key);
+            config::parse_struct(config::require_object(tiers, key, ctx), kSpeedProfileSchema,
+                                 &out.speed_tiers[i], ctx);
+        }
+    }
+
+    {
+        config::Ctx::Scope scope(ctx, "families");
+        const Json& families = config::require_object(doc, "families", ctx);
+        std::string_view keys[kFamilyCount];
+        for (u32 i = 0; i < kFamilyCount; ++i) keys[i] = family_key(static_cast<PathogenFamily>(i));
+        config::reject_unknown_keys(families, keys, ctx);
+
+        for (u32 i = 0; i < kFamilyCount; ++i) {
+            const char* key = family_key(static_cast<PathogenFamily>(i));
+            config::Ctx::Scope s(ctx, key);
+            const Json& entry = config::require_object(families, key, ctx);
+            config::reject_unknown_keys(entry, kFamilyEntryKeys, ctx);
+
+            FamilyConfig& fc = out.families[i];
+            fc.speed_tier = static_cast<SpeedTier>(
+                config::require_enum(entry, "speed_tier", speed_tier_enum(), ctx));
+            {
+                config::Ctx::Scope v(ctx, "visual");
+                config::parse_struct(config::require_object(entry, "visual", ctx), kVisualSchema,
+                                     &fc.visual, ctx);
+            }
+            {
+                config::Ctx::Scope b(ctx, "behavior");
+                config::parse_struct(config::require_object(entry, "behavior", ctx),
+                                     kBehaviorSchema, &fc.behavior, ctx);
+            }
+            {
+                config::Ctx::Scope c(ctx, "chaff");
+                config::parse_struct(config::require_object(entry, "chaff", ctx), kChaffSchema,
+                                     &fc.chaff, ctx);
+            }
+        }
+    }
+
+    {
+        config::Ctx::Scope scope(ctx, "base_attack");
+        config::parse_struct(config::require_object(doc, "base_attack", ctx), kBaseAttackSchema,
+                             &out.base_attack, ctx);
+    }
+    {
+        config::Ctx::Scope scope(ctx, "fungal_death_hazard");
+        config::parse_struct(config::require_object(doc, "fungal_death_hazard", ctx), kHazardSchema,
+                             &out.fungal_death_hazard, ctx);
+    }
+
+    {
+        config::Ctx::Scope scope(ctx, "elites");
+        const Json& elites = config::require_array(doc, "elites", ctx);
+        out.elites.clear();
+        out.elites.reserve(elites.size());
+        for (usize i = 0; i < elites.size(); ++i) {
+            config::Ctx::Scope s(ctx, i);
+            const Json& entry = elites.at(i);
+            if (!entry.is_object()) ctx.fail("elite entry must be an object");
+            config::reject_unknown_keys(entry, kEliteEntryKeys, ctx);
+
+            EliteConfig ec;
+            ec.id = static_cast<u16>(config::require_u32(entry, "id", ctx));
+            ec.name = config::require_string(entry, "name", ctx);
+            ec.family = static_cast<PathogenFamily>(
+                config::require_enum(entry, "family", family_enum(), ctx));
+            ec.tier = static_cast<ThreatTier>(
+                config::require_enum(entry, "tier", threat_tier_enum(), ctx));
+            ec.behavior_kind = static_cast<EliteBehaviorKind>(
+                config::require_enum(entry, "behavior_kind", kEliteKindValues, ctx));
+            {
+                config::Ctx::Scope st(ctx, "stats");
+                config::parse_struct(config::require_object(entry, "stats", ctx), kEliteStatsSchema,
+                                     &ec.stats, ctx);
+            }
+            {
+                config::Ctx::Scope bh(ctx, "behavior");
+                const EliteArm arm = elite_arm_of(ec.behavior_kind);
+                config::parse_struct(config::require_object(entry, "behavior", ctx), *arm.schema,
+                                     elite_arm(ec.behavior, ec.behavior_kind), ctx);
+            }
+            out.elites.push_back(std::move(ec));
+        }
+    }
+}
+
+Json dump_enemies(const EnemyConfig& cfg) {
+    Json doc = Json::object();
+    write_schema_version(doc);
+
+    Json tiers = Json::object();
+    for (u32 i = 0; i < 4; ++i) {
+        Json profile = Json::object();
+        config::dump_struct(profile, kSpeedProfileSchema, &cfg.speed_tiers[i]);
+        tiers[speed_tier_key(static_cast<SpeedTier>(i))] = std::move(profile);
+    }
+    doc["speed_tiers"] = std::move(tiers);
+
+    Json families = Json::object();
+    for (u32 i = 0; i < kFamilyCount; ++i) {
+        const FamilyConfig& fc = cfg.families[i];
+        Json entry = Json::object();
+        entry["speed_tier"] = speed_tier_key(fc.speed_tier);
+        Json visual = Json::object();
+        config::dump_struct(visual, kVisualSchema, &fc.visual);
+        entry["visual"] = std::move(visual);
+        Json behavior = Json::object();
+        config::dump_struct(behavior, kBehaviorSchema, &fc.behavior);
+        entry["behavior"] = std::move(behavior);
+        Json chaff = Json::object();
+        config::dump_struct(chaff, kChaffSchema, &fc.chaff);
+        entry["chaff"] = std::move(chaff);
+        families[family_key(static_cast<PathogenFamily>(i))] = std::move(entry);
+    }
+    doc["families"] = std::move(families);
+
+    Json base_attack = Json::object();
+    config::dump_struct(base_attack, kBaseAttackSchema, &cfg.base_attack);
+    doc["base_attack"] = std::move(base_attack);
+
+    Json hazard = Json::object();
+    config::dump_struct(hazard, kHazardSchema, &cfg.fungal_death_hazard);
+    doc["fungal_death_hazard"] = std::move(hazard);
+
+    Json elites = Json::array();
+    for (const EliteConfig& ec : cfg.elites) {
+        Json entry = Json::object();
+        entry["id"] = ec.id;
+        entry["name"] = ec.name;
+        entry["family"] = family_key(ec.family);
+        entry["tier"] = std::string(config::enum_name(
+            Field{"tier", FieldKind::EnumU8, 0, "", kThreatTierEnum}, &ec.tier));
+        entry["behavior_kind"] = std::string(config::enum_name(
+            Field{"behavior_kind", FieldKind::EnumU8, 0, "", kEliteKindValues}, &ec.behavior_kind));
+        Json stats = Json::object();
+        config::dump_struct(stats, kEliteStatsSchema, &ec.stats);
+        entry["stats"] = std::move(stats);
+        Json behavior = Json::object();
+        const EliteArm arm = elite_arm_of(ec.behavior_kind);
+        config::dump_struct(behavior, *arm.schema, elite_arm(ec.behavior, ec.behavior_kind));
+        entry["behavior"] = std::move(behavior);
+        elites.push_back(std::move(entry));
+    }
+    doc["elites"] = std::move(elites);
+
+    return doc;
+}
+
+void bind_enemies(config::Registry& registry, EnemyConfig& cfg) {
+    for (u32 i = 0; i < 4; ++i) {
+        registry.bind(std::string("enemies.speed_tiers.") + speed_tier_key(static_cast<SpeedTier>(i)),
+                      kSpeedProfileSchema, &cfg.speed_tiers[i]);
+    }
+    for (u32 i = 0; i < kFamilyCount; ++i) {
+        const std::string base =
+            std::string("enemies.families.") + family_key(static_cast<PathogenFamily>(i)) + ".";
+        registry.bind(base + "visual", kVisualSchema, &cfg.families[i].visual);
+        registry.bind(base + "behavior", kBehaviorSchema, &cfg.families[i].behavior);
+        registry.bind(base + "chaff", kChaffSchema, &cfg.families[i].chaff);
+    }
+    registry.bind("enemies.base_attack", kBaseAttackSchema, &cfg.base_attack);
+    registry.bind("enemies.fungal_death_hazard", kHazardSchema, &cfg.fungal_death_hazard);
+    for (EliteConfig& ec : cfg.elites) {
+        // Addressed by name, not index: "enemies.elites.tumor_mass.stats.max_health"
+        // survives reordering the array, an index would not.
+        const std::string base = "enemies.elites." + ec.name + ".";
+        registry.bind(base + "stats", kEliteStatsSchema, &ec.stats);
+        const EliteArm arm = elite_arm_of(ec.behavior_kind);
+        registry.bind(base + "behavior", *arm.schema, elite_arm(ec.behavior, ec.behavior_kind));
+    }
+}
+
+// ---------------------------------------------------------------------------
+// waves.json
+// ---------------------------------------------------------------------------
+
+void parse_waves(const Json& doc, WaveConfig& out, config::Ctx& ctx) {
+    require_schema_version(doc, ctx);
+
+    {
+        config::Ctx::Scope scope(ctx, "globals");
+        config::parse_struct(config::require_object(doc, "globals", ctx), kWaveGlobalsSchema,
+                             &out.globals, ctx);
+    }
+
+    config::Ctx::Scope scope(ctx, "regions");
+    const Json& regions = config::require_object(doc, "regions", ctx);
+    out.regions.clear();
+    // nlohmann objects iterate in sorted key order, so the parsed vector — and
+    // therefore anything that walks it — is deterministic.
+    for (const auto& item : regions.items()) {
+        config::Ctx::Scope s(ctx, item.key());
+        const Json& entry = item.value();
+        if (!entry.is_object()) ctx.fail("region entry must be an object");
+        config::reject_unknown_keys(entry, kRegionEntryKeys, ctx);
+
+        WaveRegionConfig region;
+        region.name = item.key();
+        region.prep_mode =
+            static_cast<PrepMode>(config::require_enum(entry, "prep_mode", prep_mode_enum(), ctx));
+        region.final_modifier = static_cast<WaveModifier>(
+            config::require_enum(entry, "final_modifier", wave_modifier_enum(), ctx));
+        {
+            config::Ctx::Scope sc(ctx, "scaling");
+            config::parse_struct(config::require_object(entry, "scaling", ctx), kScalingSchema,
+                                 &region.scaling, ctx);
+        }
+        {
+            config::Ctx::Scope tr(ctx, "tracks");
+            const Json& tracks = config::require_array(entry, "tracks", ctx);
+            if (tracks.empty()) ctx.fail("'tracks' must not be empty");
+            for (usize i = 0; i < tracks.size(); ++i) {
+                config::Ctx::Scope ts(ctx, i);
+                WaveTrackConfig track;
+                config::parse_struct(tracks.at(i), kTrackSchema, &track, ctx);
+                if (track.count_divisor == 0) ctx.fail("'count_divisor' must be at least 1");
+                if (track.duration <= 0.0f) ctx.fail("'duration' must be positive");
+                region.tracks.push_back(track);
+            }
+        }
+        out.regions.push_back(std::move(region));
+    }
+
+    if (out.find_region("flat") == nullptr) {
+        ctx.fail("a 'flat' region is required: it is the fallback for any level "
+                 "whose region string is unrecognized");
+    }
+}
+
+Json dump_waves(const WaveConfig& cfg) {
+    Json doc = Json::object();
+    write_schema_version(doc);
+
+    Json globals = Json::object();
+    config::dump_struct(globals, kWaveGlobalsSchema, &cfg.globals);
+    doc["globals"] = std::move(globals);
+
+    Json regions = Json::object();
+    for (const WaveRegionConfig& region : cfg.regions) {
+        Json entry = Json::object();
+        entry["prep_mode"] = std::string(config::enum_name(
+            Field{"prep_mode", FieldKind::EnumU8, 0, "", kPrepModeEnum}, &region.prep_mode));
+        entry["final_modifier"] = std::string(config::enum_name(
+            Field{"final_modifier", FieldKind::EnumU8, 0, "", kWaveModifierEnum},
+            &region.final_modifier));
+        Json scaling = Json::object();
+        config::dump_struct(scaling, kScalingSchema, &region.scaling);
+        entry["scaling"] = std::move(scaling);
+        Json tracks = Json::array();
+        for (const WaveTrackConfig& track : region.tracks) {
+            Json t = Json::object();
+            config::dump_struct(t, kTrackSchema, &track);
+            tracks.push_back(std::move(t));
+        }
+        entry["tracks"] = std::move(tracks);
+        regions[region.name] = std::move(entry);
+    }
+    doc["regions"] = std::move(regions);
+
+    return doc;
+}
+
+void bind_waves(config::Registry& registry, WaveConfig& cfg) {
+    registry.bind("waves.globals", kWaveGlobalsSchema, &cfg.globals);
+    for (WaveRegionConfig& region : cfg.regions) {
+        registry.bind("waves.regions." + region.name + ".scaling", kScalingSchema, &region.scaling);
+        for (usize i = 0; i < region.tracks.size(); ++i) {
+            registry.bind("waves.regions." + region.name + ".tracks." + std::to_string(i),
+                          kTrackSchema, &region.tracks[i]);
+        }
+    }
+}
+
+} // namespace immune::game::detail

@@ -155,6 +155,27 @@ struct GymContext {
     /// Toggles a named HUD overlay ("debug", "threat"). Names it does not know
     /// must be reported as unknown by the implementer, not ignored.
     std::function<bool(const std::string&, bool)> set_overlay;
+
+    // --- Tuning config (assets/config/*.json) -------------------------------
+    // Supplied by app/, which owns the ConfigStore. Absent in a context that
+    // has no config, in which case `config` reports that rather than lying.
+    //
+    // These are what make a balance tweak a one-liner: `config set
+    // towers.macrophage.3.damage 200` reaches the same bytes the JSON loader
+    // writes, and `config dump` writes the live values back out so an
+    // experiment that worked can be kept.
+
+    /// Reads one dotted field path. False with a message in `out` on a miss.
+    std::function<bool(const std::string& path, std::string& out)> config_get;
+    /// Writes one dotted field path and re-applies the affected systems.
+    std::function<bool(const std::string& path, const std::string& value, std::string& err)>
+        config_set;
+    /// Re-reads every config file from disk.
+    std::function<bool(std::string& err)> config_reload;
+    /// Writes the live values back to the config directory.
+    std::function<bool(std::string& err)> config_dump;
+    /// Every addressable field path, for `config list`.
+    std::function<std::vector<std::string>()> config_paths;
 };
 
 /// Outcome of one command. `message` is always populated -- on success it is

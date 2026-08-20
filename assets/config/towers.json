@@ -1,0 +1,431 @@
+{
+  "globals": {
+    "block_check_pad_cells": 14.0,
+    "refund_fraction": 0.7,
+    "shape_base": 16
+  },
+  "net_ability": {
+    "micro_lifetime": 1.5,
+    "micro_sprite_size": 0.3,
+    "micro_tint": [
+      0.3,
+      0.6,
+      1.0,
+      1.0
+    ],
+    "micro_units": 3,
+    "net_duration": 3.0,
+    "net_tint": [
+      0.2,
+      0.8,
+      0.9,
+      0.5
+    ],
+    "spread_jitter": 0.5
+  },
+  "schema": 1,
+  "towers": {
+    "cytotoxic_t": {
+      "role": "tesla",
+      "tiers": [
+        {
+          "mechanics": {
+            "attach_radius": 0.55,
+            "launch_spread": 0.85,
+            "release_per_shot": 30,
+            "search_radius": 9.0,
+            "swarmer_dps": 4.2,
+            "swarmer_lifetime": 4,
+            "swarmer_speed": 20.0
+          },
+          "stats": {
+            "ability_cooldown": 0.0,
+            "blocks_flow": true,
+            "build_cost": 130,
+            "damage": 30.0,
+            "family_mask": 255,
+            "fire_interval": 0.9,
+            "footprint_radius": 1.6,
+            "kill_rate": 60.0,
+            "range": 7.0,
+            "upgrade_cost": 84
+          }
+        },
+        {
+          "mechanics": {
+            "attach_radius": 0.55,
+            "launch_spread": 0.85,
+            "release_per_shot": 57,
+            "search_radius": 11.0,
+            "swarmer_dps": 6.4,
+            "swarmer_lifetime": 7.6,
+            "swarmer_speed": 30.0
+          },
+          "stats": {
+            "ability_cooldown": 0.0,
+            "blocks_flow": true,
+            "build_cost": 130,
+            "damage": 62.0,
+            "family_mask": 255,
+            "fire_interval": 0.75,
+            "footprint_radius": 1.6,
+            "kill_rate": 135.0,
+            "range": 7.75,
+            "upgrade_cost": 70
+          }
+        },
+        {
+          "mechanics": {
+            "attach_radius": 0.55,
+            "launch_spread": 0.85,
+            "release_per_shot": 78,
+            "search_radius": 13.0,
+            "swarmer_dps": 8.4,
+            "swarmer_lifetime": 8.4,
+            "swarmer_speed": 34.0
+          },
+          "stats": {
+            "ability_cooldown": 0.0,
+            "blocks_flow": true,
+            "build_cost": 130,
+            "damage": 120.0,
+            "family_mask": 255,
+            "fire_interval": 0.6,
+            "footprint_radius": 1.6,
+            "kill_rate": 210.0,
+            "range": 8.5,
+            "upgrade_cost": 0
+          }
+        }
+      ]
+    },
+    "goblet_cell": {
+      "role": "hydro",
+      "tiers": [
+        {
+          "mechanics": {
+            "burst_seconds": 0.28,
+            "droplet_lifetime": 0.8,
+            "flow_scale": 1.0,
+            "jet_speed": 30.0,
+            "mark_seconds": 2.2,
+            "nozzle_radius": 0.45,
+            "spread": 0.02
+          },
+          "stats": {
+            "ability_cooldown": 0.0,
+            "blocks_flow": true,
+            "build_cost": 160,
+            "damage": 6.0,
+            "family_mask": 255,
+            "fire_interval": 0.95,
+            "footprint_radius": 1.4,
+            "kill_rate": 14.0,
+            "range": 16.0,
+            "upgrade_cost": 104
+          }
+        },
+        {
+          "mechanics": {
+            "burst_seconds": 0.34,
+            "droplet_lifetime": 0.8,
+            "flow_scale": 1.0,
+            "jet_speed": 34.0,
+            "mark_seconds": 2.6,
+            "nozzle_radius": 1.05,
+            "spread": 0.05
+          },
+          "stats": {
+            "ability_cooldown": 0.0,
+            "blocks_flow": true,
+            "build_cost": 160,
+            "damage": 13.0,
+            "family_mask": 255,
+            "fire_interval": 0.88,
+            "footprint_radius": 1.4,
+            "kill_rate": 34.0,
+            "range": 18.0,
+            "upgrade_cost": 88
+          }
+        },
+        {
+          "mechanics": {
+            "burst_seconds": 0.4,
+            "droplet_lifetime": 0.8,
+            "flow_scale": 1.0,
+            "jet_speed": 39.0,
+            "mark_seconds": 3.0,
+            "nozzle_radius": 1.3,
+            "spread": 0.05
+          },
+          "stats": {
+            "ability_cooldown": 0.0,
+            "blocks_flow": true,
+            "build_cost": 160,
+            "damage": 26.0,
+            "family_mask": 255,
+            "fire_interval": 0.8,
+            "footprint_radius": 1.4,
+            "kill_rate": 62.0,
+            "range": 20.0,
+            "upgrade_cost": 0
+          }
+        }
+      ]
+    },
+    "interferon": {
+      "role": "cryo",
+      "tiers": [
+        {
+          "mechanics": {
+            "arc_radians": 0.6,
+            "cone_falloff": 0.5,
+            "inner_fraction": 0.55,
+            "max_freeze_events": 6
+          },
+          "stats": {
+            "ability_cooldown": 0.0,
+            "blocks_flow": true,
+            "build_cost": 110,
+            "damage": 3.0,
+            "family_mask": 255,
+            "fire_interval": 0.55,
+            "footprint_radius": 2.4,
+            "kill_rate": 2.0,
+            "range": 24.0,
+            "upgrade_cost": 70
+          }
+        },
+        {
+          "mechanics": {
+            "arc_radians": 0.66,
+            "cone_falloff": 0.5,
+            "inner_fraction": 0.55,
+            "max_freeze_events": 6
+          },
+          "stats": {
+            "ability_cooldown": 0.0,
+            "blocks_flow": true,
+            "build_cost": 110,
+            "damage": 7.0,
+            "family_mask": 255,
+            "fire_interval": 0.5,
+            "footprint_radius": 2.4,
+            "kill_rate": 5.4,
+            "range": 27.0,
+            "upgrade_cost": 60
+          }
+        },
+        {
+          "mechanics": {
+            "arc_radians": 0.72,
+            "cone_falloff": 0.5,
+            "inner_fraction": 0.55,
+            "max_freeze_events": 6
+          },
+          "stats": {
+            "ability_cooldown": 0.0,
+            "blocks_flow": true,
+            "build_cost": 110,
+            "damage": 14.0,
+            "family_mask": 255,
+            "fire_interval": 0.45,
+            "footprint_radius": 2.4,
+            "kill_rate": 10.5,
+            "range": 30.0,
+            "upgrade_cost": 0
+          }
+        }
+      ]
+    },
+    "macrophage": {
+      "role": "mortar",
+      "tiers": [
+        {
+          "mechanics": {
+            "burst_falloff": 0.4,
+            "burst_radius": 5.0,
+            "burst_seconds": 0.3,
+            "marked_multiplier": 1.5
+          },
+          "stats": {
+            "ability_cooldown": 0.0,
+            "blocks_flow": true,
+            "build_cost": 150,
+            "damage": 45.0,
+            "family_mask": 255,
+            "fire_interval": 2.6,
+            "footprint_radius": 2.0,
+            "kill_rate": 62.0,
+            "range": 14.0,
+            "upgrade_cost": 95
+          }
+        },
+        {
+          "mechanics": {
+            "burst_falloff": 0.4,
+            "burst_radius": 5.75,
+            "burst_seconds": 0.3,
+            "marked_multiplier": 1.5
+          },
+          "stats": {
+            "ability_cooldown": 0.0,
+            "blocks_flow": true,
+            "build_cost": 150,
+            "damage": 95.0,
+            "family_mask": 255,
+            "fire_interval": 2.3,
+            "footprint_radius": 2.0,
+            "kill_rate": 145.0,
+            "range": 15.5,
+            "upgrade_cost": 80
+          }
+        },
+        {
+          "mechanics": {
+            "burst_falloff": 0.4,
+            "burst_radius": 6.5,
+            "burst_seconds": 0.3,
+            "marked_multiplier": 1.5
+          },
+          "stats": {
+            "ability_cooldown": 0.0,
+            "blocks_flow": true,
+            "build_cost": 150,
+            "damage": 175.0,
+            "family_mask": 255,
+            "fire_interval": 2.0,
+            "footprint_radius": 2.0,
+            "kill_rate": 240.0,
+            "range": 17.0,
+            "upgrade_cost": 0
+          }
+        }
+      ]
+    },
+    "neutrophil": {
+      "role": "gunner",
+      "tiers": [
+        {
+          "mechanics": {
+            "hit_radius": 0.45,
+            "round_speed": 45.0,
+            "spread": 0.045
+          },
+          "stats": {
+            "ability_cooldown": 6.0,
+            "blocks_flow": true,
+            "build_cost": 70,
+            "damage": 1.4,
+            "family_mask": 255,
+            "fire_interval": 0.045,
+            "footprint_radius": 1.4,
+            "kill_rate": 0.0,
+            "range": 18.0,
+            "upgrade_cost": 45
+          }
+        },
+        {
+          "mechanics": {
+            "hit_radius": 0.45,
+            "round_speed": 52.0,
+            "spread": 0.045
+          },
+          "stats": {
+            "ability_cooldown": 5.0,
+            "blocks_flow": true,
+            "build_cost": 70,
+            "damage": 2.2,
+            "family_mask": 255,
+            "fire_interval": 0.0275,
+            "footprint_radius": 1.4,
+            "kill_rate": 0.0,
+            "range": 20.0,
+            "upgrade_cost": 38
+          }
+        },
+        {
+          "mechanics": {
+            "hit_radius": 0.45,
+            "round_speed": 60.0,
+            "spread": 0.045
+          },
+          "stats": {
+            "ability_cooldown": 4.0,
+            "blocks_flow": true,
+            "build_cost": 70,
+            "damage": 2.4,
+            "family_mask": 255,
+            "fire_interval": 0.015,
+            "footprint_radius": 1.4,
+            "kill_rate": 0.0,
+            "range": 22.0,
+            "upgrade_cost": 0
+          }
+        }
+      ]
+    },
+    "nk_cell": {
+      "role": "blade",
+      "tiers": [
+        {
+          "mechanics": {
+            "max_slash_events": 5,
+            "rotor_falloff": 0.0,
+            "spin_rad_per_sec": 9.0
+          },
+          "stats": {
+            "ability_cooldown": 0.0,
+            "blocks_flow": true,
+            "build_cost": 90,
+            "damage": 5.0,
+            "family_mask": 255,
+            "fire_interval": 0.18,
+            "footprint_radius": 1.6,
+            "kill_rate": 8.0,
+            "range": 16.0,
+            "upgrade_cost": 58
+          }
+        },
+        {
+          "mechanics": {
+            "max_slash_events": 5,
+            "rotor_falloff": 0.0,
+            "spin_rad_per_sec": 9.0
+          },
+          "stats": {
+            "ability_cooldown": 0.0,
+            "blocks_flow": true,
+            "build_cost": 90,
+            "damage": 10.0,
+            "family_mask": 255,
+            "fire_interval": 0.14,
+            "footprint_radius": 1.6,
+            "kill_rate": 21.0,
+            "range": 18.0,
+            "upgrade_cost": 49
+          }
+        },
+        {
+          "mechanics": {
+            "max_slash_events": 5,
+            "rotor_falloff": 0.0,
+            "spin_rad_per_sec": 9.0
+          },
+          "stats": {
+            "ability_cooldown": 0.0,
+            "blocks_flow": true,
+            "build_cost": 90,
+            "damage": 20.0,
+            "family_mask": 255,
+            "fire_interval": 0.1,
+            "footprint_radius": 1.6,
+            "kill_rate": 41.0,
+            "range": 20.0,
+            "upgrade_cost": 0
+          }
+        }
+      ]
+    }
+  }
+}

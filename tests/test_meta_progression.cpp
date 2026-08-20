@@ -125,7 +125,7 @@ TEST_CASE("purchase fails without enough currency and spends nothing", "[meta]")
 TEST_CASE("purchase of a roster-unlock memory also unlocks its tower", "[meta]") {
     MetaProgression meta;
     meta.reset_to_new_game();
-    REQUIRE_FALSE(meta.tower_unlocked(TowerType::BCell));
+    REQUIRE_FALSE(meta.tower_unlocked(TowerType::GobletCell));
 
     const std::string json = R"JSON({
       "version": 1,
@@ -137,10 +137,10 @@ TEST_CASE("purchase of a roster-unlock memory also unlocks its tower", "[meta]")
     })JSON";
     std::string err;
     REQUIRE(meta.from_json(json, err));
-    REQUIRE(static_cast<u32>(TowerType::BCell) == 4);
+    REQUIRE(static_cast<u32>(TowerType::GobletCell) == 4);
 
     REQUIRE(meta.purchase("unlock_bcell") == MetaProgression::PurchaseResult::Ok);
-    REQUIRE(meta.tower_unlocked(TowerType::BCell));
+    REQUIRE(meta.tower_unlocked(TowerType::GobletCell));
 }
 
 TEST_CASE("purchase of an unknown id reports NotFound", "[meta]") {

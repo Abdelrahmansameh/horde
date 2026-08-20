@@ -312,8 +312,15 @@ SwarmerStats SwarmerSystem::update(SwarmerBuffers& sw,
             sw.vel_x[i] = chaff.vel_x[host];
             sw.vel_y[i] = chaff.vel_y[host];
 
+            // A granule feeding on an agent the Goblet Cell has already
+            // weakened (chaff_flags::kMarked) drains it faster, same flag every
+            // other damage path in the sim reads (DamageField.cpp,
+            // Projectiles.cpp, strike_named's comp::Marked check).
+            const f32 drain = (chaff.flags[host] & chaff_flags::kMarked) != 0
+                                  ? sw.dps[i] * dt * chaff_flags::kMarkedDamageMultiplier
+                                  : sw.dps[i] * dt;
             const f32 before = chaff.density[host];
-            chaff.apply_density_loss(host, sw.dps[i] * dt);
+            chaff.apply_density_loss(host, drain);
             const f32 removed = before - chaff.density[host];
             stats.density_removed += removed;
 

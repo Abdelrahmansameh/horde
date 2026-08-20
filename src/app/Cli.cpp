@@ -116,6 +116,12 @@ Options parse_args(int argc, char** argv) {
             if (!next_value(argc, argv, i, a, o.exec, o.error)) break;
         } else if (a == "--level") {
             if (!next_value(argc, argv, i, a, o.level, o.error)) break;
+        } else if (a == "--config") {
+            if (!next_value(argc, argv, i, a, o.config_dir, o.error)) break;
+            o.config_pinned = true;
+        } else if (a == "--dump-config") {
+            if (!next_value(argc, argv, i, a, o.dump_config_dir, o.error)) break;
+            o.mode = Mode::DumpConfig;
         } else if (a == "--scenario") {
             // Unlike --bench, does not force Mode::Bench — lets --screenshot
             // populate agents from a bench_scenarios() entry before capture.

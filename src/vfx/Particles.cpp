@@ -107,7 +107,7 @@ inline Vec4 mix4(const Vec4& a, const Vec4& b, f32 t) { return a + (b - a) * t; 
 //   Macrophage MORTAR  amber / orange (digestive, not fire — no reds)
 //   Interferon CRYO    blue-white / cyan
 //   CytotoxicT TESLA   violet-white
-//   BCell      LASER   pale green-cyan (antibody)
+//   GobletCell HYDRO   jade green (mucin)
 //   NKCell     BLADE   magenta-pink
 // ---------------------------------------------------------------------------
 struct TowerPalette {
@@ -121,7 +121,7 @@ TowerPalette palette_for(TowerType t) {
     case TowerType::Macrophage: return {Vec4{1.00f, 0.66f, 0.24f, 1.0f}, Vec4{1.00f, 0.95f, 0.80f, 1.0f}};
     case TowerType::Interferon: return {Vec4{0.52f, 0.84f, 1.00f, 1.0f}, Vec4{0.88f, 0.98f, 1.00f, 1.0f}};
     case TowerType::CytotoxicT: return {Vec4{0.76f, 0.66f, 1.00f, 1.0f}, Vec4{1.00f, 1.00f, 1.00f, 1.0f}};
-    case TowerType::BCell:      return {Vec4{0.62f, 1.00f, 0.80f, 1.0f}, Vec4{0.94f, 1.00f, 0.97f, 1.0f}};
+    case TowerType::GobletCell: return {Vec4{0.55f, 0.98f, 0.74f, 1.0f}, Vec4{0.90f, 1.00f, 0.92f, 1.0f}};
     case TowerType::NKCell:     return {Vec4{1.00f, 0.52f, 0.86f, 1.0f}, Vec4{1.00f, 0.92f, 0.98f, 1.0f}};
     case TowerType::Count:
     default:                    return {Vec4{0.88f, 0.90f, 0.96f, 1.0f}, Vec4{1.00f, 1.00f, 1.00f, 1.0f}};
@@ -607,15 +607,35 @@ void ParticleSystem::emit_for_event(const sim::CombatEvent& event) {
             break;
         }
 
-        case TowerType::BCell: {
-            // LASER. Charge ring removed (was rendering as a broken cyan
-            // blob) — just the muzzle spark for the beam's "on" moment.
+        case TowerType::GobletCell: {
+            // HYDRO. Raised ONCE per burst, at the trigger pull. The jet itself
+            // is real fluid drawn from sim state, so there is nothing to fake
+            // here — this is only the wet cough at the nozzle that sells the
+            // moment the cell opens, and it must stay small or it hides the
+            // first slab of actual mucus leaving the mouth.
             p.kind = ParticleKind::Spark;
             p.color = pal.accent;
-            p.size = 0.36f;
-            p.lifetime = 0.10f;
-            p.drag = 5.0f;
+            p.size = 0.34f;
+            p.lifetime = 0.09f;
+            p.drag = 6.0f;
             push(p);
+
+            // A short backwash of mist thrown sideways off the mouth, like the
+            // spray shed by a nozzle under pressure.
+            for (u32 k = 0; k < 4u + tier; ++k) {
+                const f32 lateral = pcg_signed(rs);
+                ParticleSpawnParams m;
+                m.kind = ParticleKind::Mist;
+                m.blend = BlendMode::AlphaBlend;
+                m.position = event.origin + perp(dir) * (lateral * 0.28f);
+                m.velocity = dir * pcg_range(rs, 1.5f, 4.0f) + perp(dir) * (lateral * 3.2f);
+                m.color = Vec4{pal.primary.r, pal.primary.g, pal.primary.b, 0.34f};
+                m.size = pcg_range(rs, 0.22f, 0.42f);
+                m.lifetime = pcg_range(rs, 0.14f, 0.26f);
+                m.drag = 6.0f;
+                m.spin = pcg_signed(rs) * 1.6f;
+                push(m);
+            }
             break;
         }
 
@@ -701,42 +721,6 @@ void ParticleSystem::emit_for_event(const sim::CombatEvent& event) {
                 m.drag = 4.0f;
                 push(m);
             }
-            break;
-        }
-
-        if (event.source == TowerType::BCell) {
-            // LASER pierce. Every pathogen on the line must flash at the SAME
-            // instant, so this case takes no random delay and no random
-            // lifetime — the sim raises all of a sweep's impacts in one tick,
-            // and identical timings turn them into one continuous sweep rather
-            // than a string of individual explosions.
-            //
-            // ALPHA IS DELIBERATELY LOW HERE, and this is the one impact case
-            // where that matters. A pierce raises one of these per pathogen on
-            // the line, so the count scales with how dense the horde is —
-            // exactly the situation the player most wants to see through. At
-            // full brightness a hundred simultaneous flashes stack additively
-            // into a white hole with the horde invisible inside it. Kept dim,
-            // the same hundred stack into a bright band along the beam, which
-            // is what a pierce through a crowd should look like.
-            ParticleSpawnParams s;
-            s.kind = ParticleKind::Spark;
-            s.blend = BlendMode::Additive;
-            s.position = event.origin;
-            s.color = Vec4{pal.accent.r, pal.accent.g, pal.accent.b, 0.42f};
-            s.size = pop * 1.05f;
-            s.lifetime = 0.12f;
-            s.drag = 7.0f;
-            push(s);
-
-            ParticleSpawnParams r;
-            r.kind = ParticleKind::Ring;
-            r.blend = BlendMode::Additive;
-            r.position = event.origin;
-            r.color = Vec4{pal.primary.r, pal.primary.g, pal.primary.b, 0.45f};
-            r.size = pop * 2.0f;
-            r.lifetime = 0.12f;
-            push(r);
             break;
         }
 
@@ -1151,31 +1135,18 @@ void ParticleSystem::emit_for_event(const sim::CombatEvent& event) {
     }
 
     // -----------------------------------------------------------------------
-    // ConePulse — the CRYO signal. No projectile at all: a wide cone of
-    // blue-white interferon signals sweeping outward, with a slow haze behind
-    // it. Tier widens the signal count so a maxed Interferon visibly saturates
-    // its cone.
+    // ConePulse — the CRYO signal. No projectile at all: a slow cold haze
+    // filling the cone. Used to also throw a volley of additive tracers
+    // sweeping out toward the cone's reach on every pulse, but the Interferon
+    // pulses continuously while it has a target, so that read as a constant
+    // spray of bright blue flares flashing out near the edge of its range
+    // rather than as a discrete attack. The standing field (field.frag's
+    // Cone shape) already draws the cone itself, so the haze is enough to
+    // sell "this tick fired".
     // -----------------------------------------------------------------------
     case sim::CombatEventType::ConePulse: {
         const f32 reach = math::max(event.radius, 2.0f);
         const f32 half = event.arc_radians > 0.01f ? event.arc_radians : 0.55f;
-
-        const u32 signals = 20u + 14u * tier;
-        for (u32 k = 0; k < signals; ++k) {
-            const f32 a = pcg_range(rs, -half, half);
-            const Vec2 d2 = rotate_by(dir, a);
-            const f32 travel = 0.34f;
-            ParticleSpawnParams t2;
-            t2.kind = ParticleKind::Tracer;
-            t2.blend = BlendMode::Additive;
-            t2.position = event.origin + d2 * pcg_range(rs, 0.0f, reach * 0.12f);
-            t2.velocity = d2 * (reach / travel) * pcg_range(rs, 0.65f, 1.15f);
-            t2.color = mix4(pal.primary, pal.accent, pcg_f32(rs));
-            t2.size = pcg_range(rs, 0.08f, 0.15f);
-            t2.lifetime = pcg_range(rs, 0.28f, 0.44f);
-            t2.drag = 0.9f;
-            push(t2, pcg_range(rs, 0.0f, 0.06f));
-        }
 
         // Cold haze filling the cone volume.
         const u32 haze = 4u + 3u * tier;
@@ -1366,6 +1337,68 @@ void ParticleSystem::emit_for_event(const sim::CombatEvent& event) {
             sh.buoyancy = -2.0f;
             sh.spin = pcg_signed(rs) * 8.0f;
             push(sh);
+        }
+        break;
+    }
+
+    // -----------------------------------------------------------------------
+    // FluidSplash — a mucus particle was stopped hard.
+    //
+    // THE UNUSUAL PART: this event is a GARNISH, not the effect. Every other
+    // case in this file is the whole visual, because the sim event it came from
+    // was an instant that left nothing behind. A fluid splash is the opposite —
+    // the actual splashing is hundreds of real particles the solver is moving
+    // right now, and the fluid render pass draws them from live state. So the
+    // job here is only to add what a particle-based surface physically cannot
+    // resolve: the fine atomized spray that flies off a fast impact, at a scale
+    // far below the solver's rest spacing.
+    //
+    // It follows that this must stay CHEAP and SPARSE. The sim already caps
+    // these at FluidTuning::max_splash_events per tick precisely so a jet
+    // hitting a wall cannot flood the sink, and over-spending here would fog up
+    // the very surface it is supposed to be decorating.
+    // -----------------------------------------------------------------------
+    case sim::CombatEventType::FluidSplash: {
+        // `magnitude` is the speed the particle lost, so a graze throws almost
+        // nothing and a full-speed wall strike throws a real burst.
+        const f32 force = math::saturate(mag / 26.0f);
+        const Vec2 back = Vec2{-dir.x, -dir.y};
+        const Vec2 side = perp(dir);
+
+        const u32 droplets = 2u + static_cast<u32>(force * 5.0f);
+        for (u32 k = 0; k < droplets; ++k) {
+            // Fanned back off the surface, the way a real splash sheets away
+            // from the impact rather than rebounding along the incoming line.
+            const f32 lateral = pcg_signed(rs);
+            const Vec2 away = math::normalize_safe(back * 0.45f + side * lateral);
+            ParticleSpawnParams t2;
+            t2.kind = ParticleKind::Tracer;
+            t2.blend = BlendMode::AlphaBlend;
+            t2.position = event.origin;
+            t2.velocity = away * pcg_range(rs, 3.0f, 5.0f + 11.0f * force);
+            t2.color = Vec4{pal.primary.r, pal.primary.g, pal.primary.b,
+                            0.55f + 0.35f * force};
+            t2.size = pcg_range(rs, 0.06f, 0.13f);
+            t2.lifetime = pcg_range(rs, 0.14f, 0.30f);
+            t2.drag = 5.0f;
+            push(t2);
+        }
+
+        // One soft wet bloom at the contact point, alpha-blended rather than
+        // additive: this is matter landing, not energy discharging, and an
+        // additive one would make every wall the jet touches glow.
+        if (force > 0.25f) {
+            ParticleSpawnParams m;
+            m.kind = ParticleKind::Mist;
+            m.blend = BlendMode::AlphaBlend;
+            m.position = event.origin;
+            m.velocity = back * (1.5f * force);
+            m.color = Vec4{pal.primary.r, pal.primary.g, pal.primary.b, 0.22f * force};
+            m.size = 0.30f + 0.5f * force;
+            m.lifetime = pcg_range(rs, 0.18f, 0.34f);
+            m.drag = 5.0f;
+            m.spin = pcg_signed(rs) * 1.2f;
+            push(m);
         }
         break;
     }

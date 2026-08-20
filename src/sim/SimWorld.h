@@ -20,6 +20,7 @@
 //   2. chaff update                [prof: chaff_update]
 //   3. ECS systems                 [prof: ecs_tick]
 //   4. damage fields apply
+//   4b. projectiles, swarmers, fluid
 //   5. chaff compact + despawn accounting
 //   6. flow-field incremental rebake pump (budgeted)
 //   7. tick counter advance
@@ -34,6 +35,7 @@
 #include "sim/damage/DamageField.h"
 #include "sim/ecs/EcsWorld.h"
 #include "sim/flowfield/FlowField.h"
+#include "sim/fluid/Fluid.h"
 #include "sim/projectile/Projectiles.h"
 #include "sim/swarm/Swarmers.h"
 #include "sim/spatial/SpatialHash.h"
@@ -57,6 +59,15 @@ struct SimDesc {
     /// cloud size (see sim/swarm/Swarmers.h); this only has to be above the
     /// equilibrium a full board of maxed T-cells reaches.
     usize max_swarmers = 24576;
+    /// Live Goblet Cell fluid particles (sim/fluid/Fluid.h). Emission rate is
+    /// derived from nozzle geometry rather than authored, so the standing
+    /// population is a firm number -- roughly 380 per firing tower at tier 3.
+    /// This clears a board densely packed with them, with headroom for the
+    /// puddles they leave behind.
+    usize max_fluid_particles = 8192;
+    /// Solver knobs for that fluid. Lives on SimDesc, not on the tower table,
+    /// because there is exactly one solver per world and every jet shares it.
+    FluidTuning fluid_tuning{};
     /// Per-tick combat-event capacity. Sized well above the expected rate so
     /// the VFX layer never starves during a heavy volley; overflow is counted,
     /// not silent.
@@ -136,6 +147,17 @@ public:
     const SwarmerBuffers& swarmers() const { return swarmers_; }
     SwarmerSystem& swarmer_system() { return swarmer_system_; }
 
+    /// The Goblet Cell's live fluid. Unlike projectiles and swarmers, towers do
+    /// NOT push into this store directly -- they go through
+    /// FluidSystem::emit(), because the emission COUNT is derived from nozzle
+    /// geometry and rest spacing, both of which only the system knows. A tower
+    /// that spawned particles itself would inevitably over-fill the nozzle and
+    /// detonate its own jet; see the emit() comment for why.
+    FluidBuffers& fluid() { return fluid_; }
+    const FluidBuffers& fluid() const { return fluid_; }
+    FluidSystem& fluid_system() { return fluid_system_; }
+    const FluidSystem& fluid_system() const { return fluid_system_; }
+
     /// Instantaneous combat happenings raised during the tick, drained once per
     /// frame by the VFX layer. This is an OUTPUT of the tick: nothing in the
     /// sim ever reads it back, so a full sink cannot perturb state_hash().
@@ -192,6 +214,8 @@ private:
     ProjectileSystem projectile_system_;
     SwarmerBuffers swarmers_;
     SwarmerSystem swarmer_system_;
+    FluidBuffers fluid_;
+    FluidSystem fluid_system_;
     CombatEventSink combat_events_;
     EcsWorld ecs_;
 

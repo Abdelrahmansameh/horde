@@ -184,3 +184,32 @@ flood 1200; overlay threat on             # five-lane pressure, threat readout o
   masquerading as one would make that record lie.
 - **It opens itself on the gym level only.** Any other level leaves it as you
   left it, so it never appears uninvited during real play.
+
+## Tuning from the console
+
+Every gameplay number lives in `assets/config/*.json` and is addressable by a
+dotted path:
+
+```
+config get towers.macrophage.3.stats.damage
+config set towers.macrophage.3.stats.damage 200
+config set enemies.families.virus.visual.silhouette 3.0
+config set enemies.elites.tumor_mass.stats.max_health 20000
+config list enemies.families.virus
+config reload            # re-read the files from disk
+config dump              # write the live values back out
+```
+
+`config set` writes through to the same bytes the JSON loader fills and then
+re-applies every affected system, so a value changed here and a value changed in
+the file behave identically. `config dump` is how an experiment that worked gets
+kept: retune in the console until it feels right, then dump and commit.
+
+Editing a config file while the game runs picks the change up within half a
+second, the same way a shader edit does. A file caught mid-save keeps the last
+good config and logs the parse error rather than taking the game down.
+
+`reload` and `dump` are unavailable in `--sim-test`, because re-reading the
+files mid-run would change a determinism input. `get`, `set` and `list` work
+there, and every sim-test report carries a `config_hash` so a run records which
+tuning produced it.
