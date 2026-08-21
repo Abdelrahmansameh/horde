@@ -288,10 +288,9 @@ DamageStats DamageSystem::apply(ChaffBuffers& chaff, const SpatialHash& hash, Rn
     for (usize field_idx = 0; field_idx < fields_.size(); ++field_idx) {
         const DamageField& field = fields_[field_idx];
 
-        // Friendly-fire (allergen self-damage against the player's own units /
-        // objective) is Wave 2C's mechanic; chaff-facing behaviour doesn't
-        // depend on it, so those fields are counted as evaluated but skipped
-        // here rather than guessed at.
+        // Friendly-fire fields damage the player's own units/objective;
+        // chaff-facing behaviour doesn't depend on them, so those fields are
+        // counted as evaluated but skipped here rather than guessed at.
         if (field.friendly_fire) continue;
 
         const Rng field_rng = rng.fork(static_cast<u64>(field_idx));

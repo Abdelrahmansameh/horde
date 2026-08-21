@@ -68,7 +68,7 @@ horde/
       ecs/        EnTT world, components, system scheduler, named-agent AI
     game/
       towers/     placement, targeting, upgrades, abilities, the 8-cell roster
-      enemies/    6 pathogen families, elites, tumor objective, allergen modifier
+      enemies/    2 pathogen families; the elite tier is an empty framework
       wave/       wave director, spawn tables, difficulty curve
       economy/    ATP income, costs, refunds
       level/      level JSON schema, loader, objective/integrity meter
@@ -131,7 +131,7 @@ This wave is where the project succeeds or fails. Everything after it is compara
 |---|---|---|
 | **2A — Damage & erosion** | `sim/damage/` | Aggregate damage fields (region + kill-rate), density-threshold thinning of chaff inside fields, kill accounting feeding economy, the edge-erosion visual language of §7. Resolves the open question in §10 by implementing both probabilistic removal and deterministic density thinning behind one switch, then picking by feel. |
 | **2B — Tower framework + roster** | `game/towers/` | Grid-free continuous placement with light snapping to valid tissue zones, placement validation + flow-field rebake trigger, spatial-hash-driven targeting, 2–3 upgrade tiers each, one active ability cap. All 8 cells: Macrophage, Neutrophil (+NETs, micro-unit spawns), Dendritic, Cytotoxic T, B-Cell/antibody homing, NK, Mast, Complement Cascade (chain-jump through clusters). |
-| **2C — Enemy roster** | `game/enemies/` | 6 families with §6's color/silhouette/tempo rules; virus replication driving exponential pressure; bacterial biofilm clumping; fungal drift + lingering death hazard; parasite burrow/hide elite; cancer tumor as a growing objective enemy; allergen overreaction wave modifier. |
+| **2C — Enemy roster** | `game/enemies/` | 2 families (virus, bacteria) with §6's color/silhouette/tempo rules; virus replication driving exponential pressure. The elite/boss tier is a registered-but-empty framework pending a roster redesign (DESIGN.md §14). |
 | **2D — Level pipeline** | `game/level/`, `assets/levels/` | Level JSON schema + loader + validation, spawn portals, objective structure and integrity meter, placement-zone definition, and 2 test levels (one switchback, one floodplain) that later content agents use as templates. |
 
 **Gate:** `--sim-test` scripts prove each tower measurably thins a horde; a screenshot shows a damage field visibly carving the pathogen river; a tower placed in a lane causes a visible reroute; bench still inside budget with towers active.

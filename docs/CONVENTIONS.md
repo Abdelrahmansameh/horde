@@ -12,7 +12,7 @@ letter.
 |---|---|---|
 | Namespace | `lower_snake` | `immune::sim`, `immune::render` |
 | Type / struct / enum class | `PascalCase` | `ChaffBuffers`, `PathogenFamily` |
-| Enumerator | `PascalCase` | `PathogenFamily::FungalSpore` |
+| Enumerator | `PascalCase` | `PathogenFamily::Bacteria` |
 | Function / method | `lower_snake` | `apply_density_loss()`, `sample_cost()` |
 | Variable / parameter | `lower_snake` | `world_pos`, `kill_rate` |
 | Private data member | trailing underscore | `count_`, `cell_size_` |

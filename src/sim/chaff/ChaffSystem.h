@@ -11,7 +11,7 @@
 //     v   = clamp_length(v, max_speed)
 //     p  += v * dt
 // No A*, no per-agent state machine, no virtual call. Everything else the horde
-// does (replication, clumping, drift) is a family-specific variation on those
+// does (replication, drift) is a family-specific variation on those
 // lines, gated by a flag bit — never by a subclass.
 //
 // WHY THE SDF FALLBACK EXISTS (found by live-testing, not by inspection)
@@ -61,7 +61,7 @@ struct ChaffFamilyParams {
     f32 separation_strength = 8.0f;
     f32 jitter = 0.4f;          ///< Random impulse magnitude; the "alive" look.
     f32 base_density = 1.0f;    ///< Spawn density/HP contribution.
-    f32 drift_bias = 0.0f;      ///< Fungal spores: how much ambient drift overrides flow.
+    f32 drift_bias = 0.0f;      ///< How much ambient drift overrides flow.
     f32 replication_rate = 0.0f;///< Viruses: expected replications per agent per second.
     f32 radius = 0.5f;          ///< Visual/collision radius, drives sprite scale.
 

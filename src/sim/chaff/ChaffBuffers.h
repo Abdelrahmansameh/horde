@@ -50,10 +50,9 @@ inline constexpr u8 kAlive      = 1u << 0; ///< Slot occupied.
 /// its life, not just while fluid is actively touching it.
 inline constexpr u8 kMarked     = 1u << 1;
 inline constexpr u8 kSlowed     = 1u << 2; ///< In a NET / snare field.
-inline constexpr u8 kClumped    = 1u << 3; ///< Part of a bacterial biofilm; separation disabled.
-inline constexpr u8 kHidden     = 1u << 4; ///< Burrowed; only NK Cells may target.
-inline constexpr u8 kDrifting   = 1u << 5; ///< Fungal spore: ignores flow, follows ambient drift.
-inline constexpr u8 kReplicated = 1u << 6; ///< Spawned by viral replication (replication budget).
+inline constexpr u8 kHidden     = 1u << 3; ///< Burrowed; only NK Cells may target.
+inline constexpr u8 kDrifting   = 1u << 4; ///< Ignores flow, follows ambient drift.
+inline constexpr u8 kReplicated = 1u << 5; ///< Spawned by viral replication (replication budget).
 inline constexpr u8 kPendingKill= 1u << 7; ///< Scheduled for removal by the next compact().
 
 /// The one weaken multiplier every kMarked-consuming damage path uses, so the

@@ -220,7 +220,7 @@ v  = clamp_length(v, max_speed)
 p += v * dt
 ```
 
-Family behaviour (replication, clumping, drift, hiding) is a variation on those
+Family behaviour (replication, drift, hiding) is a variation on those
 four lines gated by a flag bit — never a subclass.
 
 ### 4.3 `sim/spatial` — uniform grid
@@ -294,7 +294,7 @@ switch and the feel pass picks by playing:
 Field shape supports Circle / Rect / Cone / Chain (the Complement Cascade
 resolves to a sequence of circle links at evaluation time). `family_mask` lets NK
 Cells hit only hidden targets and Cytotoxic T favour elites. `friendly_fire`
-carries the allergen overreaction mechanic.
+marks fields that damage the player's own units/objective.
 
 Removed density is attributed to the owning tower and to the economy via
 `DamageStats`. **Nothing may infer kills by diffing agent counts** — under
@@ -505,9 +505,9 @@ schema v1 is documented at the top of the `--sim-test` section in
 `total_density`, `objective_integrity`, `chaff_killed_total`,
 `chaff_leaked_total`, `tick`, `state_hash`, plus the per-family forms
 `chaff_{spawned,killed,leaked,despawned,alive}.<family>` (e.g.
-`chaff_leaked.parasite`). Per-family assertions exist because "the parasites
+`chaff_leaked.bacteria`). Per-family assertions exist because "the bacteria
 got through" is a regression a total-only metric hides the moment the level
-also kills more bacteria.
+also kills more viruses.
 
 Actions are `spawn_chaff`, `place_tower`, and `cmd` — the last runs a gym
 command (`docs/GYM.md`), so anything reachable from the in-game console is

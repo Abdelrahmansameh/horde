@@ -403,14 +403,6 @@ void fill_default_mechanics(TowerConfig& towers) {
     }
 }
 
-EliteBehaviorKind behavior_kind_for(std::string_view elite_name) {
-    if (elite_name == "biofilm_colony") return EliteBehaviorKind::Biofilm;
-    if (elite_name == "tumor_mass") return EliteBehaviorKind::Tumor;
-    if (elite_name == "abscess_hulk") return EliteBehaviorKind::Hulk;
-    if (elite_name == "spore_colossus") return EliteBehaviorKind::Colossus;
-    return EliteBehaviorKind::Burrower;
-}
-
 } // namespace
 
 GameConfig default_game_config() {
@@ -449,8 +441,7 @@ GameConfig default_game_config() {
             fc.speed_tier = def.speed_tier;
             fc.visual = FamilyVisualParams{visual.silhouette, visual.tempo, visual.wobble,
                                            render::family_color(family)};
-            fc.behavior = FamilyBehaviorParams{def.base_density, def.replicates, def.clumps,
-                                               def.drifts,       def.can_hide,   def.leaves_hazard};
+            fc.behavior = FamilyBehaviorParams{def.base_density, def.replicates};
 
             // The two size derivations come from the live enemy config so the
             // bootstrap cannot disagree with what apply_to_tuning() actually
@@ -477,8 +468,9 @@ GameConfig default_game_config() {
         }
 
         cfg.enemies.base_attack = BaseAttackParams{0.2f, 0.4f, 10.0f, 3.0f, 10.0f, 0.6f};
-        cfg.enemies.fungal_death_hazard = FungalHazardParams{4.0f, 2.5f, 3.0f, 1.5f};
 
+        // Empty today: the roster ships no elites. The loop stays so a
+        // redesigned elite reaches the shipped config the moment it is added.
         cfg.enemies.elites.clear();
         for (const EliteDef& def : roster.elites()) {
             EliteConfig ec;
@@ -486,28 +478,10 @@ GameConfig default_game_config() {
             ec.name = def.name;
             ec.family = def.family;
             ec.tier = def.tier;
-            ec.behavior_kind = behavior_kind_for(def.name);
             ec.stats = EliteStatsParams{def.max_health,      def.armor,
                                         def.speed,           def.sprite_size,
                                         def.ability_cooldown, def.telegraph_duration,
                                         def.atp_bounty};
-            switch (ec.behavior_kind) {
-                case EliteBehaviorKind::Burrower:
-                    ec.behavior.burrower = BurrowerParams{3.5f, 1.8f, 0.25f};
-                    break;
-                case EliteBehaviorKind::Biofilm:
-                    ec.behavior.biofilm = BiofilmParams{6.0f, 0.0f};
-                    break;
-                case EliteBehaviorKind::Tumor:
-                    ec.behavior.tumor = TumorParams{0.12f, 1.0f, 10.0f, 4u, 15.0f, 4.0f};
-                    break;
-                case EliteBehaviorKind::Hulk:
-                    ec.behavior.hulk = HulkParams{14.0f, 25.0f, 6.0f, 5.0f, 6.0f};
-                    break;
-                case EliteBehaviorKind::Colossus:
-                    ec.behavior.colossus = ColossusParams{6.0f, 6.0f, 5.0f, 3.0f, 4.0f};
-                    break;
-            }
             cfg.enemies.elites.push_back(std::move(ec));
         }
     }

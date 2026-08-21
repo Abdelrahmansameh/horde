@@ -178,7 +178,7 @@ F1 debug overlay · TAB threat overlay · SPACE pause · `,`/`.` speed · F12 sc
 Metrics: `chaff_count`, `named_count`, `total_density`, `objective_integrity`,
 `chaff_killed_total`, `chaff_leaked_total`, `tick`, `state_hash`.
 Operators: `==` `!=` `<` `<=` `>` `>=`.
-Families: `virus` `bacteria` `fungal_spore` `parasite` `cancer_cell` `allergen`.
+Families: `virus` `bacteria`.
 
 **A unit test** — add `tests/test_<subject>.cpp` and list it in
 `tests/CMakeLists.txt`. Test names must not start with `-` (CTest passes the name

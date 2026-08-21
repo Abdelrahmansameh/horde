@@ -139,30 +139,24 @@ TEST_CASE("virus and bacteria render as distinct species silhouettes",
 
     const f32 virus = render_family(renderer, PathogenFamily::Virus, "virus");
     const f32 bacteria = render_family(renderer, PathogenFamily::Bacteria, "bacteria");
-    const f32 parasite = render_family(renderer, PathogenFamily::Parasite, "parasite");
 
     REQUIRE(virus > 0.0f);
     REQUIRE(bacteria > 0.0f);
-    REQUIRE(parasite > 0.0f);
 
     // Each family must actually paint something substantial -- a shader that
     // discards everything would otherwise "pass" a pure inequality check.
     REQUIRE(virus > 0.002f);
     REQUIRE(bacteria > 0.002f);
 
-    // The real assertion: these are different SHAPES, not one disc in three
+    // The real assertion: these are different SHAPES, not one disc in two
     // colours. Virus and bacteria have nearly the same authored silhouette
     // scale, so a meaningful coverage gap between them can only come from
     // geometry -- a spiked capsid and a slim flagellated rod fill their quads
-    // very differently.
+    // very differently. A dropped or mis-packed family id would collapse both
+    // onto the shader's round default and close this gap.
     const f32 ratio = virus > bacteria ? virus / bacteria : bacteria / virus;
-    INFO("virus=" << virus << " bacteria=" << bacteria << " parasite=" << parasite);
+    INFO("virus=" << virus << " bacteria=" << bacteria);
     REQUIRE(ratio > 1.15f);
-
-    // And neither may collapse onto the untouched round default (parasite),
-    // which is what a dropped/mis-packed family id would look like.
-    const f32 v_vs_p = virus > parasite ? virus / parasite : parasite / virus;
-    REQUIRE(v_vs_p > 1.15f);
 
     renderer.shutdown();
 }

@@ -163,7 +163,7 @@
           "duration": 3.34
         },
         {
-          "family": "fungal_spore",
+          "family": "bacteria",
           "count": 86,
           "start_time": 0.67,
           "duration": 5.34
@@ -188,7 +188,7 @@
           "duration": 3.34
         },
         {
-          "family": "fungal_spore",
+          "family": "bacteria",
           "count": 105,
           "start_time": 0.67,
           "duration": 5.34
@@ -213,7 +213,7 @@
           "duration": 3.34
         },
         {
-          "family": "fungal_spore",
+          "family": "bacteria",
           "count": 123,
           "start_time": 0.67,
           "duration": 5.34
@@ -238,7 +238,7 @@
           "duration": 3.34
         },
         {
-          "family": "fungal_spore",
+          "family": "bacteria",
           "count": 142,
           "start_time": 0.67,
           "duration": 5.34
@@ -263,7 +263,7 @@
           "duration": 3.34
         },
         {
-          "family": "fungal_spore",
+          "family": "bacteria",
           "count": 161,
           "start_time": 0.67,
           "duration": 5.34

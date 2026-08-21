@@ -9,12 +9,7 @@
     {
       "tick": 0,
       "type": "cmd",
-      "cmd": "spawn virus 400 at p_lymph; spawn bacteria 300 at p_artery; spawn fungal_spore 300 at p_vein"
-    },
-    {
-      "tick": 0,
-      "type": "cmd",
-      "cmd": "elite all at p_mucosa"
+      "cmd": "spawn virus 400 at p_lymph; spawn bacteria 300 at p_artery; spawn bacteria 300 at p_vein"
     },
     {
       "tick": 30,
@@ -44,7 +39,7 @@
     {
       "tick": 300,
       "type": "cmd",
-      "cmd": "kill fungal_spore"
+      "cmd": "kill bacteria"
     }
   ],
   "assertions": [
@@ -53,12 +48,6 @@
       "metric": "chaff_count",
       "op": ">",
       "value": 300
-    },
-    {
-      "tick": 0,
-      "metric": "named_count",
-      "op": ">=",
-      "value": 5
     },
     {
       "tick": 20,

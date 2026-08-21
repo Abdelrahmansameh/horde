@@ -46,7 +46,7 @@ TEST_CASE("wave_has_elite is true iff some spawn carries a non-zero elite_id", "
     wave.spawns.push_back(game::SpawnEntry{PathogenFamily::Virus, 0, 40, 0.0f, 5.0f, ""});
     REQUIRE_FALSE(wave_has_elite(wave));
 
-    wave.spawns.push_back(game::SpawnEntry{PathogenFamily::Parasite, 3, 1, 0.0f, 1.0f, ""});
+    wave.spawns.push_back(game::SpawnEntry{PathogenFamily::Bacteria, 3, 1, 0.0f, 1.0f, ""});
     REQUIRE(wave_has_elite(wave));
 }
 

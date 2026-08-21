@@ -54,7 +54,7 @@ const char* kAuthoredWaveLevel = R"JSON({
     { "name": "w1", "prep_time": 3.0, "atp_reward": 25, "spawns": [
         { "family": "virus", "count": 40, "start_time": 0.0, "duration": 2.0, "portal_id": "p0" } ] },
     { "name": "w2", "prep_time": 1.5, "modifier": "swarm", "spawns": [
-        { "family": "fungal_spore", "count": 12, "start_time": 0.5, "duration": 1.0 } ] }
+        { "family": "bacteria", "count": 12, "start_time": 0.5, "duration": 1.0 } ] }
   ]
 })JSON";
 
@@ -79,7 +79,7 @@ TEST_CASE("a level may author its own wave table", "[level][waves]") {
     REQUIRE(def.waves[0].spawns[0].count == 40);
     REQUIRE(def.waves[0].spawns[0].portal_id == "p0");
     REQUIRE(def.waves[1].modifier == WaveModifier::Swarm);
-    REQUIRE(def.waves[1].spawns[0].family == PathogenFamily::FungalSpore);
+    REQUIRE(def.waves[1].spawns[0].family == PathogenFamily::Bacteria);
     // Omitted optional fields fall back to WaveDef/SpawnEntry's own defaults.
     REQUIRE(def.waves[1].atp_reward == 0);
     REQUIRE(def.waves[1].spawns[0].portal_id.empty());
@@ -97,7 +97,7 @@ TEST_CASE("a level that used to lean on the generator now authors its own table"
     REQUIRE(loader.validate(def).ok);
     REQUIRE(def.waves.size() == 8);
     // The old generated shape: virus from wave 1, bacteria joining at wave 2,
-    // fungal spores at wave 4, and pressure rising monotonically.
+    // a second family at wave 4, and pressure rising monotonically.
     REQUIRE(def.waves[0].spawns.size() == 1);
     REQUIRE(def.waves[1].spawns.size() == 2);
     REQUIRE(def.waves[3].spawns.size() == 3);

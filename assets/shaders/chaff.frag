@@ -42,8 +42,7 @@ out vec4 o_color;
 // Mirrors sim/chaff/ChaffBuffers.h chaff_flags (low 8 bits).
 const uint FLAG_MARKED  = 1u << 1;
 const uint FLAG_SLOWED  = 1u << 2;
-const uint FLAG_CLUMPED = 1u << 3;
-const uint FLAG_HIDDEN  = 1u << 4;
+const uint FLAG_HIDDEN  = 1u << 3;
 
 // Family id packed into bits 8..15 by ChaffBatcher (see build_chaff_instances).
 const uint CHAFF_FAMILY_SHIFT = 8u;
@@ -159,10 +158,10 @@ void main() {
 
     // Drop shadow. Weighted much harder than it used to be, because the
     // substrate is no longer a dark low-saturation floor that every agent
-    // automatically out-values. Against a vivid red lumen, two of the six
-    // families (Virus and the FungalSpore's brown) sit within a hundredth of
-    // the background's luminance — hue is all that separates them, and hue
-    // alone does not carry a six-pixel sprite. A dark contact shadow plus the
+    // automatically out-values. Against a vivid red lumen, a family's hue can
+    // sit within a hundredth of the background's luminance — hue is all that
+    // separates them then, and hue alone does not carry a six-pixel sprite.
+    // A dark contact shadow plus the
     // bright rim below gives EVERY family its own local contrast regardless of
     // what it is sitting on, which is exactly how the medical-illustration
     // reference reads magenta virions against red plasma.

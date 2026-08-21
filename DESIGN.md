@@ -227,21 +227,15 @@ Enemies are split into **chaff** (cheap, mass-simulated, family-colored, no indi
 | Family | Color code | Behavior | Chaff/Named |
 |---|---|---|---|
 | Virus | Red-purple | Fast, weak, **replicates** if not killed quickly (drives exponential horde pressure) | Chaff |
-| Bacteria | Yellow-green | Tankier, clumps into biofilm blobs — clumped bacteria share an effective armor bonus while adjacent, so breaking a clump apart (AoE that hits the whole cluster at once) is meaningfully more efficient than picking at it from one side | Chaff, occasional elite (biofilm colony) |
-| Fungal spore | Brown | **Ignores the lane's tight centerline flow** and drifts with a wide, semi-random lateral wander within the lane's hard walls — the one family that meaningfully uses the full width of a wide lane rather than following the shortest path, making it read as unpredictable inside floodplain regions specifically; leaves a lingering hazard zone on death (a residual damage-over-time patch other chaff also suffers passing through, so a fungal death can weaken what's behind it) | Chaff |
-| Parasite | Teal | Burrows/hides periodically (untargetable by non-detection towers while hidden); punishes single-target-only defenses by design — a lane with only Precision towers and no NK Cell will watch a parasite tank its way through unpunished stretches | Named (mid-tier elite) |
-| Cancer cell | Sickly grey-pink | Not a horde unit — a slow-growing tumor mass planted within a defended zone; if left undamaged for too long it **breaches the objective directly** at a fixed integrity cost per growth stage, independent of the lane horde — the one threat that punishes *ignoring* a spot rather than *losing* a lane | Boss/objective enemy |
-| Allergen | Bright yellow (warning color) | Curveball wave modifier, not a spawned unit: triggers a temporary friendly "overreaction" field that damages the player's *own* towers in its radius unless disarmed/tolerated in time — a risk/reward event layered onto an otherwise-normal wave, not a new enemy to defeat | Special wave modifier |
+| Bacteria | Yellow-green | Tankier and slower than a virus; no special behavior — a plain mass unit that reads as raw HP pressure | Chaff |
 
 Design rule: **color = family, silhouette size = threat tier, animation tempo = speed tier.** This trio must remain legible at every zoom level and density the camera supports.
 
 ### 6.3 Elite framework
 
-An elite is not "a chaff unit with more HP" — each elite exists to teach or punish a specific defensive gap, and the roster should be sized so every gap the tower kit can leave has at least one elite that tests it:
+An elite is not "a chaff unit with more HP" — each elite exists to teach or punish a specific defensive gap, and the roster should be sized so every gap the tower kit can leave has at least one elite that tests it.
 
-- **Parasite (burrow/hide)** tests: "do you have detection coverage on this lane?"
-- **Biofilm colony (Bacteria elite)** tests: "do you have AoE that can crack a clump, or only single-target?"
-- Future elites (§14 open questions flags room for more) should each be scoped the same way — name the gap first, build the elite to test it second.
+The elite roster is currently empty (§14). Each elite added to it should be scoped the same way — name the gap first, build the elite to test it second.
 
 Every elite is **individually simulated and telegraphed** (a readable wind-up before its signature attack, per Pillar 2) — the player should always get a fair warning beat before an elite does something a chaff unit couldn't.
 
@@ -437,6 +431,7 @@ Audio was previously undocumented; it exists to reinforce the same readability-f
 - How much does a lane's vessel-type identity (§9.2) drive gameplay versus purely reinforcing recognition? Worth deciding explicitly whether it should carry a mild passive modifier (e.g. arterial lanes running faster, changing available reaction time) or stay cosmetic-only.
 - **Exact antibody-memory earn-rate curve and permanent-upgrade cost table** (§7.2) — the loop structure is specified, the numbers are not; needs its own balance pass once the loop is implementable end to end, distinct from the general numeric-balance deferral below.
 - **How many boss archetypes does the campaign need**, and do they share a kit family or should each organ chamber's boss be mechanically unique? §6.4 gives a design framework, not a roster.
+- **What does the enemy roster actually contain?** (§6.2/§6.3) — the roster has been cut back to two chaff families (Virus, Bacteria) and no elites at all, pending a redesign. Bacteria has an empty behavior slot; the elite and boss tiers are empty frameworks. Everything added back should follow §6.3's rule and name the defensive gap it tests first, and §6.5's rule that each region introduce at least one new family or elite has nothing to draw on until then.
 - **Loadout pool size and unlock pacing** (§7.3) — how many antibody-memory modifiers should exist, and how quickly should the pool grow, to keep per-run choice meaningful without becoming a solved "always pick X" list?
 
 ---

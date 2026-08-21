@@ -347,7 +347,7 @@ void GymPanel::draw_waves_tab(game::GymContext& ctx) {
             ImGui::TextUnformatted(w.name.empty() ? "(unnamed)" : w.name.c_str());
             if (w.modifier != game::WaveModifier::None) {
                 ImGui::SameLine();
-                static const char* const kMod[] = {"", "allergen", "fever", "swarm"};
+                static const char* const kMod[] = {"", "fever", "swarm"};
                 ImGui::TextColored(kColorEcho, "[%s]", kMod[static_cast<u32>(w.modifier)]);
             }
             ImGui::TableNextColumn();

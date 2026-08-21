@@ -155,8 +155,8 @@ TEST_CASE("spawn puts agents in the world", "[gym][spawn]") {
     SECTION("targeted at a portal by id") {
         if (!h.world.portals().empty()) {
             const std::string id = h.world.portals().front().id;
-            REQUIRE(h.run("spawn parasite 40 at " + id).ok);
-            CHECK(h.world.chaff().family_count(PathogenFamily::Parasite) == 40);
+            REQUIRE(h.run("spawn bacteria 40 at " + id).ok);
+            CHECK(h.world.chaff().family_count(PathogenFamily::Bacteria) == 40);
         }
     }
     SECTION("all families at once") {
@@ -169,22 +169,29 @@ TEST_CASE("spawn puts agents in the world", "[gym][spawn]") {
 
 TEST_CASE("kill flags chaff and the next tick removes it", "[gym][spawn]") {
     Harness h;
-    // Deliberately not virus: viral replication can add an agent *during* the
-    // same tick that removes the flagged ones, so "kill virus" leaving one
-    // newborn behind is correct sim behaviour and would make this test lie
-    // about what `kill` does.
-    REQUIRE(h.run("spawn parasite 100").ok);
-    REQUIRE(h.run("spawn bacteria 100").ok);
-    const u32 bacteria_before = h.world.chaff().family_count(PathogenFamily::Bacteria);
+    SECTION("killing one family leaves the other alone") {
+        REQUIRE(h.run("spawn virus 100").ok);
+        REQUIRE(h.run("spawn bacteria 100").ok);
+        const u32 virus_before = h.world.chaff().family_count(PathogenFamily::Virus);
 
-    REQUIRE(h.run("kill parasite").ok);
-    h.world.tick(nullptr);
-    CHECK(h.world.chaff().family_count(PathogenFamily::Parasite) == 0);
-    CHECK(h.world.chaff().family_count(PathogenFamily::Bacteria) == bacteria_before);
+        REQUIRE(h.run("kill bacteria").ok);
+        h.world.tick(nullptr);
+        CHECK(h.world.chaff().family_count(PathogenFamily::Bacteria) == 0);
+        // >= rather than ==: replication may have added viruses on that same
+        // tick, but killing bacteria must never remove one.
+        CHECK(h.world.chaff().family_count(PathogenFamily::Virus) >= virus_before);
+    }
+    SECTION("kill all empties the buffer") {
+        // Deliberately no virus: viral replication can add an agent *during*
+        // the same tick that removes the flagged ones, so a leftover newborn
+        // is correct sim behaviour and would make this test lie about `kill`.
+        REQUIRE(h.run("spawn bacteria 200").ok);
+        REQUIRE(h.world.chaff().count() > 0);
 
-    REQUIRE(h.run("kill all").ok);
-    h.world.tick(nullptr);
-    CHECK(h.world.chaff().count() == 0);
+        REQUIRE(h.run("kill all").ok);
+        h.world.tick(nullptr);
+        CHECK(h.world.chaff().count() == 0);
+    }
 }
 
 TEST_CASE("an oversized spawn streams in instead of spilling off the lane",
@@ -223,15 +230,20 @@ TEST_CASE("spawning never damages the objective", "[gym][spawn]") {
     CHECK(h.world.snapshot().chaff_leaked_total == 0);
 }
 
-TEST_CASE("elite spawns a named ECS agent", "[gym][elite]") {
+TEST_CASE("elite reports an empty roster instead of spawning", "[gym][elite]") {
+    // The roster ships no elites pending a redesign. Every form of the command
+    // must say so rather than silently doing nothing or spawning a stray agent.
     Harness h;
-    REQUIRE(h.run("elite list").ok);
+    REQUIRE(h.enemies.elites().empty());
     const u64 before = h.world.snapshot().named_count;
-    REQUIRE(h.run("elite tumor_mass at 104,66").ok);
-    CHECK(h.world.snapshot().named_count > before);
 
-    REQUIRE(h.run("elite all").ok);
-    CHECK(h.world.snapshot().named_count >= before + h.enemies.elites().size());
+    for (const char* line : {"elite list", "elite all", "elite anything at 104,66"}) {
+        INFO("line: " << line);
+        const GymResult r = h.run(line);
+        CHECK_FALSE(r.ok);
+        CHECK_FALSE(r.message.empty());
+    }
+    CHECK(h.world.snapshot().named_count == before);
 }
 
 // ---- Towers, abilities, economy ---------------------------------------------
@@ -444,16 +456,15 @@ TEST_CASE("the gym level's wave table exercises every family and modifier",
     REQUIRE(loader.load_file(path, def).ok);
 
     bool family_seen[kFamilyCount] = {};
-    bool elite_seen = false;
-    bool modifier_seen[4] = {};
+    bool modifier_seen[3] = {};
     for (const WaveDef& w : def.waves) {
         modifier_seen[static_cast<u32>(w.modifier)] = true;
         for (const SpawnEntry& e : w.spawns) {
             family_seen[static_cast<u32>(e.family)] = true;
-            if (e.elite_id != 0) elite_seen = true;
+            // The roster ships no elites, so no wave may ask for one.
+            CHECK(e.elite_id == 0);
         }
     }
     for (bool f : family_seen) CHECK(f);
-    CHECK(elite_seen);
     for (bool m : modifier_seen) CHECK(m);
 }

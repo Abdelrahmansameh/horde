@@ -146,13 +146,12 @@ PlacementZoneTag parse_placement_zone_tag(const json& j) {
 }
 
 /// Level JSON speaks the same family names as the enemy roster and the
-/// sim-test scripts ("virus", "bacteria", "fungal_spore", ...). Unlike the
+/// sim-test scripts ("virus", "bacteria"). Unlike the
 /// vessel_type case, an unrecognized family is an error rather than a silent
 /// default: a typo'd family name changes which horde a wave sends, and that is
 /// exactly the kind of mistake a level author needs told about.
 PathogenFamily parse_family(const std::string& s, const std::string& ctx) {
-    static const char* kNames[kFamilyCount] = {
-        "virus", "bacteria", "fungal_spore", "parasite", "cancer_cell", "allergen"};
+    static const char* kNames[kFamilyCount] = {"virus", "bacteria"};
     for (u32 f = 0; f < kFamilyCount; ++f) {
         if (s == kNames[f]) return static_cast<PathogenFamily>(f);
     }
@@ -161,7 +160,6 @@ PathogenFamily parse_family(const std::string& s, const std::string& ctx) {
 
 WaveModifier parse_wave_modifier(const std::string& s, const std::string& ctx) {
     if (s.empty() || s == "none") return WaveModifier::None;
-    if (s == "allergen" || s == "allergen_overreaction") return WaveModifier::AllergenOverreaction;
     if (s == "fever") return WaveModifier::Fever;
     if (s == "swarm") return WaveModifier::Swarm;
     throw std::runtime_error(ctx + ": unknown modifier '" + s + "'");
@@ -433,7 +431,7 @@ std::vector<WaveDef> default_test_waves() {
         w.spawns.push_back(test_spawn(PathogenFamily::Virus, base + 15u, 0.0f, 4.0f));
         if (i >= 1) w.spawns.push_back(test_spawn(PathogenFamily::Bacteria, base / 3u, 1.0f, 3.34f));
         if (i >= 3) {
-            w.spawns.push_back(test_spawn(PathogenFamily::FungalSpore, base / 4u, 0.67f, 5.34f));
+            w.spawns.push_back(test_spawn(PathogenFamily::Bacteria, base / 4u, 0.67f, 5.34f));
         }
         waves.push_back(std::move(w));
     }

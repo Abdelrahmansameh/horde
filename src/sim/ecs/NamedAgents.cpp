@@ -214,8 +214,7 @@ void system_named_movement(SystemContext& ctx) {
             }
         }
 
-        // 5. Archetype-specific local steering (parasite burrow approach,
-        // biofilm cohesion, etc. — Wave 2C hooks in here).
+        // 5. Archetype-specific local steering (Wave 2C hooks in here).
         if (behavior.local_steer) {
             Rng local_rng(seed ? seed->seed : 0u, static_cast<u64>(ctx.tick) + 2u);
             AiSteerContext sc{world, registry, e, pos, velocity.value, brain.state, ctx.dt, local_rng};
@@ -349,7 +348,7 @@ u16 placeholder_elite(entt::registry& registry) {
 
     ArchetypeBehavior b{};
     b.name = "placeholder_elite";
-    b.family = PathogenFamily::Parasite;
+    b.family = PathogenFamily::Bacteria;
     b.tier = 1;
     b.max_health = 300.0f;
     b.armor = 2.0f;
@@ -366,7 +365,7 @@ u16 placeholder_elite(entt::registry& registry) {
     b.steering = comp::Steering{};
 
     b.sprite_size = 1.8f;
-    b.tint = Vec4{0.25f, 0.75f, 0.68f, 1.0f}; // teal, per DESIGN.md §6 Parasite colour code
+    b.tint = Vec4{0.25f, 0.75f, 0.68f, 1.0f}; // teal: a placeholder, not a family colour
     b.atlas_index = 0;
 
     // Table order matters only within a shared `from` state: IsDead is

@@ -390,7 +390,6 @@ ChaffUpdateStats ChaffSystem::update(ChaffBuffers& buffers, const FlowField& flo
             }
 
             const bool drifting = (flags_i & chaff_flags::kDrifting) != 0;
-            const bool clumped = (flags_i & chaff_flags::kClumped) != 0;
             const bool slowed = (flags_i & chaff_flags::kSlowed) != 0;
 
             const Vec2 p{old_px[i], old_py[i]};
@@ -411,46 +410,40 @@ ChaffUpdateStats ChaffSystem::update(ChaffBuffers& buffers, const FlowField& flo
             Vec2 v{vx[i], vy[i]};
             v += dir * fp.acceleration * dt;
 
-            // ONE gather feeds all four local rules. Clumped (biofilm) agents
-            // skip the STEERING rules -- refusing to spread is their whole
-            // identity -- but still take the contact correction: a biofilm
-            // should read as a packed mat of cells, not as one cell drawn ten
-            // times on top of itself. Overlap is a rendering lie either way.
+            // ONE gather feeds all four local rules: separation, alignment,
+            // crowd pressure, and the positional contact correction.
             const f32 contact_radius = fp.radius * fp.contact_spacing;
             const NeighbourSample nb =
                 gather_neighbours(hash, old_px, old_py, old_vx, old_vy, i,
-                                  clumped ? 0.0f : fp.separation_radius,
-                                  clumped ? 0.0f : fp.alignment_radius,
+                                  fp.separation_radius, fp.alignment_radius,
                                   contact_radius, fp.contact_stiffness,
                                   tuning.max_neighbors_sampled);
             push_x[i] = nb.contact_push.x;
             push_y[i] = nb.contact_push.y;
 
-            if (!clumped) {
-                // Crowd pressure amplifies separation rather than adding a
-                // second independent force. Separation already points "away
-                // from where everyone is"; when the neighbourhood is packed,
-                // that same direction is exactly where the mass needs to
-                // relieve into, so scaling it keeps the release coherent
-                // instead of adding noise on top.
-                f32 push = fp.separation_strength;
-                if (fp.pressure_gain > 0.0f &&
-                    static_cast<f32>(nb.crowd) > fp.pressure_threshold) {
-                    const f32 excess = static_cast<f32>(nb.crowd) - fp.pressure_threshold;
-                    const f32 mul = 1.0f + excess * fp.pressure_gain;
-                    push *= mul < fp.pressure_max ? mul : fp.pressure_max;
-                }
-                v += nb.separation * push;
+            // Crowd pressure amplifies separation rather than adding a
+            // second independent force. Separation already points "away
+            // from where everyone is"; when the neighbourhood is packed,
+            // that same direction is exactly where the mass needs to
+            // relieve into, so scaling it keeps the release coherent
+            // instead of adding noise on top.
+            f32 push = fp.separation_strength;
+            if (fp.pressure_gain > 0.0f &&
+                static_cast<f32>(nb.crowd) > fp.pressure_threshold) {
+                const f32 excess = static_cast<f32>(nb.crowd) - fp.pressure_threshold;
+                const f32 mul = 1.0f + excess * fp.pressure_gain;
+                push *= mul < fp.pressure_max ? mul : fp.pressure_max;
+            }
+            v += nb.separation * push;
 
-                // Alignment: steer toward the neighbourhood's mean velocity.
-                // Written as a difference (a steering term, not a velocity
-                // assignment) so it can never overrule the flow field -- it
-                // biases how the agent gets where it is already going, which is
-                // what makes the crowd move as a body without losing the
-                // objective.
-                if (nb.has_alignment && fp.alignment_strength > 0.0f) {
-                    v += (nb.avg_velocity - v) * fp.alignment_strength * dt;
-                }
+            // Alignment: steer toward the neighbourhood's mean velocity.
+            // Written as a difference (a steering term, not a velocity
+            // assignment) so it can never overrule the flow field -- it
+            // biases how the agent gets where it is already going, which is
+            // what makes the crowd move as a body without losing the
+            // objective.
+            if (nb.has_alignment && fp.alignment_strength > 0.0f) {
+                v += (nb.avg_velocity - v) * fp.alignment_strength * dt;
             }
             if (fp.jitter > 0.0f) {
                 v += local_rng.unit_disc() * fp.jitter;

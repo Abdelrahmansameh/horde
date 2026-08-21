@@ -135,10 +135,6 @@ Vec4 family_tint(PathogenFamily f) {
     switch (f) {
     case PathogenFamily::Virus:       return Vec4{0.85f, 0.55f, 1.00f, 1.0f};
     case PathogenFamily::Bacteria:    return Vec4{0.58f, 1.00f, 0.62f, 1.0f};
-    case PathogenFamily::FungalSpore: return Vec4{1.00f, 0.86f, 0.46f, 1.0f};
-    case PathogenFamily::Parasite:    return Vec4{1.00f, 0.52f, 0.34f, 1.0f};
-    case PathogenFamily::CancerCell:  return Vec4{0.92f, 0.40f, 0.76f, 1.0f};
-    case PathogenFamily::Allergen:    return Vec4{1.00f, 0.74f, 0.34f, 1.0f};
     case PathogenFamily::Count:
     default:                          return Vec4{1.00f, 1.00f, 1.00f, 1.0f};
     }

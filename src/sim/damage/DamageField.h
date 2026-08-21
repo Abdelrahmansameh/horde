@@ -86,15 +86,14 @@ struct DamageField {
     f32 marked_multiplier = 1.0f;
 
     /// Seconds remaining. <= 0 means "persistent, refreshed by its owner each
-    /// tick"; > 0 counts down and the field self-removes (NETs, spore hazards).
+    /// tick"; > 0 counts down and the field self-removes (NETs, hazards).
     f32 lifetime = 0.0f;
 
     /// Owning tower entity, for kill attribution. Invalid for environmental
-    /// hazards (fungal death clouds, allergen self-damage).
+    /// hazards.
     EntityId owner{};
 
-    /// Set for fields that damage the *player's* own units/objective — the
-    /// allergen overreaction mechanic (DESIGN.md §6).
+    /// Set for fields that damage the *player's* own units/objective.
     bool friendly_fire = false;
 };
 

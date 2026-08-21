@@ -172,8 +172,8 @@ TEST_CASE("visual verification: close-up crop across the LOD crossfade band",
     Renderer renderer;
     REQUIRE(renderer.init(rd));
 
-    // Zoom along one wedge's bisector (sector 3 = Parasite/teal, angle in
-    // [0, pi/3)) from the dense core out past the rim, so a single frame
+    // Zoom along one wedge's bisector (angle in [0, pi/3)) from the dense
+    // core out past the rim, so a single frame
     // sweeps blob -> crossfade band -> pure instances without crossing into
     // a neighbouring family's colour.
     Camera camera;

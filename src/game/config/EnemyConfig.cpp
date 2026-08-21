@@ -21,7 +21,6 @@ IMMUNE_CONFIG_SCHEMA_ASSERT(FamilyVisualParams);
 IMMUNE_CONFIG_SCHEMA_ASSERT(FamilyBehaviorParams);
 IMMUNE_CONFIG_SCHEMA_ASSERT(FamilyChaffParams);
 IMMUNE_CONFIG_SCHEMA_ASSERT(BaseAttackParams);
-IMMUNE_CONFIG_SCHEMA_ASSERT(FungalHazardParams);
 IMMUNE_CONFIG_SCHEMA_ASSERT(EliteStatsParams);
 
 constexpr Field kSpeedProfileFields[] = {
@@ -42,10 +41,6 @@ constexpr Schema kVisualSchema{"family_visual", kVisualFields};
 constexpr Field kBehaviorFields[] = {
     IMMUNE_CONFIG_FIELD(FamilyBehaviorParams, base_density, FieldKind::F32, "Spawn density / HP contribution per agent"),
     IMMUNE_CONFIG_FIELD(FamilyBehaviorParams, replicates, FieldKind::Bool, "Virus: exponential pressure"),
-    IMMUNE_CONFIG_FIELD(FamilyBehaviorParams, clumps, FieldKind::Bool, "Bacteria: biofilm"),
-    IMMUNE_CONFIG_FIELD(FamilyBehaviorParams, drifts, FieldKind::Bool, "Fungal spore: lateral drift"),
-    IMMUNE_CONFIG_FIELD(FamilyBehaviorParams, can_hide, FieldKind::Bool, "Parasite: burrows out of targeting"),
-    IMMUNE_CONFIG_FIELD(FamilyBehaviorParams, leaves_hazard, FieldKind::Bool, "Fungal spore: death cloud"),
 };
 constexpr Schema kBehaviorSchema{"family_behavior", kBehaviorFields};
 
@@ -77,14 +72,6 @@ constexpr Field kBaseAttackFields[] = {
 };
 constexpr Schema kBaseAttackSchema{"base_attack", kBaseAttackFields};
 
-constexpr Field kHazardFields[] = {
-    IMMUNE_CONFIG_FIELD(FungalHazardParams, radius, FieldKind::F32, ""),
-    IMMUNE_CONFIG_FIELD(FungalHazardParams, kill_rate, FieldKind::F32, ""),
-    IMMUNE_CONFIG_FIELD(FungalHazardParams, duration, FieldKind::F32, ""),
-    IMMUNE_CONFIG_FIELD(FungalHazardParams, cooldown, FieldKind::F32, "Minimum seconds between hazard drops"),
-};
-constexpr Schema kHazardSchema{"fungal_death_hazard", kHazardFields};
-
 constexpr Field kEliteStatsFields[] = {
     IMMUNE_CONFIG_FIELD(EliteStatsParams, max_health, FieldKind::F32, ""),
     IMMUNE_CONFIG_FIELD(EliteStatsParams, armor, FieldKind::F32, "Flat damage reduction per hit"),
@@ -96,88 +83,10 @@ constexpr Field kEliteStatsFields[] = {
 };
 constexpr Schema kEliteStatsSchema{"elite_stats", kEliteStatsFields};
 
-constexpr Field kBurrowerFields[] = {
-    IMMUNE_CONFIG_FIELD(BurrowerParams, burrow_interval, FieldKind::F32, "Seconds between burrows"),
-    IMMUNE_CONFIG_FIELD(BurrowerParams, resurface_delay, FieldKind::F32, "Seconds spent underground"),
-    IMMUNE_CONFIG_FIELD(BurrowerParams, spawn_advance, FieldKind::F32, "Seconds after spawn before it advances"),
-};
-constexpr Schema kBurrowerSchema{"burrower", kBurrowerFields};
-
-constexpr Field kBiofilmFields[] = {
-    IMMUNE_CONFIG_FIELD(BiofilmParams, attack_radius, FieldKind::F32, "Radius over which it clumps nearby chaff"),
-    IMMUNE_CONFIG_FIELD(BiofilmParams, attack_damage, FieldKind::F32, "0: the biofilm buffs rather than hits"),
-};
-constexpr Schema kBiofilmSchema{"biofilm", kBiofilmFields};
-
-constexpr Field kTumorFields[] = {
-    IMMUNE_CONFIG_FIELD(TumorParams, growth_rate, FieldKind::F32, "Radius gained per second"),
-    IMMUNE_CONFIG_FIELD(TumorParams, start_radius, FieldKind::F32, ""),
-    IMMUNE_CONFIG_FIELD(TumorParams, max_radius, FieldKind::F32, ""),
-    IMMUNE_CONFIG_FIELD(TumorParams, breach_stages, FieldKind::U32, "Growth stages before it breaches the objective"),
-    IMMUNE_CONFIG_FIELD(TumorParams, breach_damage_per_stage, FieldKind::F32, ""),
-    IMMUNE_CONFIG_FIELD(TumorParams, breach_reach_pad, FieldKind::F32, "Extra reach past its radius when breaching"),
-};
-constexpr Schema kTumorSchema{"tumor", kTumorFields};
-
-constexpr Field kHulkFields[] = {
-    IMMUNE_CONFIG_FIELD(HulkParams, attack_radius, FieldKind::F32, ""),
-    IMMUNE_CONFIG_FIELD(HulkParams, attack_damage, FieldKind::F32, ""),
-    IMMUNE_CONFIG_FIELD(HulkParams, obstruction_radius, FieldKind::F32, "Radius over which it raises path cost"),
-    IMMUNE_CONFIG_FIELD(HulkParams, obstruction_cost_mul, FieldKind::F32, ""),
-    IMMUNE_CONFIG_FIELD(HulkParams, pulse_damage_per_tower, FieldKind::F32, "Damage its pulse deals to each tower in range"),
-};
-constexpr Schema kHulkSchema{"hulk", kHulkFields};
-
-constexpr Field kColossusFields[] = {
-    IMMUNE_CONFIG_FIELD(ColossusParams, attack_radius, FieldKind::F32, ""),
-    IMMUNE_CONFIG_FIELD(ColossusParams, attack_damage, FieldKind::F32, ""),
-    IMMUNE_CONFIG_FIELD(ColossusParams, burst_radius, FieldKind::F32, "Spore burst radius"),
-    IMMUNE_CONFIG_FIELD(ColossusParams, burst_kill_rate, FieldKind::F32, "Friendly-fire kill rate inside the burst"),
-    IMMUNE_CONFIG_FIELD(ColossusParams, burst_duration, FieldKind::F32, ""),
-};
-constexpr Schema kColossusSchema{"colossus", kColossusFields};
-
-struct EliteArm {
-    const Schema* schema;
-    usize offset;
-};
-
-EliteArm elite_arm_of(EliteBehaviorKind kind) {
-    switch (kind) {
-        case EliteBehaviorKind::Burrower: return {&kBurrowerSchema, offsetof(EliteBehaviorParams, burrower)};
-        case EliteBehaviorKind::Biofilm:  return {&kBiofilmSchema,  offsetof(EliteBehaviorParams, biofilm)};
-        case EliteBehaviorKind::Tumor:    return {&kTumorSchema,    offsetof(EliteBehaviorParams, tumor)};
-        case EliteBehaviorKind::Hulk:     return {&kHulkSchema,     offsetof(EliteBehaviorParams, hulk)};
-        case EliteBehaviorKind::Colossus: return {&kColossusSchema, offsetof(EliteBehaviorParams, colossus)};
-    }
-    return {&kBurrowerSchema, offsetof(EliteBehaviorParams, burrower)};
-}
-
-void* elite_arm(EliteBehaviorParams& b, EliteBehaviorKind kind) {
-    return reinterpret_cast<u8*>(&b) + elite_arm_of(kind).offset;
-}
-
-const void* elite_arm(const EliteBehaviorParams& b, EliteBehaviorKind kind) {
-    return reinterpret_cast<const u8*>(&b) + elite_arm_of(kind).offset;
-}
-
-constexpr config::EnumEntry kEliteKindValues[] = {
-    {"burrower", static_cast<i64>(EliteBehaviorKind::Burrower)},
-    {"biofilm", static_cast<i64>(EliteBehaviorKind::Biofilm)},
-    {"tumor", static_cast<i64>(EliteBehaviorKind::Tumor)},
-    {"hulk", static_cast<i64>(EliteBehaviorKind::Hulk)},
-    {"colossus", static_cast<i64>(EliteBehaviorKind::Colossus)},
-    {nullptr, 0},
-};
-
 const char* family_key(PathogenFamily f) {
     switch (f) {
         case PathogenFamily::Virus: return "virus";
         case PathogenFamily::Bacteria: return "bacteria";
-        case PathogenFamily::FungalSpore: return "fungal_spore";
-        case PathogenFamily::Parasite: return "parasite";
-        case PathogenFamily::CancerCell: return "cancer_cell";
-        case PathogenFamily::Allergen: return "allergen";
         case PathogenFamily::Count: break;
     }
     return "virus";
@@ -194,8 +103,7 @@ const char* speed_tier_key(SpeedTier t) {
 }
 
 constexpr std::string_view kFamilyEntryKeys[] = {"speed_tier", "visual", "behavior", "chaff"};
-constexpr std::string_view kEliteEntryKeys[] = {"id",   "name",     "family",
-                                                "tier", "behavior_kind", "stats", "behavior"};
+constexpr std::string_view kEliteEntryKeys[] = {"id", "name", "family", "tier", "stats"};
 
 } // namespace
 
@@ -260,12 +168,6 @@ void parse_enemies(const Json& doc, EnemyConfig& out, config::Ctx& ctx) {
                              &out.base_attack, ctx);
     }
     {
-        config::Ctx::Scope scope(ctx, "fungal_death_hazard");
-        config::parse_struct(config::require_object(doc, "fungal_death_hazard", ctx), kHazardSchema,
-                             &out.fungal_death_hazard, ctx);
-    }
-
-    {
         config::Ctx::Scope scope(ctx, "elites");
         const Json& elites = config::require_array(doc, "elites", ctx);
         out.elites.clear();
@@ -283,18 +185,10 @@ void parse_enemies(const Json& doc, EnemyConfig& out, config::Ctx& ctx) {
                 config::require_enum(entry, "family", family_enum(), ctx));
             ec.tier = static_cast<ThreatTier>(
                 config::require_enum(entry, "tier", threat_tier_enum(), ctx));
-            ec.behavior_kind = static_cast<EliteBehaviorKind>(
-                config::require_enum(entry, "behavior_kind", kEliteKindValues, ctx));
             {
                 config::Ctx::Scope st(ctx, "stats");
                 config::parse_struct(config::require_object(entry, "stats", ctx), kEliteStatsSchema,
                                      &ec.stats, ctx);
-            }
-            {
-                config::Ctx::Scope bh(ctx, "behavior");
-                const EliteArm arm = elite_arm_of(ec.behavior_kind);
-                config::parse_struct(config::require_object(entry, "behavior", ctx), *arm.schema,
-                                     elite_arm(ec.behavior, ec.behavior_kind), ctx);
             }
             out.elites.push_back(std::move(ec));
         }
@@ -335,10 +229,6 @@ Json dump_enemies(const EnemyConfig& cfg) {
     config::dump_struct(base_attack, kBaseAttackSchema, &cfg.base_attack);
     doc["base_attack"] = std::move(base_attack);
 
-    Json hazard = Json::object();
-    config::dump_struct(hazard, kHazardSchema, &cfg.fungal_death_hazard);
-    doc["fungal_death_hazard"] = std::move(hazard);
-
     Json elites = Json::array();
     for (const EliteConfig& ec : cfg.elites) {
         Json entry = Json::object();
@@ -347,15 +237,9 @@ Json dump_enemies(const EnemyConfig& cfg) {
         entry["family"] = family_key(ec.family);
         entry["tier"] = std::string(config::enum_name(
             Field{"tier", FieldKind::EnumU8, 0, "", kThreatTierEnum}, &ec.tier));
-        entry["behavior_kind"] = std::string(config::enum_name(
-            Field{"behavior_kind", FieldKind::EnumU8, 0, "", kEliteKindValues}, &ec.behavior_kind));
         Json stats = Json::object();
         config::dump_struct(stats, kEliteStatsSchema, &ec.stats);
         entry["stats"] = std::move(stats);
-        Json behavior = Json::object();
-        const EliteArm arm = elite_arm_of(ec.behavior_kind);
-        config::dump_struct(behavior, *arm.schema, elite_arm(ec.behavior, ec.behavior_kind));
-        entry["behavior"] = std::move(behavior);
         elites.push_back(std::move(entry));
     }
     doc["elites"] = std::move(elites);
@@ -376,14 +260,10 @@ void bind_enemies(config::Registry& registry, EnemyConfig& cfg) {
         registry.bind(base + "chaff", kChaffSchema, &cfg.families[i].chaff);
     }
     registry.bind("enemies.base_attack", kBaseAttackSchema, &cfg.base_attack);
-    registry.bind("enemies.fungal_death_hazard", kHazardSchema, &cfg.fungal_death_hazard);
     for (EliteConfig& ec : cfg.elites) {
-        // Addressed by name, not index: "enemies.elites.tumor_mass.stats.max_health"
+        // Addressed by name, not index: "enemies.elites.<name>.stats.max_health"
         // survives reordering the array, an index would not.
-        const std::string base = "enemies.elites." + ec.name + ".";
-        registry.bind(base + "stats", kEliteStatsSchema, &ec.stats);
-        const EliteArm arm = elite_arm_of(ec.behavior_kind);
-        registry.bind(base + "behavior", *arm.schema, elite_arm(ec.behavior, ec.behavior_kind));
+        registry.bind("enemies.elites." + ec.name + ".stats", kEliteStatsSchema, &ec.stats);
     }
 }
 

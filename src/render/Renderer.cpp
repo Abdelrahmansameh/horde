@@ -54,29 +54,21 @@ struct FamilyTables {
         // coding as the constant that never shifts *with lane or region*; it
         // does not require the values to survive a change of floor unexamined,
         // and two of them did not. Measured against the lumen (#D23548,
-        // luminance 0.34), the old Virus and FungalSpore hues scored 0.01 and
-        // 0.02 luminance contrast -- effectively invisible on the lane.
+        // luminance 0.34), the old Virus hue scored 0.01 luminance contrast
+        // -- effectively invisible on the lane.
         //
         // VIRUS IS GREEN, not the red-purple DESIGN.md §6.2's table still
         // lists. No purple solved it: the Virus is the most numerous family and
         // a purple is always the nearest thing on the wheel to a red lane. The
-        // specific green sits between Bacteria's yellow-green (hue 68 deg) and
-        // Parasite's teal (178 deg) rather than beside either.
+        // specific green sits a clear hue apart from Bacteria's yellow-green
+        // (hue 68 deg) rather than beside it.
         color[static_cast<u32>(PathogenFamily::Virus)]       = Vec4{0.20f, 0.94f, 0.38f, 1.0f};
         color[static_cast<u32>(PathogenFamily::Bacteria)]    = Vec4{0.72f, 0.80f, 0.22f, 1.0f};
-        color[static_cast<u32>(PathogenFamily::FungalSpore)] = Vec4{0.34f, 0.20f, 0.10f, 1.0f};
-        color[static_cast<u32>(PathogenFamily::Parasite)]    = Vec4{0.16f, 0.70f, 0.68f, 1.0f};
-        color[static_cast<u32>(PathogenFamily::CancerCell)]  = Vec4{0.72f, 0.60f, 0.70f, 1.0f};
-        color[static_cast<u32>(PathogenFamily::Allergen)]    = Vec4{1.00f, 0.86f, 0.10f, 1.0f};
 
         // silhouette = THREAT tier, tempo = SPEED tier, wobble = family
-        // texture. Virus smallest and fastest; cancer cell largest and slowest.
+        // texture. Virus smaller and faster; bacteria bigger and slower.
         visual[static_cast<u32>(PathogenFamily::Virus)]       = FamilyVisual{1.53f, 3.4f, 0.55f};
         visual[static_cast<u32>(PathogenFamily::Bacteria)]    = FamilyVisual{2.25f, 1.5f, 0.30f};
-        visual[static_cast<u32>(PathogenFamily::FungalSpore)] = FamilyVisual{1.98f, 0.8f, 0.70f};
-        visual[static_cast<u32>(PathogenFamily::Parasite)]    = FamilyVisual{2.79f, 2.2f, 0.45f};
-        visual[static_cast<u32>(PathogenFamily::CancerCell)]  = FamilyVisual{3.78f, 0.5f, 0.85f};
-        visual[static_cast<u32>(PathogenFamily::Allergen)]    = FamilyVisual{1.71f, 4.2f, 0.25f};
     }
 };
 
@@ -1574,8 +1566,8 @@ void Renderer::submit_fields(const sim::DamageField* fields, usize count) {
     const Vec4 kRectTint{0.62f, 1.00f, 0.80f, 1.0f};    // unclaimed  — pale green
     const Vec4 kConeTint{0.52f, 0.84f, 1.00f, 1.0f};    // Interferon — cyan
     const Vec4 kChainTint{0.76f, 0.66f, 1.00f, 1.0f};   // Cytotoxic T— violet
-    // friendly_fire fields (the allergen overreaction mechanic) override to a
-    // hot warning colour regardless of shape, since those damage the player.
+    // friendly_fire fields override to a hot warning colour regardless of
+    // shape, since those damage the player.
     const Vec4 kFriendlyFireTint{1.0f, 0.32f, 0.15f, 1.0f};
 
     for (u32 i = 0; i < draw_count; ++i) {

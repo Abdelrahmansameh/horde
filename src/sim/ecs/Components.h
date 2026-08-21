@@ -35,7 +35,7 @@ struct Health {
 
 /// Named-agent (elite/boss) identity.
 struct NamedAgent {
-    PathogenFamily family = PathogenFamily::Parasite;
+    PathogenFamily family = PathogenFamily::Virus;
     u16 archetype = 0;     ///< Index into the enemy roster table (Wave 2C).
     u8 tier = 1;           ///< 1 = elite, 2 = boss.
 };
@@ -47,7 +47,7 @@ enum class AiState : u8 {
     Advancing,     ///< Following the flow field.
     Telegraphing,  ///< Wind-up before an attack; UI shows the tell.
     Attacking,
-    Burrowed,      ///< Parasite hidden; only NK Cells may target.
+    Burrowed,      ///< Hidden; only detection towers (NK Cells) may target.
     Fleeing,
     Dying,
 };
@@ -97,13 +97,6 @@ struct Objective {
     f32 integrity = 100.0f;
     f32 max_integrity = 100.0f;
     f32 radius = 3.0f;
-};
-
-/// Growing tumour mass (DESIGN.md §6, cancer). Expands if ignored.
-struct TumorMass {
-    f32 growth_rate = 0.0f;
-    f32 radius = 1.0f;
-    f32 max_radius = 12.0f;
 };
 
 /// Short-lived spawned unit (Neutrophil micro-units, antibody projectiles).

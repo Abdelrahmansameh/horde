@@ -26,12 +26,11 @@ struct SpawnEntry {
     std::string portal_id;    ///< Empty = any/first portal.
 };
 
-/// Curveball modifiers applied to a whole wave (DESIGN.md §6 allergen).
+/// Curveball modifiers applied to a whole wave (DESIGN.md §6).
 enum class WaveModifier : u8 {
     None = 0,
-    AllergenOverreaction,  ///< Friendly-fire field; risk/reward.
-    Fever,                 ///< Global tower fire-rate up, integrity drain.
-    Swarm,                 ///< Counts multiplied, densities reduced.
+    Fever,   ///< Global tower fire-rate up, integrity drain.
+    Swarm,   ///< Counts multiplied, densities reduced.
 };
 
 struct WaveDef {

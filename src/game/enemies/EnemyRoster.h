@@ -33,17 +33,13 @@ struct FamilyDef {
     f32 base_density = 1.0f;
     /// Behaviour switches consumed by the chaff kernel, not by subclassing:
     bool replicates = false;   ///< Virus: exponential pressure.
-    bool clumps = false;       ///< Bacteria: biofilm.
-    bool drifts = false;       ///< Fungal spore.
-    bool can_hide = false;     ///< Parasite.
-    bool leaves_hazard = false;///< Fungal spore death cloud.
 };
 
 /// One named elite/boss archetype.
 struct EliteDef {
     u16 id = 0;
     const char* name = "";
-    PathogenFamily family = PathogenFamily::Parasite;
+    PathogenFamily family = PathogenFamily::Virus;
     ThreatTier tier = ThreatTier::Elite;
     f32 max_health = 500.0f;
     f32 armor = 0.0f;
@@ -58,7 +54,7 @@ struct EnemyConfig;
 
 class EnemyRoster {
 public:
-    /// Populates the canonical six families and the elite table.
+    /// Populates the canonical family table. The elite table is empty today.
     void load_defaults();
 
     const FamilyDef& family(PathogenFamily f) const;

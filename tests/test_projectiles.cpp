@@ -376,7 +376,7 @@ TEST_CASE("density removed is the amount actually taken, not the amount requeste
 TEST_CASE("impacts and expiries are reported to an attached sink",
           "[sim][projectile][events]") {
     Harness h;
-    h.add_chaff(50.0f, 50.0f, 100.0f, PathogenFamily::Parasite);
+    h.add_chaff(50.0f, 50.0f, 100.0f, PathogenFamily::Bacteria);
     h.add_round(Vec2{50.0f, 50.0f}, Vec2{0.0f, 0.0f}, 4.0f, 1.0f, 0.5f);
     h.add_round(Vec2{10.0f, 10.0f}, Vec2{60.0f, 0.0f}, 4.0f, kFixedDt);
 
@@ -391,7 +391,7 @@ TEST_CASE("impacts and expiries are reported to an attached sink",
     for (const CombatEvent& e : sink.events()) {
         if (e.type == CombatEventType::ProjectileImpact) {
             saw_impact = true;
-            REQUIRE(e.target_family == PathogenFamily::Parasite);
+            REQUIRE(e.target_family == PathogenFamily::Bacteria);
             REQUIRE(e.magnitude == Catch::Approx(4.0f));
             REQUIRE(e.origin.x == Catch::Approx(50.0f));
             REQUIRE(e.origin.y == Catch::Approx(50.0f));

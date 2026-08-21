@@ -80,11 +80,10 @@ bool parse_i64(const std::string& s, i64& out) {
 // ---------------------------------------------------------------------------
 // Enum <-> name. The family strings are the same ones the level JSON and
 // --sim-test scripts use (Level.cpp's parse_family), on purpose: one spelling
-// of "fungal_spore" across the whole project.
+// of each family name across the whole project.
 // ---------------------------------------------------------------------------
 
-const char* const kFamilyNames[kFamilyCount] = {
-    "virus", "bacteria", "fungal_spore", "parasite", "cancer_cell", "allergen"};
+const char* const kFamilyNames[kFamilyCount] = {"virus", "bacteria"};
 
 const char* family_name(PathogenFamily f) {
     const u32 i = static_cast<u32>(f);
@@ -98,9 +97,6 @@ bool parse_family(const std::string& s, PathogenFamily& out) {
             return true;
         }
     }
-    // Convenience aliases — typing "fungus" should not be a syntax error.
-    if (s == "fungus" || s == "spore") { out = PathogenFamily::FungalSpore; return true; }
-    if (s == "cancer") { out = PathogenFamily::CancerCell; return true; }
     return false;
 }
 
@@ -408,8 +404,7 @@ GymResult cmd_spawn(GymContext& ctx, const std::vector<std::string>& tok) {
     const bool every_family = (fam_token == "all");
     PathogenFamily family = PathogenFamily::Virus;
     if (!every_family && !parse_family(fam_token, family)) {
-        return fail("unknown family '" + tok[1] +
-                    "' (virus bacteria fungal_spore parasite cancer_cell allergen)");
+        return fail("unknown family '" + tok[1] + "' (virus bacteria)");
     }
 
     i64 count = 100;

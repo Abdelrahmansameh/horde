@@ -452,7 +452,7 @@
   ],
   "waves": [
     {
-      "name": "gym_1_one_of_each_family",
+      "name": "gym_1_both_families",
       "prep_time": 120.0,
       "atp_reward": 250,
       "spawns": [
@@ -471,28 +471,28 @@
           "portal_id": "p_artery"
         },
         {
-          "family": "fungal_spore",
+          "family": "bacteria",
           "count": 200,
           "start_time": 0.0,
           "duration": 10.0,
           "portal_id": "p_vein"
         },
         {
-          "family": "parasite",
+          "family": "virus",
           "count": 150,
           "start_time": 0.0,
           "duration": 10.0,
           "portal_id": "p_nerve"
         },
         {
-          "family": "cancer_cell",
+          "family": "bacteria",
           "count": 150,
           "start_time": 0.0,
           "duration": 10.0,
           "portal_id": "p_mucosa"
         },
         {
-          "family": "allergen",
+          "family": "virus",
           "count": 150,
           "start_time": 4.0,
           "duration": 8.0,
@@ -501,90 +501,7 @@
       ]
     },
     {
-      "name": "gym_2_every_elite",
-      "prep_time": 60.0,
-      "atp_reward": 300,
-      "spawns": [
-        {
-          "family": "parasite",
-          "count": 2,
-          "start_time": 0.0,
-          "duration": 2.0,
-          "portal_id": "p_nerve",
-          "elite_id": 1
-        },
-        {
-          "family": "bacteria",
-          "count": 2,
-          "start_time": 1.0,
-          "duration": 2.0,
-          "portal_id": "p_artery",
-          "elite_id": 2
-        },
-        {
-          "family": "cancer_cell",
-          "count": 2,
-          "start_time": 2.0,
-          "duration": 2.0,
-          "portal_id": "p_mucosa",
-          "elite_id": 3
-        },
-        {
-          "family": "bacteria",
-          "count": 1,
-          "start_time": 3.0,
-          "duration": 2.0,
-          "portal_id": "p_lymph",
-          "elite_id": 4
-        },
-        {
-          "family": "fungal_spore",
-          "count": 1,
-          "start_time": 4.0,
-          "duration": 2.0,
-          "portal_id": "p_vein",
-          "elite_id": 5
-        },
-        {
-          "family": "virus",
-          "count": 300,
-          "start_time": 0.0,
-          "duration": 12.0,
-          "portal_id": "p_lymph"
-        }
-      ]
-    },
-    {
-      "name": "gym_3_allergen_modifier",
-      "prep_time": 45.0,
-      "atp_reward": 200,
-      "modifier": "allergen",
-      "spawns": [
-        {
-          "family": "virus",
-          "count": 500,
-          "start_time": 0.0,
-          "duration": 10.0,
-          "portal_id": "p_lymph"
-        },
-        {
-          "family": "bacteria",
-          "count": 250,
-          "start_time": 0.0,
-          "duration": 10.0,
-          "portal_id": "p_artery"
-        },
-        {
-          "family": "allergen",
-          "count": 150,
-          "start_time": 1.0,
-          "duration": 9.0,
-          "portal_id": "p_vein"
-        }
-      ]
-    },
-    {
-      "name": "gym_4_fever_modifier",
+      "name": "gym_2_fever_modifier",
       "prep_time": 45.0,
       "atp_reward": 200,
       "modifier": "fever",
@@ -604,7 +521,7 @@
           "portal_id": "p_artery"
         },
         {
-          "family": "allergen",
+          "family": "virus",
           "count": 150,
           "start_time": 1.0,
           "duration": 9.0,
@@ -613,7 +530,7 @@
       ]
     },
     {
-      "name": "gym_5_swarm_modifier",
+      "name": "gym_3_swarm_modifier",
       "prep_time": 45.0,
       "atp_reward": 200,
       "modifier": "swarm",
@@ -633,7 +550,7 @@
           "portal_id": "p_artery"
         },
         {
-          "family": "allergen",
+          "family": "virus",
           "count": 150,
           "start_time": 1.0,
           "duration": 9.0,
@@ -642,7 +559,7 @@
       ]
     },
     {
-      "name": "gym_6_all_lanes_at_once",
+      "name": "gym_4_all_lanes_at_once",
       "prep_time": 45.0,
       "atp_reward": 350,
       "spawns": [
@@ -661,21 +578,21 @@
           "portal_id": "p_artery"
         },
         {
-          "family": "fungal_spore",
+          "family": "bacteria",
           "count": 400,
           "start_time": 0.0,
           "duration": 8.0,
           "portal_id": "p_vein"
         },
         {
-          "family": "parasite",
+          "family": "virus",
           "count": 400,
           "start_time": 0.0,
           "duration": 8.0,
           "portal_id": "p_nerve"
         },
         {
-          "family": "cancer_cell",
+          "family": "bacteria",
           "count": 400,
           "start_time": 0.0,
           "duration": 8.0,
@@ -684,7 +601,7 @@
       ]
     },
     {
-      "name": "gym_7_max_horde",
+      "name": "gym_5_max_horde",
       "prep_time": 60.0,
       "atp_reward": 600,
       "spawns": [
@@ -703,28 +620,28 @@
           "portal_id": "p_artery"
         },
         {
-          "family": "fungal_spore",
+          "family": "bacteria",
           "count": 1200,
           "start_time": 0.0,
           "duration": 10.0,
           "portal_id": "p_vein"
         },
         {
-          "family": "parasite",
+          "family": "virus",
           "count": 800,
           "start_time": 0.0,
           "duration": 10.0,
           "portal_id": "p_nerve"
         },
         {
-          "family": "cancer_cell",
+          "family": "bacteria",
           "count": 800,
           "start_time": 0.0,
           "duration": 10.0,
           "portal_id": "p_mucosa"
         },
         {
-          "family": "allergen",
+          "family": "virus",
           "count": 800,
           "start_time": 2.0,
           "duration": 8.0,

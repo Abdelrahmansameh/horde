@@ -8,8 +8,8 @@
 // archetype owns a fixed-size transition table plus tuning, and the AI system is
 // one loop that evaluates that table.
 //
-// Wave 2C extends this by REGISTERING archetypes (parasite burrow/hide, biofilm
-// colony, cancer tumour) — it never edits this file. Exotic conditions that the
+// Wave 2C extends this by REGISTERING archetypes — it never edits this file.
+// Exotic conditions that the
 // AiTrigger enum cannot express hook in as plain function pointers
 // (AiTrigger::Custom / on_enter / on_exit / local_steer), which keeps the hot
 // loop free of indirect calls except where an archetype explicitly asks for one.
@@ -155,7 +155,7 @@ struct ArchetypeBehavior {
     static constexpr u32 kMaxTransitions = 24;
 
     const char* name = "unnamed";
-    PathogenFamily family = PathogenFamily::Parasite;
+    PathogenFamily family = PathogenFamily::Virus;
     u8 tier = 1;                  ///< 1 = elite, 2 = boss
 
     f32 max_health = 300.0f;
@@ -179,8 +179,8 @@ struct ArchetypeBehavior {
     AiTransition transitions[kMaxTransitions]{};
     u8 transition_count = 0;
 
-    // Optional hooks. Null by default; Wave 2C fills these for the parasite's
-    // burrow, the biofilm colony's split, and the tumour's growth pulse.
+    // Optional hooks. Null by default; an archetype that needs behaviour the
+    // AiTrigger enum cannot express fills these in.
     AiStateHook on_enter = nullptr;
     AiStateHook on_exit = nullptr;
     AiSteerHook local_steer = nullptr;

@@ -265,7 +265,7 @@ TEST_CASE("attribution sums to what the sim says was destroyed", "[autoplay][tel
     REQUIRE(attributed > 0.0);
 
     // Attributed kills can never EXCEED what the sim retired as killed. They
-    // can fall short: environmental hazards (fungal death clouds, allergen
+    // can fall short: environmental hazards (friendly-fire fields,
     // self-damage) carry no owner by design, and nothing should book their
     // work against a tower.
     const sim::SimSnapshot snap = h.world.snapshot();

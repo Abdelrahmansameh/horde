@@ -52,11 +52,7 @@ struct EntityId {
 enum class PathogenFamily : u8 {
     Virus = 0,
     Bacteria = 1,
-    FungalSpore = 2,
-    Parasite = 3,
-    CancerCell = 4,
-    Allergen = 5,
-    Count = 6
+    Count = 2
 };
 
 inline constexpr u32 kFamilyCount = static_cast<u32>(PathogenFamily::Count);

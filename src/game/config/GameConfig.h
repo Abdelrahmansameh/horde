@@ -178,10 +178,6 @@ struct FamilyVisualParams {
 struct FamilyBehaviorParams {
     f32 base_density = 1.0f;
     bool replicates = false;
-    bool clumps = false;
-    bool drifts = false;
-    bool can_hide = false;
-    bool leaves_hazard = false;
 };
 
 /// Everything sim::ChaffFamilyParams holds, authorable per family. Thirteen of
@@ -220,54 +216,6 @@ struct BaseAttackParams {
     f32 death_fade = 0.6f;
 };
 
-struct BurrowerParams {
-    f32 burrow_interval = 3.5f;
-    f32 resurface_delay = 1.8f;
-    f32 spawn_advance = 0.25f;
-};
-
-struct BiofilmParams {
-    f32 attack_radius = 6.0f;
-    f32 attack_damage = 0.0f;
-};
-
-struct TumorParams {
-    f32 growth_rate = 0.12f;
-    f32 start_radius = 1.0f;
-    f32 max_radius = 10.0f;
-    u32 breach_stages = 4;
-    f32 breach_damage_per_stage = 15.0f;
-    f32 breach_reach_pad = 4.0f;
-};
-
-struct HulkParams {
-    f32 attack_radius = 14.0f;
-    f32 attack_damage = 25.0f;
-    f32 obstruction_radius = 6.0f;
-    f32 obstruction_cost_mul = 5.0f;
-    f32 pulse_damage_per_tower = 6.0f;
-};
-
-struct ColossusParams {
-    f32 attack_radius = 6.0f;
-    f32 attack_damage = 6.0f;
-    f32 burst_radius = 5.0f;
-    f32 burst_kill_rate = 3.0f;
-    f32 burst_duration = 4.0f;
-};
-
-/// Which behaviour arm an elite runs. Keyed off the elite's name, like
-/// TowerRole is keyed off TowerType: it selects code, so it is not authorable.
-enum class EliteBehaviorKind : u8 { Burrower, Biofilm, Tumor, Hulk, Colossus };
-
-struct EliteBehaviorParams {
-    BurrowerParams burrower{};
-    BiofilmParams biofilm{};
-    TumorParams tumor{};
-    HulkParams hulk{};
-    ColossusParams colossus{};
-};
-
 /// Core stats an elite shares with every other elite. Mirrors EliteDef minus
 /// its identity fields (id/name/family/tier), which are structure, not tuning.
 struct EliteStatsParams {
@@ -280,28 +228,21 @@ struct EliteStatsParams {
     u32 atp_bounty = 50;
 };
 
+/// An elite's authorable surface is its identity plus the shared stat block.
+/// There is no per-elite behaviour arm today: the roster ships no elites, and
+/// a redesigned one adds its own params struct back alongside this.
 struct EliteConfig {
     u16 id = 0;
     std::string name;
-    PathogenFamily family = PathogenFamily::Parasite;
+    PathogenFamily family = PathogenFamily::Virus;
     ThreatTier tier = ThreatTier::Elite;
-    EliteBehaviorKind behavior_kind = EliteBehaviorKind::Burrower;
     EliteStatsParams stats{};
-    EliteBehaviorParams behavior{};
-};
-
-struct FungalHazardParams {
-    f32 radius = 4.0f;
-    f32 kill_rate = 2.5f;
-    f32 duration = 3.0f;
-    f32 cooldown = 1.5f;
 };
 
 struct EnemyConfig {
     SpeedProfileParams speed_tiers[4]{};   ///< Indexed by SpeedTier.
     FamilyConfig families[kFamilyCount]{};
     BaseAttackParams base_attack{};
-    FungalHazardParams fungal_death_hazard{};
     std::vector<EliteConfig> elites;
 };
 

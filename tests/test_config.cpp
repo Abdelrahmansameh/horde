@@ -368,7 +368,8 @@ TEST_CASE("the shipped config files all load", "[config][game]") {
     // test_level_loader.cpp reads assets/levels/capillary_test.json.
     const immune::game::GameConfig cfg = load_from("assets/config");
 
-    REQUIRE(cfg.enemies.elites.size() == 5);
+    // The roster ships no elites pending a redesign (DESIGN.md §14).
+    REQUIRE(cfg.enemies.elites.empty());
 }
 
 TEST_CASE("the shipped config equals the compiled-in tuning", "[config][game]") {
@@ -452,10 +453,6 @@ TEST_CASE("every config field is addressable from the registry", "[config][game]
     REQUIRE(registry.get("enemies.families.virus.visual.silhouette", value, err));
     REQUIRE(value == "1.53");
     REQUIRE(registry.set("enemies.families.virus.chaff.max_speed", "1", err) == false);
-
-    REQUIRE(registry.set("enemies.elites.tumor_mass.stats.max_health", "9000", err));
-    REQUIRE(registry.get("enemies.elites.tumor_mass.stats.max_health", value, err));
-    REQUIRE(value == "9000");
 
     REQUIRE(registry.set("enemies.base_attack.damage", "12", err));
     REQUIRE(registry.set("sim.capacities.max_chaff", "32768", err));

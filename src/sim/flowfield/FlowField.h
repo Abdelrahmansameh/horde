@@ -52,8 +52,8 @@ public:
     bool walkable(i32 x, i32 y) const { return in_range(x, y) && walkable_[index(x, y)] != 0; }
     void set_walkable(i32 x, i32 y, bool v) { if (in_range(x, y)) walkable_[index(x, y)] = v ? u8{1} : u8{0}; }
 
-    /// Per-cell traversal cost multiplier (>= 1). Sludge, NETs, and biofilm
-    /// raise it; the flow field routes around expensive cells automatically.
+    /// Per-cell traversal cost multiplier (>= 1). Sludge and NETs raise it;
+    /// the flow field routes around expensive cells automatically.
     f32 cost(i32 x, i32 y) const { return in_range(x, y) ? cost_[index(x, y)] : 1.0f; }
     void set_cost(i32 x, i32 y, f32 c) { if (in_range(x, y)) cost_[index(x, y)] = c; }
 
@@ -114,7 +114,7 @@ public:
     void bake(const TissueMask& mask, const FlowFieldBakeDesc& desc);
 
     /// Marks a world-space rectangle dirty after a mask edit (tower placed or
-    /// sold, NET dropped, biofilm formed). Cheap: only records the rect.
+    /// sold, NET dropped). Cheap: only records the rect.
     void mark_dirty(const Rect& world_region);
 
     /// Immediately re-solves every pending dirty region. Correctness-first path,

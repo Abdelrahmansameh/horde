@@ -107,17 +107,17 @@ The wave table is authored, and each wave isolates one thing:
 
 | # | Name | Shows |
 |---|---|---|
-| 1 | `gym_1_one_of_each_family` | all six families, one per lane, side by side |
-| 2 | `gym_2_every_elite` | all five elite archetypes at once |
-| 3 | `gym_3_allergen_modifier` | the allergen curveball |
-| 4 | `gym_4_fever_modifier` | the fever curveball |
-| 5 | `gym_5_swarm_modifier` | the swarm curveball |
-| 6 | `gym_6_all_lanes_at_once` | five portals firing together (lane threat overlay) |
-| 7 | `gym_7_max_horde` | ~7,200 agents converging (the perf gate) |
+| 1 | `gym_1_both_families` | both families, one per lane, side by side |
+| 2 | `gym_2_fever_modifier` | the fever curveball |
+| 3 | `gym_3_swarm_modifier` | the swarm curveball |
+| 4 | `gym_4_all_lanes_at_once` | five portals firing together (lane threat overlay) |
+| 5 | `gym_5_max_horde` | ~7,200 agents converging (the perf gate) |
+
+There is no elite wave: the roster ships no elites (DESIGN.md §14).
 
 The first prep window is two minutes, on purpose: a gym must not start shooting
 at you while you are still setting up the thing you came to look at. `wave start`
-skips any prep instantly; `wave 5` jumps straight to wave 5.
+skips any prep instantly; `wave 4` jumps straight to wave 4.
 
 ---
 
@@ -161,8 +161,7 @@ comments, so a session can be pasted in whole.
 
 ```
 spawn all 200; tower all; time 4          # every family vs every tower, fast-forward
-wave 3; wave start                        # jump straight to the allergen wave
-elite all at p_nerve; cam p_nerve 60      # every elite, framed
+wave 2; wave start                        # jump straight to the fever wave
 vfx all at cursor                         # one of each combat effect, side by side
 field 25 80 2 at cursor                   # aggregate damage with no tower involved
 flood 1200; overlay threat on             # five-lane pressure, threat readout on
@@ -207,7 +206,6 @@ dotted path:
 config get towers.macrophage.3.stats.damage
 config set towers.macrophage.3.stats.damage 200
 config set enemies.families.virus.visual.silhouette 3.0
-config set enemies.elites.tumor_mass.stats.max_health 20000
 config list enemies.families.virus
 config reload            # re-read the files from disk
 config dump              # write the live values back out

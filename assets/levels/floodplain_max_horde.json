@@ -148,7 +148,7 @@
           "portal_id": "p_flood"
         },
         {
-          "family": "fungal_spore",
+          "family": "bacteria",
           "count": 400,
           "start_time": 0.5,
           "duration": 6.0,
@@ -176,7 +176,7 @@
           "portal_id": "p_flood"
         },
         {
-          "family": "fungal_spore",
+          "family": "bacteria",
           "count": 600,
           "start_time": 0.5,
           "duration": 6.5,
@@ -204,7 +204,7 @@
           "portal_id": "p_flood"
         },
         {
-          "family": "fungal_spore",
+          "family": "bacteria",
           "count": 900,
           "start_time": 0.5,
           "duration": 7.0,
@@ -232,7 +232,7 @@
           "portal_id": "p_flood"
         },
         {
-          "family": "fungal_spore",
+          "family": "bacteria",
           "count": 1200,
           "start_time": 0.5,
           "duration": 7.5,
@@ -261,7 +261,7 @@
           "portal_id": "p_flood"
         },
         {
-          "family": "fungal_spore",
+          "family": "bacteria",
           "count": 1600,
           "start_time": 0.5,
           "duration": 8.0,
@@ -289,7 +289,7 @@
           "portal_id": "p_flood"
         },
         {
-          "family": "fungal_spore",
+          "family": "bacteria",
           "count": 2000,
           "start_time": 0.5,
           "duration": 8.5,
@@ -308,7 +308,6 @@
       "name": "flood_7",
       "prep_time": 12.0,
       "atp_reward": 230,
-      "modifier": "allergen",
       "spawns": [
         {
           "family": "virus",
@@ -318,7 +317,7 @@
           "portal_id": "p_flood"
         },
         {
-          "family": "fungal_spore",
+          "family": "bacteria",
           "count": 2250,
           "start_time": 0.5,
           "duration": 9.0,
@@ -347,7 +346,7 @@
           "portal_id": "p_flood"
         },
         {
-          "family": "fungal_spore",
+          "family": "bacteria",
           "count": 2500,
           "start_time": 0.5,
           "duration": 9.0,

@@ -60,7 +60,7 @@
 //   "ambient_drift": [0.0, 0.0],
 //   "waves": [                                 // REQUIRED, non-empty; see below
 //     { "name": "flood_1", "prep_time": 20.0, "atp_reward": 60,
-//       "modifier": "none",                    // none|allergen|fever|swarm
+//       "modifier": "none",                    // none|fever|swarm
 //       "spawns": [
 //         { "family": "virus", "count": 900, "start_time": 0.0,
 //           "duration": 6.0, "portal_id": "p0", "elite_id": 0 }

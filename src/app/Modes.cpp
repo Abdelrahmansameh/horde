@@ -69,7 +69,7 @@ bool build_world(sim::SimWorld& world, const Options& opt, usize max_chaff,
     // Cell size ~= 2x the default separation radius, per SpatialHashDesc.
     desc.spatial_cell_size = 4.0f;
     // Without this, chaff runs on all-default ChaffFamilyParams: no viral
-    // replication, no fungal drift, generic speed for every family. The
+    // replication, generic speed for every family. The
     // roster is the single source of truth so the sim kernel and the roster
     // table can never disagree (EnemyRoster.h's own rationale).
     game::EnemyRoster roster;
@@ -109,7 +109,7 @@ bool build_world(sim::SimWorld& world, const Options& opt, usize max_chaff,
         error = res.error;
         return false;
     }
-    // Elite/enemy behavior (tumor growth, biofilm clumping, etc.) needs its
+    // Enemy behaviour systems need their
     // systems registered to run at all. Safe to call from every headless
     // mode: idempotent per EnemyRoster's own design, and a no-op if nothing
     // ever spawns an elite.
@@ -185,8 +185,7 @@ void populate_scenario(sim::SimWorld& world, const BenchScenario& s) {
 /// snapshot keys below and by the metric names read_metric() accepts, so a
 /// script's assertion and the report it reads spell a family identically.
 const char* family_key(u32 f) {
-    static const char* kNames[kFamilyCount] = {"virus",    "bacteria",    "fungal_spore",
-                                               "parasite", "cancer_cell", "allergen"};
+    static const char* kNames[kFamilyCount] = {"virus", "bacteria"};
     return f < kFamilyCount ? kNames[f] : "unknown";
 }
 
@@ -229,7 +228,7 @@ bool read_metric(const sim::SimWorld& world, const std::string& metric, f64& out
     if (metric == "state_hash")           { out = static_cast<f64>(world.state_hash()); return true; }
 
     // Per-family forms: "<counter>.<family>", e.g. "chaff_leaked.virus". Worth
-    // having as assertions and not only as report keys -- "the parasites got
+    // having as assertions and not only as report keys -- "the bacteria got
     // through" is a regression a total-only metric cannot express, because a
     // level that kills more bacteria hides it.
     const usize dot = metric.find('.');
@@ -574,8 +573,7 @@ int run_sim_test(const Options& opt) {
                 const std::string fname = a.value("family", std::string("virus"));
                 for (u32 f = 0; f < kFamilyCount; ++f) {
                     // Family names mirror EnemyRoster::load_defaults.
-                    static const char* names[kFamilyCount] = {
-                        "virus", "bacteria", "fungal_spore", "parasite", "cancer_cell", "allergen"};
+                    static const char* names[kFamilyCount] = {"virus", "bacteria"};
                     if (fname == names[f]) fam = static_cast<PathogenFamily>(f);
                 }
                 const auto pos = a.value("pos", std::vector<f32>{0.0f, 0.0f});

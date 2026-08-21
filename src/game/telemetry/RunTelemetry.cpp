@@ -22,15 +22,13 @@ using json = nlohmann::json;
 /// that one is title-cased for a HUD readout, and a report key that changes
 /// when someone re-words a label is a report nothing can diff.
 const char* family_key(u32 f) {
-    static const char* kNames[kFamilyCount] = {"virus",     "bacteria",    "fungal_spore",
-                                               "parasite",  "cancer_cell", "allergen"};
+    static const char* kNames[kFamilyCount] = {"virus", "bacteria"};
     return f < kFamilyCount ? kNames[f] : "unknown";
 }
 
 const char* modifier_key(WaveModifier m) {
     switch (m) {
         case WaveModifier::None: return "none";
-        case WaveModifier::AllergenOverreaction: return "allergen_overreaction";
         case WaveModifier::Fever: return "fever";
         case WaveModifier::Swarm: return "swarm";
     }

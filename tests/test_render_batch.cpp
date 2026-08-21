@@ -57,9 +57,10 @@ TEST_CASE("build_chaff_batches issues one contiguous range per family", "[render
 
     const ChaffBatchResult result = build_chaff_batches(chaff, occ, params, dest.data(), nullptr);
 
-    // 12 agents / 6 families, round-robin -> exactly 2 per family.
+    // 12 agents dealt round-robin across the families -> an even split.
+    constexpr u32 kPerFamily = 12u / kFamilyCount;
     for (u32 f = 0; f < kFamilyCount; ++f) {
-        REQUIRE(result.family_counts[f] == 2u);
+        REQUIRE(result.family_counts[f] == kPerFamily);
     }
     REQUIRE(result.instances_total == 12u);
     REQUIRE(result.instances_dropped == 0u);

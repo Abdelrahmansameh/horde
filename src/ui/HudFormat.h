@@ -29,10 +29,6 @@ inline const char* pathogen_family_name(PathogenFamily f) {
     switch (f) {
         case PathogenFamily::Virus:       return "Virus";
         case PathogenFamily::Bacteria:    return "Bacteria";
-        case PathogenFamily::FungalSpore: return "Fungal Spore";
-        case PathogenFamily::Parasite:    return "Parasite";
-        case PathogenFamily::CancerCell:  return "Cancer Cell";
-        case PathogenFamily::Allergen:    return "Allergen";
         default: break;
     }
     return "?";

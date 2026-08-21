@@ -58,13 +58,17 @@ TEST_CASE("spawn fills the streams and never reallocates", "[sim][chaff][soa]") 
 TEST_CASE("family counts and total density track spawns", "[sim][chaff][soa]") {
     ChaffBuffers b;
     b.reserve(16);
+
+    // A family with nothing spawned counts zero rather than reading garbage.
+    REQUIRE(b.family_count(PathogenFamily::Virus) == 0);
+    REQUIRE(b.family_count(PathogenFamily::Bacteria) == 0);
+
     b.spawn(make(0, 0, PathogenFamily::Virus, 2.0f));
     b.spawn(make(1, 0, PathogenFamily::Virus, 3.0f));
     b.spawn(make(2, 0, PathogenFamily::Bacteria, 5.0f));
 
     REQUIRE(b.family_count(PathogenFamily::Virus) == 2);
     REQUIRE(b.family_count(PathogenFamily::Bacteria) == 1);
-    REQUIRE(b.family_count(PathogenFamily::Parasite) == 0);
     REQUIRE(b.total_density() == 10.0f);
 }
 
