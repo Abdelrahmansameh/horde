@@ -3,11 +3,11 @@
 #include "app/Modes.h"
 #include "game/abilities/AbilityConfigApply.h"
 #include "game/enemies/EnemyConfigApply.h"
-#include "game/wave/WaveConfigApply.h"
 #include "game/towers/TowerMechanics.h"
 
 #include "core/Log.h"
 #include "game/level/Level.h"
+#include "game/session/LevelSession.h"
 #include "platform/FileIO.h"
 #include "render/Screenshot.h"
 
@@ -82,6 +82,23 @@ bool App::init(const Options& options) {
         state_.request(GameStateId::MainMenu);
     }
     state_.apply_pending();
+
+    // --exec at launch. It already worked for --screenshot; doing it here too
+    // is what makes "watch the balance bot play" a command line rather than a
+    // sequence of keystrokes into the gym panel:
+    //     immune --level <f> --exec "autoplay on; time 8"
+    // Runs after the level is loaded and the state has settled, so a command
+    // that needs a world (which is most of them) has one.
+    if (!options_.exec.empty()) {
+        game::GymContext ctx = make_gym_context();
+        const game::GymResult r = game::gym_execute_script(ctx, options_.exec);
+        if (!r.ok) {
+            IMMUNE_LOG_WARN("--exec failed: %s", r.message.c_str());
+        } else if (!r.message.empty()) {
+            IMMUNE_LOG_INFO("--exec: %s", r.message.c_str());
+        }
+    }
+
     running_ = true;
     return true;
 }
@@ -193,9 +210,6 @@ void App::apply_tuning_config() {
     game::apply_enemy_config(enemies_, config_.enemies);
     economy_.configure(config_.economy);
     game::apply_ability_config(abilities_, config_.abilities);
-    // Only affects the NEXT generated table; a wave already in flight keeps
-    // the one it started with.
-    game::apply_wave_config(config_.waves);
 }
 
 void App::poll_config_reload(f32 dt) {
@@ -287,20 +301,19 @@ bool App::load_level(const std::string& path) {
     // now so whichever wave implements per-lane hue/threat readout doesn't
     // need to re-derive it.
     lane_map_ = loader.build_lane_ownership_map(level);
+    // The bot plans against geometry, so the level it planned for has to
+    // outlive load_level(). Any bot running for the previous level stops here.
+    current_level_def_ = level;
+    autoplay_enabled_ = false;
 
     towers_.register_systems(sim_);
     enemies_.register_systems(sim_);
-    // A fresh, deterministic wave table per level. A level that authors its
-    // own `waves` block owns its pressure curve outright (Level.h); everything
-    // else asks generate(), which shapes a table from the region name alone.
-    if (!level.waves.empty()) {
-        IMMUNE_LOG_INFO("level '%s' uses its own authored wave table (%zu waves)",
-                        level.name.c_str(), level.waves.size());
-        waves_.set_waves(level.waves);
-    } else {
-        waves_.set_waves(game::WaveDirector::generate(
-            level.region, config_.waves.globals.default_wave_count, sim_.rng()));
-    }
+    // The level owns its pressure curve outright (Level.h, AUTHORED WAVES);
+    // the loader guarantees the table is non-empty, so there is nothing to
+    // fall back to and no choice to make here.
+    IMMUNE_LOG_INFO("level '%s' wave table: %zu waves", level.name.c_str(),
+                    level.waves.size());
+    waves_.set_waves(level.waves);
     waves_.start(sim_);
     state_.set_current_level_id(level.name);
 
@@ -424,7 +437,19 @@ void App::apply_intents(const std::vector<ui::Intent>& intents) {
                 }
                 break;
             }
-            case ui::IntentKind::UpgradeTower: towers_.upgrade(sim_, in.entity); break;
+            case ui::IntentKind::UpgradeTower: {
+                // Upgrades were free from Wave 3A until the balance harness
+                // went looking for why upgrade_cost never showed up in any
+                // spend total: upgrade() charges nothing by design and this
+                // was its only caller.
+                const u32 cost = towers_.upgrade_cost(sim_, in.entity);
+                if (cost == 0 || !economy_.can_afford(cost)) {
+                    audio_.post(audio::AudioEvent{audio::SoundId::UiInvalid, in.world_position});
+                    break;
+                }
+                if (towers_.upgrade(sim_, in.entity) != 0) economy_.spend(cost);
+                break;
+            }
             case ui::IntentKind::SellTower:
                 economy_.credit_bounty(towers_.sell(sim_, in.entity));
                 break;
@@ -444,32 +469,41 @@ void App::apply_intents(const std::vector<ui::Intent>& intents) {
 }
 
 void App::tick_sim() {
-    // Before the wave director, so a console-queued spawn and an authored wave
-    // spawning into the same portal on the same tick resolve in a fixed order.
-    gym_spawns_.tick(sim_);
-    waves_.tick(sim_, sim_.rng(), kFixedDt);
-    sim_.tick(&profiler_);
-    // Before the win/loss check below reads the snapshot, so an enabled hold
-    // actually prevents the loss instead of racing it.
-    gym_toggles_.apply(sim_);
-    economy_.tick(kFixedDt);
-    economy_.credit_kills(sim_.last_damage_stats().density_removed);
-    economy_.credit_bounty(waves_.take_pending_atp_reward());
-    abilities_.tick(kFixedDt);
+    // The order of operations lives in game/session/LevelSession.h so the
+    // balance harness runs the same game this does rather than a headless
+    // imitation of it. Everything App-specific stays here: the state machine,
+    // and the logging that names the tick a run ended on.
+    game::LevelSystems systems;
+    systems.world = &sim_;
+    systems.towers = &towers_;
+    systems.enemies = &enemies_;
+    systems.waves = &waves_;
+    systems.economy = &economy_;
+    systems.abilities = &abilities_;
+    systems.spawns = &gym_spawns_;
+    systems.toggles = &gym_toggles_;
 
-    // Win/lose: checked every tick so the transition fires the moment either
-    // condition becomes true, not on some later poll. Fail takes priority --
-    // an integrity breach on the same tick the last wave clears is still a
-    // loss, not a photo-finish win.
-    const sim::SimSnapshot snap = sim_.snapshot();
-    if (state_.current() == GameStateId::InLevel && snap.objective_integrity <= 0.0f) {
+    // The bot buys between ticks, in the same place apply_intents() puts a
+    // player's clicks -- it has no path into the sim that a player lacks.
+    if (autoplay_enabled_) {
+        bot_.tick(sim_, towers_, economy_, sim_.snapshot().tick);
+    }
+
+    const game::SessionOutcome outcome = game::step_level(systems, &profiler_);
+    // A transition is applied at the top of the NEXT frame, so the remaining
+    // ticks of this frame still see InLevel. Without the pending check, a
+    // fast-forwarded frame (say `time 12`, twelve ticks deep) logs "level
+    // cleared" once per tick.
+    if (state_.current() != GameStateId::InLevel || state_.has_pending()) return;
+
+    if (outcome == game::SessionOutcome::ObjectiveDestroyed) {
         IMMUNE_LOG_INFO("level failed: objective integrity depleted at tick %llu",
-                        static_cast<unsigned long long>(snap.tick));
+                        static_cast<unsigned long long>(sim_.snapshot().tick));
         state_.set_outcome(LevelOutcome::ObjectiveDestroyed);
         state_.request(GameStateId::LevelFailed);
-    } else if (state_.current() == GameStateId::InLevel && waves_.status().all_waves_complete &&
-              snap.chaff_count == 0) {
-        IMMUNE_LOG_INFO("level cleared at tick %llu", static_cast<unsigned long long>(snap.tick));
+    } else if (outcome == game::SessionOutcome::Cleared) {
+        IMMUNE_LOG_INFO("level cleared at tick %llu",
+                        static_cast<unsigned long long>(sim_.snapshot().tick));
         state_.set_outcome(LevelOutcome::Cleared);
         state_.request(GameStateId::LevelComplete);
     }
@@ -546,6 +580,30 @@ game::GymContext App::make_gym_context() {
     ctx.restart_level = [this]() {
         if (current_level_path_.empty() || !load_level(current_level_path_)) return false;
         enter_state(GameStateId::InLevel);
+        return true;
+    };
+    ctx.set_autoplay = [this](bool enable, const std::string& profile, std::string& err) {
+        if (!enable) {
+            autoplay_enabled_ = false;
+            return true;
+        }
+        if (!level_loaded_) {
+            err = "no level loaded";
+            return false;
+        }
+        game::AutoPlayConfig cfg;
+        if (!game::parse_autoplay_profile(profile, cfg.profile, cfg.single_type)) {
+            err = "unknown profile '" + profile +
+                  "' (greedy-cheapest | spread-coverage | save-for-tier3 | single-type:<tower>)";
+            return false;
+        }
+        bot_.configure(cfg);
+        bot_.plan(current_level_def_, lane_map_, sim_, towers_, waves_);
+        if (bot_.sites().empty()) {
+            err = "the planner found nowhere to build on this level";
+            return false;
+        }
+        autoplay_enabled_ = true;
         return true;
     };
     ctx.set_overlay = [this](const std::string& name, bool on) {

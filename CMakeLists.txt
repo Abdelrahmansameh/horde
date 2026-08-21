@@ -103,7 +103,8 @@ target_link_libraries(immune_vfx PUBLIC immune_core immune_sim)
 add_library(immune_game STATIC
   src/game/abilities/AbilityConfigApply.cpp
   src/game/abilities/ActiveAbilities.cpp
-  src/game/config/EnemyWaveConfig.cpp
+  src/game/autoplay/AutoPlayer.cpp
+  src/game/config/EnemyConfig.cpp
   src/game/config/GameConfig.cpp
   src/game/config/TowerConfig.cpp
   src/game/economy/Economy.cpp
@@ -111,6 +112,8 @@ add_library(immune_game STATIC
   src/game/gym/GymCommands.cpp
   src/game/level/Level.cpp
   src/game/meta/MetaProgression.cpp
+  src/game/session/LevelSession.cpp
+  src/game/telemetry/RunTelemetry.cpp
   src/game/towers/TowerSystem.cpp
   src/game/wave/WaveDirector.cpp)
 target_link_libraries(immune_game PUBLIC immune_core immune_config immune_sim immune_render
@@ -126,6 +129,7 @@ target_link_libraries(immune_audio PUBLIC immune_core PRIVATE ${IMMUNE_SDL2_TARG
 
 add_library(immune_app STATIC
   src/app/App.cpp
+  src/app/AutoplayMode.cpp
   src/app/Cli.cpp
   src/app/GameState.cpp
   src/app/Modes.cpp)

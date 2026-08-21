@@ -530,17 +530,11 @@ void ParticleSystem::emit_for_event(const sim::CombatEvent& event) {
         }
 
         case TowerType::Interferon: {
-            // CRYO. The cone itself is ConePulse; this is just the emitter
-            // lighting up, so it stays small and cold. Used to also throw a
-            // Ring here, but the Interferon pulses on every cooldown tick, so
-            // that read as a small blue circle popping at the tower non-stop
-            // rather than as a discrete muzzle flash.
-            p.kind = ParticleKind::Spark;
-            p.color = pal.accent;
-            p.size = 0.26f;
-            p.lifetime = 0.10f;
-            p.drag = 4.0f;
-            push(p);
+            // CRYO. The cone itself is ConePulse and its standing field is the
+            // signal that reads as "this tower is active" — a round Spark here
+            // on top of it, fired every single cooldown tick, was a small blue
+            // circle popping at the tower non-stop. Nothing to draw: the rays
+            // fanning out of the body already carry the "it's working" read.
             break;
         }
 

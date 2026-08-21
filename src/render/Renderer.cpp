@@ -1578,21 +1578,8 @@ void Renderer::submit_fields(const sim::DamageField* fields, usize count) {
     // hot warning colour regardless of shape, since those damage the player.
     const Vec4 kFriendlyFireTint{1.0f, 0.32f, 0.15f, 1.0f};
 
-    // Written instances, which is NOT the loop index: the persistent Interferon
-    // cone is skipped below, so the buffer is packed with a separate cursor.
-    u32 written = 0;
-
     for (u32 i = 0; i < draw_count; ++i) {
         const sim::DamageField& f = fields[i];
-
-        // The Interferon's cone is submitted every tick whether or not the
-        // tower has anything to shoot (see system_cryo), so drawing it painted
-        // permanent striated rays fanning out of every Interferon on the map.
-        // The pulse particles already say when it fires; the standing beam only
-        // added glare. Skipped for DRAWING only — the field still does its
-        // damage and its slow.
-        if (f.shape == sim::FieldShape::Cone && f.lifetime <= 0.0f) continue;
-
         FieldGpuInstance inst{};
 
         switch (f.shape) {
@@ -1692,17 +1679,17 @@ void Renderer::submit_fields(const sim::DamageField* fields, usize count) {
         if (f.friendly_fire) tint = kFriendlyFireTint;
         inst.tint_rgba8 = pack_rgba8(tint);
 
-        region_base[written++] = inst;
+        region_base[i] = inst;
     }
 
     const ShaderProgram prog = imp.shaders.get("field");
-    if (prog.valid() && written > 0) {
+    if (prog.valid() && draw_count > 0) {
         glUseProgram(prog.gl_id);
         glUniformMatrix4fv(0, 1, GL_FALSE, glm::value_ptr(imp.view_projection));
         glUniform1f(1, imp.time);
         imp.field_vao.bind();
         const u32 base_instance = imp.field_region * kMaxFieldInstances;
-        glDrawArraysInstancedBaseInstance(GL_TRIANGLE_FAN, 0, 4, static_cast<GLsizei>(written),
+        glDrawArraysInstancedBaseInstance(GL_TRIANGLE_FAN, 0, 4, static_cast<GLsizei>(draw_count),
                                           base_instance);
         ++stats_.draw_calls;
     }

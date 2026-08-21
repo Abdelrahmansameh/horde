@@ -123,7 +123,14 @@ public:
 
     /// Swap-removes every kPendingKill agent. Invalidates all raw indices and
     /// the spatial hash. Returns the number removed (feeds kill accounting).
-    usize compact();
+    ///
+    /// `removed_by_family`, when non-null, points at kFamilyCount counters that
+    /// are ADDED to (never cleared) with this pass's removals. Compaction is the
+    /// one place that sees every retirement regardless of cause, which is what
+    /// makes it the honest denominator for the balance report: SimWorld
+    /// subtracts the leak/out-of-bounds tallies ChaffSystem hands it to recover
+    /// "killed by the player's towers" exactly, rather than inferring it.
+    usize compact(u32* removed_by_family = nullptr);
 
     /// Resolves a handle to a current index, or npos if the agent is gone.
     static constexpr usize npos = static_cast<usize>(-1);
@@ -132,6 +139,11 @@ public:
     /// Live agents per family. Maintained incrementally; the renderer reads it
     /// to size its per-family instance batches without a counting pass.
     u32 family_count(PathogenFamily f) const { return family_counts_[static_cast<u32>(f)]; }
+
+    /// Lifetime spawn tally per family, including replication. Survives
+    /// compact(); reset by reserve()/clear(). The balance report's "how much
+    /// did this level actually throw at the player" denominator.
+    const u64* spawned_by_family() const { return spawned_by_family_; }
 
     /// Sum of `density` over all live agents — the "how big is the horde really"
     /// number the HUD threat meter and wave-clear check use.
@@ -160,6 +172,7 @@ private:
     /// at the top of ChaffBuffers.cpp for why this is not a per-slot counter.
     u32 next_generation_ = 1;
     u32 family_counts_[kFamilyCount] = {};
+    u64 spawned_by_family_[kFamilyCount] = {};
 };
 
 } // namespace immune::sim

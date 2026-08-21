@@ -525,12 +525,16 @@ ChaffUpdateStats ChaffSystem::update(ChaffBuffers& buffers, const FlowField& flo
             if (dx * dx + dy * dy <= goal_r2) {
                 buffers.kill(i);
                 ++despawned_goal;
+                const u32 f = fam[i];
+                if (f < kFamilyCount) ++stats.despawned_at_goal_by_family[f];
                 killed = true;
             }
         }
         if (!killed && !bounds_.contains(Vec2{px[i], py[i]})) {
             buffers.kill(i);
             ++despawned_bounds;
+            const u32 f = fam[i];
+            if (f < kFamilyCount) ++stats.despawned_out_of_bounds_by_family[f];
         }
     }
 

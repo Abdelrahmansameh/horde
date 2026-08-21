@@ -55,12 +55,12 @@ struct WaveStatus {
 
 class WaveDirector {
 public:
+    /// The table comes from the level (LevelDef::waves) and nowhere else.
+    /// There used to be a static generate() here that synthesized one from a
+    /// level's region string and assets/config/waves.json; both are gone --
+    /// see Level.h's AUTHORED WAVES note for why.
     void set_waves(std::vector<WaveDef> waves);
     const std::vector<WaveDef>& waves() const { return waves_; }
-
-    /// Generates a wave table for a region and difficulty index. Used by
-    /// endless mode and by --bench scenarios that need pressure without content.
-    static std::vector<WaveDef> generate(const std::string& region, u32 wave_count, Rng& rng);
 
     void start(sim::SimWorld& world);
 

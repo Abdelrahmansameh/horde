@@ -160,6 +160,11 @@ struct ChaffUpdateStats {
     u32 replicated = 0;
     u32 despawned_at_goal = 0;
     u32 despawned_out_of_bounds = 0;
+    /// Same two tallies split by family. Compaction cannot tell a leak from a
+    /// kill (both arrive as kPendingKill), so this pass -- the only one that
+    /// knows *why* an agent is retiring -- is where the split has to be made.
+    u32 despawned_at_goal_by_family[kFamilyCount] = {};
+    u32 despawned_out_of_bounds_by_family[kFamilyCount] = {};
 };
 
 /// Stateless-by-design: all mutable state lives in ChaffBuffers. This class

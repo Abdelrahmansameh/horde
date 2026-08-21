@@ -83,7 +83,7 @@ chamber, all converging on a single organ at the right-hand side.
 | `lymph_lane` | lymphatic | `p_lymph` | the wide middle highway — point big spawns here |
 | `artery_lane` | artery | `p_artery` | long diagonal approach from the bottom-left |
 | `vein_lane` | vein | `p_vein` | mirror of the artery, from the top-left |
-| `nerve_lane` | nerve_adjacent | `p_nerve` | the narrow one, for clearance/chokepoint work |
+| `nerve_lane` | nerve_adjacent | `p_nerve` | the slimmest trunk, for tight-lane clearance work |
 | `mucosa_lane` | mucosal_fold | `p_mucosa` | fat and short, from the bottom |
 
 Each lane is authored as **two vessels sharing one `lane_id`**: a wide spawn
@@ -91,6 +91,17 @@ chamber around the portal, then the trunk. The chamber is not decoration —
 `spawn_burst()` sizes its spawn disc to the requested count, so a portal
 authored on a normal 12-wide lane loses the outer half of any large burst off
 the lumen. A gym whose `spawn 600` quietly yields 430 is a gym that lies.
+
+Past the chamber, **every trunk holds one width all the way to the organ.** The
+trunks used to keep tapering down as they ran in, which meant any measurement
+taken downstream was really a measurement of a funnel — and funnels are exactly
+the geometry DESIGN.md §4.3 no longer authors. A constant-width trunk makes
+"the same burst, measured at two points along the lane" mean what it says.
+
+The one width change that remains is the chamber opening out around the portal,
+which is a spawn bulb, not a kill slot: it sits behind the spawn point, it
+widens *backwards* out of the lane, and it tapers into the trunk over the
+lane's first ~45 units rather than necking down anywhere a tower would go.
 
 The wave table is authored, and each wave isolates one thing:
 
@@ -141,6 +152,7 @@ at objective     at center
 | `overlay <debug\|threat> [on\|off]` | Toggle a HUD overlay. |
 | `stats` / `portals` | Print sim/economy/wave state, or the level's portals. |
 | `level <name>` / `restart` | Load another level, or reload this one. |
+| `autoplay [on\|off] [profile]` | Hand the level to the balance bot (docs/BALANCE.md). Aliases: `bot`. |
 
 Several commands can share a line, separated by `;`. Lines starting with `#` are
 comments, so a session can be pasted in whole.
@@ -154,6 +166,7 @@ elite all at p_nerve; cam p_nerve 60      # every elite, framed
 vfx all at cursor                         # one of each combat effect, side by side
 field 25 80 2 at cursor                   # aggregate damage with no tower involved
 flood 1200; overlay threat on             # five-lane pressure, threat readout on
+autoplay on; time 8                       # watch the balance bot play, eight times speed
 ```
 
 ---

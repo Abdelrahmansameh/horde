@@ -32,7 +32,11 @@ const char* kValidLevel = R"JSON({
   "portals": [ { "id": "p0", "pos": [4, 16], "radius": 3.0 } ],
   "objectives": [ { "id": "organ", "pos": [60, 16], "radius": 4.0, "integrity": 100 } ],
   "placement_zones": [ { "min": [10, 10], "max": [50, 22] } ],
-  "ambient_drift": [1.0, -2.0]
+  "ambient_drift": [1.0, -2.0],
+  "waves": [
+    { "name": "test_wave_1", "prep_time": 5.0, "atp_reward": 40,
+      "spawns": [ { "family": "virus", "count": 20, "start_time": 0.0, "duration": 2.0 } ] }
+  ]
 })JSON";
 
 sim::SimWorld make_world(const LevelDef& def) {
@@ -157,6 +161,35 @@ TEST_CASE("load_string rejects malformed JSON", "[level][loader]") {
     REQUIRE_FALSE(res.error.empty());
 }
 
+// ---- load_string: waves are required ------------------------------------
+
+TEST_CASE("load_string rejects a level that authors no waves", "[level][loader][waves]") {
+    // Waves are per-level only (Level.h, AUTHORED WAVES) -- there is no
+    // region-shaped generator left to fall back to, so a level without a table
+    // has to fail at load rather than run empty.
+    LevelLoader loader;
+
+    {
+        LevelDef def;
+        const LevelLoadResult res = loader.load_string(R"JSON({"schema":1,
+            "vessels":[{"id":"v","points":[{"p":[0,0],"w":2},{"p":[1,1],"w":2}]}],
+            "portals":[{"id":"p0","pos":[0,0]}],
+            "objectives":[{"id":"o","pos":[1,1]}]})JSON", def);
+        REQUIRE_FALSE(res.ok);
+        REQUIRE(res.error.find("waves") != std::string::npos);
+    }
+    {
+        LevelDef def;
+        const LevelLoadResult res = loader.load_string(R"JSON({"schema":1,
+            "vessels":[{"id":"v","points":[{"p":[0,0],"w":2},{"p":[1,1],"w":2}]}],
+            "portals":[{"id":"p0","pos":[0,0]}],
+            "objectives":[{"id":"o","pos":[1,1]}],
+            "waves":[]})JSON", def);
+        REQUIRE_FALSE(res.ok);
+        REQUIRE(res.error.find("waves") != std::string::npos);
+    }
+}
+
 // ---- validate(): missing required sections -----------------------------
 
 TEST_CASE("validate rejects a schema-valid level missing vessels/portals/objectives",
@@ -167,7 +200,8 @@ TEST_CASE("validate rejects a schema-valid level missing vessels/portals/objecti
         LevelDef def;
         const LevelLoadResult res =
             loader.load_string(R"JSON({"schema":1,"portals":[{"id":"p0","pos":[0,0]}],
-                                        "objectives":[{"id":"o","pos":[1,1]}]})JSON", def);
+                                        "objectives":[{"id":"o","pos":[1,1]}],
+                                        "waves":[{"name":"w1","prep_time":1.0,"spawns":[{"family":"virus","count":1,"duration":1.0}]}]})JSON", def);
         REQUIRE(res.ok); // parses fine, missing sections aren't a parse error
         const LevelLoadResult vres = loader.validate(def);
         REQUIRE_FALSE(vres.ok);
@@ -178,7 +212,8 @@ TEST_CASE("validate rejects a schema-valid level missing vessels/portals/objecti
         const LevelLoadResult res =
             loader.load_string(R"JSON({"schema":1,
                                         "vessels":[{"id":"v","points":[{"p":[0,0],"w":2},{"p":[1,1],"w":2}]}],
-                                        "objectives":[{"id":"o","pos":[1,1]}]})JSON", def);
+                                        "objectives":[{"id":"o","pos":[1,1]}],
+                                        "waves":[{"name":"w1","prep_time":1.0,"spawns":[{"family":"virus","count":1,"duration":1.0}]}]})JSON", def);
         REQUIRE(res.ok);
         const LevelLoadResult vres = loader.validate(def);
         REQUIRE_FALSE(vres.ok);
@@ -189,7 +224,8 @@ TEST_CASE("validate rejects a schema-valid level missing vessels/portals/objecti
         const LevelLoadResult res =
             loader.load_string(R"JSON({"schema":1,
                                         "vessels":[{"id":"v","points":[{"p":[0,0],"w":2},{"p":[1,1],"w":2}]}],
-                                        "portals":[{"id":"p0","pos":[0,0]}]})JSON", def);
+                                        "portals":[{"id":"p0","pos":[0,0]}],
+                                        "waves":[{"name":"w1","prep_time":1.0,"spawns":[{"family":"virus","count":1,"duration":1.0}]}]})JSON", def);
         REQUIRE(res.ok);
         const LevelLoadResult vres = loader.validate(def);
         REQUIRE_FALSE(vres.ok);

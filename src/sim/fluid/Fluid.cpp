@@ -207,6 +207,8 @@ void FluidSystem::configure(const Rect& world_bounds, const FluidTuning& tuning)
     const usize cov_cells = static_cast<usize>(coverage_dims_.x) * static_cast<usize>(coverage_dims_.y);
     coverage_.assign(cov_cells, 0.0f);
     coverage_dps_.assign(cov_cells, 0.0f);
+    coverage_owner_.assign(cov_cells, EntityId{});
+    coverage_owner_mass_.assign(cov_cells, 0.0f);
 }
 
 // ---------------------------------------------------------------------------
@@ -684,6 +686,10 @@ FluidStats FluidSystem::update(FluidBuffers& fluid,
     // every consumer below reads.
     std::fill(coverage_.begin(), coverage_.end(), 0.0f);
     std::fill(coverage_dps_.begin(), coverage_dps_.end(), 0.0f);
+    if (attribution_ != nullptr) {
+        std::fill(coverage_owner_.begin(), coverage_owner_.end(), EntityId{});
+        std::fill(coverage_owner_mass_.begin(), coverage_owner_mass_.end(), 0.0f);
+    }
     const f32 cov_cs = math::max(tuning_.coverage_cell_size, 1e-3f);
     const i32 cov_w = coverage_dims_.x;
     const i32 cov_h = coverage_dims_.y;
@@ -711,6 +717,10 @@ FluidStats FluidSystem::update(FluidBuffers& fluid,
             const f32 m = w[c] * weight;
             coverage_[idx] += m;
             coverage_dps_[idx] += m * rate;
+            if (attribution_ != nullptr && m > coverage_owner_mass_[idx]) {
+                coverage_owner_mass_[idx] = m;
+                coverage_owner_[idx] = fluid.owner[i];
+            }
         }
     }
 
@@ -738,7 +748,14 @@ FluidStats FluidSystem::update(FluidBuffers& fluid,
 
         const f32 before = chaff.density[a];
         chaff.apply_density_loss(a, amount);
-        stats.density_removed += before - chaff.density[a];
+        const f32 removed = before - chaff.density[a];
+        stats.density_removed += removed;
+
+        // Off by default; see sim/Attribution.h and coverage_owner_'s note.
+        if (attribution_ != nullptr && removed > 0.0f && coverage_owner_[idx].valid()) {
+            const bool killed = (chaff.flags[a] & chaff_flags::kPendingKill) != 0;
+            attribution_->record_chaff(coverage_owner_[idx], chaff.family[a], removed, killed);
+        }
         // Mucus marks its target, and nothing in the sim ever clears kMarked
         // (see the note on the cryo cone in TowerSystem.cpp for the other
         // permanent-flag precedent), so this is a permanent debuff on anything

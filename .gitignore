@@ -54,3 +54,8 @@ desktop.ini
 # ImGui's own window-layout state, written next to the working directory
 # at runtime
 imgui.ini
+
+# Balance sweep output from tools/balance_sweep.py -- hundreds of per-run JSON
+# reports plus their digest. Regenerated on demand and specific to one config
+# hash, so it is a local artifact, not a committed one.
+/tools/balance/

@@ -30,6 +30,7 @@
 #pragma once
 
 #include "core/Types.h"
+#include "sim/Attribution.h"
 
 #include <vector>
 
@@ -111,6 +112,12 @@ public:
     void set_mode(ThinningMode mode) { mode_ = mode; }
     ThinningMode mode() const { return mode_; }
 
+    /// Attaches (or detaches, with null) the per-owner accounting sink. Null by
+    /// default: only the balance harness sets one. See sim/Attribution.h for
+    /// why this costs nothing when off and changes nothing when on.
+    void set_attribution(DamageAttribution* sink) { attribution_ = sink; }
+    DamageAttribution* attribution() const { return attribution_; }
+
     /// Registers a field for this tick. Persistent fields (lifetime <= 0) must
     /// be re-submitted each tick by their owner; timed fields are retained.
     /// Returns an index valid only until the next `clear_transient()`.
@@ -160,6 +167,7 @@ private:
     std::vector<DamageField> fields_;
     std::vector<DamageField> rendered_;
     ThinningMode mode_ = ThinningMode::DensityThinning;
+    DamageAttribution* attribution_ = nullptr;
 };
 
 } // namespace immune::sim

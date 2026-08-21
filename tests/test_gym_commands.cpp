@@ -57,8 +57,7 @@ struct Harness {
         REQUIRE(loader.instantiate(level, world).ok);
         towers.register_systems(world);
         enemies.register_systems(world);
-        waves.set_waves(level.waves.empty() ? WaveDirector::generate(level.region, 4, world.rng())
-                                            : level.waves);
+        waves.set_waves(level.waves);
         waves.start(world);
         economy.configure(EconomyConfig{});
         abilities.load_defaults();

@@ -9,6 +9,7 @@
 //   immune --sim-test <script.json>            Scripted scenario, exit 0 pass / 1 fail.
 //   immune --screenshot <level> --tick N --out <file.png>
 //   immune --dump-config <dir>                 Write the live tuning values as JSON.
+//   immune --autoplay --level <f.json>         Bot-played balance run, JSON report.
 //
 // Global options: --seed N, --level <path>, --width N, --height N, --verbose,
 //                 --quiet, --threads N, --list-scenarios, --help
@@ -30,6 +31,7 @@ enum class Mode : u8 {
     Bench,
     SimTest,
     Screenshot,
+    Autoplay,
     ListScenarios,
     DumpConfig,
     Help,
@@ -62,8 +64,10 @@ struct Options {
     Vec2 focus{0.0f, 0.0f};
     bool has_focus = false;
 
-    /// --exec "<gym commands>": semicolon-separated game/gym commands,
-    /// run once against the world before --screenshot advances any ticks. The
+    /// --exec "<gym commands>": semicolon-separated game/gym commands, run
+    /// once against the world at startup -- before --screenshot advances any
+    /// ticks, and just after the level loads in interactive play (which is what
+    /// makes `--exec "autoplay on; time 8"` a way to watch the balance bot). The
     /// point is that a visual bug found by typing into the console can be
     /// reproduced by a command line, and captured in a regression shot, without
     /// anyone first inventing a bespoke CLI flag for it.
@@ -79,6 +83,16 @@ struct Options {
     /// of JSON files and exit. This is how assets/config is generated from the
     /// code rather than transcribed by hand.
     std::string dump_config_dir;
+
+    // --- --autoplay (app/AutoplayMode.h) -----------------------------------
+    /// --profile <name>: which strategy the bot plays. Empty means the
+    /// default, "greedy-cheapest". See game/autoplay/AutoPlayer.h.
+    std::string profile;
+    /// --report PATH: where the balance report JSON goes. Empty means stdout.
+    std::string report_path;
+    /// --max-ticks N: give up and report "tick_limit" after this many ticks.
+    /// 0 means the harness default (30 simulated minutes).
+    u64 max_ticks = 0;
 
     u64 ticks = 600;            ///< --ticks / --tick
     u64 seed = 0x1234'5678'9abc'def0ULL;

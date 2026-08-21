@@ -73,7 +73,19 @@ public:
     EntityId place(sim::SimWorld& world, TowerType type, Vec2 world_pos);
 
     /// Upgrades in place. Returns the new tier, or 0 if not upgradeable.
+    ///
+    /// Charges nothing: this header gives the system no Economy, so paying is
+    /// the caller's job -- price the move with upgrade_cost() and spend before
+    /// or after, but do spend. (It went unpaid in app/ from Wave 3A until the
+    /// balance harness noticed every upgrade_cost in towers.json was inert.)
     u8 upgrade(sim::SimWorld& world, EntityId tower);
+
+    /// ATP the next tier costs for `tower`: 0 if it is already tier 3, not a
+    /// tower, or gone. Additive to this frozen header because three callers now
+    /// need the same tier arithmetic -- the build HUD (to grey the button), the
+    /// intent handler (to charge), and the balance bot (to plan a purchase) --
+    /// and three copies of it is three chances to disagree.
+    u32 upgrade_cost(const sim::SimWorld& world, EntityId tower) const;
 
     /// Sells a tower: removes the entity, restores the tissue mask, and marks
     /// the flow field dirty again. Returns the ATP refunded.

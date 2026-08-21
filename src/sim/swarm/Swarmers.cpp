@@ -324,6 +324,12 @@ SwarmerStats SwarmerSystem::update(SwarmerBuffers& sw,
             const f32 removed = before - chaff.density[host];
             stats.density_removed += removed;
 
+            // Off by default; see sim/Attribution.h.
+            if (attribution_ != nullptr && sw.owner[i].valid() && removed > 0.0f) {
+                const bool killed = (chaff.flags[host] & chaff_flags::kPendingKill) != 0;
+                attribution_->record_chaff(sw.owner[i], chaff.family[host], removed, killed);
+            }
+
             if (events && !was_attached) {
                 CombatEvent e = make_event(CombatEventType::ProjectileImpact, host_pos,
                                            to_host, sw.visual_id[i]);

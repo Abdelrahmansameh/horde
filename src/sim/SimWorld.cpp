@@ -12,6 +12,11 @@ void SimWorld::init(const SimDesc& desc, JobSystem* jobs) {
     tick_ = 0;
     killed_total_ = 0;
     leaked_total_ = 0;
+    for (u32 f = 0; f < kFamilyCount; ++f) {
+        killed_by_family_[f] = 0;
+        leaked_by_family_[f] = 0;
+        despawned_by_family_[f] = 0;
+    }
     objective_integrity_ = 100.0f;
     portals_.clear();
     last_damage_stats_ = DamageStats{};
@@ -38,6 +43,11 @@ void SimWorld::init(const SimDesc& desc, JobSystem* jobs) {
 }
 
 void SimWorld::tick(Profiler* profiler) {
+    // Retirements this tick that were NOT the player's doing. Filled by the
+    // chaff pass below and consumed at compaction, where the only thing known
+    // about a retiring agent is that it is retiring.
+    u64 not_killed_this_tick[kFamilyCount] = {};
+
     // 1. Spatial hash rebuild.
     {
         WallClock t;
@@ -55,6 +65,12 @@ void SimWorld::tick(Profiler* profiler) {
         // (Wave 3A) — it empties a 100-agent breach in ~1 simulated second,
         // which is enough for --sim-test to assert integrity actually moves.
         leaked_total_ += chaff_stats.despawned_at_goal;
+        for (u32 f = 0; f < kFamilyCount; ++f) {
+            leaked_by_family_[f] += chaff_stats.despawned_at_goal_by_family[f];
+            despawned_by_family_[f] += chaff_stats.despawned_out_of_bounds_by_family[f];
+            not_killed_this_tick[f] = chaff_stats.despawned_at_goal_by_family[f] +
+                                      chaff_stats.despawned_out_of_bounds_by_family[f];
+        }
         objective_integrity_ = math::max(
             0.0f, objective_integrity_ - static_cast<f32>(chaff_stats.despawned_at_goal));
         if (profiler) profiler->record(prof_key::kChaffUpdate, t.elapsed_ms());
@@ -98,8 +114,24 @@ void SimWorld::tick(Profiler* profiler) {
                          kFixedDt, &combat_events_);
 
     // 5. Compaction / kill accounting.
-    killed_total_ += chaff_.compact();
+    // Compaction sees every retirement; the leak/out-of-bounds tallies above
+    // are the part of it that was not the player's doing, so subtracting them
+    // leaves exactly "killed by damage" per family. chaff_killed_total keeps
+    // its historical meaning (all retirements) so no existing assertion moves.
+    {
+        u32 retired_by_family[kFamilyCount] = {};
+        killed_total_ += chaff_.compact(retired_by_family);
+        for (u32 f = 0; f < kFamilyCount; ++f) {
+            const u64 not_ours = not_killed_this_tick[f];
+            const u64 retired = retired_by_family[f];
+            killed_by_family_[f] += retired > not_ours ? retired - not_ours : 0;
+        }
+    }
     damage_.clear_transient(kFixedDt);
+
+    // Every damage source for this tick has now run, so the per-owner sink can
+    // close the tick out. Null in normal play (sim/Attribution.h).
+    if (DamageAttribution* attribution = damage_.attribution()) attribution->mark_tick();
 
     // 6. Budgeted incremental flow-field rebake.
     if (flow_.has_pending_rebake()) {
@@ -124,6 +156,10 @@ SimSnapshot SimWorld::snapshot() const {
     s.chaff_leaked_total = leaked_total_;
     for (u32 f = 0; f < kFamilyCount; ++f) {
         s.chaff_by_family[f] = chaff_.family_count(static_cast<PathogenFamily>(f));
+        s.chaff_spawned_by_family[f] = chaff_.spawned_by_family()[f];
+        s.chaff_killed_by_family[f] = killed_by_family_[f];
+        s.chaff_leaked_by_family[f] = leaked_by_family_[f];
+        s.chaff_despawned_by_family[f] = despawned_by_family_[f];
     }
     return s;
 }

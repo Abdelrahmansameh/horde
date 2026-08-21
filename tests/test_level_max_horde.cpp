@@ -85,13 +85,27 @@ TEST_CASE("a level may author its own wave table", "[level][waves]") {
     REQUIRE(def.waves[1].spawns[0].portal_id.empty());
 }
 
-TEST_CASE("a level with no 'waves' block parses to an empty table (generate() fallback)",
+TEST_CASE("a level that used to lean on the generator now authors its own table",
           "[level][waves]") {
+    // capillary_test.json shipped with no `waves` block and got a table from
+    // WaveDirector::generate() keyed on its region string. Both are gone; the
+    // curve it used to be handed is now written into the file itself.
     LevelLoader loader;
     LevelDef def;
     const std::string path = platform::asset_path("levels/capillary_test.json");
     REQUIRE(loader.load_file(path, def).ok);
-    REQUIRE(def.waves.empty());
+    REQUIRE(loader.validate(def).ok);
+    REQUIRE(def.waves.size() == 8);
+    // The old generated shape: virus from wave 1, bacteria joining at wave 2,
+    // fungal spores at wave 4, and pressure rising monotonically.
+    REQUIRE(def.waves[0].spawns.size() == 1);
+    REQUIRE(def.waves[1].spawns.size() == 2);
+    REQUIRE(def.waves[3].spawns.size() == 3);
+    for (usize i = 1; i < def.waves.size(); ++i) {
+        INFO("wave = " << def.waves[i].name);
+        REQUIRE(wave_total(def.waves[i]) > wave_total(def.waves[i - 1]));
+        REQUIRE(def.waves[i].prep_time <= def.waves[i - 1].prep_time);
+    }
 }
 
 TEST_CASE("authored waves reject a bad family, a zero duration, and an unknown portal",

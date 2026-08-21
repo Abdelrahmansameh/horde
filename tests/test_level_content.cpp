@@ -1,5 +1,5 @@
 // Tests for Wave 2D's remaining scope: instantiate()'s comp::Objective entity
-// spawning, and the two new content levels (chokepoint_pinch, floodplain_mucosal).
+// spawning, and the two new content levels (capillary_switchback, floodplain_mucosal).
 // Owner: Wave 2D.
 #include "game/level/Level.h"
 #include "platform/FileIO.h"
@@ -10,7 +10,9 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <cmath>
+#include <filesystem>
 #include <string>
+#include <vector>
 
 using namespace immune;
 using namespace immune::game;
@@ -38,7 +40,11 @@ const char* kTwoObjectiveLevel = R"JSON({
     { "id": "organ_a", "pos": [32, 16], "radius": 4.0, "integrity": 75 },
     { "id": "organ_b", "pos": [60, 16], "radius": 2.5, "integrity": 40 }
   ],
-  "placement_zones": [ { "min": [10, 10], "max": [50, 22] } ]
+  "placement_zones": [ { "min": [10, 10], "max": [50, 22] } ],
+  "waves": [
+    { "name": "w1", "prep_time": 5.0, "atp_reward": 40,
+      "spawns": [ { "family": "virus", "count": 20, "start_time": 0.0, "duration": 2.0 } ] }
+  ]
 })JSON";
 
 sim::SimWorld make_world(const LevelDef& def) {
@@ -113,15 +119,15 @@ TEST_CASE("instantiate on capillary_test.json (a single-objective level) spawns 
 
 // ---- Deliverable 2: new content levels -------------------------------------
 
-TEST_CASE("chokepoint_pinch.json loads, validates, and bakes a flow field reaching the objective",
-          "[level][content][chokepoint]") {
+TEST_CASE("capillary_switchback.json loads, validates, and bakes a flow field reaching the objective",
+          "[level][content][switchback]") {
     LevelLoader loader;
     LevelDef def;
-    const std::string path = platform::asset_path("levels/chokepoint_pinch.json");
+    const std::string path = platform::asset_path("levels/capillary_switchback.json");
     REQUIRE(platform::file_exists(path));
     REQUIRE(loader.load_file(path, def).ok);
     REQUIRE(loader.validate(def).ok);
-    REQUIRE(def.name == "chokepoint_pinch");
+    REQUIRE(def.name == "capillary_switchback");
     REQUIRE_FALSE(def.portals.empty());
     REQUIRE_FALSE(def.objectives.empty());
     REQUIRE_FALSE(def.placement_zones.empty());
@@ -130,18 +136,22 @@ TEST_CASE("chokepoint_pinch.json loads, validates, and bakes a flow field reachi
     REQUIRE(loader.instantiate(def, world).ok);
     REQUIRE(world.flow().reachable(def.portals[0].position));
 
-    // The pinch's narrowest point (x=67.56, along the lane's y=38 centerline)
-    // must still be walkable (it's on the vessel), but a point ~2.1 world
-    // units off the centerline there -- well inside the wide sections' radius
-    // but outside the ~2.5-wide pinch's -- must not be, proving the width
-    // profile actually narrows partway down the lane rather than staying
-    // uniformly wide.
-    const IVec2 pinch_center = world.tissue().world_to_cell(Vec2{67.56f, 38.0f});
-    const IVec2 pinch_off = world.tissue().world_to_cell(Vec2{67.56f, 40.11f});
-    const IVec2 wide_off = world.tissue().world_to_cell(Vec2{10.56f, 40.11f});
-    REQUIRE(world.tissue().walkable(pinch_center.x, pinch_center.y));
-    REQUIRE_FALSE(world.tissue().walkable(pinch_off.x, pinch_off.y));
-    REQUIRE(world.tissue().walkable(wide_off.x, wide_off.y));
+    // This level replaced a pinch with a switchback, so pin both halves of
+    // that. (a) The lumen holds its ~11-wide profile end to end: x=67.56 sits
+    // mid-lane on both the top run (y=12.5) and the doubled-back middle run
+    // (y=38), and ~4.4 units off either centerline is still walkable -- the
+    // old level's narrowest point was ~2.5 wide there.
+    const IVec2 top_off = world.tissue().world_to_cell(Vec2{67.56f, 16.9f});
+    const IVec2 mid_off = world.tissue().world_to_cell(Vec2{67.56f, 42.4f});
+    REQUIRE(world.tissue().walkable(top_off.x, top_off.y));
+    REQUIRE(world.tissue().walkable(mid_off.x, mid_off.y));
+
+    // (b) The two runs are separate passes of the same lane, not one fat
+    // corridor: the tissue between them (y=25, squarely in the gap) is wall.
+    // That gap is what makes a tower cluster on it cover both passes, which is
+    // the concentration the pinch used to fake (DESIGN.md 4.3).
+    const IVec2 between = world.tissue().world_to_cell(Vec2{67.56f, 25.0f});
+    REQUIRE_FALSE(world.tissue().walkable(between.x, between.y));
 }
 
 TEST_CASE("floodplain_mucosal.json loads, validates, and bakes a flow field from every portal",
@@ -164,9 +174,52 @@ TEST_CASE("floodplain_mucosal.json loads, validates, and bakes a flow field from
     }
 
     // Open floodplain: a point ~5.9 world units off the trunk's centerline
-    // (well inside a ~1.3-1.6 wide chokepoint's radius, but inside this
-    // level's ~30-wide trunk) must be walkable, proving the lane is wide
-    // rather than a thin path.
+    // (outside the radius of any capillary lane, but well inside this level's
+    // ~30-wide trunk) must be walkable, proving the lane is wide rather than a
+    // thin path.
     const IVec2 wide_off = world.tissue().world_to_cell(Vec2{110.97f, 52.88f});
     REQUIRE(world.tissue().walkable(wide_off.x, wide_off.y));
+}
+
+// ---- Every shipped level carries its own wave table ----------------------
+
+TEST_CASE("every level under assets/levels loads, validates, and authors waves",
+          "[level][content][waves]") {
+    // Waves are per-level only now (Level.h, AUTHORED WAVES): there is no
+    // generator to fall back to, so a level shipped without a table is broken
+    // content. Sweeping the directory is what makes that a build failure
+    // rather than something the player finds.
+    const std::string dir = platform::asset_path("levels");
+    REQUIRE(std::filesystem::is_directory(dir));
+
+    u32 checked = 0;
+    for (const auto& entry : std::filesystem::directory_iterator(dir)) {
+        if (!entry.is_regular_file() || entry.path().extension() != ".json") continue;
+        const std::string path = entry.path().string();
+        INFO("level = " << path);
+
+        LevelLoader loader;
+        LevelDef def;
+        REQUIRE(loader.load_file(path, def).ok);
+        REQUIRE(loader.validate(def).ok);
+        REQUIRE_FALSE(def.waves.empty());
+        for (const WaveDef& w : def.waves) {
+            INFO("wave = " << w.name);
+            REQUIRE_FALSE(w.spawns.empty());
+            u32 total = 0;
+            for (const SpawnEntry& s : w.spawns) total += s.count;
+            REQUIRE(total > 0);
+        }
+        ++checked;
+    }
+    REQUIRE(checked >= 13);
+}
+
+TEST_CASE("the built-in fallback level authors waves too", "[level][content][waves]") {
+    // --bench/--screenshot/--sim-test with no --level land here, and an empty
+    // table would mean a headless run with no pressure at all.
+    const LevelDef def = LevelLoader::default_test_level();
+    LevelLoader loader;
+    REQUIRE(loader.validate(def).ok);
+    REQUIRE_FALSE(def.waves.empty());
 }

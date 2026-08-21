@@ -64,6 +64,7 @@
 #pragma once
 
 #include "core/Types.h"
+#include "sim/Attribution.h"
 
 #include <vector>
 
@@ -321,6 +322,12 @@ public:
 
     const FluidStats& last_stats() const { return last_; }
 
+    /// Per-owner accounting sink, null by default. The Goblet Cell hurts
+    /// things only through the coverage grid, so a sink that skipped this path
+    /// would rank that tower at zero. See sim/Attribution.h, and the note on
+    /// coverage_owner_ below for the one approximation this path makes.
+    void set_attribution(DamageAttribution* sink) { attribution_ = sink; }
+
     // ---- Coverage grid -----------------------------------------------------
     // How wet each patch of the world is, rebuilt every tick from the live
     // particles. This is the ONLY channel through which fluid hurts anything,
@@ -352,6 +359,21 @@ private:
     IVec2 coverage_dims_{0, 0};
     std::vector<f32> coverage_;     ///< Particle mass per cell, normalized on read.
     std::vector<f32> coverage_dps_; ///< Damage rate per cell, mass-weighted.
+    /// Which emitter contributed the most mass to each cell. Attribution only:
+    /// nothing in the sim reads it, and it is only filled when a sink is
+    /// attached.
+    ///
+    /// This is the one place per-owner accounting is an APPROXIMATION rather
+    /// than an exact split. The coverage grid deliberately aggregates every
+    /// jet into one field -- that aggregation is the whole reason fluid damage
+    /// costs the same at 10 agents and 10,000 -- so a cell soaked by two
+    /// Goblet Cells at once has no exact per-owner share to recover. Crediting
+    /// the largest contributor is right whenever one jet dominates a cell,
+    /// which is the normal case; two jets overlapping is a placement the
+    /// planner's spacing rule already avoids.
+    std::vector<EntityId> coverage_owner_;
+    std::vector<f32> coverage_owner_mass_;
+    DamageAttribution* attribution_ = nullptr;
 };
 
 } // namespace immune::sim

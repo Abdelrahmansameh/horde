@@ -154,6 +154,15 @@ Changing this order is a contract change. `state_hash()` is an FNV-1a over the
 chaff streams plus counters; `--sim-test` asserts on it to catch determinism
 regressions that don't show up in aggregate counts.
 
+`SimSnapshot` also carries per-family lifetime tallies —
+`chaff_{spawned,killed,leaked,despawned}_by_family`. These were added for the
+balance harness (`docs/BALANCE.md`) and are an **additive** change: every
+pre-existing field keeps its meaning, including `chaff_killed_total`, which has
+always counted every retirement rather than only damage kills. The split is made
+where the cause is actually known — `ChaffSystem` knows a leak from an
+out-of-bounds despawn, and `compact()` knows only that something retired — so
+`killed = retired − leaked − out_of_bounds`, per family, per tick.
+
 ### 4.2 `sim/chaff` — SoA storage (**the most important contract in the project**)
 
 There is no `ChaffAgent` class and there must never be one. Ten thousand agents
@@ -401,11 +410,33 @@ PNG top-down flip. This is the project's primary visual verification channel.
   rasterize into TissueMask → DistanceField → FlowField. Schema v1 is documented
   in `Level.h`; a missing `"schema"` is an error, not a default.
 - **`wave/`** — the director is a pure function of (tick, wave table, RNG). No
-  wall-clock, no background spawning, so a wave sequence replays identically.
+  wall-clock, no background spawning, so a wave sequence replays identically. It
+  schedules a table; it never builds one. Tables come from the level file only.
 - **`economy/`** — ATP ledger with fractional carry so income is exact. Kill
   income is credited from `DamageStats`, never inferred from count deltas.
 - **`meta/`** — versioned JSON save. Loading an older version must migrate;
   loading a *newer* version must fail loudly rather than silently drop fields.
+- **`session/`** — `step_level()`, the one authoritative order of operations for
+  a level tick (queued spawns → wave director → sim → gym toggles → economy →
+  abilities → win/loss). It used to live inside `App::tick_sim`, which made it
+  unavailable to anything without a window. That order *is* gameplay — move the
+  economy credit before the sim tick and towers pay for kills a frame late — so
+  the balance harness must run it rather than a plausible imitation. `App` calls
+  it and `--autoplay` calls it; there is no second copy to drift. It owns
+  nothing (every pointer in `LevelSystems` belongs to the caller) and reports
+  the outcome rather than acting on it, because `app/GameState.h`'s transitions
+  are an app-layer concern.
+- **`autoplay/`** — the bot that plays a level for balance measurement. Where to
+  build is derived from the level's own geometry (vessel widths, the flow
+  field's cost-to-goal, lane ownership, `PlacementZoneTag`), never from an
+  authored per-level plan: a plan file is one more thing to keep in step with
+  every level edit, and a stale one measures the plan rather than the level.
+  Purchases go through `Economy::spend` and `TowerSystem::validate` — the bot
+  has no path into the sim a player lacks. Deterministic: no RNG, no wall clock.
+- **`telemetry/`** — `RunTelemetry`, which turns a played level into the JSON a
+  balance pass reads (per-tower earnings, per-family outcomes, per-wave
+  pressure, an economy timeline). Rates and ratios are derived at report time
+  from raw tallies, so a new metric never needs a re-run. See `docs/BALANCE.md`.
 - **`gym/`** — the debug/authoring command language (`spawn`, `tower`, `wave`,
   `cast`, `vfx`, …) behind the gym level's control panel (`ui/GymPanel.h`),
   `--sim-test`'s `cmd` action, and `--exec`. A pure function of (context, line) with no UI of its own, so the same
@@ -472,7 +503,11 @@ assertion is evaluated (no early exit) so one run reports every failure. Script
 schema v1 is documented at the top of the `--sim-test` section in
 `app/Modes.cpp`; assertable metrics are `chaff_count`, `named_count`,
 `total_density`, `objective_integrity`, `chaff_killed_total`,
-`chaff_leaked_total`, `tick`, `state_hash`.
+`chaff_leaked_total`, `tick`, `state_hash`, plus the per-family forms
+`chaff_{spawned,killed,leaked,despawned,alive}.<family>` (e.g.
+`chaff_leaked.parasite`). Per-family assertions exist because "the parasites
+got through" is a regression a total-only metric hides the moment the level
+also kills more bacteria.
 
 Actions are `spawn_chaff`, `place_tower`, and `cmd` — the last runs a gym
 command (`docs/GYM.md`), so anything reachable from the in-game console is
@@ -533,14 +568,15 @@ are all proven, and Wave 1C only has to add draws.
 ## 11. `config/` — the tuning surface
 
 Every gameplay-numeric value — tower stats and per-role mechanics, enemy family
-size/speed/health and elite stats, the procedural wave curves, crowd physics,
-economy, abilities, meta rewards — lives in `assets/config/*.json` and is loaded
-at startup.
+size/speed/health and elite stats, crowd physics, economy, abilities, meta
+rewards — lives in `assets/config/*.json` and is loaded at startup. Wave tables
+are the deliberate exception: they are authored per level in
+`assets/levels/*.json`, not tuned globally (see `game/level/Level.h`).
 
 **Module placement.** `immune_config` (`src/config/`) is generic machinery only:
 strict parsing, a field registry, path-addressed get/set, dump, and file
 polling. It links `core` + `platform` + nlohmann_json and knows nothing about
-towers or enemies. The seven schemas live in `src/game/config/`, inside
+towers or enemies. The six schemas live in `src/game/config/`, inside
 `immune_game`, because filling `sim::ChaffTuning` and pushing values into
 `render` both need modules `config/` sits below. Order is unchanged:
 `core → platform → config → sim → render → game → ui → app`.
@@ -559,9 +595,10 @@ self-documenting list of every knob.
 surface. Values reach their systems through seams that already existed
 (`TowerSystem::set_stats`, `ChaffSystem::set_tuning`) or through new,
 non-frozen headers (`TowerMechanics.h`, `EnemyConfigApply.h`,
-`AbilityConfigApply.h`, `WaveConfigApply.h`). The two exceptions are additive:
-`Cli.h` gained `--config`/`--dump-config`, and `EnemyRoster.h` gained one friend
-declaration.
+`AbilityConfigApply.h`). The two exceptions are additive: `Cli.h` gained
+`--config`/`--dump-config`, and `EnemyRoster.h` gained one friend declaration.
+`WaveDirector.h` later lost its `generate()`, when wave tables moved to the
+level files — the one frozen surface this project has deliberately narrowed.
 
 **Determinism.** The config is a determinism input, so `--sim-test` and
 `--bench` never hot-reload, `--config <dir>` pins it, and every sim-test report

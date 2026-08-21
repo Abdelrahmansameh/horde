@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "name": "capillary_2_both_pinches_converge",
+  "name": "capillary_2_both_branches_converge",
   "seed": 20260806,
   "ticks": 3600,
   "max_chaff": 5000,

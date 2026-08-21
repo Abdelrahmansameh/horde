@@ -1,29 +1,12 @@
-// game/config/EnemyWaveConfig.cpp — enemies.json and waves.json.
+// game/config/EnemyConfig.cpp — enemies.json.
 //
 // enemies.json is where "size", "health" and "speed" actually live. Size is
 // deliberately a single number per family (`visual.silhouette`): the renderer
 // draws it and ChaffFamilyParams::radius is derived from it, so what is drawn
 // and what collides cannot drift apart.
-//
-// waves.json describes the PROCEDURAL generator that eleven of the thirteen
-// shipped levels rely on. A level that authors its own `waves` block still
-// overrides this entirely — that path was already data-driven.
 #include "game/config/Schemas.h"
 
 #include <algorithm>
-
-namespace immune::game {
-
-const WaveRegionConfig* WaveConfig::find_region(std::string_view name) const {
-    const WaveRegionConfig* fallback = nullptr;
-    for (const WaveRegionConfig& region : regions) {
-        if (region.name == name) return &region;
-        if (region.name == "flat") fallback = &region;
-    }
-    return fallback;
-}
-
-} // namespace immune::game
 
 namespace immune::game::detail {
 namespace {
@@ -40,11 +23,6 @@ IMMUNE_CONFIG_SCHEMA_ASSERT(FamilyChaffParams);
 IMMUNE_CONFIG_SCHEMA_ASSERT(BaseAttackParams);
 IMMUNE_CONFIG_SCHEMA_ASSERT(FungalHazardParams);
 IMMUNE_CONFIG_SCHEMA_ASSERT(EliteStatsParams);
-IMMUNE_CONFIG_SCHEMA_ASSERT(WaveTrackConfig);
-IMMUNE_CONFIG_SCHEMA_ASSERT(WaveRegionScaling);
-IMMUNE_CONFIG_SCHEMA_ASSERT(WaveGlobals);
-
-// --- enemies.json ------------------------------------------------------
 
 constexpr Field kSpeedProfileFields[] = {
     IMMUNE_CONFIG_FIELD(SpeedProfileParams, max_speed, FieldKind::F32, "Top speed, world units/sec"),
@@ -218,39 +196,6 @@ const char* speed_tier_key(SpeedTier t) {
 constexpr std::string_view kFamilyEntryKeys[] = {"speed_tier", "visual", "behavior", "chaff"};
 constexpr std::string_view kEliteEntryKeys[] = {"id",   "name",     "family",
                                                 "tier", "behavior_kind", "stats", "behavior"};
-
-// --- waves.json --------------------------------------------------------
-
-constexpr Field kTrackFields[] = {
-    IMMUNE_CONFIG_ENUM_FIELD(WaveTrackConfig, family, FieldKind::EnumU8, "Which family this track spawns", kFamilyEnum),
-    IMMUNE_CONFIG_FIELD(WaveTrackConfig, from_wave, FieldKind::U32, "First wave index this track appears in"),
-    IMMUNE_CONFIG_FIELD(WaveTrackConfig, count_divisor, FieldKind::U32, "The wave's base count is divided by this"),
-    IMMUNE_CONFIG_FIELD(WaveTrackConfig, count_jitter, FieldKind::F32, "Upper bound of a uniform random count bonus"),
-    IMMUNE_CONFIG_FIELD(WaveTrackConfig, start_time, FieldKind::F32, "Seconds after wave start"),
-    IMMUNE_CONFIG_FIELD(WaveTrackConfig, duration, FieldKind::F32, "Seconds to spread the count over"),
-};
-constexpr Schema kTrackSchema{"wave_track", kTrackFields};
-
-constexpr Field kScalingFields[] = {
-    IMMUNE_CONFIG_FIELD(WaveRegionScaling, prep_first, FieldKind::F32, "Build window before wave 1"),
-    IMMUNE_CONFIG_FIELD(WaveRegionScaling, prep_floor, FieldKind::F32, "Build window the curve descends to"),
-    IMMUNE_CONFIG_FIELD(WaveRegionScaling, atp_base, FieldKind::U32, "Wave-clear reward for wave 1"),
-    IMMUNE_CONFIG_FIELD(WaveRegionScaling, atp_per_wave, FieldKind::U32, "Added to the reward each wave"),
-    IMMUNE_CONFIG_FIELD(WaveRegionScaling, count_base, FieldKind::U32, "Agent count for wave 1"),
-    IMMUNE_CONFIG_FIELD(WaveRegionScaling, count_per_wave, FieldKind::U32, "Added to the count each wave"),
-    IMMUNE_CONFIG_FIELD(WaveRegionScaling, final_count_mul, FieldKind::F32, "Applied to the last wave only"),
-    IMMUNE_CONFIG_FIELD(WaveRegionScaling, final_reward_mul, FieldKind::F32, "Applied to the last wave only"),
-};
-constexpr Schema kScalingSchema{"wave_scaling", kScalingFields};
-
-constexpr Field kWaveGlobalsFields[] = {
-    IMMUNE_CONFIG_FIELD(WaveGlobals, default_wave_count, FieldKind::U32, "Waves in a generated table"),
-    IMMUNE_CONFIG_FIELD(WaveGlobals, clearing_timeout, FieldKind::F32, "Grace period before a stalled wave is force-completed"),
-    IMMUNE_CONFIG_FIELD(WaveGlobals, burst_disc_factor, FieldKind::F32, "Spawn disc = contact_spacing * sqrt(count) * this"),
-};
-constexpr Schema kWaveGlobalsSchema{"wave_globals", kWaveGlobalsFields};
-
-constexpr std::string_view kRegionEntryKeys[] = {"prep_mode", "final_modifier", "scaling", "tracks"};
 
 } // namespace
 
@@ -439,107 +384,6 @@ void bind_enemies(config::Registry& registry, EnemyConfig& cfg) {
         registry.bind(base + "stats", kEliteStatsSchema, &ec.stats);
         const EliteArm arm = elite_arm_of(ec.behavior_kind);
         registry.bind(base + "behavior", *arm.schema, elite_arm(ec.behavior, ec.behavior_kind));
-    }
-}
-
-// ---------------------------------------------------------------------------
-// waves.json
-// ---------------------------------------------------------------------------
-
-void parse_waves(const Json& doc, WaveConfig& out, config::Ctx& ctx) {
-    require_schema_version(doc, ctx);
-
-    {
-        config::Ctx::Scope scope(ctx, "globals");
-        config::parse_struct(config::require_object(doc, "globals", ctx), kWaveGlobalsSchema,
-                             &out.globals, ctx);
-    }
-
-    config::Ctx::Scope scope(ctx, "regions");
-    const Json& regions = config::require_object(doc, "regions", ctx);
-    out.regions.clear();
-    // nlohmann objects iterate in sorted key order, so the parsed vector — and
-    // therefore anything that walks it — is deterministic.
-    for (const auto& item : regions.items()) {
-        config::Ctx::Scope s(ctx, item.key());
-        const Json& entry = item.value();
-        if (!entry.is_object()) ctx.fail("region entry must be an object");
-        config::reject_unknown_keys(entry, kRegionEntryKeys, ctx);
-
-        WaveRegionConfig region;
-        region.name = item.key();
-        region.prep_mode =
-            static_cast<PrepMode>(config::require_enum(entry, "prep_mode", prep_mode_enum(), ctx));
-        region.final_modifier = static_cast<WaveModifier>(
-            config::require_enum(entry, "final_modifier", wave_modifier_enum(), ctx));
-        {
-            config::Ctx::Scope sc(ctx, "scaling");
-            config::parse_struct(config::require_object(entry, "scaling", ctx), kScalingSchema,
-                                 &region.scaling, ctx);
-        }
-        {
-            config::Ctx::Scope tr(ctx, "tracks");
-            const Json& tracks = config::require_array(entry, "tracks", ctx);
-            if (tracks.empty()) ctx.fail("'tracks' must not be empty");
-            for (usize i = 0; i < tracks.size(); ++i) {
-                config::Ctx::Scope ts(ctx, i);
-                WaveTrackConfig track;
-                config::parse_struct(tracks.at(i), kTrackSchema, &track, ctx);
-                if (track.count_divisor == 0) ctx.fail("'count_divisor' must be at least 1");
-                if (track.duration <= 0.0f) ctx.fail("'duration' must be positive");
-                region.tracks.push_back(track);
-            }
-        }
-        out.regions.push_back(std::move(region));
-    }
-
-    if (out.find_region("flat") == nullptr) {
-        ctx.fail("a 'flat' region is required: it is the fallback for any level "
-                 "whose region string is unrecognized");
-    }
-}
-
-Json dump_waves(const WaveConfig& cfg) {
-    Json doc = Json::object();
-    write_schema_version(doc);
-
-    Json globals = Json::object();
-    config::dump_struct(globals, kWaveGlobalsSchema, &cfg.globals);
-    doc["globals"] = std::move(globals);
-
-    Json regions = Json::object();
-    for (const WaveRegionConfig& region : cfg.regions) {
-        Json entry = Json::object();
-        entry["prep_mode"] = std::string(config::enum_name(
-            Field{"prep_mode", FieldKind::EnumU8, 0, "", kPrepModeEnum}, &region.prep_mode));
-        entry["final_modifier"] = std::string(config::enum_name(
-            Field{"final_modifier", FieldKind::EnumU8, 0, "", kWaveModifierEnum},
-            &region.final_modifier));
-        Json scaling = Json::object();
-        config::dump_struct(scaling, kScalingSchema, &region.scaling);
-        entry["scaling"] = std::move(scaling);
-        Json tracks = Json::array();
-        for (const WaveTrackConfig& track : region.tracks) {
-            Json t = Json::object();
-            config::dump_struct(t, kTrackSchema, &track);
-            tracks.push_back(std::move(t));
-        }
-        entry["tracks"] = std::move(tracks);
-        regions[region.name] = std::move(entry);
-    }
-    doc["regions"] = std::move(regions);
-
-    return doc;
-}
-
-void bind_waves(config::Registry& registry, WaveConfig& cfg) {
-    registry.bind("waves.globals", kWaveGlobalsSchema, &cfg.globals);
-    for (WaveRegionConfig& region : cfg.regions) {
-        registry.bind("waves.regions." + region.name + ".scaling", kScalingSchema, &region.scaling);
-        for (usize i = 0; i < region.tracks.size(); ++i) {
-            registry.bind("waves.regions." + region.name + ".tracks." + std::to_string(i),
-                          kTrackSchema, &region.tracks[i]);
-        }
     }
 }
 

@@ -279,9 +279,18 @@ LevelLoadResult LevelLoader::load_string(const std::string& text, LevelDef& out)
         if (j.contains("ambient_drift")) {
             def.ambient_drift = parse_vec2(j.at("ambient_drift"), "ambient_drift");
         }
-        if (j.contains("waves")) {
+        // Required, not optional. A level's wave table is authored here and
+        // nowhere else -- there is no region-shaped generator to fall back to
+        // any more -- so a level without one has no content, and saying so at
+        // load time is the only place it can be said usefully. The check lives
+        // in the parser rather than validate() because validate() is not on
+        // the app's load path (App::load_level/Modes::build_world both go
+        // straight from load_file() to instantiate()).
+        if (!j.contains("waves")) throw std::runtime_error("level declares no 'waves'");
+        {
             const json& arr = j.at("waves");
             if (!arr.is_array()) throw std::runtime_error("'waves' must be an array");
+            if (arr.empty()) throw std::runtime_error("'waves' must not be empty");
             def.waves.reserve(arr.size());
             for (usize i = 0; i < arr.size(); ++i) def.waves.push_back(parse_wave(arr[i], i));
         }
@@ -306,9 +315,12 @@ LevelLoadResult LevelLoader::validate(const LevelDef& def) const {
     if (def.vessels.empty()) return LevelLoadResult{false, "level has no vessels", 0};
     if (def.portals.empty()) return LevelLoadResult{false, "level has no spawn portals", 0};
     if (def.objectives.empty()) return LevelLoadResult{false, "level has no objectives", 0};
-    // Authored waves only: a named portal that doesn't exist would make
-    // WaveDirector fall back to the first portal at runtime, so the wave would
-    // silently come out of the wrong lane instead of failing loudly here.
+    // Same rule load_string() enforces, repeated here so a LevelDef built in
+    // code (a test fixture, default_test_level()) cannot skip it either.
+    if (def.waves.empty()) return LevelLoadResult{false, "level declares no waves", 0};
+    // A named portal that doesn't exist would make WaveDirector fall back to
+    // the first portal at runtime, so the wave would silently come out of the
+    // wrong lane instead of failing loudly here.
     for (const WaveDef& w : def.waves) {
         for (const SpawnEntry& e : w.spawns) {
             if (e.portal_id.empty()) continue;
@@ -389,6 +401,47 @@ LevelLoadResult LevelLoader::instantiate(const LevelDef& def, sim::SimWorld& wor
     return LevelLoadResult{true, "", 0};
 }
 
+namespace {
+
+/// The built-in test level's wave table: the old region-agnostic "flat" curve
+/// that used to live in waves.json, now the only place it survives. Headless
+/// --bench/--screenshot/--sim-test runs supply no level file, and a level with
+/// no waves is no longer loadable, so this has to carry real pressure itself.
+SpawnEntry test_spawn(PathogenFamily family, u32 count, f32 start_time, f32 duration) {
+    SpawnEntry e;
+    e.family = family;
+    e.count = count;
+    e.start_time = start_time;
+    e.duration = duration;
+    return e;
+}
+
+std::vector<WaveDef> default_test_waves() {
+    constexpr u32 kWaveCount = 8;
+    std::vector<WaveDef> waves;
+    waves.reserve(kWaveCount);
+    for (u32 i = 0; i < kWaveCount; ++i) {
+        WaveDef w;
+        w.index = i;
+        w.name = "flat_wave_" + std::to_string(i + 1);
+        // A generous first window, then a fixed one -- not a curve. A bench
+        // run wants a steady load, not an escalating sense of urgency.
+        w.prep_time = (i == 0) ? 8.0f : 15.0f;
+        w.atp_reward = 50u + i * 10u;
+
+        const u32 base = 120u + i * 75u;
+        w.spawns.push_back(test_spawn(PathogenFamily::Virus, base + 15u, 0.0f, 4.0f));
+        if (i >= 1) w.spawns.push_back(test_spawn(PathogenFamily::Bacteria, base / 3u, 1.0f, 3.34f));
+        if (i >= 3) {
+            w.spawns.push_back(test_spawn(PathogenFamily::FungalSpore, base / 4u, 0.67f, 5.34f));
+        }
+        waves.push_back(std::move(w));
+    }
+    return waves;
+}
+
+} // namespace
+
 LevelDef LevelLoader::default_test_level() {
     LevelDef d;
     d.schema = 1;
@@ -413,6 +466,7 @@ LevelDef LevelLoader::default_test_level() {
     d.objectives.push_back(ObjectivePoint{"organ", Vec2{248.0f, 72.0f}, 5.0f, 100.0f});
     d.placement_zones.push_back(Rect{Vec2{16.0f, 40.0f}, Vec2{240.0f, 110.0f}});
     d.placement_zone_tags.push_back(PlacementZoneTag{});
+    d.waves = default_test_waves();
     return d;
 }
 

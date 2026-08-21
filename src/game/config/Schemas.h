@@ -1,4 +1,4 @@
-// game/config/Schemas.h — internal split of the seven file parsers.
+// game/config/Schemas.h — internal split of the six file parsers.
 //
 // One translation unit per group keeps each file readable; GameConfig.cpp is
 // the only thing that calls these, and it drives them in config_file_names()
@@ -21,10 +21,6 @@ void bind_towers(config::Registry& registry, TowerConfig& cfg);
 void parse_enemies(const config::Json& doc, EnemyConfig& out, config::Ctx& ctx);
 config::Json dump_enemies(const EnemyConfig& cfg);
 void bind_enemies(config::Registry& registry, EnemyConfig& cfg);
-
-void parse_waves(const config::Json& doc, WaveConfig& out, config::Ctx& ctx);
-config::Json dump_waves(const WaveConfig& cfg);
-void bind_waves(config::Registry& registry, WaveConfig& cfg);
 
 void parse_sim(const config::Json& doc, SimConfig& out, config::Ctx& ctx);
 config::Json dump_sim(const SimConfig& cfg);
@@ -76,26 +72,8 @@ inline constexpr config::EnumEntry kThreatTierEnum[] = {
     {nullptr, 0},
 };
 
-/// "allergen" is accepted alongside "allergen_overreaction" because the level
-/// loader already accepts both; the files must not disagree.
-inline constexpr config::EnumEntry kWaveModifierEnum[] = {
-    {"none", static_cast<i64>(WaveModifier::None)},
-    {"allergen_overreaction", static_cast<i64>(WaveModifier::AllergenOverreaction)},
-    {"fever", static_cast<i64>(WaveModifier::Fever)},
-    {"swarm", static_cast<i64>(WaveModifier::Swarm)},
-    {nullptr, 0},
-};
-
-inline constexpr config::EnumEntry kPrepModeEnum[] = {
-    {"curve", static_cast<i64>(PrepMode::Curve)},
-    {"first_then_flat", static_cast<i64>(PrepMode::FirstThenFlat)},
-    {nullptr, 0},
-};
-
 inline std::span<const config::EnumEntry> family_enum() { return {kFamilyEnum, 6}; }
 inline std::span<const config::EnumEntry> speed_tier_enum() { return {kSpeedTierEnum, 4}; }
 inline std::span<const config::EnumEntry> threat_tier_enum() { return {kThreatTierEnum, 3}; }
-inline std::span<const config::EnumEntry> wave_modifier_enum() { return {kWaveModifierEnum, 4}; }
-inline std::span<const config::EnumEntry> prep_mode_enum() { return {kPrepModeEnum, 2}; }
 
 } // namespace immune::game::detail

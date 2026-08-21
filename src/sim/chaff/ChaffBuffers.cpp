@@ -32,6 +32,7 @@ void ChaffBuffers::clear() {
     count_ = 0;
     total_density_ = 0.0f;
     for (u32& c : family_counts_) c = 0;
+    for (u64& c : spawned_by_family_) c = 0;
     for (usize i = 0; i < capacity_; ++i) {
         flags[i] = 0;
         generation[i] = 0;
@@ -55,6 +56,7 @@ ChaffHandle ChaffBuffers::spawn(const ChaffSpawnParams& p) {
     if (next_generation_ == 0u) next_generation_ = 1u;   // never hand out 0
     total_density_ += p.density;
     ++family_counts_[static_cast<u32>(p.family)];
+    ++spawned_by_family_[static_cast<u32>(p.family)];
     return ChaffHandle{static_cast<u32>(i), generation[i]};
 }
 
@@ -72,7 +74,7 @@ void ChaffBuffers::apply_density_loss(usize index, f32 amount) {
     if (density[index] <= 0.0f) flags[index] |= chaff_flags::kPendingKill;
 }
 
-usize ChaffBuffers::compact() {
+usize ChaffBuffers::compact(u32* removed_by_family) {
     usize removed = 0;
     usize i = 0;
     while (i < count_) {
@@ -83,7 +85,10 @@ usize ChaffBuffers::compact() {
         // Retire slot i.
         total_density_ -= density[i];
         const u32 fam = family[i];
-        if (fam < kFamilyCount && family_counts_[fam] > 0) --family_counts_[fam];
+        if (fam < kFamilyCount) {
+            if (family_counts_[fam] > 0) --family_counts_[fam];
+            if (removed_by_family != nullptr) ++removed_by_family[fam];
+        }
         ++removed;
 
         const usize last = count_ - 1;

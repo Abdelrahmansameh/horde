@@ -29,21 +29,21 @@
             45.59,
             36.67
           ],
-          "w": 8.13
+          "w": 9.29
         },
         {
           "p": [
             87.14,
             51.33
           ],
-          "w": 5.81
+          "w": 9.29
         },
         {
           "p": [
             123.81,
             44.0
           ],
-          "w": 6.97
+          "w": 9.29
         },
         {
           "p": [
@@ -92,5 +92,183 @@
   "ambient_drift": [
     0.0,
     0.0
+  ],
+  "waves": [
+    {
+      "name": "capillary_wave_1",
+      "prep_time": 8.0,
+      "atp_reward": 50,
+      "spawns": [
+        {
+          "family": "virus",
+          "count": 135,
+          "start_time": 0.0,
+          "duration": 4.0
+        }
+      ]
+    },
+    {
+      "name": "capillary_wave_2",
+      "prep_time": 7.43,
+      "atp_reward": 60,
+      "spawns": [
+        {
+          "family": "virus",
+          "count": 210,
+          "start_time": 0.0,
+          "duration": 4.0
+        },
+        {
+          "family": "bacteria",
+          "count": 65,
+          "start_time": 1.0,
+          "duration": 3.34
+        }
+      ]
+    },
+    {
+      "name": "capillary_wave_3",
+      "prep_time": 6.86,
+      "atp_reward": 70,
+      "spawns": [
+        {
+          "family": "virus",
+          "count": 285,
+          "start_time": 0.0,
+          "duration": 4.0
+        },
+        {
+          "family": "bacteria",
+          "count": 90,
+          "start_time": 1.0,
+          "duration": 3.34
+        }
+      ]
+    },
+    {
+      "name": "capillary_wave_4",
+      "prep_time": 6.29,
+      "atp_reward": 80,
+      "spawns": [
+        {
+          "family": "virus",
+          "count": 360,
+          "start_time": 0.0,
+          "duration": 4.0
+        },
+        {
+          "family": "bacteria",
+          "count": 115,
+          "start_time": 1.0,
+          "duration": 3.34
+        },
+        {
+          "family": "fungal_spore",
+          "count": 86,
+          "start_time": 0.67,
+          "duration": 5.34
+        }
+      ]
+    },
+    {
+      "name": "capillary_wave_5",
+      "prep_time": 5.71,
+      "atp_reward": 90,
+      "spawns": [
+        {
+          "family": "virus",
+          "count": 435,
+          "start_time": 0.0,
+          "duration": 4.0
+        },
+        {
+          "family": "bacteria",
+          "count": 140,
+          "start_time": 1.0,
+          "duration": 3.34
+        },
+        {
+          "family": "fungal_spore",
+          "count": 105,
+          "start_time": 0.67,
+          "duration": 5.34
+        }
+      ]
+    },
+    {
+      "name": "capillary_wave_6",
+      "prep_time": 5.14,
+      "atp_reward": 100,
+      "spawns": [
+        {
+          "family": "virus",
+          "count": 510,
+          "start_time": 0.0,
+          "duration": 4.0
+        },
+        {
+          "family": "bacteria",
+          "count": 165,
+          "start_time": 1.0,
+          "duration": 3.34
+        },
+        {
+          "family": "fungal_spore",
+          "count": 123,
+          "start_time": 0.67,
+          "duration": 5.34
+        }
+      ]
+    },
+    {
+      "name": "capillary_wave_7",
+      "prep_time": 4.57,
+      "atp_reward": 110,
+      "spawns": [
+        {
+          "family": "virus",
+          "count": 585,
+          "start_time": 0.0,
+          "duration": 4.0
+        },
+        {
+          "family": "bacteria",
+          "count": 190,
+          "start_time": 1.0,
+          "duration": 3.34
+        },
+        {
+          "family": "fungal_spore",
+          "count": 142,
+          "start_time": 0.67,
+          "duration": 5.34
+        }
+      ]
+    },
+    {
+      "name": "capillary_wave_8",
+      "prep_time": 4.0,
+      "atp_reward": 120,
+      "spawns": [
+        {
+          "family": "virus",
+          "count": 660,
+          "start_time": 0.0,
+          "duration": 4.0
+        },
+        {
+          "family": "bacteria",
+          "count": 215,
+          "start_time": 1.0,
+          "duration": 3.34
+        },
+        {
+          "family": "fungal_spore",
+          "count": 161,
+          "start_time": 0.67,
+          "duration": 5.34
+        }
+      ]
+    }
   ]
 }

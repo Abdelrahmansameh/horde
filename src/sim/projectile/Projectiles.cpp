@@ -223,6 +223,7 @@ ProjectileStats ProjectileSystem::update(ProjectileBuffers& projectiles,
     const u8* __restrict pmask = projectiles.family_mask.data();
     u8* __restrict pflags = projectiles.flags.data();
     const u16* __restrict pvisual = projectiles.visual_id.data();
+    const EntityId* __restrict powner = projectiles.owner.data();
 
     for (usize i = 0; i < entry_count; ++i) {
         const Vec2 p{px[i], py[i]};
@@ -281,6 +282,14 @@ ProjectileStats ProjectileSystem::update(ProjectileBuffers& projectiles,
 
             ++stats.impacts;
             stats.density_removed += removed;
+
+            // Off by default; see sim/Attribution.h. `removed` is the clamped
+            // effect, not the nominal damage, so an over-killing round is not
+            // credited with density that was never there.
+            if (attribution_ != nullptr && powner[i].valid()) {
+                const bool killed = (chaff.flags[idx] & chaff_flags::kPendingKill) != 0;
+                attribution_->record_chaff(powner[i], cfamily[idx], removed, killed);
+            }
 
             if (events) {
                 CombatEvent e = make_event(CombatEventType::ProjectileImpact, p,

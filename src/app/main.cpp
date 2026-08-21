@@ -1,4 +1,5 @@
 #include "app/App.h"
+#include "app/AutoplayMode.h"
 #include "app/Cli.h"
 #include "app/Modes.h"
 #include "core/Log.h"
@@ -40,6 +41,9 @@ int main(int argc, char** argv) {
 
         case app::Mode::Screenshot:
             return app::run_screenshot(options);
+
+        case app::Mode::Autoplay:
+            return app::run_autoplay(options);
 
         case app::Mode::Play:
         default: {

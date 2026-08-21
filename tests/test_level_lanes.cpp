@@ -61,7 +61,8 @@ TEST_CASE("a vessel with no lane_id/vessel_type in JSON defaults lane_id to its 
       "schema": 1,
       "vessels": [ { "id": "main", "points": [ {"p":[0,0],"w":4}, {"p":[10,0],"w":4} ] } ],
       "portals": [ { "id": "p0", "pos": [0,0] } ],
-      "objectives": [ { "id": "o", "pos": [10,0] } ]
+      "objectives": [ { "id": "o", "pos": [10,0] } ],
+      "waves": [ { "name": "w1", "spawns": [ { "family": "virus", "count": 5, "duration": 1.0 } ] } ]
     })JSON";
 
     LevelLoader loader;
@@ -75,7 +76,7 @@ TEST_CASE("a vessel with no lane_id/vessel_type in JSON defaults lane_id to its 
 
 TEST_CASE("the three pre-existing content levels still load, validate, and instantiate",
           "[level][lanes][regression]") {
-    for (const char* name : {"capillary_test.json", "chokepoint_pinch.json", "floodplain_mucosal.json"}) {
+    for (const char* name : {"capillary_test.json", "capillary_switchback.json", "floodplain_mucosal.json"}) {
         INFO("level = " << name);
         const std::string path = platform::asset_path(std::string("levels/") + name);
         REQUIRE(platform::file_exists(path));

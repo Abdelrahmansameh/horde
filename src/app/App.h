@@ -18,6 +18,7 @@
 #include "core/JobSystem.h"
 #include "core/Profiler.h"
 #include "game/abilities/ActiveAbilities.h"
+#include "game/autoplay/AutoPlayer.h"
 #include "game/config/GameConfig.h"
 #include "game/economy/Economy.h"
 #include "game/enemies/EnemyRoster.h"
@@ -127,6 +128,16 @@ private:
     /// cannot be destroyed while you are experimenting". Applied after each
     /// tick and before the win/loss check.
     game::GymToggles gym_toggles_;
+
+    /// The balance bot (game/autoplay), off unless the `autoplay` gym command
+    /// turns it on. Present in the interactive build for one reason: a bot
+    /// whose play cannot be watched cannot be trusted to produce balance
+    /// numbers. Pair with `time 8` to watch a level at eight times speed.
+    game::AutoPlayer bot_;
+    bool autoplay_enabled_ = false;
+    /// The level geometry the bot planned against, kept so a re-plan after a
+    /// level load has something to plan from.
+    game::LevelDef current_level_def_;
 
     /// Cosmetic only, and deliberately outside sim_: own RNG, render clock.
     vfx::ParticleSystem particles_;

@@ -60,6 +60,7 @@
 #pragma once
 
 #include "core/Types.h"
+#include "sim/Attribution.h"
 #include "sim/chaff/ChaffBuffers.h"
 
 #include <vector>
@@ -193,8 +194,14 @@ public:
 
     const SwarmerStats& last_stats() const { return last_; }
 
+    /// Per-owner accounting sink, null by default. The NK Cell's blades are a
+    /// damage path of their own, so a sink that skipped them would rank that
+    /// tower at zero. See sim/Attribution.h.
+    void set_attribution(DamageAttribution* sink) { attribution_ = sink; }
+
 private:
     SwarmerStats last_{};
+    DamageAttribution* attribution_ = nullptr;
     /// Scratch for the hostless swarmers' hash queries. A member so the vector
     /// is allocated once and reused, never per-swarmer inside the tick.
     std::vector<u32> scratch_;

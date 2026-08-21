@@ -7,13 +7,12 @@
 // them. Those are the numbers the game actually runs on today, so the shipped
 // JSON generated from this is correct by construction instead of by careful
 // typing. Only values that live as file-static constants — the tower mechanism
-// tables and the wave generator curves — are written out by hand here.
+// tables — are written out by hand here.
 #include "game/config/Schemas.h"
 
 #include "game/abilities/AbilityConfigApply.h"
 #include "game/enemies/EnemyConfigApply.h"
 #include "game/meta/MetaProgression.h"
-#include "game/wave/WaveConfigApply.h"
 #include "game/towers/TowerMechanics.h"
 #include "render/ChaffBatcher.h"
 #include "render/Renderer.h"
@@ -295,7 +294,7 @@ namespace {
 /// Order is load order, dump order and report order. One list so they cannot
 /// disagree about which file is which.
 constexpr const char* kFileNames[] = {
-    "towers.json", "enemies.json", "waves.json", "sim.json",
+    "towers.json", "enemies.json", "sim.json",
     "economy.json", "abilities.json", "meta.json",
 };
 constexpr usize kFileCount = sizeof(kFileNames) / sizeof(kFileNames[0]);
@@ -316,10 +315,6 @@ bool parse_game_config(const config::ConfigStore& store, GameConfig& out, std::s
         {
             config::Ctx ctx("enemies.json");
             detail::parse_enemies(store.file("enemies.json"), staged.enemies, ctx);
-        }
-        {
-            config::Ctx ctx("waves.json");
-            detail::parse_waves(store.file("waves.json"), staged.waves, ctx);
         }
         {
             config::Ctx ctx("sim.json");
@@ -364,10 +359,9 @@ bool load_game_config(config::ConfigStore& store, const std::string& dir, GameCo
 
 std::vector<config::Json> dump_game_config(const GameConfig& cfg) {
     return {
-        detail::dump_towers(cfg.towers),     detail::dump_enemies(cfg.enemies),
-        detail::dump_waves(cfg.waves),       detail::dump_sim(cfg.sim),
-        detail::dump_economy(cfg.economy),   detail::dump_abilities(cfg.abilities),
-        detail::dump_meta(cfg.meta),
+        detail::dump_towers(cfg.towers),   detail::dump_enemies(cfg.enemies),
+        detail::dump_sim(cfg.sim),         detail::dump_economy(cfg.economy),
+        detail::dump_abilities(cfg.abilities), detail::dump_meta(cfg.meta),
     };
 }
 
@@ -384,7 +378,6 @@ void bind_game_config(config::Registry& registry, GameConfig& cfg) {
     registry.clear();
     detail::bind_towers(registry, cfg.towers);
     detail::bind_enemies(registry, cfg.enemies);
-    detail::bind_waves(registry, cfg.waves);
     detail::bind_sim(registry, cfg.sim);
     detail::bind_economy(registry, cfg.economy);
     detail::bind_abilities(registry, cfg.abilities);
@@ -518,10 +511,6 @@ GameConfig default_game_config() {
             cfg.enemies.elites.push_back(std::move(ec));
         }
     }
-
-    // The region curves live in WaveDirector.cpp now, next to the generator
-    // that consumes them.
-    cfg.waves = wave_config();
 
     // --- sim: SimDesc/ChaffTuning defaults plus the loose literals ---------
     {

@@ -46,6 +46,7 @@ const char* usage_text() {
 "                                                      so the shot shows real combat\n"
 "      --exec \"<gym commands>\"                         run gym commands first        \n"
 "                                                      (e.g. \"spawn all 300; tower all\")\n"
+"  immune --level <f.json> --exec \"autoplay on; time 8\"  watch the bot play\n"
 "  immune --list-scenarios                             print available bench scenarios\n"
 "\n"
 "OPTIONS\n"
@@ -87,6 +88,14 @@ Options parse_args(int argc, char** argv) {
             if (!next_value(argc, argv, i, a, o.level, o.error)) break;
             o.mode = Mode::Screenshot;
             if (!tick_set) o.ticks = 0;   // screenshots default to tick 0
+        } else if (a == "--autoplay") {
+            o.mode = Mode::Autoplay;
+        } else if (a == "--profile") {
+            if (!next_value(argc, argv, i, a, o.profile, o.error)) break;
+        } else if (a == "--report") {
+            if (!next_value(argc, argv, i, a, o.report_path, o.error)) break;
+        } else if (a == "--max-ticks") {
+            if (!next_u64(argc, argv, i, a, o.max_ticks, o.error)) break;
         } else if (a == "--ticks" || a == "--tick") {
             if (!next_u64(argc, argv, i, a, o.ticks, o.error)) break;
             tick_set = true;
@@ -157,6 +166,10 @@ Options parse_args(int argc, char** argv) {
     if (o.mode == Mode::Bench && o.scenario.empty()) {
         o.mode = Mode::Invalid;
         o.error = "--bench requires a scenario name";
+    }
+    if (o.mode == Mode::Autoplay && o.level.empty()) {
+        o.mode = Mode::Invalid;
+        o.error = "--autoplay requires --level <path>";
     }
     if (o.mode == Mode::Screenshot && o.out_path.empty()) {
         o.mode = Mode::Invalid;

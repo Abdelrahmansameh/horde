@@ -369,11 +369,6 @@ TEST_CASE("the shipped config files all load", "[config][game]") {
     const immune::game::GameConfig cfg = load_from("assets/config");
 
     REQUIRE(cfg.enemies.elites.size() == 5);
-    REQUIRE(cfg.waves.find_region("flat") != nullptr);
-    REQUIRE(cfg.waves.find_region("organ_chamber") != nullptr);
-    // An unknown region must fall back rather than return null: every level
-    // string that is not one of the five known regions lands on "flat".
-    REQUIRE(cfg.waves.find_region("nonesuch") == cfg.waves.find_region("flat"));
 }
 
 TEST_CASE("the shipped config equals the compiled-in tuning", "[config][game]") {
@@ -462,7 +457,7 @@ TEST_CASE("every config field is addressable from the registry", "[config][game]
     REQUIRE(registry.get("enemies.elites.tumor_mass.stats.max_health", value, err));
     REQUIRE(value == "9000");
 
-    REQUIRE(registry.set("waves.regions.skin.scaling.count_base", "80", err));
+    REQUIRE(registry.set("enemies.base_attack.damage", "12", err));
     REQUIRE(registry.set("sim.capacities.max_chaff", "32768", err));
     REQUIRE(registry.set("economy.starting_atp", "500", err));
     REQUIRE(cfg.economy.starting_atp == 500u);

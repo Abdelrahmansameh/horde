@@ -12,8 +12,12 @@
 #pragma once
 
 #include "app/Cli.h"
+#include "config/ConfigStore.h"
+#include "core/JobSystem.h"
 #include "core/Types.h"
+#include "game/config/GameConfig.h"
 
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -41,6 +45,30 @@ std::string resolve_config_dir(const Options& options);
 /// JSON files. Exit 0 on success. This is the bootstrap that generates
 /// assets/config from the code's own numbers instead of by transcription.
 int run_dump_config(const Options& options);
+
+/// Tuning for a headless run, plus the hash that pins it.
+///
+/// The headless modes are this project's verification substrate, so they must
+/// run on the SAME tuning the interactive game does -- otherwise a passing
+/// --sim-test proves nothing about what a player sees. Hot reload is never
+/// enabled here: the config is a determinism input, and every headless report
+/// prints `hash` so a run records exactly which tuning produced it.
+///
+/// Shared (rather than private to Modes.cpp) because --autoplay needs the same
+/// guarantee for the same reason, and a second copy of this would be a second
+/// chance for a balance run to be tuned differently from the game.
+struct HeadlessConfig {
+    config::ConfigStore store;
+    game::GameConfig cfg;
+    bool ok = false;
+    u64 hash = 0;
+};
+
+HeadlessConfig load_headless_config(const Options& options);
+
+/// Job system honouring --threads. `--threads 1` is explicitly serial, which
+/// is what a run whose output must be bit-reproducible wants.
+std::unique_ptr<JobSystem> make_jobs(const Options& options);
 
 int run_bench(const Options& options);
 int run_sim_test(const Options& options);

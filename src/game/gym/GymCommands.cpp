@@ -336,6 +336,8 @@ const std::vector<GymCommandInfo>& command_table() {
         {"overlay", "<debug|threat> [on|off]", "Toggle a HUD overlay."},
         {"invuln", "[on|off]",
          "Hold the objective's integrity, so a leak cannot end the run."},
+        {"autoplay", "[on|off] [profile]",
+         "Let the balance bot play this level. Pair with `time 8` to watch it fast."},
         {"stats", "", "Print the sim snapshot, economy, and wave state."},
         {"portals", "", "List this level's spawn portals and its objective."},
         {"level", "<name|path>", "Load another level."},
@@ -988,6 +990,29 @@ GymResult cmd_invuln(GymContext& ctx, const std::vector<std::string>& tok) {
                    : std::string("objective integrity is live again"));
 }
 
+GymResult cmd_autoplay(GymContext& ctx, const std::vector<std::string>& tok) {
+    if (!ctx.set_autoplay) return fail("nothing in this context can run the bot");
+
+    bool on = true;   // bare `autoplay` turns it on; `autoplay off` is explicit
+    usize profile_at = 1;
+    if (tok.size() > 1) {
+        const std::string v = lower(tok[1]);
+        if (v == "on" || v == "1" || v == "true") {
+            profile_at = 2;
+        } else if (v == "off" || v == "0" || v == "false") {
+            on = false;
+            profile_at = 2;
+        }
+    }
+    const std::string profile = tok.size() > profile_at ? tok[profile_at] : std::string{};
+
+    std::string err;
+    if (!ctx.set_autoplay(on, profile, err)) return fail(err);
+    if (!on) return okay("autoplay off -- the towers it built stay where they are");
+    return okay(profile.empty() ? std::string("autoplay on (greedy-cheapest)")
+                                : "autoplay on (" + profile + ")");
+}
+
 GymResult cmd_stats(GymContext& ctx) {
     if (ctx.world == nullptr) return fail("no world in this context");
     const sim::SimSnapshot s = ctx.world->snapshot();
@@ -1221,6 +1246,7 @@ GymResult gym_execute(GymContext& ctx, std::string_view line) {
     if (cmd == "invuln" || cmd == "invulnerable" || cmd == "godmode") {
         return cmd_invuln(ctx, tok);
     }
+    if (cmd == "autoplay" || cmd == "bot") return cmd_autoplay(ctx, tok);
     if (cmd == "stats") return cmd_stats(ctx);
     if (cmd == "portals") return cmd_portals(ctx);
     if (cmd == "level") return cmd_level(ctx, tok);

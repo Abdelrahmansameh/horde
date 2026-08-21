@@ -13,7 +13,6 @@
 #include "game/gym/GymCommands.h"
 #include "game/level/Level.h"
 #include "game/enemies/EnemyConfigApply.h"
-#include "game/wave/WaveConfigApply.h"
 #include "game/towers/TowerMechanics.h"
 #include "game/towers/TowerSystem.h"
 #include "game/wave/WaveDirector.h"
@@ -82,7 +81,6 @@ bool build_world(sim::SimWorld& world, const Options& opt, usize max_chaff,
         game::GameConfig cfg;
         if (game::load_game_config(store, resolve_config_dir(opt), cfg, cfg_err)) {
             game::apply_enemy_config(roster, cfg.enemies);
-            game::apply_wave_config(cfg.waves);
             desc.max_damage_fields = cfg.sim.capacities.max_damage_fields;
             desc.max_projectiles = cfg.sim.capacities.max_projectiles;
             desc.max_swarmers = cfg.sim.capacities.max_swarmers;
@@ -183,6 +181,15 @@ void populate_scenario(sim::SimWorld& world, const BenchScenario& s) {
     }
 }
 
+/// Snake-case family names, in PathogenFamily order. Shared by the per-family
+/// snapshot keys below and by the metric names read_metric() accepts, so a
+/// script's assertion and the report it reads spell a family identically.
+const char* family_key(u32 f) {
+    static const char* kNames[kFamilyCount] = {"virus",    "bacteria",    "fungal_spore",
+                                               "parasite", "cancer_cell", "allergen"};
+    return f < kFamilyCount ? kNames[f] : "unknown";
+}
+
 json snapshot_to_json(const sim::SimSnapshot& s) {
     json j;
     j["tick"] = s.tick;
@@ -192,6 +199,20 @@ json snapshot_to_json(const sim::SimSnapshot& s) {
     j["objective_integrity"] = s.objective_integrity;
     j["chaff_killed_total"] = s.chaff_killed_total;
     j["chaff_leaked_total"] = s.chaff_leaked_total;
+    // Per family. `killed` here means killed by damage; leaks and
+    // out-of-bounds despawns are broken out separately, unlike
+    // chaff_killed_total, which has always counted all three together.
+    json spawned, killed, leaked, despawned;
+    for (u32 f = 0; f < kFamilyCount; ++f) {
+        spawned[family_key(f)] = s.chaff_spawned_by_family[f];
+        killed[family_key(f)] = s.chaff_killed_by_family[f];
+        leaked[family_key(f)] = s.chaff_leaked_by_family[f];
+        despawned[family_key(f)] = s.chaff_despawned_by_family[f];
+    }
+    j["chaff_spawned_by_family"] = std::move(spawned);
+    j["chaff_killed_by_family"] = std::move(killed);
+    j["chaff_leaked_by_family"] = std::move(leaked);
+    j["chaff_despawned_by_family"] = std::move(despawned);
     return j;
 }
 
@@ -206,6 +227,25 @@ bool read_metric(const sim::SimWorld& world, const std::string& metric, f64& out
     if (metric == "chaff_leaked_total")   { out = static_cast<f64>(s.chaff_leaked_total); return true; }
     if (metric == "tick")                 { out = static_cast<f64>(s.tick); return true; }
     if (metric == "state_hash")           { out = static_cast<f64>(world.state_hash()); return true; }
+
+    // Per-family forms: "<counter>.<family>", e.g. "chaff_leaked.virus". Worth
+    // having as assertions and not only as report keys -- "the parasites got
+    // through" is a regression a total-only metric cannot express, because a
+    // level that kills more bacteria hides it.
+    const usize dot = metric.find('.');
+    if (dot != std::string::npos) {
+        const std::string counter = metric.substr(0, dot);
+        const std::string family = metric.substr(dot + 1);
+        for (u32 f = 0; f < kFamilyCount; ++f) {
+            if (family != family_key(f)) continue;
+            if (counter == "chaff_spawned")   { out = static_cast<f64>(s.chaff_spawned_by_family[f]); return true; }
+            if (counter == "chaff_killed")    { out = static_cast<f64>(s.chaff_killed_by_family[f]); return true; }
+            if (counter == "chaff_leaked")    { out = static_cast<f64>(s.chaff_leaked_by_family[f]); return true; }
+            if (counter == "chaff_despawned") { out = static_cast<f64>(s.chaff_despawned_by_family[f]); return true; }
+            if (counter == "chaff_alive")     { out = static_cast<f64>(s.chaff_by_family[f]); return true; }
+            break;
+        }
+    }
     return false;
 }
 
@@ -219,13 +259,13 @@ bool compare(f64 lhs, const std::string& op, f64 rhs) {
     return false;
 }
 
+} // namespace
+
 std::unique_ptr<JobSystem> make_jobs(const Options& opt) {
     if (opt.threads == 1) return std::make_unique<JobSystem>(0u);
     if (opt.threads > 1) return std::make_unique<JobSystem>(static_cast<u32>(opt.threads - 1));
     return std::make_unique<JobSystem>();
 }
-
-} // namespace
 
 // ---------------------------------------------------------------------------
 // Scenario registry
@@ -271,24 +311,8 @@ int run_dump_config(const Options& options) {
     return 0;
 }
 
-namespace {
-
-/// Loads assets/config (or --config) for a headless run and applies the parts
-/// a headless path can use.
-///
-/// The headless modes are this project's verification substrate, so they must
-/// run on the SAME tuning the interactive game does -- otherwise a --sim-test
-/// that passes proves nothing about what a player actually sees. Hot reload is
-/// never enabled here: the config is a determinism input, and run_sim_test
-/// reports its hash alongside state_hash so a run records exactly which
-/// tuning produced it.
-struct HeadlessConfig {
-    config::ConfigStore store;
-    game::GameConfig cfg;
-    bool ok = false;
-    u64 hash = 0;
-};
-
+/// Loads assets/config (or --config) for a headless run. See Modes.h for why
+/// the struct it fills is shared rather than private to this file.
 HeadlessConfig load_headless_config(const Options& opt) {
     HeadlessConfig out;
     std::string err;
@@ -300,8 +324,6 @@ HeadlessConfig load_headless_config(const Options& opt) {
     out.hash = out.store.hash();
     return out;
 }
-
-} // namespace
 
 
 int run_list_scenarios() {
@@ -536,7 +558,6 @@ int run_sim_test(const Options& opt) {
             auto& cfg = const_cast<game::GameConfig&>(tuning.cfg);
             game::apply_tower_config(towers, cfg.towers);
             game::apply_enemy_config(roster, cfg.enemies);
-            game::apply_wave_config(cfg.waves);
             economy.configure(cfg.economy);
             game::apply_ability_config(abilities, cfg.abilities);
             return true;

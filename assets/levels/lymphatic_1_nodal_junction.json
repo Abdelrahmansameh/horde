@@ -287,5 +287,183 @@
   "ambient_drift": [
     0.0,
     0.0
+  ],
+  "waves": [
+    {
+      "name": "lymphatic_wave_1",
+      "prep_time": 9.0,
+      "atp_reward": 55,
+      "spawns": [
+        {
+          "family": "virus",
+          "count": 117,
+          "start_time": 0.0,
+          "duration": 4.0
+        },
+        {
+          "family": "bacteria",
+          "count": 52,
+          "start_time": 0.5,
+          "duration": 4.0
+        }
+      ]
+    },
+    {
+      "name": "lymphatic_wave_2",
+      "prep_time": 8.43,
+      "atp_reward": 67,
+      "spawns": [
+        {
+          "family": "virus",
+          "count": 177,
+          "start_time": 0.0,
+          "duration": 4.0
+        },
+        {
+          "family": "bacteria",
+          "count": 82,
+          "start_time": 0.5,
+          "duration": 4.0
+        }
+      ]
+    },
+    {
+      "name": "lymphatic_wave_3",
+      "prep_time": 7.86,
+      "atp_reward": 79,
+      "spawns": [
+        {
+          "family": "virus",
+          "count": 237,
+          "start_time": 0.0,
+          "duration": 4.0
+        },
+        {
+          "family": "bacteria",
+          "count": 112,
+          "start_time": 0.5,
+          "duration": 4.0
+        }
+      ]
+    },
+    {
+      "name": "lymphatic_wave_4",
+      "prep_time": 7.29,
+      "atp_reward": 91,
+      "spawns": [
+        {
+          "family": "virus",
+          "count": 297,
+          "start_time": 0.0,
+          "duration": 4.0
+        },
+        {
+          "family": "bacteria",
+          "count": 142,
+          "start_time": 0.5,
+          "duration": 4.0
+        }
+      ]
+    },
+    {
+      "name": "lymphatic_wave_5",
+      "prep_time": 6.71,
+      "atp_reward": 103,
+      "spawns": [
+        {
+          "family": "virus",
+          "count": 357,
+          "start_time": 0.0,
+          "duration": 4.0
+        },
+        {
+          "family": "bacteria",
+          "count": 172,
+          "start_time": 0.5,
+          "duration": 4.0
+        },
+        {
+          "family": "fungal_spore",
+          "count": 69,
+          "start_time": 1.0,
+          "duration": 4.67
+        }
+      ]
+    },
+    {
+      "name": "lymphatic_wave_6",
+      "prep_time": 6.14,
+      "atp_reward": 115,
+      "spawns": [
+        {
+          "family": "virus",
+          "count": 417,
+          "start_time": 0.0,
+          "duration": 4.0
+        },
+        {
+          "family": "bacteria",
+          "count": 202,
+          "start_time": 0.5,
+          "duration": 4.0
+        },
+        {
+          "family": "fungal_spore",
+          "count": 81,
+          "start_time": 1.0,
+          "duration": 4.67
+        }
+      ]
+    },
+    {
+      "name": "lymphatic_wave_7",
+      "prep_time": 5.57,
+      "atp_reward": 127,
+      "spawns": [
+        {
+          "family": "virus",
+          "count": 477,
+          "start_time": 0.0,
+          "duration": 4.0
+        },
+        {
+          "family": "bacteria",
+          "count": 232,
+          "start_time": 0.5,
+          "duration": 4.0
+        },
+        {
+          "family": "fungal_spore",
+          "count": 93,
+          "start_time": 1.0,
+          "duration": 4.67
+        }
+      ]
+    },
+    {
+      "name": "lymphatic_wave_8",
+      "prep_time": 5.0,
+      "atp_reward": 139,
+      "spawns": [
+        {
+          "family": "virus",
+          "count": 537,
+          "start_time": 0.0,
+          "duration": 4.0
+        },
+        {
+          "family": "bacteria",
+          "count": 262,
+          "start_time": 0.5,
+          "duration": 4.0
+        },
+        {
+          "family": "fungal_spore",
+          "count": 105,
+          "start_time": 1.0,
+          "duration": 4.67
+        }
+      ]
+    }
   ]
 }

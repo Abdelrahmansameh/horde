@@ -2,7 +2,7 @@
 //
 // RATIONALE
 //  - This is the whole tuning surface of the game in one place: towers,
-//    enemies, waves, crowd physics, economy, abilities, meta rewards. Each
+//    enemies, crowd physics, economy, abilities, meta rewards. Each
 //    struct is a standard-layout aggregate of scalars so config/Field.h can
 //    address it by offset, which is what makes `config set <path> <value>`
 //    and a complete `config dump` fall out of the same declaration as the
@@ -23,7 +23,6 @@
 #include "game/economy/Economy.h"
 #include "game/enemies/EnemyRoster.h"
 #include "game/towers/TowerSystem.h"
-#include "game/wave/WaveDirector.h"
 #include "sim/fluid/Fluid.h"
 
 #include <string>
@@ -307,67 +306,6 @@ struct EnemyConfig {
 };
 
 // ---------------------------------------------------------------------------
-// waves.json — the procedural generator that 11 of 13 levels rely on.
-// Levels that author their own `waves` block still override it entirely.
-// ---------------------------------------------------------------------------
-
-/// How a region's prep window shrinks across its table.
-enum class PrepMode : u8 {
-    Curve,          ///< Linear from `first` down to `floor` across the table.
-    FirstThenFlat,  ///< Wave 0 gets `first`; every later wave gets `floor`.
-};
-
-/// One family's contribution to a generated wave.
-struct WaveTrackConfig {
-    PathogenFamily family = PathogenFamily::Virus;
-    /// First wave index this track appears in.
-    u32 from_wave = 0;
-    /// The wave's base count is divided by this. 1 = the full base.
-    u32 count_divisor = 1;
-    /// Upper bound of a uniform random addition to the count. 0 = exact.
-    f32 count_jitter = 0.0f;
-    f32 start_time = 0.0f;
-    f32 duration = 4.0f;
-};
-
-struct WaveRegionScaling {
-    f32 prep_first = 9.0f;
-    f32 prep_floor = 5.0f;
-    u32 atp_base = 50;
-    u32 atp_per_wave = 10;
-    u32 count_base = 120;
-    u32 count_per_wave = 75;
-    /// Applied to the last wave only, so a table always ends escalated.
-    f32 final_count_mul = 1.0f;
-    f32 final_reward_mul = 1.0f;
-};
-
-struct WaveRegionConfig {
-    std::string name;
-    PrepMode prep_mode = PrepMode::Curve;
-    WaveModifier final_modifier = WaveModifier::None;
-    WaveRegionScaling scaling{};
-    std::vector<WaveTrackConfig> tracks;
-};
-
-struct WaveGlobals {
-    u32 default_wave_count = 8;
-    /// Grace period before a wave that will not fully clear is force-completed.
-    f32 clearing_timeout = 60.0f;
-    /// spawn_burst() sizes its disc as contact_spacing * sqrt(count) * this.
-    f32 burst_disc_factor = 0.75f;
-};
-
-struct WaveConfig {
-    WaveGlobals globals{};
-    std::vector<WaveRegionConfig> regions;
-
-    /// Region lookup by name, falling back to the "flat" region. Never null
-    /// once the config has loaded: "flat" is a required entry.
-    const WaveRegionConfig* find_region(std::string_view name) const;
-};
-
-// ---------------------------------------------------------------------------
 // sim.json
 // ---------------------------------------------------------------------------
 
@@ -445,18 +383,17 @@ struct MetaConfig {
 struct GameConfig {
     TowerConfig towers{};
     EnemyConfig enemies{};
-    WaveConfig waves{};
     SimConfig sim{};
     EconomyConfig economy{};
     AbilityConfig abilities{};
     MetaConfig meta{};
 };
 
-/// The seven files, in load order. Used by ConfigStore::expect_file and by the
+/// The six files, in load order. Used by ConfigStore::expect_file and by the
 /// dump, so neither can forget one.
 std::vector<std::string> config_file_names();
 
-/// Declares the seven files on `store`, then loads and parses `dir`.
+/// Declares the six files on `store`, then loads and parses `dir`.
 /// On failure `err` carries a message naming the file and field path, and
 /// `out` is left untouched.
 bool load_game_config(config::ConfigStore& store, const std::string& dir, GameConfig& out,

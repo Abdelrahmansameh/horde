@@ -38,7 +38,7 @@
 // JSON SCHEMA (assets/levels/*.json) — version 1:
 // {
 //   "schema": 1,
-//   "name": "capillary_chokepoint",
+//   "name": "capillary_switchback",
 //   "region": "capillary",
 //   "world": { "min": [0,0], "max": [256,144], "cell_size": 0.5 },
 //   "vessels": [
@@ -58,7 +58,7 @@
 //     { "min":[20,50], "max":[200,100], "concentrated": false, "priority": 1.0 }
 //   ],
 //   "ambient_drift": [0.0, 0.0],
-//   "waves": [                                 // optional; see below
+//   "waves": [                                 // REQUIRED, non-empty; see below
 //     { "name": "flood_1", "prep_time": 20.0, "atp_reward": 60,
 //       "modifier": "none",                    // none|allergen|fever|swarm
 //       "spawns": [
@@ -69,17 +69,23 @@
 // }
 // Unknown fields are ignored; a missing "schema" is an error, not a default.
 //
-// AUTHORED WAVES (optional)
-// `waves` is absent from every level authored before it existed, and absence
-// keeps the previous behavior exactly: the app asks WaveDirector::generate()
-// for a region-shaped table. When present it *replaces* that table, because a
-// generated table is a function of the region string alone and therefore
-// cannot express a level whose whole point is its own pressure curve (a
-// stress/floodplain level, a scripted set piece). Loading is the only thing
-// this file does with it — scheduling and spawning stay WaveDirector's job,
-// and the parsed vector is a plain std::vector<WaveDef>, the same type
-// generate() returns, so callers pick one source or the other and nothing
-// downstream can tell the difference.
+// AUTHORED WAVES (required)
+// A level's wave table is authored here and nowhere else. There used to be a
+// second source -- a procedural generator keyed on the `region` string, tuned
+// globally in assets/config/waves.json -- which every level that omitted
+// `waves` fell back to. It is gone, along with waves.json and
+// WaveDirector::generate(): a table derived from the region string alone
+// cannot express two levels in the same region that are meant to play
+// differently, which is most of them. Every shipped level now carries its own
+// explicit table, and `region` is once again purely a presentation/grouping
+// tag.
+// So `waves` is mandatory and must be non-empty; a level without one fails to
+// load rather than silently running an empty table. (The one exception is
+// LevelLoader::default_test_level(), the built-in fallback for headless runs
+// with no level file, which builds its table in code.)
+// Loading is still the only thing this file does with it — scheduling and
+// spawning stay WaveDirector's job, and the parsed vector is a plain
+// std::vector<WaveDef> handed straight to WaveDirector::set_waves().
 // Per-field defaults match WaveDef/SpawnEntry's own defaults; `index` is not
 // authorable (it is assigned from array position, so it cannot disagree with
 // the order the director walks).
@@ -173,8 +179,8 @@ struct ObjectivePoint {
 };
 
 /// Per-placement-zone authoring hint for DESIGN.md §4.3/§4.7: a "concentrated"
-/// zone is meant to be generous buildable margin near a bend/intersection/
-/// chokepoint; a non-concentrated zone is meant to be tight or absent along a
+/// zone is meant to be generous buildable margin near a bend/switchback/
+/// convergence; a non-concentrated zone is meant to be tight or absent along a
 /// long straight. Index-aligned with LevelDef::placement_zones (tag[i]
 /// describes placement_zones[i]) rather than folded into Rect, since Rect
 /// (core/Types.h) is a shared frozen type used well beyond level geometry.
@@ -197,8 +203,9 @@ struct LevelDef {
     /// Same size and order as placement_zones; see PlacementZoneTag.
     std::vector<PlacementZoneTag> placement_zone_tags;
     Vec2 ambient_drift{0.0f, 0.0f};
-    /// Optional authored wave table (see the header comment). Empty means "no
-    /// opinion" -- the caller falls back to WaveDirector::generate().
+    /// The level's wave table (see the header comment). Never empty: the
+    /// loader rejects a level that authors none, and there is no generator to
+    /// fall back to.
     std::vector<WaveDef> waves;
 };
 

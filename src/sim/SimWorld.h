@@ -100,6 +100,17 @@ struct SimSnapshot {
     u64 chaff_killed_total = 0;
     u64 chaff_leaked_total = 0;   ///< Reached the objective.
     u32 chaff_by_family[kFamilyCount] = {};
+
+    // Per-family lifetime tallies. Additive to this struct (Wave "balance
+    // harness"): the three aggregate counters above cannot answer "which
+    // pathogen is the one getting through", which is the first question any
+    // balance pass asks. `killed` here means killed by damage specifically --
+    // leaks and out-of-bounds despawns are broken out rather than folded in,
+    // unlike chaff_killed_total, which has always counted all three together.
+    u64 chaff_spawned_by_family[kFamilyCount] = {};
+    u64 chaff_killed_by_family[kFamilyCount] = {};
+    u64 chaff_leaked_by_family[kFamilyCount] = {};
+    u64 chaff_despawned_by_family[kFamilyCount] = {};   ///< Left the world bounds.
 };
 
 class SimWorld {
@@ -224,6 +235,9 @@ private:
 
     u64 killed_total_ = 0;
     u64 leaked_total_ = 0;
+    u64 killed_by_family_[kFamilyCount] = {};
+    u64 leaked_by_family_[kFamilyCount] = {};
+    u64 despawned_by_family_[kFamilyCount] = {};
     f32 objective_integrity_ = 100.0f;
 };
 

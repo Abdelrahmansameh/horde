@@ -725,8 +725,18 @@ void strike_named(TowerSystem& self, sim::SystemContext& ctx, comp::Tower& tw, V
     comp::Health& hp = ctx.registry.get<comp::Health>(te);
     f32 amount = math::max(0.0f, st.damage - hp.armor);
     if (const auto* mk = ctx.registry.try_get<comp::Marked>(te)) amount *= mk->damage_multiplier;
+    const bool was_alive = !hp.dead();
     hp.current -= amount;
     tw.current_target = target;
+
+    // Elite/boss damage is the third damage path (chaff fields and projectiles
+    // are the other two) and the only one the aggregate sim counters never see,
+    // since named agents carry hit points rather than density. The sink lives on
+    // the world's DamageSystem so this function needs no new plumbing of its
+    // own; it is null in normal play. See sim/Attribution.h.
+    if (sim::DamageAttribution* attribution = ctx.world.damage().attribution()) {
+        if (owner.valid()) attribution->record_named(owner, amount, was_alive && hp.dead());
+    }
 
     if (mark_seconds > 0.0f) {
         comp::Marked& mk = ctx.registry.get_or_emplace<comp::Marked>(te);
@@ -802,7 +812,7 @@ void system_gunner(TowerSystem& self, sim::SystemContext& ctx) {
         flash.magnitude = st.damage;
         ctx.world.combat_events().push(flash);
 
-        strike_named(self, ctx, tw, tf.position, st, false);
+        strike_named(self, ctx, tw, tf.position, st, false, 0.0f, ctx.world.ecs().to_id(e));
         tw.cooldown = st.fire_interval;
     }
 }
@@ -857,7 +867,7 @@ void system_mortar(TowerSystem& self, sim::SystemContext& ctx) {
         boom.magnitude = st.kill_rate * mortar.burst_seconds;
         ctx.world.combat_events().push(boom);
 
-        strike_named(self, ctx, tw, tf.position, st, false);
+        strike_named(self, ctx, tw, tf.position, st, false, 0.0f, ctx.world.ecs().to_id(e));
         tw.cooldown = st.fire_interval;
     }
 }
@@ -954,7 +964,7 @@ void system_cryo(TowerSystem& self, sim::SystemContext& ctx) {
             ctx.world.combat_events().push(frozen);
         }
 
-        strike_named(self, ctx, tw, tf.position, st, false);
+        strike_named(self, ctx, tw, tf.position, st, false, 0.0f, ctx.world.ecs().to_id(e));
         tw.cooldown = st.fire_interval;
     }
 }
@@ -1060,7 +1070,7 @@ void system_swarm(TowerSystem& self, sim::SystemContext& ctx) {
         fired.magnitude = static_cast<f32>(release);
         ctx.world.combat_events().push(fired);
 
-        strike_named(self, ctx, tw, tf.position, st, false);
+        strike_named(self, ctx, tw, tf.position, st, false, 0.0f, ctx.world.ecs().to_id(e));
         tw.cooldown = st.fire_interval;
     }
 }
@@ -1257,7 +1267,8 @@ void system_blade(TowerSystem& self, sim::SystemContext& ctx) {
         }
 
         // The ONLY targeting path that may return a Burrowed named agent.
-        strike_named(self, ctx, tw, tf.position, st, /*detect_hidden=*/true);
+        strike_named(self, ctx, tw, tf.position, st, /*detect_hidden=*/true, 0.0f,
+                     ctx.world.ecs().to_id(e));
         tw.cooldown = st.fire_interval;
     }
 }
@@ -1531,6 +1542,19 @@ u8 TowerSystem::upgrade(sim::SimWorld& world, EntityId tower) {
 
     if (auto* rec = registry.try_get<priv::TowerRecord>(e)) rec->invested_atp += cur.upgrade_cost;
     return next_tier;
+}
+
+u32 TowerSystem::upgrade_cost(const sim::SimWorld& world, EntityId tower) const {
+    ensure_default_stats(const_cast<TowerSystem&>(*this));
+    const entt::registry& registry = world.ecs().registry();
+    const entt::entity e = world.ecs().from_id(tower);
+    if (!registry.valid(e) || !registry.all_of<comp::Tower>(e)) return 0;
+    const comp::Tower& tw = registry.get<comp::Tower>(e);
+    if (tw.tier >= 3) return 0;
+    // The CURRENT tier's upgrade_cost is the price of leaving it, which is the
+    // same field upgrade() adds to invested_atp -- so what the player pays and
+    // what a sell refunds are computed from one number, not two.
+    return stats_[static_cast<u32>(tw.type)][tw.tier - 1].upgrade_cost;
 }
 
 u32 TowerSystem::sell(sim::SimWorld& world, EntityId tower) {

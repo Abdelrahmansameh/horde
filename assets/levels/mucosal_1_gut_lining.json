@@ -294,5 +294,201 @@
   "ambient_drift": [
     0.0,
     0.0
+  ],
+  "waves": [
+    {
+      "name": "mucosal_wave_1",
+      "prep_time": 9.0,
+      "atp_reward": 60,
+      "spawns": [
+        {
+          "family": "virus",
+          "count": 198,
+          "start_time": 0.0,
+          "duration": 4.67
+        },
+        {
+          "family": "fungal_spore",
+          "count": 90,
+          "start_time": 0.33,
+          "duration": 6.0
+        }
+      ]
+    },
+    {
+      "name": "mucosal_wave_2",
+      "prep_time": 8.43,
+      "atp_reward": 75,
+      "spawns": [
+        {
+          "family": "virus",
+          "count": 303,
+          "start_time": 0.0,
+          "duration": 4.67
+        },
+        {
+          "family": "fungal_spore",
+          "count": 142,
+          "start_time": 0.33,
+          "duration": 6.0
+        },
+        {
+          "family": "bacteria",
+          "count": 95,
+          "start_time": 0.83,
+          "duration": 4.0
+        }
+      ]
+    },
+    {
+      "name": "mucosal_wave_3",
+      "prep_time": 7.86,
+      "atp_reward": 90,
+      "spawns": [
+        {
+          "family": "virus",
+          "count": 408,
+          "start_time": 0.0,
+          "duration": 4.67
+        },
+        {
+          "family": "fungal_spore",
+          "count": 195,
+          "start_time": 0.33,
+          "duration": 6.0
+        },
+        {
+          "family": "bacteria",
+          "count": 130,
+          "start_time": 0.83,
+          "duration": 4.0
+        }
+      ]
+    },
+    {
+      "name": "mucosal_wave_4",
+      "prep_time": 7.29,
+      "atp_reward": 105,
+      "spawns": [
+        {
+          "family": "virus",
+          "count": 513,
+          "start_time": 0.0,
+          "duration": 4.67
+        },
+        {
+          "family": "fungal_spore",
+          "count": 247,
+          "start_time": 0.33,
+          "duration": 6.0
+        },
+        {
+          "family": "bacteria",
+          "count": 165,
+          "start_time": 0.83,
+          "duration": 4.0
+        }
+      ]
+    },
+    {
+      "name": "mucosal_wave_5",
+      "prep_time": 6.71,
+      "atp_reward": 120,
+      "spawns": [
+        {
+          "family": "virus",
+          "count": 618,
+          "start_time": 0.0,
+          "duration": 4.67
+        },
+        {
+          "family": "fungal_spore",
+          "count": 300,
+          "start_time": 0.33,
+          "duration": 6.0
+        },
+        {
+          "family": "bacteria",
+          "count": 200,
+          "start_time": 0.83,
+          "duration": 4.0
+        }
+      ]
+    },
+    {
+      "name": "mucosal_wave_6",
+      "prep_time": 6.14,
+      "atp_reward": 135,
+      "spawns": [
+        {
+          "family": "virus",
+          "count": 723,
+          "start_time": 0.0,
+          "duration": 4.67
+        },
+        {
+          "family": "fungal_spore",
+          "count": 352,
+          "start_time": 0.33,
+          "duration": 6.0
+        },
+        {
+          "family": "bacteria",
+          "count": 235,
+          "start_time": 0.83,
+          "duration": 4.0
+        }
+      ]
+    },
+    {
+      "name": "mucosal_wave_7",
+      "prep_time": 5.57,
+      "atp_reward": 150,
+      "spawns": [
+        {
+          "family": "virus",
+          "count": 828,
+          "start_time": 0.0,
+          "duration": 4.67
+        },
+        {
+          "family": "fungal_spore",
+          "count": 405,
+          "start_time": 0.33,
+          "duration": 6.0
+        },
+        {
+          "family": "bacteria",
+          "count": 270,
+          "start_time": 0.83,
+          "duration": 4.0
+        }
+      ]
+    },
+    {
+      "name": "mucosal_wave_8",
+      "prep_time": 5.0,
+      "atp_reward": 165,
+      "spawns": [
+        {
+          "family": "virus",
+          "count": 933,
+          "start_time": 0.0,
+          "duration": 4.67
+        },
+        {
+          "family": "fungal_spore",
+          "count": 457,
+          "start_time": 0.33,
+          "duration": 6.0
+        },
+        {
+          "family": "bacteria",
+          "count": 305,
+          "start_time": 0.83,
+          "duration": 4.0
+        }
+      ]
+    }
   ]
 }

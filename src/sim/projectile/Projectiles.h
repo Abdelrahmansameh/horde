@@ -37,6 +37,7 @@
 #pragma once
 
 #include "core/Types.h"
+#include "sim/Attribution.h"
 
 #include <vector>
 
@@ -160,8 +161,16 @@ public:
 
     const ProjectileStats& last_stats() const { return last_; }
 
+    /// Attaches (or detaches, with null) the per-owner accounting sink, exactly
+    /// as DamageSystem does -- the Gunner is the one tower whose entire output
+    /// arrives through this path, so a sink that skipped it would rank it at
+    /// zero. Null by default; see sim/Attribution.h.
+    void set_attribution(DamageAttribution* sink) { attribution_ = sink; }
+    DamageAttribution* attribution() const { return attribution_; }
+
 private:
     ProjectileStats last_{};
+    DamageAttribution* attribution_ = nullptr;
 };
 
 } // namespace immune::sim

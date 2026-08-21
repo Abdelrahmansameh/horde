@@ -176,6 +176,15 @@ struct GymContext {
     std::function<bool(std::string& err)> config_dump;
     /// Every addressable field path, for `config list`.
     std::function<std::vector<std::string>()> config_paths;
+
+    /// Turns the balance bot (game/autoplay) on or off for the current level,
+    /// with an optional profile name. Supplied by app/; absent headlessly,
+    /// where --autoplay drives the bot directly and needs no console.
+    ///
+    /// The point of exposing it here is verification: `autoplay on; time 8`
+    /// runs the same bot the harness runs, in a window, at eight times speed,
+    /// so its play can be watched rather than trusted.
+    std::function<bool(bool enable, const std::string& profile, std::string& err)> set_autoplay;
 };
 
 /// Outcome of one command. `message` is always populated -- on success it is

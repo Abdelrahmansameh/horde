@@ -113,7 +113,8 @@ u32 estimate_cells_touched(const SpatialHash& hash, Vec2 lo, Vec2 hi) {
 /// agent and folds the result into `stats`. This is the single place that
 /// reads `apply_density_loss`'s actual clamped effect (never the nominal
 /// request) and decides whether it was a kill *this call*.
-void apply_and_record(ChaffBuffers& chaff, u32 idx, f32 amount, DamageStats& stats) {
+void apply_and_record(ChaffBuffers& chaff, u32 idx, f32 amount, DamageStats& stats,
+                     EntityId owner, DamageAttribution* attribution) {
     if (amount <= 0.0f) return;
     const bool already_dead = (chaff.flags[idx] & chaff_flags::kPendingKill) != 0;
     const f32 before = chaff.density[idx];
@@ -123,8 +124,12 @@ void apply_and_record(ChaffBuffers& chaff, u32 idx, f32 amount, DamageStats& sta
     stats.density_removed += removed;
     const u8 fam = chaff.family[idx];
     if (fam < kFamilyCount) stats.density_removed_by_family[fam] += removed;
-    if (!already_dead && (chaff.flags[idx] & chaff_flags::kPendingKill) != 0) {
-        ++stats.agents_killed;
+    const bool killed = !already_dead && (chaff.flags[idx] & chaff_flags::kPendingKill) != 0;
+    if (killed) ++stats.agents_killed;
+    // Off by default; see sim/Attribution.h. Environmental hazards carry no
+    // owner and are deliberately not booked against anyone.
+    if (attribution != nullptr && owner.valid()) {
+        attribution->record_chaff(owner, fam, removed, killed);
     }
 }
 
@@ -133,7 +138,8 @@ void apply_and_record(ChaffBuffers& chaff, u32 idx, f32 amount, DamageStats& sta
 /// this function derives a per-agent sub-stream from it keyed on `idx` so the
 /// roll never depends on candidate traversal order (see file header comment).
 void apply_to_agent(ChaffBuffers& chaff, u32 idx, const DamageField& field, f32 t, f32 dt,
-                     ThinningMode mode, const Rng& field_rng, DamageStats& stats) {
+                     ThinningMode mode, const Rng& field_rng, DamageStats& stats,
+                     DamageAttribution* attribution) {
     const u8 agent_flags = chaff.flags[idx];
     if ((agent_flags & chaff_flags::kAlive) == 0) return;
     if ((agent_flags & chaff_flags::kPendingKill) != 0) return;   // already dying this tick
@@ -143,7 +149,7 @@ void apply_to_agent(ChaffBuffers& chaff, u32 idx, const DamageField& field, f32 
     const f32 mult = falloff_multiplier(t, field.falloff) * (marked ? field.marked_multiplier : 1.0f);
 
     if (mode == ThinningMode::DensityThinning) {
-        apply_and_record(chaff, idx, field.kill_rate * dt * mult, stats);
+        apply_and_record(chaff, idx, field.kill_rate * dt * mult, stats, field.owner, attribution);
         return;
     }
 
@@ -155,7 +161,7 @@ void apply_to_agent(ChaffBuffers& chaff, u32 idx, const DamageField& field, f32 
     if (probability <= 0.0f) return;
     Rng roll = field_rng.fork(static_cast<u64>(idx));
     if (roll.chance(probability)) {
-        apply_and_record(chaff, idx, chaff.density[idx], stats);
+        apply_and_record(chaff, idx, chaff.density[idx], stats, field.owner, attribution);
     }
 }
 
@@ -194,7 +200,7 @@ u32 find_nearest_unvisited(const ChaffBuffers& chaff, const std::vector<u32>& ca
 /// kMaxChainLinks hops. Stops early once no further candidate is in range.
 void apply_chain(ChaffBuffers& chaff, const SpatialHash& hash, const DamageField& field,
                  ThinningMode mode, const Rng& field_rng, f32 dt, DamageStats& stats,
-                 std::vector<u32>& scratch) {
+                 std::vector<u32>& scratch, DamageAttribution* attribution) {
     if (field.radius <= 0.0f) return;
 
     u32 visited[kMaxChainLinks];
@@ -212,7 +218,7 @@ void apply_chain(ChaffBuffers& chaff, const SpatialHash& hash, const DamageField
                                                 field.radius, field.family_mask, t);
         if (best == kInvalidIndex) break;
 
-        apply_to_agent(chaff, best, field, t, dt, mode, field_rng, stats);
+        apply_to_agent(chaff, best, field, t, dt, mode, field_rng, stats, attribution);
         visited[visited_count++] = best;
         current = Vec2{chaff.pos_x[best], chaff.pos_y[best]};
     }
@@ -302,7 +308,7 @@ DamageStats DamageSystem::apply(ChaffBuffers& chaff, const SpatialHash& hash, Rn
                 const Vec2 p{chaff.pos_x[idx], chaff.pos_y[idx]};
                 const ShapeHit hit = test_circle(field.origin, field.radius, p);
                 if (!hit.inside) continue;
-                apply_to_agent(chaff, idx, field, hit.t, dt, mode_, field_rng, stats);
+                apply_to_agent(chaff, idx, field, hit.t, dt, mode_, field_rng, stats, attribution_);
             }
             break;
         }
@@ -315,7 +321,7 @@ DamageStats DamageSystem::apply(ChaffBuffers& chaff, const SpatialHash& hash, Rn
                 const Vec2 p{chaff.pos_x[idx], chaff.pos_y[idx]};
                 const ShapeHit hit = test_rect(field.rect, p);
                 if (!hit.inside) continue;
-                apply_to_agent(chaff, idx, field, hit.t, dt, mode_, field_rng, stats);
+                apply_to_agent(chaff, idx, field, hit.t, dt, mode_, field_rng, stats, attribution_);
             }
             break;
         }
@@ -331,12 +337,12 @@ DamageStats DamageSystem::apply(ChaffBuffers& chaff, const SpatialHash& hash, Rn
                 const ShapeHit hit =
                     test_cone(field.origin, field.direction, field.radius, field.arc_radians, p);
                 if (!hit.inside) continue;
-                apply_to_agent(chaff, idx, field, hit.t, dt, mode_, field_rng, stats);
+                apply_to_agent(chaff, idx, field, hit.t, dt, mode_, field_rng, stats, attribution_);
             }
             break;
         }
         case FieldShape::Chain: {
-            apply_chain(chaff, hash, field, mode_, field_rng, dt, stats, candidates);
+            apply_chain(chaff, hash, field, mode_, field_rng, dt, stats, candidates, attribution_);
             break;
         }
         }
