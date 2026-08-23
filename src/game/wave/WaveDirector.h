@@ -23,7 +23,7 @@ struct SpawnEntry {
     u32 count = 0;
     f32 start_time = 0.0f;    ///< Seconds after wave start.
     f32 duration = 1.0f;      ///< Spread the count evenly over this window.
-    std::string portal_id;    ///< Empty = any/first portal.
+    std::string spawn_point_id;    ///< Empty = any/first spawn point.
 };
 
 /// Curveball modifiers applied to a whole wave (DESIGN.md §6).
@@ -90,6 +90,21 @@ private:
     /// Per-SpawnEntry running count for the current wave's Spawning phase,
     /// sized to waves_[status_.wave_index].spawns and reset on entry.
     std::vector<u32> spawned_so_far_;
+    /// Per-SpawnEntry squad cursor for the current wave (sim/squad/Squads.h).
+    ///
+    /// A spawn entry is a COUNT, not a group -- a single entry routinely asks
+    /// for 900 agents -- so the director chops each entry's stream into squads
+    /// of SquadTuning::target_squad_size and opens a new one, on the next path
+    /// of the spawn point's lane, whenever the current squad fills. Since spawning
+    /// is already a linear ramp over the entry's duration, that emits a train
+    /// of squads down the lane rather than one giant blob, with no change to
+    /// any authored wave table.
+    struct SquadCursor {
+        u16 squad = 0xFFFFu;   ///< sim::kNoSquad; kept as a literal so this
+                               ///< header does not need the sim include.
+        u32 filled = 0;
+    };
+    std::vector<SquadCursor> squad_cursor_;
     /// Seconds spent in the current wave's Clearing phase, so a few
     /// unreachable/leaked stragglers can never stall the sequence forever.
     f32 clearing_elapsed_ = 0.0f;

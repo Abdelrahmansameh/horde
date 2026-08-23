@@ -1,5 +1,5 @@
 // Tests for Wave 4D's multi-lane level schema: Vessel::lane_id/type,
-// SpawnPortal::lane_id + resolve_portal_lane_id(), PlacementZoneTag, and
+// SpawnPoint::lane_id + resolve_spawn_point_lane_id(), PlacementZoneTag, and
 // LaneOwnershipMap/build_lane_ownership_map(). Owner: Wave 4D.
 //
 // Two concerns, deliberately kept separate:
@@ -8,7 +8,7 @@
 //      picking up sensible schema defaults with zero JSON changes.
 //   2. New: assets/levels/lane_schema_test.json exercises the actual
 //      multi-lane schema end to end -- three differently-typed lanes with
-//      distinct portals, converging on one shared objective.
+//      distinct spawn_points, converging on one shared objective.
 #include "game/level/Level.h"
 #include "platform/FileIO.h"
 #include "sim/SimWorld.h"
@@ -60,7 +60,7 @@ TEST_CASE("a vessel with no lane_id/vessel_type in JSON defaults lane_id to its 
     const char* json = R"JSON({
       "schema": 1,
       "vessels": [ { "id": "main", "points": [ {"p":[0,0],"w":4}, {"p":[10,0],"w":4} ] } ],
-      "portals": [ { "id": "p0", "pos": [0,0] } ],
+      "spawn_points": [ { "id": "p0", "pos": [0,0] } ],
       "objectives": [ { "id": "o", "pos": [10,0] } ],
       "waves": [ { "name": "w1", "spawns": [ { "family": "virus", "count": 5, "duration": 1.0 } ] } ]
     })JSON";
@@ -71,7 +71,7 @@ TEST_CASE("a vessel with no lane_id/vessel_type in JSON defaults lane_id to its 
     REQUIRE(def.vessels.size() == 1);
     REQUIRE(def.vessels[0].lane_id == "main");
     REQUIRE(def.vessels[0].type == VesselType::Artery);
-    REQUIRE(def.portals[0].lane_id.empty()); // unset, not inferred at parse time
+    REQUIRE(def.spawn_points[0].lane_id.empty()); // unset, not inferred at parse time
 }
 
 TEST_CASE("the three pre-existing content levels still load, validate, and instantiate",
@@ -105,7 +105,7 @@ TEST_CASE("the three pre-existing content levels still load, validate, and insta
         sim::SimWorld world = make_world(def);
         const LevelLoadResult res = loader.instantiate(def, world);
         REQUIRE(res.ok);
-        for (const SpawnPortal& p : def.portals) {
+        for (const SpawnPoint& p : def.spawn_points) {
             REQUIRE(world.flow().reachable(p.position));
         }
 
@@ -117,7 +117,7 @@ TEST_CASE("the three pre-existing content levels still load, validate, and insta
 
 // ---- New: lane_schema_test.json multi-lane fixture -------------------------
 
-TEST_CASE("lane_schema_test.json loads with three distinctly-typed lanes and matching portals",
+TEST_CASE("lane_schema_test.json loads with three distinctly-typed lanes and matching spawn_points",
           "[level][lanes][fixture]") {
     LevelLoader loader;
     LevelDef def;
@@ -134,10 +134,10 @@ TEST_CASE("lane_schema_test.json loads with three distinctly-typed lanes and mat
     REQUIRE(def.vessels[2].lane_id == "nerve_main");
     REQUIRE(def.vessels[2].type == VesselType::NerveAdjacent);
 
-    REQUIRE(def.portals.size() == 3);
-    REQUIRE(loader.resolve_portal_lane_id(def, def.portals[0]) == "artery_main");
-    REQUIRE(loader.resolve_portal_lane_id(def, def.portals[1]) == "lymph_main");
-    REQUIRE(loader.resolve_portal_lane_id(def, def.portals[2]) == "nerve_main");
+    REQUIRE(def.spawn_points.size() == 3);
+    REQUIRE(loader.resolve_spawn_point_lane_id(def, def.spawn_points[0]) == "artery_main");
+    REQUIRE(loader.resolve_spawn_point_lane_id(def, def.spawn_points[1]) == "lymph_main");
+    REQUIRE(loader.resolve_spawn_point_lane_id(def, def.spawn_points[2]) == "nerve_main");
 
     // One shared objective every lane converges on.
     REQUIRE(def.objectives.size() == 1);
@@ -151,7 +151,7 @@ TEST_CASE("lane_schema_test.json loads with three distinctly-typed lanes and mat
     REQUIRE(def.placement_zone_tags[1].priority == 1.0f);
 }
 
-TEST_CASE("resolve_portal_lane_id falls back to nearest-vessel inference when a portal "
+TEST_CASE("resolve_spawn_point_lane_id falls back to nearest-vessel inference when a spawn point "
           "omits lane_id",
           "[level][lanes]") {
     LevelDef def;
@@ -167,21 +167,21 @@ TEST_CASE("resolve_portal_lane_id falls back to nearest-vessel inference when a 
     b.points = {VesselPoint{Vec2{0.0f, 100.0f}, 4.0f}, VesselPoint{Vec2{10.0f, 100.0f}, 4.0f}};
     def.vessels = {a, b};
 
-    SpawnPortal near_a;
+    SpawnPoint near_a;
     near_a.id = "p_near_a";
     near_a.position = Vec2{1.0f, 1.0f}; // close to a's start, far from b's
     // lane_id left empty on purpose.
 
-    SpawnPortal near_b;
+    SpawnPoint near_b;
     near_b.id = "p_near_b";
     near_b.position = Vec2{1.0f, 99.0f}; // close to b's start
 
     LevelLoader loader;
-    REQUIRE(loader.resolve_portal_lane_id(def, near_a) == "lane_a");
-    REQUIRE(loader.resolve_portal_lane_id(def, near_b) == "lane_b");
+    REQUIRE(loader.resolve_spawn_point_lane_id(def, near_a) == "lane_a");
+    REQUIRE(loader.resolve_spawn_point_lane_id(def, near_b) == "lane_b");
 }
 
-TEST_CASE("instantiate on lane_schema_test.json bakes a flow field reachable from all three portals",
+TEST_CASE("instantiate on lane_schema_test.json bakes a flow field reachable from all three spawn_points",
           "[level][lanes][fixture][instantiate]") {
     LevelLoader loader;
     LevelDef def;
@@ -192,8 +192,8 @@ TEST_CASE("instantiate on lane_schema_test.json bakes a flow field reachable fro
     sim::SimWorld world = make_world(def);
     REQUIRE(loader.instantiate(def, world).ok);
 
-    for (const SpawnPortal& p : def.portals) {
-        INFO("portal = " << p.id);
+    for (const SpawnPoint& p : def.spawn_points) {
+        INFO("spawn point = " << p.id);
         const IVec2 pc = world.tissue().world_to_cell(p.position);
         REQUIRE(world.tissue().walkable(pc.x, pc.y));
         REQUIRE(world.flow().reachable(p.position));
@@ -233,14 +233,14 @@ TEST_CASE("build_lane_ownership_map attributes known points on lane_schema_test.
     REQUIRE(map.width == static_cast<i32>(world_size.x / def.cell_size));
     REQUIRE(map.height == static_cast<i32>(world_size.y / def.cell_size));
 
-    // Each portal must be attributed to the lane it is authored on. Probing at
-    // the portal's real position (not a copied literal) keeps this meaningful
+    // Each spawn point must be attributed to the lane it is authored on. Probing at
+    // the spawn point's real position (not a copied literal) keeps this meaningful
     // when the level geometry moves.
-    for (const SpawnPortal& portal : def.portals) {
-        const i32 owner = map.lane_at(portal.position);
-        INFO("portal " << portal.id << " lane_id=" << portal.lane_id);
+    for (const SpawnPoint& spawn_point : def.spawn_points) {
+        const i32 owner = map.lane_at(spawn_point.position);
+        INFO("spawn point " << spawn_point.id << " lane_id=" << spawn_point.lane_id);
         REQUIRE(owner >= 0);
-        REQUIRE(map.lane_ids[static_cast<usize>(owner)] == portal.lane_id);
+        REQUIRE(map.lane_ids[static_cast<usize>(owner)] == spawn_point.lane_id);
     }
 
     // A mid-lane point on the lymph lane, taken from its own control points and
@@ -279,7 +279,7 @@ TEST_CASE("build_lane_ownership_map on a single-lane level yields exactly one la
     REQUIRE(map.lane_ids.size() == 1);
     REQUIRE(map.lane_ids[0] == "main");
 
-    // The portal and objective positions both fall on that one lane.
-    REQUIRE(map.lane_at(def.portals[0].position) == 0);
+    // The spawn point and objective positions both fall on that one lane.
+    REQUIRE(map.lane_at(def.spawn_points[0].position) == 0);
     REQUIRE(map.lane_at(def.objectives[0].position) == 0);
 }

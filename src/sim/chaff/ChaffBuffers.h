@@ -30,9 +30,19 @@
 // CAPACITY
 // All arrays are reserved once at level load to `max_agents`. Spawning past
 // capacity fails and is reported, rather than reallocating mid-tick.
+//
+// SQUADS (amendment; see sim/squad/Squads.h)
+// `squad_id` is a ninth stream, added when the horde was partitioned into squads
+// for readability. It is additive: an agent carrying kNoSquad steers exactly as
+// every agent did before the stream existed, so nothing about the four-line
+// movement kernel above changed for the ungrouped case. It participates in
+// spawn(), clear(), and -- the easy one to miss -- the swap-remove in compact(),
+// where an agent must carry its squad membership to its new slot for the same
+// reason it carries its generation.
 #pragma once
 
 #include "core/Types.h"
+#include "sim/squad/Squads.h"   // kNoSquad, the default for the squad_id stream
 
 #include <vector>
 
@@ -77,6 +87,9 @@ struct ChaffSpawnParams {
     /// flagged kPendingKill. Tankier families simply start higher.
     f32 density = 1.0f;
     u8 flags = 0;
+    /// Squad this agent joins, or kNoSquad for an ungrouped agent (which steers
+    /// exactly as chaff did before the squad layer existed).
+    u16 squad_id = kNoSquad;
 };
 
 /// The chaff store. One instance per sim world.
@@ -100,6 +113,17 @@ public:
     std::vector<f32> density;     ///< HP-as-density contribution (see ChaffSpawnParams).
     std::vector<u8>  flags;       ///< chaff_flags bitset.
     std::vector<u32> generation;  ///< Bumped on despawn; backs ChaffHandle.
+    /// Which squad this agent belongs to, or kNoSquad (sim/squad/Squads.h).
+    ///
+    /// A SEPARATE u16 stream rather than bits stolen from `flags`, for two
+    /// reasons. `flags` is a u8 and is nearly full (only bit 6 is unused), so
+    /// there is no room for an id there at all. And a squad id is not a
+    /// predicate: the movement kernel uses it to index a table and to compare
+    /// against a neighbour's id, neither of which wants a mask-and-shift in the
+    /// inner loop. At 16k agents the whole stream is 32 KB and stays resident in
+    /// L2 across the neighbour gather, which is the only pass that reads it
+    /// randomly.
+    std::vector<u16> squad_id;
 
     /// Reserves every stream to `max_agents`. Call once at level load.
     void reserve(usize max_agents);

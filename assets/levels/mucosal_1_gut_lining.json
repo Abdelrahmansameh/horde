@@ -1,494 +1,494 @@
 {
-  "schema": 1,
-  "name": "mucosal_1_gut_lining",
-  "region": "mucosal",
-  "world": {
-    "min": [
-      0,
-      0
-    ],
-    "max": [
-      178.19,
-      100.0
-    ],
-    "cell_size": 0.5
-  },
-  "vessels": [
-    {
-      "id": "fold_north",
-      "lane_id": "fold_north",
-      "vessel_type": "mucosal_fold",
-      "points": [
-        {
-          "p": [
-            11.72,
-            10.78
-          ],
-          "w": 18.63
-        },
-        {
-          "p": [
-            41.13,
-            18.14
-          ],
-          "w": 18.63
-        },
-        {
-          "p": [
-            75.44,
-            45.1
-          ],
-          "w": 24.22
-        }
-      ],
-      "children": [
-        "trunk"
-      ]
-    },
-    {
-      "id": "fold_mid_n",
-      "lane_id": "fold_mid_n",
-      "vessel_type": "mucosal_fold",
-      "points": [
-        {
-          "p": [
-            11.72,
-            35.29
-          ],
-          "w": 20.49
-        },
-        {
-          "p": [
-            41.13,
-            37.75
-          ],
-          "w": 20.49
-        },
-        {
-          "p": [
-            75.44,
-            45.1
-          ],
-          "w": 24.22
-        }
-      ],
-      "children": [
-        "trunk"
-      ]
-    },
-    {
-      "id": "lymph_fold",
-      "lane_id": "lymph_fold",
-      "vessel_type": "lymphatic",
-      "points": [
-        {
-          "p": [
-            11.72,
-            64.71
-          ],
-          "w": 18.63
-        },
-        {
-          "p": [
-            41.13,
-            54.9
-          ],
-          "w": 18.63
-        },
-        {
-          "p": [
-            75.44,
-            45.1
-          ],
-          "w": 24.22
-        }
-      ],
-      "children": [
-        "trunk"
-      ]
-    },
-    {
-      "id": "fold_south",
-      "lane_id": "fold_south",
-      "vessel_type": "mucosal_fold",
-      "points": [
-        {
-          "p": [
-            11.72,
-            89.22
-          ],
-          "w": 18.63
-        },
-        {
-          "p": [
-            41.13,
-            74.51
-          ],
-          "w": 18.63
-        },
-        {
-          "p": [
-            75.44,
-            45.1
-          ],
-          "w": 24.22
-        }
-      ],
-      "children": [
-        "trunk"
-      ]
-    },
-    {
-      "id": "trunk",
-      "lane_id": "trunk",
-      "vessel_type": "mucosal_fold",
-      "points": [
-        {
-          "p": [
-            75.44,
-            45.1
-          ],
-          "w": 26.08
-        },
-        {
-          "p": [
-            119.56,
-            45.1
-          ],
-          "w": 26.08
-        },
-        {
-          "p": [
-            163.68,
-            45.1
-          ],
-          "w": 26.08
-        }
-      ],
-      "children": []
-    }
-  ],
-  "portals": [
-    {
-      "id": "p_north",
-      "pos": [
-        11.72,
-        10.78
-      ],
-      "radius": 9.31,
-      "lane_id": "fold_north"
-    },
-    {
-      "id": "p_mid_n",
-      "pos": [
-        11.72,
-        35.29
-      ],
-      "radius": 9.31,
-      "lane_id": "fold_mid_n"
-    },
-    {
-      "id": "p_lymph",
-      "pos": [
-        11.72,
-        64.71
-      ],
-      "radius": 9.31,
-      "lane_id": "lymph_fold"
-    },
-    {
-      "id": "p_south",
-      "pos": [
-        11.72,
-        89.22
-      ],
-      "radius": 9.31,
-      "lane_id": "fold_south"
-    }
-  ],
-  "objectives": [
-    {
-      "id": "organ",
-      "pos": [
-        163.68,
-        45.1
-      ],
-      "radius": 4.9,
-      "integrity": 100
-    }
-  ],
-  "placement_zones": [
-    {
-      "min": [
-        53.38,
-        8.33
-      ],
-      "max": [
-        92.6,
-        86.76
-      ],
-      "concentrated": true,
-      "priority": 2.5
-    },
-    {
-      "min": [
-        97.5,
-        30.39
-      ],
-      "max": [
-        153.87,
-        59.8
-      ],
-      "concentrated": false,
-      "priority": 1.0
-    },
-    {
-      "min": [
-        13.68,
-        5.88
-      ],
-      "max": [
-        38.68,
-        15.69
-      ],
-      "concentrated": false,
-      "priority": 0.8
-    },
-    {
-      "min": [
-        13.68,
-        30.39
-      ],
-      "max": [
-        38.68,
-        40.2
-      ],
-      "concentrated": false,
-      "priority": 0.8
-    },
-    {
-      "min": [
-        13.68,
-        59.8
-      ],
-      "max": [
-        38.68,
-        69.61
-      ],
-      "concentrated": false,
-      "priority": 0.8
-    },
-    {
-      "min": [
-        13.68,
-        84.31
-      ],
-      "max": [
-        38.68,
-        94.12
-      ],
-      "concentrated": false,
-      "priority": 0.8
-    }
-  ],
   "ambient_drift": [
     0.0,
     0.0
   ],
+  "name": "mucosal_1_gut_lining",
+  "objectives": [
+    {
+      "id": "organ",
+      "integrity": 100,
+      "pos": [
+        893.492,
+        237.152
+      ],
+      "radius": 15.243
+    }
+  ],
+  "placement_zones": [
+    {
+      "concentrated": true,
+      "max": [
+        496.921,
+        469.583
+      ],
+      "min": [
+        278.104,
+        32.004
+      ],
+      "priority": 2.5
+    },
+    {
+      "concentrated": false,
+      "max": [
+        838.76,
+        319.167
+      ],
+      "min": [
+        524.259,
+        155.082
+      ],
+      "priority": 1.0
+    },
+    {
+      "concentrated": false,
+      "max": [
+        196.089,
+        73.067
+      ],
+      "min": [
+        56.608,
+        18.335
+      ],
+      "priority": 0.8
+    },
+    {
+      "concentrated": false,
+      "max": [
+        196.089,
+        209.814
+      ],
+      "min": [
+        56.608,
+        155.082
+      ],
+      "priority": 0.8
+    },
+    {
+      "concentrated": false,
+      "max": [
+        196.089,
+        373.899
+      ],
+      "min": [
+        56.608,
+        319.167
+      ],
+      "priority": 0.8
+    },
+    {
+      "concentrated": false,
+      "max": [
+        196.089,
+        510.646
+      ],
+      "min": [
+        56.608,
+        455.914
+      ],
+      "priority": 0.8
+    }
+  ],
+  "spawn_points": [
+    {
+      "id": "p_north",
+      "lane_id": "fold_north",
+      "pos": [
+        45.673,
+        45.673
+      ],
+      "radius": 28.962
+    },
+    {
+      "id": "p_mid_n",
+      "lane_id": "fold_mid_n",
+      "pos": [
+        45.673,
+        182.42
+      ],
+      "radius": 28.962
+    },
+    {
+      "id": "p_lymph",
+      "lane_id": "lymph_fold",
+      "pos": [
+        45.673,
+        346.561
+      ],
+      "radius": 28.962
+    },
+    {
+      "id": "p_south",
+      "lane_id": "fold_south",
+      "pos": [
+        45.673,
+        483.308
+      ],
+      "radius": 28.962
+    }
+  ],
+  "region": "mucosal",
+  "schema": 1,
+  "vessels": [
+    {
+      "children": [
+        "trunk"
+      ],
+      "id": "fold_north",
+      "lane_id": "fold_north",
+      "points": [
+        {
+          "p": [
+            45.673,
+            45.673
+          ],
+          "w": 57.956
+        },
+        {
+          "p": [
+            209.758,
+            86.736
+          ],
+          "w": 57.956
+        },
+        {
+          "p": [
+            401.181,
+            237.152
+          ],
+          "w": 75.346
+        }
+      ],
+      "vessel_type": "mucosal_fold"
+    },
+    {
+      "children": [
+        "trunk"
+      ],
+      "id": "fold_mid_n",
+      "lane_id": "fold_mid_n",
+      "points": [
+        {
+          "p": [
+            45.673,
+            182.42
+          ],
+          "w": 63.742
+        },
+        {
+          "p": [
+            209.758,
+            196.145
+          ],
+          "w": 63.742
+        },
+        {
+          "p": [
+            401.181,
+            237.152
+          ],
+          "w": 75.346
+        }
+      ],
+      "vessel_type": "mucosal_fold"
+    },
+    {
+      "children": [
+        "trunk"
+      ],
+      "id": "lymph_fold",
+      "lane_id": "lymph_fold",
+      "points": [
+        {
+          "p": [
+            45.673,
+            346.561
+          ],
+          "w": 57.956
+        },
+        {
+          "p": [
+            209.758,
+            291.828
+          ],
+          "w": 57.956
+        },
+        {
+          "p": [
+            401.181,
+            237.152
+          ],
+          "w": 75.346
+        }
+      ],
+      "vessel_type": "lymphatic"
+    },
+    {
+      "children": [
+        "trunk"
+      ],
+      "id": "fold_south",
+      "lane_id": "fold_south",
+      "points": [
+        {
+          "p": [
+            45.673,
+            483.308
+          ],
+          "w": 57.956
+        },
+        {
+          "p": [
+            209.758,
+            401.237
+          ],
+          "w": 57.956
+        },
+        {
+          "p": [
+            401.181,
+            237.152
+          ],
+          "w": 75.346
+        }
+      ],
+      "vessel_type": "mucosal_fold"
+    },
+    {
+      "children": [],
+      "id": "trunk",
+      "lane_id": "trunk",
+      "points": [
+        {
+          "p": [
+            401.181,
+            237.152
+          ],
+          "w": 81.132
+        },
+        {
+          "p": [
+            647.337,
+            237.152
+          ],
+          "w": 81.132
+        },
+        {
+          "p": [
+            893.492,
+            237.152
+          ],
+          "w": 81.132
+        }
+      ],
+      "vessel_type": "mucosal_fold"
+    }
+  ],
   "waves": [
     {
+      "atp_reward": 60,
       "name": "mucosal_wave_1",
       "prep_time": 9.0,
-      "atp_reward": 60,
       "spawns": [
         {
-          "family": "virus",
           "count": 198,
-          "start_time": 0.0,
-          "duration": 4.67
+          "duration": 4.67,
+          "family": "virus",
+          "start_time": 0.0
         },
         {
-          "family": "bacteria",
           "count": 90,
-          "start_time": 0.33,
-          "duration": 6.0
+          "duration": 6.0,
+          "family": "bacteria",
+          "start_time": 0.33
         }
       ]
     },
     {
+      "atp_reward": 75,
       "name": "mucosal_wave_2",
       "prep_time": 8.43,
-      "atp_reward": 75,
       "spawns": [
         {
-          "family": "virus",
           "count": 303,
-          "start_time": 0.0,
-          "duration": 4.67
+          "duration": 4.67,
+          "family": "virus",
+          "start_time": 0.0
         },
         {
-          "family": "bacteria",
           "count": 142,
-          "start_time": 0.33,
-          "duration": 6.0
+          "duration": 6.0,
+          "family": "bacteria",
+          "start_time": 0.33
         },
         {
-          "family": "bacteria",
           "count": 95,
-          "start_time": 0.83,
-          "duration": 4.0
+          "duration": 4.0,
+          "family": "bacteria",
+          "start_time": 0.83
         }
       ]
     },
     {
+      "atp_reward": 90,
       "name": "mucosal_wave_3",
       "prep_time": 7.86,
-      "atp_reward": 90,
       "spawns": [
         {
-          "family": "virus",
           "count": 408,
-          "start_time": 0.0,
-          "duration": 4.67
+          "duration": 4.67,
+          "family": "virus",
+          "start_time": 0.0
         },
         {
-          "family": "bacteria",
           "count": 195,
-          "start_time": 0.33,
-          "duration": 6.0
+          "duration": 6.0,
+          "family": "bacteria",
+          "start_time": 0.33
         },
         {
-          "family": "bacteria",
           "count": 130,
-          "start_time": 0.83,
-          "duration": 4.0
+          "duration": 4.0,
+          "family": "bacteria",
+          "start_time": 0.83
         }
       ]
     },
     {
+      "atp_reward": 105,
       "name": "mucosal_wave_4",
       "prep_time": 7.29,
-      "atp_reward": 105,
       "spawns": [
         {
-          "family": "virus",
           "count": 513,
-          "start_time": 0.0,
-          "duration": 4.67
+          "duration": 4.67,
+          "family": "virus",
+          "start_time": 0.0
         },
         {
-          "family": "bacteria",
           "count": 247,
-          "start_time": 0.33,
-          "duration": 6.0
+          "duration": 6.0,
+          "family": "bacteria",
+          "start_time": 0.33
         },
         {
-          "family": "bacteria",
           "count": 165,
-          "start_time": 0.83,
-          "duration": 4.0
+          "duration": 4.0,
+          "family": "bacteria",
+          "start_time": 0.83
         }
       ]
     },
     {
+      "atp_reward": 120,
       "name": "mucosal_wave_5",
       "prep_time": 6.71,
-      "atp_reward": 120,
       "spawns": [
         {
-          "family": "virus",
           "count": 618,
-          "start_time": 0.0,
-          "duration": 4.67
+          "duration": 4.67,
+          "family": "virus",
+          "start_time": 0.0
         },
         {
-          "family": "bacteria",
           "count": 300,
-          "start_time": 0.33,
-          "duration": 6.0
+          "duration": 6.0,
+          "family": "bacteria",
+          "start_time": 0.33
         },
         {
-          "family": "bacteria",
           "count": 200,
-          "start_time": 0.83,
-          "duration": 4.0
+          "duration": 4.0,
+          "family": "bacteria",
+          "start_time": 0.83
         }
       ]
     },
     {
+      "atp_reward": 135,
       "name": "mucosal_wave_6",
       "prep_time": 6.14,
-      "atp_reward": 135,
       "spawns": [
         {
-          "family": "virus",
           "count": 723,
-          "start_time": 0.0,
-          "duration": 4.67
+          "duration": 4.67,
+          "family": "virus",
+          "start_time": 0.0
         },
         {
-          "family": "bacteria",
           "count": 352,
-          "start_time": 0.33,
-          "duration": 6.0
+          "duration": 6.0,
+          "family": "bacteria",
+          "start_time": 0.33
         },
         {
-          "family": "bacteria",
           "count": 235,
-          "start_time": 0.83,
-          "duration": 4.0
+          "duration": 4.0,
+          "family": "bacteria",
+          "start_time": 0.83
         }
       ]
     },
     {
+      "atp_reward": 150,
       "name": "mucosal_wave_7",
       "prep_time": 5.57,
-      "atp_reward": 150,
       "spawns": [
         {
-          "family": "virus",
           "count": 828,
-          "start_time": 0.0,
-          "duration": 4.67
+          "duration": 4.67,
+          "family": "virus",
+          "start_time": 0.0
         },
         {
-          "family": "bacteria",
           "count": 405,
-          "start_time": 0.33,
-          "duration": 6.0
+          "duration": 6.0,
+          "family": "bacteria",
+          "start_time": 0.33
         },
         {
-          "family": "bacteria",
           "count": 270,
-          "start_time": 0.83,
-          "duration": 4.0
+          "duration": 4.0,
+          "family": "bacteria",
+          "start_time": 0.83
         }
       ]
     },
     {
+      "atp_reward": 165,
       "name": "mucosal_wave_8",
       "prep_time": 5.0,
-      "atp_reward": 165,
       "spawns": [
         {
-          "family": "virus",
           "count": 933,
-          "start_time": 0.0,
-          "duration": 4.67
+          "duration": 4.67,
+          "family": "virus",
+          "start_time": 0.0
         },
         {
-          "family": "bacteria",
           "count": 457,
-          "start_time": 0.33,
-          "duration": 6.0
+          "duration": 6.0,
+          "family": "bacteria",
+          "start_time": 0.33
         },
         {
-          "family": "bacteria",
           "count": 305,
-          "start_time": 0.83,
-          "duration": 4.0
+          "duration": 4.0,
+          "family": "bacteria",
+          "start_time": 0.83
         }
       ]
     }
-  ]
+  ],
+  "world": {
+    "cell_size": 1.0,
+    "max": [
+      942.06,
+      528.98
+    ],
+    "min": [
+      0,
+      0
+    ]
+  }
 }

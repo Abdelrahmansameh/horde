@@ -142,6 +142,7 @@ Everything a tick touches hangs off `SimWorld`, and the tick order is fixed:
 
 ```
 1. spatial hash rebuild        [prof: spatial_hash]
+1b. squad centroids + anchors  [prof: squad_update]
 2. chaff update                [prof: chaff_update]
 3. ECS systems                 [prof: ecs_tick]
 4. damage fields apply
@@ -175,6 +176,7 @@ family            u8    PathogenFamily; also the render batch key
 density           f32   HP expressed as a density contribution
 flags             u8    chaff_flags bitset
 generation        u32   backs ChaffHandle across compaction
+squad_id          u16   which squad, or kNoSquad (see 4.7)
 ```
 
 **Why SoA, in order of weight:**
@@ -197,31 +199,8 @@ is what SIMD wants.
 **Identity.** An index is not stable — `compact()` swap-removes dead agents.
 Anything that must name a specific agent across ticks uses `ChaffHandle`
 (index + generation). In practice almost nothing does; chaff is fought as a mass.
-
-**Damage.** `apply_density_loss()` is the *only* way chaff takes damage. There is
-no per-unit hit path. Density reaching zero sets `kPendingKill`; removal happens
-in the once-per-tick `compact()`, so indices are stable within a tick.
-
-**Capacity.** All streams are reserved once at level load. Spawning past capacity
-fails and is reported; it never reallocates mid-tick.
-
-**Invariants** (asserted in debug, checked by tests):
-- I1 every index in `[0, count)` has `kAlive`
-- I2 all streams have equal size, `>= count`
-- I3 `count <= capacity` always; `spawn()` never grows an array
-- I4 `density[i] > 0` for every live agent after `compact()`
-
-`ChaffSystem` is the movement kernel. Per agent per tick, the entire "AI" is:
-
-```
-v += flow.sample(p) * speed          // one bilinear field fetch
-v += separation(p) * k               // 3x3 spatial-hash cell scan
-v  = clamp_length(v, max_speed)
-p += v * dt
-```
-
-Family behaviour (replication, drift, hiding) is a variation on those
-four lines gated by a flag bit — never a subclass.
+`squad_id` has to be carried across that swap for the same reason `generation`
+is — it is the one other per-agent fact that outlives a slot.
 
 ### 4.3 `sim/spatial` — uniform grid
 
@@ -324,6 +303,96 @@ Components are plain trivially-copyable structs with no methods and no virtuals
 so EnTT keeps them in dense pools.
 
 ---
+
+### 4.7 `sim/squad` — squads, for readability
+
+Every agent samples the same level-wide flow field, so the whole horde converges
+on one shortest path and arrives as a single undifferentiated mass. That mass has
+the fluid feel DESIGN.md §4.2 asks for, but at 10k agents there is no structure
+in it to read. `SquadRegistry` partitions the horde into groups of ~60, each
+following its own path across the lane.
+
+Paths are **optional per-level data** (`squad_paths` in the level JSON). A lane
+that authors none gets a spread derived from its vessel centerline at load, so
+the feature required no edits to any shipped level. **How many** paths a lane
+gets follows its narrowest lumen width, not a fixed count: paths are placed
+`kMinPathSpacing` apart across the usable band, so a wide trunk carries three or
+four squad columns and a capillary carries one. A fixed count is wrong at every
+width but one — three paths in a 46-wide lane sit closer together than a squad
+is across, and the horde reads as one mass however well the steering works.
+
+Three forces, and only the third touches the hot neighbour loop:
+
+- **Anchor** — a point sliding along the path, *leashed* to the squad's own
+  centroid: monotonic, rate-limited, and always ~`anchor_lookahead` ahead. A
+  squad jammed behind a tower keeps its anchor close instead of letting it sail
+  off and drag stragglers into a wall. New squads on a path already occupied are
+  pushed forward past it by `spawn_spacing`, so same-path squads form a column
+  rather than spawning inside one another.
+- **Cohesion** — a velocity impulse decomposed against the flow direction.
+  *Across* the flow it steers toward the anchor (which line of the lane this
+  squad rides); *along* the flow it pulls toward the squad's own centre of mass
+  (so the squad does not string out into a ribbon). Splitting the axes is what
+  lets the flow field keep all of its forward authority: the cross-flow term can
+  never push an agent into a wall the field is routing around, and the
+  along-flow term only speeds up stragglers and reins in leaders. Both ramp from
+  **exactly zero** at the squad radius, which is what keeps a packed interior
+  running the identical pre-squad kernel — the fluid feel is not traded for the
+  grouping.
+- **Repulsion** — in `gather_neighbours`, a neighbour from a *different* squad
+  gets a wider separation radius and a stronger push, and is excluded from
+  alignment. One `u16` compare per neighbour, short-circuited away entirely for
+  ungrouped agents.
+
+Two numbers are load-bearing and are *derived*, not chosen. `lateral_push` is a
+velocity impulse in the same units as `separation_strength`, because the flow
+term contributes ~0.33/tick while separation contributes up to ~16 — a cohesion
+term expressed as an acceleration is two orders of magnitude quieter than the
+crowd it is steering and simply loses. And `squad_radius_scale` is 0.75 because
+that is exactly the radius `spawn_burst`'s phyllotaxis packs `n` agents into,
+i.e. the radius a squad *physically occupies*; below it the target is smaller
+than the bodies it describes, every member is permanently "outside", and the
+promised free interior never exists.
+
+Determinism: centroids are accumulated in a **serial** pass in index order (float
+addition is not associative, so a parallel reduction would make steering depend
+on thread count), and `SquadRegistry::state_hash()` folds into
+`SimWorld::state_hash()` so `--sim-test` actually covers the layer.
+
+Measured at 10k agents in 167 squads: `chaff_update` 1.4 ms (budget 4 ms),
+`squad_update` 0.09 ms.
+
+**Level geometry.** Squads need room: one is ~16 world units across once the
+crowd relaxes, so a lane must be roughly 50+ wide to hold two side by side.
+Every shipped level was widened to ~68 units of lumen for this, with world
+bounds and control points scaled to keep lanes from merging (and
+`default_test_level()` matched, so the headless modes stay representative).
+Lanes were 5-12 wide before, i.e. narrower than a single squad.
+
+**Damage.** `apply_density_loss()` is the *only* way chaff takes damage. There is
+no per-unit hit path. Density reaching zero sets `kPendingKill`; removal happens
+in the once-per-tick `compact()`, so indices are stable within a tick.
+
+**Capacity.** All streams are reserved once at level load. Spawning past capacity
+fails and is reported; it never reallocates mid-tick.
+
+**Invariants** (asserted in debug, checked by tests):
+- I1 every index in `[0, count)` has `kAlive`
+- I2 all streams have equal size, `>= count`
+- I3 `count <= capacity` always; `spawn()` never grows an array
+- I4 `density[i] > 0` for every live agent after `compact()`
+
+`ChaffSystem` is the movement kernel. Per agent per tick, the entire "AI" is:
+
+```
+v += flow.sample(p) * speed          // one bilinear field fetch
+v += separation(p) * k               // 3x3 spatial-hash cell scan
+v  = clamp_length(v, max_speed)
+p += v * dt
+```
+
+Family behaviour (replication, drift, hiding) is a variation on those
+four lines gated by a flag bit — never a subclass.
 
 ## 5. `render`
 

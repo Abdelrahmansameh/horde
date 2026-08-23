@@ -17,7 +17,7 @@ SessionOutcome step_level(const LevelSystems& s, Profiler* profiler) {
     sim::SimWorld& world = *s.world;
 
     // Before the wave director, so a console-queued spawn and an authored wave
-    // spawning into the same portal on the same tick resolve in a fixed order.
+    // spawning into the same spawn point on the same tick resolve in a fixed order.
     if (s.spawns != nullptr) s.spawns->tick(world);
     if (s.waves != nullptr) s.waves->tick(world, world.rng(), kFixedDt);
     world.tick(profiler);

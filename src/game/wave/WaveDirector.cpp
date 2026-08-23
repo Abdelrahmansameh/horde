@@ -11,30 +11,34 @@
 #include "sim/SimWorld.h"
 #include "sim/chaff/ChaffSystem.h"
 #include "sim/ecs/NamedAgents.h"
+#include "sim/squad/Squads.h"
 
 namespace immune::game {
 
 namespace {
 
-/// Resolves a SpawnEntry's portal_id against the level's runtime portal list.
-/// Empty id (or no match) falls back to the first portal, per WaveDirector.h's
-/// doc comment on SpawnEntry::portal_id. Returns false if the level has no
-/// portals at all (headless CLI modes that never loaded a real level).
-bool resolve_portal(const sim::SimWorld& world, const std::string& portal_id,
-                    Vec2& out_pos, f32& out_radius) {
-    const auto& portals = world.portals();
-    if (portals.empty()) return false;
-    if (!portal_id.empty()) {
-        for (const auto& p : portals) {
-            if (p.id == portal_id) {
+/// Resolves a SpawnEntry's spawn_point_id against the level's runtime spawn
+/// point list. Empty id (or no match) falls back to the first spawn point,
+/// per WaveDirector.h's doc comment on SpawnEntry::spawn_point_id. Returns
+/// false if the level has no spawn points at all (headless CLI modes that
+/// never loaded a real level).
+bool resolve_spawn_point(const sim::SimWorld& world, const std::string& spawn_point_id,
+                    Vec2& out_pos, f32& out_radius, std::string& out_lane) {
+    const auto& spawn_points = world.spawn_points();
+    if (spawn_points.empty()) return false;
+    if (!spawn_point_id.empty()) {
+        for (const auto& p : spawn_points) {
+            if (p.id == spawn_point_id) {
                 out_pos = p.position;
                 out_radius = p.radius;
+                out_lane = p.lane_id;
                 return true;
             }
         }
     }
-    out_pos = portals[0].position;
-    out_radius = portals[0].radius;
+    out_pos = spawn_points[0].position;
+    out_radius = spawn_points[0].radius;
+    out_lane = spawn_points[0].lane_id;
     return true;
 }
 
@@ -54,6 +58,7 @@ void WaveDirector::start(sim::SimWorld& world) {
     }
     wave_time_ = 0.0f;
     spawned_so_far_.clear();
+    squad_cursor_.clear();
     clearing_elapsed_ = 0.0f;
     early_start_requested_ = false;
 }
@@ -87,6 +92,7 @@ void WaveDirector::tick(sim::SimWorld& world, Rng& rng, f32 dt) {
                 status_.phase = WavePhase::Spawning;
                 wave_time_ = 0.0f;
                 spawned_so_far_.assign(wave.spawns.size(), 0u);
+        squad_cursor_.assign(wave.spawns.size(), SquadCursor{});
                 status_.remaining_to_spawn = 0;
                 for (const SpawnEntry& e : wave.spawns) status_.remaining_to_spawn += e.count;
                 status_.phase_time_remaining = 0.0f;
@@ -109,10 +115,11 @@ void WaveDirector::tick(sim::SimWorld& world, Rng& rng, f32 dt) {
                 if (due <= spawned_so_far_[i]) continue;
                 const u32 to_spawn = due - spawned_so_far_[i];
 
-                Vec2 portal_pos{};
-                f32 portal_radius = 1.0f;
-                if (!resolve_portal(world, e.portal_id, portal_pos, portal_radius)) {
-                    // No portals at all (headless mode with no level) -- nothing
+                Vec2 spawn_point_pos{};
+                f32 spawn_point_radius = 1.0f;
+                std::string spawn_point_lane;
+                if (!resolve_spawn_point(world, e.spawn_point_id, spawn_point_pos, spawn_point_radius, spawn_point_lane)) {
+                    // No spawn points at all (headless mode with no level) -- nothing
                     // to spawn from; count this entry done so the wave can't
                     // stall waiting for spawns that will never happen.
                     const u32 remaining_here = e.count - spawned_so_far_[i];
@@ -123,8 +130,77 @@ void WaveDirector::tick(sim::SimWorld& world, Rng& rng, f32 dt) {
                 }
 
                 if (e.elite_id == 0) {
-                    const u32 spawned = world.chaff_system().spawn_burst(
-                        world.chaff(), e.family, portal_pos, portal_radius, to_spawn, rng);
+                    // Chop this tick's release into squad-sized bursts. Each
+                    // burst is its own spawn_burst() call so the phyllotaxis
+                    // packing still applies per squad rather than smearing one
+                    // spiral across several of them.
+                    sim::SquadRegistry& reg = world.squads();
+                    const u32 squad_size = math::max(reg.tuning().target_squad_size, 1u);
+                    const bool grouping = reg.tuning().enabled && !reg.paths().empty();
+                    SquadCursor& cursor = squad_cursor_[i];
+
+                    u32 spawned = 0;
+                    u32 left = to_spawn;
+                    while (left > 0) {
+                        u16 squad = sim::kNoSquad;
+                        u32 chunk = left;
+                        // Where this chunk actually goes. Ungrouped chaff still
+                        // comes out of the spawn point disc exactly as before.
+                        Vec2 at = spawn_point_pos;
+                        f32 at_radius = spawn_point_radius;
+
+                        if (grouping) {
+                            if (cursor.squad == sim::kNoSquad || cursor.filled >= squad_size ||
+                                !reg.alive(cursor.squad)) {
+                                u16 path = 0;
+                                cursor.squad = reg.next_path_for_lane(spawn_point_lane, path)
+                                                   ? reg.create_squad(path, spawn_point_pos)
+                                                   : sim::kNoSquad;
+                                cursor.filled = 0;
+                            }
+                            squad = cursor.squad;
+                            // A full registry yields kNoSquad; those agents
+                            // spawn ungrouped rather than stalling the wave.
+                            if (squad != sim::kNoSquad) {
+                                chunk = math::min(left, squad_size - cursor.filled);
+
+                                // SPAWN ON THE SQUAD'S OWN PATH, not at the
+                                // spawn point centre. create_squad() has already
+                                // seeded the anchor by projecting the spawn
+                                // point onto this squad's path and applying the
+                                // squad's lateral offset, so the anchor is a
+                                // point on the lane, near the spawn point, that
+                                // no other squad is using.
+                                //
+                                // This matters more than it looks. Spawning
+                                // every squad in one disc means they all start
+                                // interpenetrated and have to shove each other
+                                // apart before any of them reads as a group --
+                                // which, in a lane only a squad or two wide,
+                                // they never finish doing. Starting them apart
+                                // means they are grouped from the first frame
+                                // and the steering only has to KEEP them so.
+                                const sim::Squad& sq = reg.get(squad);
+                                at = sq.anchor;
+                                // Zero, deliberately: spawn_burst grows the
+                                // disc to exactly what this count needs at
+                                // contact spacing, which IS a squad-sized
+                                // clump. Passing the spawn point radius instead
+                                // would smear ~60 agents over a disc several
+                                // times the squad's own radius, and they would
+                                // spend the first seconds contracting rather
+                                // than reading as a group.
+                                at_radius = 0.0f;
+                            }
+                        }
+                        const u32 got = world.chaff_system().spawn_burst(
+                            world.chaff(), e.family, at, at_radius, chunk, rng, squad);
+                        spawned += got;
+                        if (squad != sim::kNoSquad) cursor.filled += got;
+                        left -= chunk;
+                        if (got < chunk) break;   // at capacity; stop trying this tick
+                    }
+
                     spawned_so_far_[i] += spawned;
                     status_.remaining_to_spawn -=
                         math::min(spawned, status_.remaining_to_spawn);
@@ -134,8 +210,8 @@ void WaveDirector::tick(sim::SimWorld& world, Rng& rng, f32 dt) {
                     if (spawned < to_spawn) spawned_so_far_[i] += (to_spawn - spawned);
                 } else {
                     for (u32 n = 0; n < to_spawn; ++n) {
-                        const Vec2 jitter = rng.unit_disc() * portal_radius;
-                        const sim::named::SpawnParams params{e.elite_id, portal_pos + jitter,
+                        const Vec2 jitter = rng.unit_disc() * spawn_point_radius;
+                        const sim::named::SpawnParams params{e.elite_id, spawn_point_pos + jitter,
                                                               1.0f, 0.0f};
                         const EntityId id = sim::named::spawn(world, params);
                         ++spawned_so_far_[i];

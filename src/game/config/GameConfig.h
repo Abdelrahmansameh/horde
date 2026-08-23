@@ -24,6 +24,7 @@
 #include "game/enemies/EnemyRoster.h"
 #include "game/towers/TowerSystem.h"
 #include "sim/fluid/Fluid.h"
+#include "sim/squad/Squads.h"
 
 #include <string>
 #include <vector>
@@ -283,6 +284,11 @@ struct SimConfig {
     SimCapacities capacities{};
     SimGlobals globals{};
     SwarmerGlobals swarmers{};
+    /// Squad grouping, reused verbatim from sim/squad for the same reason the
+    /// fluid block below is: the config cannot drift from the struct the sim
+    /// actually reads. See sim/squad/Squads.h for what each knob does and why
+    /// the follow weight must stay below 1.
+    sim::SquadTuning squads{};
     /// The fluid solver's own constants, reused verbatim from sim/fluid so the
     /// config cannot drift from the struct the solver actually reads. It sits
     /// in sim.json rather than towers.json because there is exactly ONE solver

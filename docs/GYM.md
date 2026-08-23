@@ -19,7 +19,7 @@ overlay.)
 ## The window
 
 ```
-TARGET  (o) cursor  ( ) portal [p_lymph v]  ( ) objective  ( ) point [x][y]
+TARGET  (o) cursor  ( ) spawn point [p_lymph v]  ( ) objective  ( ) point [x][y]
 [ Horde ][ Defense ][ Waves ][ World ]
    ...controls for the selected tab...
 ------------------------------------------------------------------
@@ -28,16 +28,16 @@ spawned 1800 agents (300 per family) at (30.0, 75.0) r=10.0
 [ input line ................................ ] [Run] [help] [Clear]
 ```
 
-The **target bar** at the top aims everything below it: pick cursor, a portal by
-id, the objective, or a literal point once, and every spawn / cast / field /
-vfx / camera control in every tab uses it.
+The **target bar** at the top aims everything below it: pick cursor, a spawn
+point by id, the objective, or a literal point once, and every spawn / cast /
+field / vfx / camera control in every tab uses it.
 
 | Tab | Holds |
 |---|---|
-| **Horde** | family + count spawn, spawn-every-family, flood every portal, kill by family or all, elite dropdown and spawn-every-elite, plus a live per-family census |
+| **Horde** | family + count spawn, spawn-every-family, flood every spawn point, kill by family or all, elite dropdown and spawn-every-elite, plus a live per-family census |
 | **Defense** | tower type + tier place, place-one-of-each, upgrade/sell/fire, ability buttons that grey out on cooldown and show the seconds left, ATP set/add |
 | **Waves** | director status, start-now, next, and the whole wave table with agent counts and modifier tags — click *Jump* on any row to run that wave immediately |
-| **World** | time scale and step, **infinite objective integrity** (on by default here), camera, overlay toggles, a raw damage field with radius/rate/duration sliders, combat-event firing, and stats/portals/restart |
+| **World** | time scale and step, **infinite objective integrity** (on by default here), camera, overlay toggles, a raw damage field with radius/rate/duration sliders, combat-event firing, and stats/spawn_points/restart |
 
 Hovering any button shows the command it runs. The input line takes the full
 language for anything the widgets do not cover.
@@ -75,10 +75,10 @@ bit-identically.
 
 ## The level
 
-Five lanes, one per `VesselType`, each with its own portal and its own spawn
-chamber, all converging on a single organ at the right-hand side.
+Five lanes, one per `VesselType`, each with its own spawn point and its own
+spawn chamber, all converging on a single organ at the right-hand side.
 
-| Lane | Type | Portal | Character |
+| Lane | Type | Spawn point | Character |
 |---|---|---|---|
 | `lymph_lane` | lymphatic | `p_lymph` | the wide middle highway — point big spawns here |
 | `artery_lane` | artery | `p_artery` | long diagonal approach from the bottom-left |
@@ -87,8 +87,8 @@ chamber, all converging on a single organ at the right-hand side.
 | `mucosa_lane` | mucosal_fold | `p_mucosa` | fat and short, from the bottom |
 
 Each lane is authored as **two vessels sharing one `lane_id`**: a wide spawn
-chamber around the portal, then the trunk. The chamber is not decoration —
-`spawn_burst()` sizes its spawn disc to the requested count, so a portal
+chamber around the spawn point, then the trunk. The chamber is not decoration —
+`spawn_burst()` sizes its spawn disc to the requested count, so a spawn point
 authored on a normal 12-wide lane loses the outer half of any large burst off
 the lumen. A gym whose `spawn 600` quietly yields 430 is a gym that lies.
 
@@ -98,8 +98,8 @@ taken downstream was really a measurement of a funnel — and funnels are exactl
 the geometry DESIGN.md §4.3 no longer authors. A constant-width trunk makes
 "the same burst, measured at two points along the lane" mean what it says.
 
-The one width change that remains is the chamber opening out around the portal,
-which is a spawn bulb, not a kill slot: it sits behind the spawn point, it
+The one width change that remains is the chamber opening out around the spawn
+point, which is a spawn bulb, not a kill slot: it sits behind the spawn point, it
 widens *backwards* out of the lane, and it tapers into the trunk over the
 lane's first ~45 units rather than necking down anywhere a tower would go.
 
@@ -110,7 +110,7 @@ The wave table is authored, and each wave isolates one thing:
 | 1 | `gym_1_both_families` | both families, one per lane, side by side |
 | 2 | `gym_2_fever_modifier` | the fever curveball |
 | 3 | `gym_3_swarm_modifier` | the swarm curveball |
-| 4 | `gym_4_all_lanes_at_once` | five portals firing together (lane threat overlay) |
+| 4 | `gym_4_all_lanes_at_once` | five spawn points firing together (lane threat overlay) |
 | 5 | `gym_5_max_horde` | ~7,200 agents converging (the perf gate) |
 
 There is no elite wave: the roster ships no elites (DESIGN.md §14).
@@ -131,11 +131,13 @@ at 120,75        at 120 75        at p_lymph        at cursor
 at objective     at center
 ```
 
+(`p_lymph` and friends above are spawn point ids.)
+
 | Command | What it does |
 |---|---|
 | `spawn <family\|all> <count> [at …] [radius <r>]` | Spawn chaff. Oversized counts stream in over the next ticks rather than spilling off the lane. |
 | `elite <name\|id\|all\|list> [at …]` | Spawn a named elite. |
-| `flood [count-per-portal]` | Every family out of every portal. The stress button. |
+| `flood [count-per-spawn-point]` | Every family out of every spawn point. The stress button. |
 | `kill [family\|all]` | Flag chaff for removal, with real kill accounting. |
 | `tower <type\|all\|list> [at …] [tier 1-3]` | Place towers for free; `all` spreads one of each. |
 | `upgrade [all]` / `sell [all]` | Tier up, or refund. |
@@ -147,10 +149,10 @@ at objective     at center
 | `field <radius> <kill_rate> [duration] [at …]` | Submit a raw damage field — aggregate damage in isolation. |
 | `vfx <event\|all\|list> [at …]` | Raise combat events so the particle layer draws them. |
 | `time <scale>` / `step [ticks]` | Time scale (0 pauses); `step` advances while paused. |
-| `cam <x,y\|portal\|objective\|fit> [height]` | Move the camera. |
+| `cam <x,y\|spawn_point\|objective\|fit> [height]` | Move the camera. |
 | `invuln [on\|off]` | Hold the objective's integrity so a leak cannot end the run. Aliases: `godmode`. |
 | `overlay <debug\|threat> [on\|off]` | Toggle a HUD overlay. |
-| `stats` / `portals` | Print sim/economy/wave state, or the level's portals. |
+| `stats` / `spawn_points` | Print sim/economy/wave state, or the level's spawn points. |
 | `level <name>` / `restart` | Load another level, or reload this one. |
 | `autoplay [on\|off] [profile]` | Hand the level to the balance bot (docs/BALANCE.md). Aliases: `bot`. |
 

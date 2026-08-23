@@ -1,6 +1,7 @@
 // sim/chaff/ChaffSystem.h — batch chaff movement kernel. FROZEN CONTRACT.
 // Owner: Wave 1B. `sdf` parameter added post-Wave-2 (orchestrator amendment,
-// see below) to fix a real bug, not a style change.
+// see below) to fix a real bug, not a style change. `squads` parameter added
+// later on the same footing -- see WHY THE SQUAD PARAMETER EXISTS below.
 //
 // RATIONALE (DESIGN.md §8.3, §12.3)
 // Per agent, per tick, the entire "AI" is:
@@ -21,8 +22,8 @@
 // directional guidance: nothing pulls it back, so it random-walks on jitter
 // alone until it happens to cross the level's outer world bounds and gets
 // despawned there, tens of seconds later, never having threatened the
-// objective. Measured: ~95% of chaff spawned at a real portal never reached
-// the goal before this fix (tests/scripts/portal_spawn_reaches_goal.json).
+// objective. Measured: ~95% of chaff spawned at a real spawn point never
+// reached the goal before this fix (tests/scripts/spawn_point_reaches_goal.json).
 // `DistanceField::gradient()` — "direction of increasing clearance" — is
 // exactly the recovery vector needed: it points back into the tissue from
 // anywhere outside it. This is a *safety net*, not a replacement for a
@@ -31,15 +32,37 @@
 // no agent can get permanently lost, independent of how well-tuned the bake
 // is.
 //
+// WHY THE SQUAD PARAMETER EXISTS (readability, DESIGN.md §4.2/§9)
+// Every agent samples the same level-wide flow field, so the whole horde
+// converges on one shortest path and arrives as a single undifferentiated mass.
+// sim/squad/Squads.h partitions it into squads that each follow their own
+// authored path, which costs this kernel exactly two things:
+//   - one direction blend in pass A, weighted ZERO while an agent is inside its
+//     own squad radius, so packed interiors keep the pre-squad behaviour
+//     unchanged and the fluid feel is not traded away for the grouping;
+//   - one u16 compare per neighbour in gather_neighbours(), which widens and
+//     strengthens separation against agents from a DIFFERENT squad. That
+//     asymmetry is the entire mechanism by which squads stay visually distinct
+//     instead of merging the moment they touch.
+// Both collapse to the original kernel when squads are disabled or the level
+// authored no paths, and an agent carrying kNoSquad is unaffected either way.
+//
 // PARALLELISM & DETERMINISM
 // The update splits [0, count) across JobSystem ranges. Agents read the
 // *previous* tick's positions for separation and write only their own slot, so
 // there is no write contention and the result does not depend on scheduling.
 // Randomness (jitter, replication rolls) comes from a per-range Rng forked from
-// the sim Rng by range index — never from a shared generator.
+// the sim Rng by range index — never from a shared generator. The fork stream
+// also mixes in one draw taken from the sim Rng at the top of update(), because
+// fork() is const and does not advance its parent: without that draw every tick
+// re-derived the identical per-range streams, which turned jitter into a
+// constant per-agent force and replication into a fixed set of always-breeding
+// slots. One draw, before the split, so the result is still independent of
+// thread count.
 #pragma once
 
 #include "core/Types.h"
+#include "sim/squad/Squads.h"
 
 #include <vector>
 
@@ -187,18 +210,31 @@ public:
     /// baked) DistanceField is safe to pass (its sample()/gradient() both
     /// return zero), so callers that don't care about recovery behavior
     /// (most unit tests) don't need to bake one.
+    ///
+    /// `squads` supplies the per-squad anchors pass A steers toward. A
+    /// default-constructed (no paths, no squads) registry is safe to pass and
+    /// reproduces the pre-squad kernel exactly, so tests that do not care about
+    /// grouping do not need to build one.
     ChaffUpdateStats update(ChaffBuffers& buffers,
                             const FlowField& flow,
                             const DistanceField& sdf,
                             const SpatialHash& hash,
+                            const SquadRegistry& squads,
                             Rng& rng,
                             f32 dt,
                             JobSystem* jobs);
 
-    /// Spawns `count` agents of `family` inside `portal_radius` of `portal`,
-    /// jittered by `rng`. Returns how many were actually created (fewer at capacity).
-    u32 spawn_burst(ChaffBuffers& buffers, PathogenFamily family, Vec2 portal,
-                    f32 portal_radius, u32 count, Rng& rng) const;
+    /// Spawns `count` agents of `family` inside `spawn_point_radius` of
+    /// `spawn_pos`, jittered by `rng`. Returns how many were actually created
+    /// (fewer at capacity).
+    ///
+    /// `squad_id` is stamped onto every agent in the burst; kNoSquad (the
+    /// default) produces ungrouped chaff that steers exactly as it did before
+    /// the squad layer existed, which is what the gym and the headless CLI
+    /// modes want unless they explicitly ask for a squad.
+    u32 spawn_burst(ChaffBuffers& buffers, PathogenFamily family, Vec2 spawn_pos,
+                    f32 spawn_point_radius, u32 count, Rng& rng,
+                    u16 squad_id = kNoSquad) const;
 
     /// Despawn bounds. Agents leaving this rect are removed; the level loader
     /// sets it to the tissue bounds plus a margin.

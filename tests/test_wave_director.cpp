@@ -22,7 +22,7 @@ using namespace immune::sim;
 using namespace immune::game;
 
 namespace {
-SimWorld make_world_with_portal() {
+SimWorld make_world_with_spawn_point() {
     SimWorld world;
     SimDesc desc;
     desc.seed = 999;
@@ -33,7 +33,7 @@ SimWorld make_world_with_portal() {
     LevelLoader loader;
     const auto res = loader.instantiate(level, world);
     REQUIRE(res.ok);
-    REQUIRE_FALSE(world.portals().empty());
+    REQUIRE_FALSE(world.spawn_points().empty());
     return world;
 }
 /// A two-wave table shaped like one a level would author: multiple families,
@@ -65,7 +65,7 @@ std::vector<WaveDef> two_wave_table() {
 
 TEST_CASE("start() with an empty table reports all_waves_complete immediately",
           "[wave][lifecycle]") {
-    SimWorld world = make_world_with_portal();
+    SimWorld world = make_world_with_spawn_point();
     WaveDirector waves;
     waves.start(world);
     REQUIRE(waves.status().all_waves_complete);
@@ -73,7 +73,7 @@ TEST_CASE("start() with an empty table reports all_waves_complete immediately",
 
 TEST_CASE("a wave spawns real chaff during Spawning, then advances through Clearing to the next wave",
           "[wave][lifecycle][spawn]") {
-    SimWorld world = make_world_with_portal();
+    SimWorld world = make_world_with_spawn_point();
     WaveDirector waves;
     waves.set_waves(two_wave_table());
     waves.start(world);
@@ -93,7 +93,7 @@ TEST_CASE("a wave spawns real chaff during Spawning, then advances through Clear
     REQUIRE(reached_spawning);
 
     // Drive further; chaff should actually appear in the sim (the real
-    // production path: spawn_burst from the resolved portal).
+    // production path: spawn_burst from the resolved spawn point).
     for (int i = 0; i < 120; ++i) waves.tick(world, tick_rng, dt); // 2s of spawning
     REQUIRE(world.chaff().count() > 0);
 
@@ -119,7 +119,7 @@ TEST_CASE("a wave spawns real chaff during Spawning, then advances through Clear
 }
 
 TEST_CASE("the last wave completing sets all_waves_complete", "[wave][lifecycle]") {
-    SimWorld world = make_world_with_portal();
+    SimWorld world = make_world_with_spawn_point();
     WaveDirector waves;
     // A single, tiny wave so the whole lifecycle finishes fast.
     WaveDef w;
@@ -148,7 +148,7 @@ TEST_CASE("the last wave completing sets all_waves_complete", "[wave][lifecycle]
 }
 
 TEST_CASE("request_early_start() skips the remaining prep countdown", "[wave][lifecycle]") {
-    SimWorld world = make_world_with_portal();
+    SimWorld world = make_world_with_spawn_point();
     WaveDirector waves;
     WaveDef w;
     w.prep_time = 20.0f;
@@ -169,7 +169,7 @@ TEST_CASE("request_early_start() skips the remaining prep countdown", "[wave][li
 TEST_CASE("take_pending_atp_reward() accrues WaveDef::atp_reward when a wave finishes clearing, "
           "and drains to zero",
           "[wave][economy]") {
-    SimWorld world = make_world_with_portal();
+    SimWorld world = make_world_with_spawn_point();
     WaveDirector waves;
     WaveDef w;
     w.prep_time = 0.1f;

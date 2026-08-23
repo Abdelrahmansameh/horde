@@ -1,469 +1,469 @@
 {
-  "schema": 1,
-  "name": "lymphatic_1_nodal_junction",
-  "region": "lymphatic",
-  "world": {
-    "min": [
-      0,
-      0
-    ],
-    "max": [
-      154.84,
-      98.0
-    ],
-    "cell_size": 0.5
-  },
-  "vessels": [
-    {
-      "id": "lymph_main",
-      "lane_id": "lymph_main",
-      "vessel_type": "lymphatic",
-      "points": [
-        {
-          "p": [
-            7.84,
-            49.0
-          ],
-          "w": 12.41
-        },
-        {
-          "p": [
-            40.51,
-            32.67
-          ],
-          "w": 11.38
-        },
-        {
-          "p": [
-            73.17,
-            49.0
-          ],
-          "w": 11.38
-        },
-        {
-          "p": [
-            111.28,
-            49.0
-          ],
-          "w": 10.34
-        },
-        {
-          "p": [
-            143.95,
-            49.0
-          ],
-          "w": 10.34
-        }
-      ],
-      "children": []
-    },
-    {
-      "id": "vein_trib",
-      "lane_id": "vein_trib",
-      "vessel_type": "vein",
-      "points": [
-        {
-          "p": [
-            7.84,
-            16.33
-          ],
-          "w": 10.34
-        },
-        {
-          "p": [
-            35.06,
-            16.33
-          ],
-          "w": 9.31
-        },
-        {
-          "p": [
-            56.84,
-            29.94
-          ],
-          "w": 9.31
-        },
-        {
-          "p": [
-            89.51,
-            43.56
-          ],
-          "w": 9.31
-        },
-        {
-          "p": [
-            122.17,
-            49.0
-          ],
-          "w": 9.31
-        },
-        {
-          "p": [
-            143.95,
-            49.0
-          ],
-          "w": 10.34
-        }
-      ],
-      "children": []
-    },
-    {
-      "id": "nerve_trib",
-      "lane_id": "nerve_trib",
-      "vessel_type": "nerve_adjacent",
-      "points": [
-        {
-          "p": [
-            7.84,
-            81.67
-          ],
-          "w": 10.34
-        },
-        {
-          "p": [
-            35.06,
-            81.67
-          ],
-          "w": 9.31
-        },
-        {
-          "p": [
-            56.84,
-            65.33
-          ],
-          "w": 9.31
-        },
-        {
-          "p": [
-            89.51,
-            54.44
-          ],
-          "w": 9.31
-        },
-        {
-          "p": [
-            122.17,
-            49.0
-          ],
-          "w": 9.31
-        },
-        {
-          "p": [
-            143.95,
-            49.0
-          ],
-          "w": 10.34
-        }
-      ],
-      "children": []
-    }
-  ],
-  "portals": [
-    {
-      "id": "p_lymph",
-      "pos": [
-        7.84,
-        49.0
-      ],
-      "radius": 5.17,
-      "lane_id": "lymph_main"
-    },
-    {
-      "id": "p_vein",
-      "pos": [
-        7.84,
-        16.33
-      ],
-      "radius": 5.17,
-      "lane_id": "vein_trib"
-    },
-    {
-      "id": "p_nerve",
-      "pos": [
-        7.84,
-        81.67
-      ],
-      "radius": 5.17,
-      "lane_id": "nerve_trib"
-    }
-  ],
-  "objectives": [
-    {
-      "id": "node",
-      "pos": [
-        143.95,
-        49.0
-      ],
-      "radius": 4.36,
-      "integrity": 100
-    }
-  ],
-  "placement_zones": [
-    {
-      "min": [
-        26.9,
-        24.5
-      ],
-      "max": [
-        59.56,
-        57.17
-      ],
-      "concentrated": true,
-      "priority": 2.0
-    },
-    {
-      "min": [
-        43.23,
-        21.78
-      ],
-      "max": [
-        75.9,
-        49.0
-      ],
-      "concentrated": true,
-      "priority": 1.8
-    },
-    {
-      "min": [
-        43.23,
-        49.0
-      ],
-      "max": [
-        75.9,
-        76.22
-      ],
-      "concentrated": true,
-      "priority": 1.8
-    },
-    {
-      "min": [
-        108.56,
-        35.39
-      ],
-      "max": [
-        138.51,
-        62.61
-      ],
-      "concentrated": true,
-      "priority": 2.2
-    },
-    {
-      "min": [
-        10.02,
-        43.56
-      ],
-      "max": [
-        37.78,
-        54.44
-      ],
-      "concentrated": false,
-      "priority": 1.0
-    },
-    {
-      "min": [
-        10.02,
-        10.89
-      ],
-      "max": [
-        32.34,
-        21.78
-      ],
-      "concentrated": false,
-      "priority": 1.0
-    },
-    {
-      "min": [
-        10.02,
-        76.22
-      ],
-      "max": [
-        32.34,
-        87.11
-      ],
-      "concentrated": false,
-      "priority": 1.0
-    }
-  ],
   "ambient_drift": [
     0.0,
     0.0
   ],
+  "name": "lymphatic_1_nodal_junction",
+  "objectives": [
+    {
+      "id": "node",
+      "integrity": 100,
+      "pos": [
+        842.796,
+        225.161
+      ],
+      "radius": 12.743
+    }
+  ],
+  "placement_zones": [
+    {
+      "concentrated": true,
+      "max": [
+        336.456,
+        274.181
+      ],
+      "min": [
+        140.496,
+        78.161
+      ],
+      "priority": 2.0
+    },
+    {
+      "concentrated": true,
+      "max": [
+        434.496,
+        225.161
+      ],
+      "min": [
+        238.476,
+        61.841
+      ],
+      "priority": 1.8
+    },
+    {
+      "concentrated": true,
+      "max": [
+        434.496,
+        388.481
+      ],
+      "min": [
+        238.476,
+        225.161
+      ],
+      "priority": 1.8
+    },
+    {
+      "concentrated": true,
+      "max": [
+        810.156,
+        306.821
+      ],
+      "min": [
+        630.456,
+        143.501
+      ],
+      "priority": 2.2
+    },
+    {
+      "concentrated": false,
+      "max": [
+        205.776,
+        257.801
+      ],
+      "min": [
+        39.216,
+        192.521
+      ],
+      "priority": 1.0
+    },
+    {
+      "concentrated": false,
+      "max": [
+        173.136,
+        61.841
+      ],
+      "min": [
+        39.216,
+        0.0
+      ],
+      "priority": 1.0
+    },
+    {
+      "concentrated": false,
+      "max": [
+        173.136,
+        451.53
+      ],
+      "min": [
+        39.216,
+        388.481
+      ],
+      "priority": 1.0
+    }
+  ],
+  "spawn_points": [
+    {
+      "id": "p_lymph",
+      "lane_id": "lymph_main",
+      "pos": [
+        26.136,
+        225.161
+      ],
+      "radius": 15.111
+    },
+    {
+      "id": "p_vein",
+      "lane_id": "vein_trib",
+      "pos": [
+        26.136,
+        29.141
+      ],
+      "radius": 15.111
+    },
+    {
+      "id": "p_nerve",
+      "lane_id": "nerve_trib",
+      "pos": [
+        26.136,
+        421.181
+      ],
+      "radius": 15.111
+    }
+  ],
+  "region": "lymphatic",
+  "schema": 1,
+  "vessels": [
+    {
+      "children": [],
+      "id": "lymph_main",
+      "lane_id": "lymph_main",
+      "points": [
+        {
+          "p": [
+            26.136,
+            225.161
+          ],
+          "w": 36.272
+        },
+        {
+          "p": [
+            222.156,
+            127.181
+          ],
+          "w": 33.261
+        },
+        {
+          "p": [
+            418.116,
+            225.161
+          ],
+          "w": 33.261
+        },
+        {
+          "p": [
+            646.776,
+            225.161
+          ],
+          "w": 30.221
+        },
+        {
+          "p": [
+            842.796,
+            225.161
+          ],
+          "w": 30.221
+        }
+      ],
+      "vessel_type": "lymphatic"
+    },
+    {
+      "children": [],
+      "id": "vein_trib",
+      "lane_id": "vein_trib",
+      "points": [
+        {
+          "p": [
+            26.136,
+            29.141
+          ],
+          "w": 30.221
+        },
+        {
+          "p": [
+            189.456,
+            29.141
+          ],
+          "w": 27.211
+        },
+        {
+          "p": [
+            320.136,
+            110.801
+          ],
+          "w": 27.211
+        },
+        {
+          "p": [
+            516.156,
+            192.521
+          ],
+          "w": 27.211
+        },
+        {
+          "p": [
+            712.116,
+            225.161
+          ],
+          "w": 27.211
+        },
+        {
+          "p": [
+            842.796,
+            225.161
+          ],
+          "w": 30.221
+        }
+      ],
+      "vessel_type": "vein"
+    },
+    {
+      "children": [],
+      "id": "nerve_trib",
+      "lane_id": "nerve_trib",
+      "points": [
+        {
+          "p": [
+            26.136,
+            421.181
+          ],
+          "w": 30.221
+        },
+        {
+          "p": [
+            189.456,
+            421.181
+          ],
+          "w": 27.211
+        },
+        {
+          "p": [
+            320.136,
+            323.141
+          ],
+          "w": 27.211
+        },
+        {
+          "p": [
+            516.156,
+            257.801
+          ],
+          "w": 27.211
+        },
+        {
+          "p": [
+            712.116,
+            225.161
+          ],
+          "w": 27.211
+        },
+        {
+          "p": [
+            842.796,
+            225.161
+          ],
+          "w": 30.221
+        }
+      ],
+      "vessel_type": "nerve_adjacent"
+    }
+  ],
   "waves": [
     {
+      "atp_reward": 55,
       "name": "lymphatic_wave_1",
       "prep_time": 9.0,
-      "atp_reward": 55,
       "spawns": [
         {
-          "family": "virus",
           "count": 117,
-          "start_time": 0.0,
-          "duration": 4.0
+          "duration": 4.0,
+          "family": "virus",
+          "start_time": 0.0
         },
         {
-          "family": "bacteria",
           "count": 52,
-          "start_time": 0.5,
-          "duration": 4.0
+          "duration": 4.0,
+          "family": "bacteria",
+          "start_time": 0.5
         }
       ]
     },
     {
+      "atp_reward": 67,
       "name": "lymphatic_wave_2",
       "prep_time": 8.43,
-      "atp_reward": 67,
       "spawns": [
         {
-          "family": "virus",
           "count": 177,
-          "start_time": 0.0,
-          "duration": 4.0
+          "duration": 4.0,
+          "family": "virus",
+          "start_time": 0.0
         },
         {
-          "family": "bacteria",
           "count": 82,
-          "start_time": 0.5,
-          "duration": 4.0
+          "duration": 4.0,
+          "family": "bacteria",
+          "start_time": 0.5
         }
       ]
     },
     {
+      "atp_reward": 79,
       "name": "lymphatic_wave_3",
       "prep_time": 7.86,
-      "atp_reward": 79,
       "spawns": [
         {
-          "family": "virus",
           "count": 237,
-          "start_time": 0.0,
-          "duration": 4.0
+          "duration": 4.0,
+          "family": "virus",
+          "start_time": 0.0
         },
         {
-          "family": "bacteria",
           "count": 112,
-          "start_time": 0.5,
-          "duration": 4.0
+          "duration": 4.0,
+          "family": "bacteria",
+          "start_time": 0.5
         }
       ]
     },
     {
+      "atp_reward": 91,
       "name": "lymphatic_wave_4",
       "prep_time": 7.29,
-      "atp_reward": 91,
       "spawns": [
         {
-          "family": "virus",
           "count": 297,
-          "start_time": 0.0,
-          "duration": 4.0
+          "duration": 4.0,
+          "family": "virus",
+          "start_time": 0.0
         },
         {
-          "family": "bacteria",
           "count": 142,
-          "start_time": 0.5,
-          "duration": 4.0
+          "duration": 4.0,
+          "family": "bacteria",
+          "start_time": 0.5
         }
       ]
     },
     {
+      "atp_reward": 103,
       "name": "lymphatic_wave_5",
       "prep_time": 6.71,
-      "atp_reward": 103,
       "spawns": [
         {
-          "family": "virus",
           "count": 357,
-          "start_time": 0.0,
-          "duration": 4.0
+          "duration": 4.0,
+          "family": "virus",
+          "start_time": 0.0
         },
         {
-          "family": "bacteria",
           "count": 172,
-          "start_time": 0.5,
-          "duration": 4.0
+          "duration": 4.0,
+          "family": "bacteria",
+          "start_time": 0.5
         },
         {
-          "family": "bacteria",
           "count": 69,
-          "start_time": 1.0,
-          "duration": 4.67
+          "duration": 4.67,
+          "family": "bacteria",
+          "start_time": 1.0
         }
       ]
     },
     {
+      "atp_reward": 115,
       "name": "lymphatic_wave_6",
       "prep_time": 6.14,
-      "atp_reward": 115,
       "spawns": [
         {
-          "family": "virus",
           "count": 417,
-          "start_time": 0.0,
-          "duration": 4.0
+          "duration": 4.0,
+          "family": "virus",
+          "start_time": 0.0
         },
         {
-          "family": "bacteria",
           "count": 202,
-          "start_time": 0.5,
-          "duration": 4.0
+          "duration": 4.0,
+          "family": "bacteria",
+          "start_time": 0.5
         },
         {
-          "family": "bacteria",
           "count": 81,
-          "start_time": 1.0,
-          "duration": 4.67
+          "duration": 4.67,
+          "family": "bacteria",
+          "start_time": 1.0
         }
       ]
     },
     {
+      "atp_reward": 127,
       "name": "lymphatic_wave_7",
       "prep_time": 5.57,
-      "atp_reward": 127,
       "spawns": [
         {
-          "family": "virus",
           "count": 477,
-          "start_time": 0.0,
-          "duration": 4.0
+          "duration": 4.0,
+          "family": "virus",
+          "start_time": 0.0
         },
         {
-          "family": "bacteria",
           "count": 232,
-          "start_time": 0.5,
-          "duration": 4.0
+          "duration": 4.0,
+          "family": "bacteria",
+          "start_time": 0.5
         },
         {
-          "family": "bacteria",
           "count": 93,
-          "start_time": 1.0,
-          "duration": 4.67
+          "duration": 4.67,
+          "family": "bacteria",
+          "start_time": 1.0
         }
       ]
     },
     {
+      "atp_reward": 139,
       "name": "lymphatic_wave_8",
       "prep_time": 5.0,
-      "atp_reward": 139,
       "spawns": [
         {
-          "family": "virus",
           "count": 537,
-          "start_time": 0.0,
-          "duration": 4.0
+          "duration": 4.0,
+          "family": "virus",
+          "start_time": 0.0
         },
         {
-          "family": "bacteria",
           "count": 262,
-          "start_time": 0.5,
-          "duration": 4.0
+          "duration": 4.0,
+          "family": "bacteria",
+          "start_time": 0.5
         },
         {
-          "family": "bacteria",
           "count": 105,
-          "start_time": 1.0,
-          "duration": 4.67
+          "duration": 4.67,
+          "family": "bacteria",
+          "start_time": 1.0
         }
       ]
     }
-  ]
+  ],
+  "world": {
+    "cell_size": 1.0,
+    "max": [
+      868.93,
+      451.53
+    ],
+    "min": [
+      0,
+      0
+    ]
+  }
 }

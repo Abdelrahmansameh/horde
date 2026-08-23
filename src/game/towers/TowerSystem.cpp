@@ -343,10 +343,10 @@ void ensure_default_stats(const TowerSystem& self) {
 
 /// Local, bounded-cost stand-in for a full re-route check. TowerSystem.h
 /// explicitly leaves the exact approach up to the implementer (it points at
-/// FlowField::reachable() and mentions either probing from a portal or
+/// FlowField::reachable() and mentions either probing from a spawn point or
 /// test-blocking a scratch copy). A *global* scratch copy would need the
-/// level's portal list, which SimWorld does not store (Level.h's
-/// SpawnPortal/placement_zones never get threaded onto SimWorld — see the
+/// level's spawn point list, which SimWorld does not store (Level.h's
+/// SpawnPoint/placement_zones never get threaded onto SimWorld — see the
 /// report for this gap) — so this tests connectivity in a *local* window
 /// around the footprint instead, on the theory that a placement can only
 /// wall off "every lane" by fully closing the local vessel cross-section it

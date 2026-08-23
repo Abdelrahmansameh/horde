@@ -18,12 +18,30 @@ void SimWorld::init(const SimDesc& desc, JobSystem* jobs) {
         despawned_by_family_[f] = 0;
     }
     objective_integrity_ = 100.0f;
-    portals_.clear();
+    spawn_points_.clear();
     last_damage_stats_ = DamageStats{};
 
     chaff_.reserve(desc.max_chaff);
     chaff_system_.set_tuning(desc.chaff_tuning);
     chaff_system_.set_world_bounds(desc.world_bounds);
+
+    // Squad tuning is bounded HERE because this is the only place that sees
+    // both the separation radii and the spatial cell size. gather_neighbours()
+    // scans 3x3 cells, so a foreign separation radius past one cell width does
+    // not error -- it silently stops seeing the neighbours it is supposed to
+    // repel, which would read as squads intermittently failing to hold apart.
+    {
+        SquadTuning st = desc.squad_tuning;
+        f32 widest_sep = 0.0f;
+        for (u32 f = 0; f < kFamilyCount; ++f)
+            widest_sep = math::max(widest_sep, desc.chaff_tuning.family[f].separation_radius);
+        if (widest_sep > math::kEpsilon && st.foreign_radius_mult * widest_sep >
+                                               desc.spatial_cell_size) {
+            st.foreign_radius_mult = desc.spatial_cell_size / widest_sep;
+        }
+        squads_.set_tuning(st);
+        squads_.clear();
+    }
 
     SpatialHashDesc shd;
     shd.bounds = desc.world_bounds;
@@ -55,11 +73,20 @@ void SimWorld::tick(Profiler* profiler) {
         if (profiler) profiler->record(prof_key::kSpatialHash, t.elapsed_ms());
     }
 
+    // 1b. Squad centroids and anchors. Must run BEFORE chaff movement: the
+    // centroids are accumulated from the same positions pass A reads as
+    // old_pos_*, so anchor and agent agree on where the squad is this tick.
+    {
+        WallClock t;
+        squads_.update(chaff_, kFixedDt);
+        if (profiler) profiler->record(prof_key::kSquadUpdate, t.elapsed_ms());
+    }
+
     // 2. Chaff movement.
     {
         WallClock t;
         const ChaffUpdateStats chaff_stats =
-            chaff_system_.update(chaff_, flow_, sdf_, spatial_, rng_, kFixedDt, jobs_);
+            chaff_system_.update(chaff_, flow_, sdf_, spatial_, squads_, rng_, kFixedDt, jobs_);
         // Each pathogen that reaches the objective chips its integrity. 1% of
         // max per leaked agent is a placeholder pending the economy pass
         // (Wave 3A) — it empties a 100-agent breach in ~1 simulated second,
@@ -153,6 +180,7 @@ SimSnapshot SimWorld::snapshot() const {
     s.total_density = chaff_.total_density();
     s.objective_integrity = objective_integrity_;
     s.chaff_killed_total = killed_total_;
+    s.active_squads = squads_.active_count();
     s.chaff_leaked_total = leaked_total_;
     for (u32 f = 0; f < kFamilyCount; ++f) {
         s.chaff_by_family[f] = chaff_.family_count(static_cast<PathogenFamily>(f));
@@ -194,6 +222,12 @@ u64 SimWorld::state_hash() const {
         mix(fluid_.pos_x.data(), fn * sizeof(f32));
         mix(fluid_.pos_y.data(), fn * sizeof(f32));
     }
+    // Squad anchors steer agents, so a determinism assertion that ignored them
+    // would not be checking the squad layer at all. state_hash() is folded in
+    // rather than mixing the squad array directly, so slot churn (retire/reuse)
+    // cannot alias into a false mismatch.
+    const u64 squad_h = squads_.state_hash();
+    mix(&squad_h, sizeof(squad_h));
     mix(&killed_total_, sizeof(killed_total_));
     mix(&leaked_total_, sizeof(leaked_total_));
     return h;

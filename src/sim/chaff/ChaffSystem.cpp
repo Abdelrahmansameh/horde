@@ -90,17 +90,25 @@ struct NeighbourSample {
 NeighbourSample gather_neighbours(const SpatialHash& hash,
                                   const f32* px, const f32* py,
                                   const f32* vx, const f32* vy,
+                                  const u16* squad, u16 my_squad,
+                                  f32 foreign_radius_mult, f32 foreign_strength_mult,
                                   usize i, f32 sep_radius, f32 align_radius,
                                   f32 contact_radius, f32 contact_stiffness,
                                   u32 max_sampled) {
     NeighbourSample out;
-    const f32 scan_radius = math::max(math::max(sep_radius, align_radius), contact_radius);
+    // Foreign neighbours are pushed away from over a LARGER radius than
+    // same-squad ones -- that difference is the whole mechanism by which two
+    // squads open a visible gap instead of merging on contact.
+    const f32 foreign_sep_radius = sep_radius * foreign_radius_mult;
+    const f32 scan_radius =
+        math::max(math::max(foreign_sep_radius, align_radius), contact_radius);
     if (scan_radius <= 0.0f) return out;
 
     const Vec2 p{px[i], py[i]};
     const IVec2 c = hash.cell_coord(p);
     const IVec2 dims = hash.grid_dims();
     const f32 sep_r2 = sep_radius * sep_radius;
+    const f32 foreign_sep_r2 = foreign_sep_radius * foreign_sep_radius;
     const f32 align_r2 = align_radius * align_radius;
     const f32 contact_r2 = contact_radius * contact_radius;
     const u32* indices = hash.indices();
@@ -115,6 +123,7 @@ NeighbourSample gather_neighbours(const SpatialHash& hash,
     Vec2 contact{0.0f, 0.0f};
     u32 sep_count = 0;
     u32 align_count = 0;
+    u32 foreign_crowd = 0;
     u32 sampled = 0;
 
     for (i32 cy = y0; cy <= y1; ++cy) {
@@ -138,7 +147,17 @@ NeighbourSample gather_neighbours(const SpatialHash& hash,
                 const f32 dy = p.y - py[j];
                 const f32 d2 = dx * dx + dy * dy;
                 if (d2 < kSeparationEpsSq) continue;
-                if (d2 >= align_r2 && d2 >= sep_r2 && d2 >= contact_r2) continue;
+                // An agent with no squad is nobody's foreigner: ungrouped chaff
+                // must keep behaving exactly as it did before squads existed.
+                // `my_squad` is tested FIRST so short-circuiting skips the
+                // squad[j] load entirely when the agent is ungrouped -- that
+                // load is a random access into a separate stream, and it would
+                // otherwise be paid once per neighbour on every level whether
+                // or not the squad layer is doing anything.
+                const bool foreign = my_squad != kNoSquad && squad[j] != kNoSquad &&
+                                     squad[j] != my_squad;
+                const f32 my_sep_r2 = foreign ? foreign_sep_r2 : sep_r2;
+                if (d2 >= align_r2 && d2 >= my_sep_r2 && d2 >= contact_r2) continue;
                 ++sampled;
 
                 // One square root, shared by the two rules that need a real
@@ -159,23 +178,39 @@ NeighbourSample gather_neighbours(const SpatialHash& hash,
                     contact.x += nx * correction;
                     contact.y += ny * correction;
                 }
-                if (d2 < sep_r2) {
-                    const f32 push = (sep_radius - d) / sep_radius;  // 1 at d=0, 0 at edge
+                if (d2 < my_sep_r2) {
+                    const f32 r = foreign ? foreign_sep_radius : sep_radius;
+                    const f32 w = foreign ? foreign_strength_mult : 1.0f;
+                    const f32 push = ((r - d) / r) * w;   // w at d=0, 0 at edge
                     sep.x += nx * push;
                     sep.y += ny * push;
                     ++sep_count;
                 }
-                if (d2 < align_r2) {
+                // Foreign neighbours are EXCLUDED from alignment: steering
+                // toward another squad's mean heading is precisely how two
+                // squads would converge and merge. They still count toward
+                // `crowd` below, because a jam is a jam regardless of who is in
+                // it, and still contribute contact_push above, because physical
+                // overlap resolution has to stay squad-blind or bodies
+                // interpenetrate at every squad boundary.
+                if (!foreign && d2 < align_r2) {
                     vel.x += vx[j];
                     vel.y += vy[j];
                     ++align_count;
                 }
+                if (foreign && d2 < align_r2) ++foreign_crowd;
             }
         }
     }
 done:
     out.contact_push = contact;
     if (sep_count > 0) {
+        // Plain mean over the neighbours that contributed, exactly as before
+        // squads existed. The foreign multiplier rides INSIDE each term rather
+        // than being divided back out here, which is what makes an all-foreign
+        // neighbourhood push apart harder than an all-friendly one of the same
+        // size -- while a squad's own interior sees the unchanged pre-squad
+        // value.
         const f32 inv = 1.0f / static_cast<f32>(sep_count);
         out.separation = Vec2{sep.x * inv, sep.y * inv};
     }
@@ -184,7 +219,7 @@ done:
         out.avg_velocity = Vec2{vel.x * inv, vel.y * inv};
         out.has_alignment = true;
     }
-    out.crowd = align_count;
+    out.crowd = align_count + foreign_crowd;
     return out;
 }
 
@@ -333,6 +368,7 @@ void ChaffSystem::ensure_scratch(usize capacity) {
 
 ChaffUpdateStats ChaffSystem::update(ChaffBuffers& buffers, const FlowField& flow,
                                      const DistanceField& sdf, const SpatialHash& hash,
+                                     const SquadRegistry& squads,
                                      Rng& rng, f32 dt, JobSystem* jobs) {
     ChaffUpdateStats stats{};
     const usize count = buffers.count();
@@ -354,6 +390,7 @@ ChaffUpdateStats ChaffSystem::update(ChaffBuffers& buffers, const FlowField& flo
     f32* vy = buffers.vel_y.data();
     const u8* fam = buffers.family.data();
     const u8* flg = buffers.flags.data();
+    const u16* sqid = buffers.squad_id.data();
     const f32* old_px = old_pos_x_.data();
     const f32* old_py = old_pos_y_.data();
     const f32* old_vx = old_vel_x_.data();
@@ -363,13 +400,42 @@ ChaffUpdateStats ChaffSystem::update(ChaffBuffers& buffers, const FlowField& flo
     f32* max_speed_scratch = scratch_max_speed_.data();
     u8* replicate_wanted = replicate_wanted_.data();
     const ChaffTuning& tuning = tuning_;
+    const SquadTuning& sq_tuning = squads.tuning();
+    // Hoisted out of the per-agent loop: when squads are off, or the level
+    // authored no paths, every squad term below collapses to the pre-squad
+    // kernel and the only remaining cost is this one bool.
+    const bool squads_on = sq_tuning.enabled && !squads.paths().empty();
+    const f32 foreign_radius_mult = squads_on ? sq_tuning.foreign_radius_mult : 1.0f;
+    const f32 foreign_strength_mult = squads_on ? sq_tuning.foreign_strength_mult : 1.0f;
 
     // ---- Pass A: accumulate (parallel, gather-heavy, not vectorized) --------
     std::atomic<u32> replication_rolls{0};
 
+    // ONE draw from the shared generator per update, before any range starts.
+    //
+    // Rng::fork() is const -- it does not advance its parent. This pass only
+    // ever forked, so on any tick where nothing else in the sim happened to
+    // draw from the sim RNG (no tower firing, no damage roll), every range got
+    // a BYTE-IDENTICAL generator to the tick before. The consequences were not
+    // subtle once looked for:
+    //
+    //   - Jitter stopped being noise. Agent i received the same impulse every
+    //     tick, i.e. a constant DC force in a fixed direction, which is exactly
+    //     how a handful of agents come to track steadily away from the crowd
+    //     they belong to.
+    //   - Replication stopped being a rate. The same index slots rolled true
+    //     every single tick while the rest never did, so growth compounded in
+    //     one band of the buffer instead of spreading over the horde.
+    //
+    // Drawing once here re-seeds the whole family of per-range streams each
+    // tick. It is one draw, taken before the split and outside every range, so
+    // it stays a pure function of tick count and is identical at any thread
+    // count -- the determinism contract in the header is unchanged.
+    const u64 tick_salt = rng.next_u64();
+
     auto accumulate = [&](usize begin, usize end, u32 range_index) {
         // Exactly one fork per range, as the frozen header requires.
-        Rng local_rng = rng.fork(static_cast<u64>(range_index));
+        Rng local_rng = rng.fork(tick_salt ^ static_cast<u64>(range_index));
         u32 rolls = 0;
         for (usize i = begin; i < end; ++i) {
             const u8 flags_i = flg[i];
@@ -407,6 +473,78 @@ ChaffUpdateStats ChaffSystem::update(ChaffBuffers& buffers, const FlowField& flo
                 }
             }
 
+            // Squad cohesion: steer ACROSS the flow, never against it.
+            //
+            // The flow field keeps ALL of its forward authority -- the squad
+            // only decides where across the lane its members sit. That split is
+            // the whole reason this reads as a horde in formation rather than
+            // as units following waypoints: forward progress, wall contact and
+            // tower reroutes remain entirely the flow field's business, and no
+            // squad can steer its members into a wall trying to reach an anchor.
+            //
+            // Applied as a lateral velocity IMPULSE, in the same units as the
+            // separation rule below, for the reason documented on
+            // SquadTuning::lateral_push: an acceleration-form cohesion term is
+            // ~50x quieter than the separation impulses of the crowd it is
+            // steering, and simply loses.
+            //
+            // The weight is EXACTLY ZERO while the agent is within its squad
+            // radius of the lane, so a packed interior runs the identical
+            // kernel it ran before squads existed -- that is what keeps the
+            // fluid feel from being traded away for the grouping.
+            const u16 my_squad = squads_on ? sqid[i] : kNoSquad;
+            Vec2 squad_impulse{0.0f, 0.0f};
+            if (my_squad != kNoSquad && squads.alive(my_squad) && !drifting) {
+                const Squad& sq = squads.get(my_squad);
+                const Vec2 to_anchor = sq.anchor - p;
+                const Vec2 fdir = math::normalize_safe(dir);
+                if (math::length_sq(fdir) > 0.0f) {
+                    const Vec2 perp{-fdir.y, fdir.x};
+
+                    // ACROSS the flow: toward the anchor, i.e. which line of
+                    // the lane this squad rides.
+                    const f32 lateral = to_anchor.x * perp.x + to_anchor.y * perp.y;
+                    const f32 mag = lateral < 0.0f ? -lateral : lateral;
+                    const f32 t =
+                        math::clamp((mag - sq.radius) / sq_tuning.follow_ramp, 0.0f, 1.0f);
+                    const f32 w = sq_tuning.follow_weight_max * t;
+                    if (w > 0.0f) {
+                        const f32 push = w * sq_tuning.lateral_push;
+                        squad_impulse = perp * (lateral < 0.0f ? -push : push);
+                    }
+
+                    // ALONG the flow: toward the squad's own CENTRE OF MASS,
+                    // not the anchor. Without this the cohesion is purely
+                    // cross-lane and nothing stops a squad stringing out down
+                    // the lane into a ribbon -- measured, that is exactly what
+                    // happened, and a ribbon reads as part of the mass however
+                    // tidily it is confined sideways.
+                    //
+                    // Against the centroid rather than the anchor because the
+                    // anchor deliberately leads the squad by anchor_lookahead:
+                    // chasing it lengthwise would accelerate every member
+                    // forward at once and stretch the squad rather than gather
+                    // it. The centroid is the only point the squad can close on
+                    // without also moving.
+                    const Vec2 to_centre = sq.centroid - p;
+                    const f32 along = to_centre.x * fdir.x + to_centre.y * fdir.y;
+                    const f32 amag = along < 0.0f ? -along : along;
+                    const f32 at =
+                        math::clamp((amag - sq.radius) / sq_tuning.follow_ramp, 0.0f, 1.0f);
+                    const f32 aw = sq_tuning.follow_weight_max * at;
+                    if (aw > 0.0f) {
+                        const f32 push = aw * sq_tuning.lateral_push;
+                        squad_impulse += fdir * (along < 0.0f ? -push : push);
+                    }
+                } else if (math::length_sq(to_anchor) > math::kEpsilon) {
+                    // No flow guidance at all (off-mask, or a genuine dead
+                    // pocket). There is no forward direction left to preserve,
+                    // so the anchor becomes the guidance -- and heading for it
+                    // is also the shortest way back to where the field is baked.
+                    dir = math::normalize_safe(to_anchor);
+                }
+            }
+
             Vec2 v{vx[i], vy[i]};
             v += dir * fp.acceleration * dt;
 
@@ -414,7 +552,8 @@ ChaffUpdateStats ChaffSystem::update(ChaffBuffers& buffers, const FlowField& flo
             // crowd pressure, and the positional contact correction.
             const f32 contact_radius = fp.radius * fp.contact_spacing;
             const NeighbourSample nb =
-                gather_neighbours(hash, old_px, old_py, old_vx, old_vy, i,
+                gather_neighbours(hash, old_px, old_py, old_vx, old_vy, sqid, my_squad,
+                                  foreign_radius_mult, foreign_strength_mult, i,
                                   fp.separation_radius, fp.alignment_radius,
                                   contact_radius, fp.contact_stiffness,
                                   tuning.max_neighbors_sampled);
@@ -435,6 +574,10 @@ ChaffUpdateStats ChaffSystem::update(ChaffBuffers& buffers, const FlowField& flo
                 push *= mul < fp.pressure_max ? mul : fp.pressure_max;
             }
             v += nb.separation * push;
+            // Coherent across the whole squad, where separation is local and
+            // largely self-cancelling -- which is why a comparable per-tick
+            // magnitude still produces a clean migration rather than a fight.
+            v += squad_impulse;
 
             // Alignment: steer toward the neighbourhood's mean velocity.
             // Written as a difference (a steering term, not a velocity
@@ -549,6 +692,15 @@ ChaffUpdateStats ChaffSystem::update(ChaffBuffers& buffers, const FlowField& flo
         sp.family = static_cast<PathogenFamily>(f);
         sp.density = fp.base_density > 0.0f ? fp.base_density : 1.0f;
         sp.flags = chaff_flags::kReplicated;
+        // A daughter joins its parent's squad. It is spawned ON the parent, so
+        // any other answer is incoherent -- and kNoSquad (the struct default,
+        // which is what this used to leave it as) is the worst of them: a
+        // replicating family would shed an ungrouped agent per parent per five
+        // seconds, each one steering purely on the flow field and drifting out
+        // of the group it was born in. Measured on capillary_2 that was 662 of
+        // 842 live agents unaffiliated -- the squads were real, but four out of
+        // five pathogens on screen belonged to none of them.
+        sp.squad_id = sqid[i];
         if (buffers.spawn(sp).valid()) ++replicated;
     }
 
@@ -559,12 +711,12 @@ ChaffUpdateStats ChaffSystem::update(ChaffBuffers& buffers, const FlowField& flo
     return stats;
 }
 
-u32 ChaffSystem::spawn_burst(ChaffBuffers& buffers, PathogenFamily family, Vec2 portal,
-                             f32 portal_radius, u32 count, Rng& rng) const {
+u32 ChaffSystem::spawn_burst(ChaffBuffers& buffers, PathogenFamily family, Vec2 spawn_pos,
+                             f32 spawn_point_radius, u32 count, Rng& rng, u16 squad_id) const {
     const ChaffFamilyParams& fp = tuning_.family[static_cast<u32>(family)];
     if (count == 0) return 0;
 
-    // SPAWN PACKING (was: rng.unit_disc() * portal_radius, i.e. uniform random
+    // SPAWN PACKING (was: rng.unit_disc() * spawn_point_radius, i.e. uniform random
     // inside the disc). Uniform random placement puts agents on top of each
     // other by construction -- with n points in a disc the expected number of
     // overlapping pairs is not small, it is the birthday problem, so a burst
@@ -582,7 +734,7 @@ u32 ChaffSystem::spawn_burst(ChaffBuffers& buffers, PathogenFamily family, Vec2 
     const f32 kGoldenAngle = 2.39996323f;   // pi * (3 - sqrt(5))
 
     // Grow the disc if the requested radius cannot hold `count` agents at
-    // contact distance. Growing the portal is the right trade: a burst that
+    // contact distance. Growing the spawn point is the right trade: a burst that
     // does not fit has to go somewhere, and spilling slightly wider reads far
     // better than spawning a solid interpenetrating plug in the middle.
     //
@@ -594,10 +746,10 @@ u32 ChaffSystem::spawn_burst(ChaffBuffers& buffers, PathogenFamily family, Vec2 
     // the worst pair at several burst sizes so this constant cannot rot.
     const f32 contact_d = fp.radius * fp.contact_spacing;
     const f32 needed = contact_d * std::sqrt(static_cast<f32>(count)) * 0.75f;
-    const f32 radius = math::max(portal_radius, needed);
+    const f32 radius = math::max(spawn_point_radius, needed);
 
     // One draw, for the whole burst: a random spiral phase so successive waves
-    // out of the same portal are not stamped identically. Rotating the pattern
+    // out of the same spawn point are not stamped identically. Rotating the pattern
     // cannot disturb the spacing, whereas per-agent jitter would reintroduce
     // exactly the overlap this is here to remove.
     const f32 phase = rng.range_f(0.0f, math::kTwoPi);
@@ -609,9 +761,10 @@ u32 ChaffSystem::spawn_burst(ChaffBuffers& buffers, PathogenFamily family, Vec2 
         const f32 r = radius * std::sqrt(t);
         const f32 a = phase + static_cast<f32>(i) * kGoldenAngle;
         ChaffSpawnParams p;
-        p.position = portal + Vec2{std::cos(a), std::sin(a)} * r;
+        p.position = spawn_pos + Vec2{std::cos(a), std::sin(a)} * r;
         p.family = family;
         p.density = fp.base_density > 0.0f ? fp.base_density : 1.0f;
+        p.squad_id = squad_id;
         if (buffers.spawn(p).valid()) ++spawned;
     }
     return spawned;

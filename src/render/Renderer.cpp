@@ -22,6 +22,7 @@
 #include "sim/ecs/EcsWorld.h"
 #include "sim/ecs/NamedAgents.h"
 #include "sim/flowfield/FlowField.h"
+#include "sim/squad/Squads.h"
 #include "sim/projectile/Projectiles.h"
 #include "sim/fluid/Fluid.h"
 #include "sim/swarm/Swarmers.h"
@@ -1990,6 +1991,94 @@ void Renderer::submit_flow_debug(const sim::FlowField& flow) {
             verts.push_back(FlowDebugVertex{tip, color});
             verts.push_back(FlowDebugVertex{back + perp * (arrow_len * 0.2f), color});
         }
+    }
+    if (verts.empty()) return;
+
+    const usize bytes = verts.size() * sizeof(FlowDebugVertex);
+    if (bytes > imp.flow_vbo_capacity_bytes) {
+        if (imp.flow_vbo != 0) glDeleteBuffers(1, &imp.flow_vbo);
+        glCreateBuffers(1, &imp.flow_vbo);
+        glNamedBufferStorage(imp.flow_vbo, static_cast<GLsizeiptr>(bytes), nullptr,
+                             GL_DYNAMIC_STORAGE_BIT);
+        imp.flow_vbo_capacity_bytes = bytes;
+        glVertexArrayVertexBuffer(imp.flow_vao, 0, imp.flow_vbo, 0, sizeof(FlowDebugVertex));
+    }
+    glNamedBufferSubData(imp.flow_vbo, 0, static_cast<GLsizeiptr>(bytes), verts.data());
+
+    glUseProgram(prog.gl_id);
+    glUniformMatrix4fv(0, 1, GL_FALSE, glm::value_ptr(imp.view_projection));
+    glBindVertexArray(imp.flow_vao);
+    glDrawArrays(GL_LINES, 0, static_cast<GLsizei>(verts.size()));
+    ++stats_.draw_calls;
+}
+
+void Renderer::submit_squad_debug(const sim::SquadRegistry& squads) {
+    if (!ready_ || !impl_) return;
+    Impl& imp = *impl_;
+    const ShaderProgram prog = imp.shaders.get("flow_debug");
+    if (!prog.valid()) return;
+    if (squads.paths().empty()) return;
+
+    std::vector<FlowDebugVertex> verts;
+
+    // Distinct hues per squad so two adjacent groups are separable at a glance
+    // while tuning. Golden-ratio hue stepping for the same reason the squad
+    // lateral offsets use it: consecutive ids land far apart on the wheel.
+    auto squad_color = [](u32 id, f32 alpha) {
+        const f32 h = std::fmod(static_cast<f32>(id) * 0.61803398875f, 1.0f) * 6.0f;
+        const i32 sector = static_cast<i32>(h);
+        const f32 frac = h - static_cast<f32>(sector);
+        const f32 q = 1.0f - frac;
+        switch (sector % 6) {
+            case 0: return Vec4{1.0f, frac, 0.0f, alpha};
+            case 1: return Vec4{q, 1.0f, 0.0f, alpha};
+            case 2: return Vec4{0.0f, 1.0f, frac, alpha};
+            case 3: return Vec4{0.0f, q, 1.0f, alpha};
+            case 4: return Vec4{frac, 0.0f, 1.0f, alpha};
+            default: return Vec4{1.0f, 0.0f, q, alpha};
+        }
+    };
+
+    // Routes, dim: they are static scenery next to the moving anchors.
+    const Vec4 path_color{0.45f, 0.55f, 0.70f, 0.40f};
+    for (const sim::SquadPath& path : squads.paths()) {
+        for (usize i = 0; i + 1 < path.points.size(); ++i) {
+            verts.push_back(FlowDebugVertex{path.points[i], path_color});
+            verts.push_back(FlowDebugVertex{path.points[i + 1], path_color});
+        }
+    }
+
+    // Anchors and radii.
+    constexpr u32 kRingSegments = 24;
+    const std::vector<sim::Squad>& all = squads.squads();
+    for (u32 id = 0; id < static_cast<u32>(all.size()); ++id) {
+        const sim::Squad& sq = all[id];
+        if (!sq.active || sq.member_count == 0) continue;
+        const Vec4 c = squad_color(id, 0.9f);
+
+        const f32 arm = 1.0f;
+        verts.push_back(FlowDebugVertex{sq.anchor - Vec2{arm, 0.0f}, c});
+        verts.push_back(FlowDebugVertex{sq.anchor + Vec2{arm, 0.0f}, c});
+        verts.push_back(FlowDebugVertex{sq.anchor - Vec2{0.0f, arm}, c});
+        verts.push_back(FlowDebugVertex{sq.anchor + Vec2{0.0f, arm}, c});
+
+        // The radius ring is drawn around the CENTROID, not the anchor: the
+        // radius describes where the members are, and seeing the gap between
+        // ring and cross is exactly how you read whether the leash is too long.
+        const Vec4 ring = squad_color(id, 0.45f);
+        for (u32 k = 0; k < kRingSegments; ++k) {
+            const f32 a0 = math::kTwoPi * (static_cast<f32>(k) / kRingSegments);
+            const f32 a1 = math::kTwoPi * (static_cast<f32>(k + 1) / kRingSegments);
+            verts.push_back(FlowDebugVertex{
+                sq.centroid + Vec2{std::cos(a0), std::sin(a0)} * sq.radius, ring});
+            verts.push_back(FlowDebugVertex{
+                sq.centroid + Vec2{std::cos(a1), std::sin(a1)} * sq.radius, ring});
+        }
+
+        // A tether from the mass to its anchor, so a squad being dragged is
+        // visually distinct from one sitting on its anchor.
+        verts.push_back(FlowDebugVertex{sq.centroid, ring});
+        verts.push_back(FlowDebugVertex{sq.anchor, ring});
     }
     if (verts.empty()) return;
 

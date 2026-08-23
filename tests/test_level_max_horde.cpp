@@ -48,11 +48,11 @@ const char* kAuthoredWaveLevel = R"JSON({
   "vessels": [
     { "id": "main", "points": [ { "p": [4, 16], "w": 6.0 }, { "p": [60, 16], "w": 6.0 } ] }
   ],
-  "portals": [ { "id": "p0", "pos": [4, 16], "radius": 3.0 } ],
+  "spawn_points": [ { "id": "p0", "pos": [4, 16], "radius": 3.0 } ],
   "objectives": [ { "id": "organ", "pos": [60, 16], "radius": 2.5, "integrity": 40 } ],
   "waves": [
     { "name": "w1", "prep_time": 3.0, "atp_reward": 25, "spawns": [
-        { "family": "virus", "count": 40, "start_time": 0.0, "duration": 2.0, "portal_id": "p0" } ] },
+        { "family": "virus", "count": 40, "start_time": 0.0, "duration": 2.0, "spawn_point_id": "p0" } ] },
     { "name": "w2", "prep_time": 1.5, "modifier": "swarm", "spawns": [
         { "family": "bacteria", "count": 12, "start_time": 0.5, "duration": 1.0 } ] }
   ]
@@ -77,12 +77,12 @@ TEST_CASE("a level may author its own wave table", "[level][waves]") {
     REQUIRE(def.waves[0].spawns.size() == 1);
     REQUIRE(def.waves[0].spawns[0].family == PathogenFamily::Virus);
     REQUIRE(def.waves[0].spawns[0].count == 40);
-    REQUIRE(def.waves[0].spawns[0].portal_id == "p0");
+    REQUIRE(def.waves[0].spawns[0].spawn_point_id == "p0");
     REQUIRE(def.waves[1].modifier == WaveModifier::Swarm);
     REQUIRE(def.waves[1].spawns[0].family == PathogenFamily::Bacteria);
     // Omitted optional fields fall back to WaveDef/SpawnEntry's own defaults.
     REQUIRE(def.waves[1].atp_reward == 0);
-    REQUIRE(def.waves[1].spawns[0].portal_id.empty());
+    REQUIRE(def.waves[1].spawns[0].spawn_point_id.empty());
 }
 
 TEST_CASE("a level that used to lean on the generator now authors its own table",
@@ -108,7 +108,7 @@ TEST_CASE("a level that used to lean on the generator now authors its own table"
     }
 }
 
-TEST_CASE("authored waves reject a bad family, a zero duration, and an unknown portal",
+TEST_CASE("authored waves reject a bad family, a zero duration, and an unknown spawn point",
           "[level][waves]") {
     LevelLoader loader;
     LevelDef def;
@@ -121,11 +121,22 @@ TEST_CASE("authored waves reject a bad family, a zero duration, and an unknown p
     bad_duration.replace(bad_duration.find("\"duration\": 2.0"), 15, "\"duration\": 0.0");
     REQUIRE_FALSE(loader.load_string(bad_duration, def).ok);
 
-    // Parses fine (the portal name is a valid string); validate() is what
-    // catches that no such portal exists.
-    std::string bad_portal = kAuthoredWaveLevel;
-    bad_portal.replace(bad_portal.find("\"portal_id\": \"p0\""), 17, "\"portal_id\": \"p9\"");
-    REQUIRE(loader.load_string(bad_portal, def).ok);
+    // Parses fine (the spawn point name is a valid string); validate() is what
+    // catches that no such spawn point exists.
+    std::string bad_spawn_point = kAuthoredWaveLevel;
+    {
+        // Length taken from the needle rather than written out: the literal
+        // one was still 17 (the width of the old `"portal_id": "p0"`) after the
+        // rename to spawn_point_id, so it truncated mid-token and left JSON
+        // that failed to PARSE -- which quietly stopped this from testing what
+        // it says, since the point is that a bad id parses fine and is caught
+        // by validate().
+        const std::string needle = "\"spawn_point_id\": \"p0\"";
+        const auto at = bad_spawn_point.find(needle);
+        REQUIRE(at != std::string::npos);
+        bad_spawn_point.replace(at, needle.size(), "\"spawn_point_id\": \"p9\"");
+    }
+    REQUIRE(loader.load_string(bad_spawn_point, def).ok);
     REQUIRE_FALSE(loader.validate(def).ok);
 }
 
@@ -140,20 +151,36 @@ TEST_CASE("floodplain_max_horde.json loads, validates, and is one very wide lane
     REQUIRE(def.name == "floodplain_max_horde");
     REQUIRE(def.region == "mucosal");
     REQUIRE(def.vessels.size() == 1);
-    REQUIRE(def.portals.size() == 1);
+    REQUIRE(def.spawn_points.size() == 1);
 
     sim::SimWorld world = make_world(def);
     REQUIRE(loader.instantiate(def, world).ok);
-    REQUIRE(world.flow().reachable(def.portals[0].position));
+    REQUIRE(world.flow().reachable(def.spawn_points[0].position));
 
-    // "Wide" is the whole point of the level, so pin it: ~21.8 world units off
-    // the centerline is walkable (this trunk peaks at ~55 wide), ~30.6 is not.
-    // For scale, floodplain_mucosal -- already the widest shipping level --
-    // peaks at ~30 wide itself.
-    const IVec2 wide = world.tissue().world_to_cell(Vec2{76.8f, 50.62f + 21.82f});
-    const IVec2 outside = world.tissue().world_to_cell(Vec2{76.8f, 50.62f + 30.55f});
-    REQUIRE(world.tissue().walkable(wide.x, wide.y));
+    // "Wide" is the whole point of the level, so pin it -- but pin it against
+    // the level's OWN widest control point rather than against absolute
+    // coordinates. The authored numbers move whenever the level is rescaled
+    // (they did, when every lane was widened to fit squads), and a test that
+    // fails on a rescale is testing the coordinates, not the property.
+    //
+    // The trunk runs horizontally, so perpendicular is +y, and Catmull-Rom
+    // passes exactly through its control points: the widest point's own
+    // position is a centerline sample with a known authored width.
+    const VesselPoint* widest = &def.vessels[0].points[0];
+    for (const VesselPoint& vp : def.vessels[0].points)
+        if (vp.width > widest->width) widest = &vp;
+
+    const IVec2 inside =
+        world.tissue().world_to_cell(widest->position + Vec2{0.0f, widest->width * 0.40f});
+    const IVec2 outside =
+        world.tissue().world_to_cell(widest->position + Vec2{0.0f, widest->width * 0.75f});
+    INFO("widest control point w=" << widest->width);
+    REQUIRE(world.tissue().walkable(inside.x, inside.y));
     REQUIRE_FALSE(world.tissue().walkable(outside.x, outside.y));
+
+    // And that width is genuinely a floodplain, not a corridor: comfortably
+    // wider than several squads abreast (a squad is ~7 world units across).
+    REQUIRE(widest->width > 40.0f);
 }
 
 TEST_CASE("floodplain_max_horde's final wave puts ~10,000 agents on the field at once",

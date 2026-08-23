@@ -93,6 +93,27 @@ constexpr Field kFluidFields[] = {
 };
 constexpr Schema kFluidSchema{"fluid", kFluidFields};
 
+IMMUNE_CONFIG_SCHEMA_ASSERT(sim::SquadTuning);
+constexpr Field kSquadFields[] = {
+    IMMUNE_CONFIG_FIELD(sim::SquadTuning, enabled, FieldKind::Bool, "Master switch; off reproduces the pre-squad horde exactly"),
+    IMMUNE_CONFIG_FIELD(sim::SquadTuning, target_squad_size, FieldKind::U32, "Agents per squad before the spawner opens a new one"),
+    IMMUNE_CONFIG_FIELD(sim::SquadTuning, max_squads, FieldKind::U32, "Registry capacity; overflow spawns ungrouped rather than failing"),
+    IMMUNE_CONFIG_FIELD(sim::SquadTuning, follow_weight_max, FieldKind::F32, "Cap on the flow-vs-anchor blend; must stay below 1 so the flow field keeps a vote"),
+    IMMUNE_CONFIG_FIELD(sim::SquadTuning, follow_ramp, FieldKind::F32, "World units outside the squad radius over which the steer reaches its cap"),
+    IMMUNE_CONFIG_FIELD(sim::SquadTuning, lateral_push, FieldKind::F32, "Lateral impulse per tick at full weight; same units as separation_strength"),
+    IMMUNE_CONFIG_FIELD(sim::SquadTuning, squad_radius_scale, FieldKind::F32, "Squad radius = scale * sqrt(member count)"),
+    IMMUNE_CONFIG_FIELD(sim::SquadTuning, min_radius, FieldKind::F32, "Floor on the squad radius"),
+    IMMUNE_CONFIG_FIELD(sim::SquadTuning, anchor_lookahead, FieldKind::F32, "How far ahead of the centroid the anchor sits"),
+    IMMUNE_CONFIG_FIELD(sim::SquadTuning, anchor_max_speed, FieldKind::F32, "Leash rate limit on anchor advance, world units/second"),
+    IMMUNE_CONFIG_FIELD(sim::SquadTuning, project_window, FieldKind::F32, "Half-width of the windowed path projection search"),
+    IMMUNE_CONFIG_FIELD(sim::SquadTuning, foreign_radius_mult, FieldKind::F32, "Separation radius multiplier against other squads; bounded by the spatial cell size at init"),
+    IMMUNE_CONFIG_FIELD(sim::SquadTuning, foreign_strength_mult, FieldKind::F32, "Separation strength multiplier against other squads"),
+    IMMUNE_CONFIG_FIELD(sim::SquadTuning, path_lateral_jitter, FieldKind::F32, "Per-squad lateral offset as a fraction of path half-width"),
+    IMMUNE_CONFIG_FIELD(sim::SquadTuning, spawn_spacing, FieldKind::F32, "Minimum arc distance between two squads opening on the same path"),
+    IMMUNE_CONFIG_FIELD(sim::SquadTuning, retire_ticks, FieldKind::U32, "Consecutive empty ticks before a squad slot is recycled"),
+};
+constexpr Schema kSquadSchema{"squads", kSquadFields};
+
 constexpr Field kEconomyFields[] = {
     IMMUNE_CONFIG_FIELD(EconomyConfig, starting_atp, FieldKind::U32, "ATP at level start"),
     IMMUNE_CONFIG_FIELD(EconomyConfig, passive_income_per_second, FieldKind::F32, ""),
@@ -120,7 +141,8 @@ constexpr Field kMetaFields[] = {
 };
 constexpr Schema kMetaSchema{"meta", kMetaFields};
 
-constexpr std::string_view kSimKeys[] = {"schema", "capacities", "globals", "swarmers", "fluid"};
+constexpr std::string_view kSimKeys[] = {"schema",   "capacities", "globals",
+                                        "swarmers", "fluid",      "squads"};
 constexpr std::string_view kAbilitiesKeys[] = {"schema", "complement_cascade_burst",
                                                "histamine_flare", "fever_response"};
 
@@ -170,6 +192,11 @@ void parse_sim(const Json& doc, SimConfig& out, config::Ctx& ctx) {
         config::parse_struct(config::require_object(doc, "fluid", ctx), kFluidSchema,
                              &out.fluid, ctx);
     }
+    {
+        config::Ctx::Scope s(ctx, "squads");
+        config::parse_struct(config::require_object(doc, "squads", ctx), kSquadSchema,
+                             &out.squads, ctx);
+    }
 }
 
 Json dump_sim(const SimConfig& cfg) {
@@ -187,6 +214,9 @@ Json dump_sim(const SimConfig& cfg) {
     Json fluid = Json::object();
     config::dump_struct(fluid, kFluidSchema, &cfg.fluid);
     doc["fluid"] = std::move(fluid);
+    Json squads = Json::object();
+    config::dump_struct(squads, kSquadSchema, &cfg.squads);
+    doc["squads"] = std::move(squads);
     return doc;
 }
 
@@ -195,6 +225,7 @@ void bind_sim(config::Registry& registry, SimConfig& cfg) {
     registry.bind("sim.globals", kSimGlobalsSchema, &cfg.globals);
     registry.bind("sim.swarmers", kSwarmerSchema, &cfg.swarmers);
     registry.bind("sim.fluid", kFluidSchema, &cfg.fluid);
+    registry.bind("sim.squads", kSquadSchema, &cfg.squads);
 }
 
 // --- economy.json ------------------------------------------------------
@@ -504,6 +535,7 @@ GameConfig default_game_config() {
         cfg.sim.globals.objective_damage_per_leak = 1.0f;
         cfg.sim.swarmers = SwarmerGlobals{1.5f, 0.45f, 0.6f, 9.0f};
         cfg.sim.fluid = desc.fluid_tuning;
+        cfg.sim.squads = desc.squad_tuning;
     }
 
     cfg.economy = EconomyConfig{};

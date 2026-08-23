@@ -12,6 +12,7 @@
 #include "game/wave/WaveDirector.h"
 #include "render/Camera.h"
 #include "sim/SimWorld.h"
+#include "sim/squad/Squads.h"
 
 #include <algorithm>
 #include <cctype>
@@ -156,8 +157,8 @@ const CombatEventName kCombatEventNames[] = {
 // Target resolution
 // ---------------------------------------------------------------------------
 
-const sim::SpawnPortalRuntime* find_portal(const sim::SimWorld& world, const std::string& id) {
-    for (const sim::SpawnPortalRuntime& p : world.portals()) {
+const sim::SpawnPointRuntime* find_spawn_point(const sim::SimWorld& world, const std::string& id) {
+    for (const sim::SpawnPointRuntime& p : world.spawn_points()) {
         if (p.id == id) return &p;
     }
     return nullptr;
@@ -204,7 +205,7 @@ bool parse_at_clause(const GymContext& ctx, const std::vector<std::string>& tok,
     if (i >= tok.size() || lower(tok[i]) != "at") return true;
     ++i;
     if (i >= tok.size()) {
-        error = "'at' needs a target: x,y | <portal_id> | cursor | objective";
+        error = "'at' needs a target: x,y | <spawn_point id> | cursor | objective";
         return false;
     }
 
@@ -257,26 +258,26 @@ bool parse_at_clause(const GymContext& ctx, const std::vector<std::string>& tok,
         return true;
     }
 
-    // Otherwise: a portal id.
+    // Otherwise: a spawn point id.
     if (ctx.world != nullptr) {
-        if (const sim::SpawnPortalRuntime* p = find_portal(*ctx.world, tok[i])) {
+        if (const sim::SpawnPointRuntime* p = find_spawn_point(*ctx.world, tok[i])) {
             pos = p->position;
             ++i;
             return true;
         }
     }
-    error = "unknown target '" + tok[i] + "' (not a portal id, coordinate, or keyword)";
+    error = "unknown target '" + tok[i] + "' (not a spawn point id, coordinate, or keyword)";
     return false;
 }
 
-/// Where a spawn goes when the line says nothing: the first portal if the level
-/// has one, else the middle of the world.
+/// Where a spawn goes when the line says nothing: the first spawn point if the
+/// level has one, else the middle of the world.
 Vec2 default_spawn_point(const GymContext& ctx, f32& radius) {
     radius = 3.0f;
     if (ctx.world == nullptr) return Vec2{0.0f, 0.0f};
-    if (!ctx.world->portals().empty()) {
-        radius = ctx.world->portals()[0].radius;
-        return ctx.world->portals()[0].position;
+    if (!ctx.world->spawn_points().empty()) {
+        radius = ctx.world->spawn_points()[0].radius;
+        return ctx.world->spawn_points()[0].position;
     }
     return ctx.world->desc().world_bounds.center();
 }
@@ -304,12 +305,12 @@ bool parse_radius_clause(const std::vector<std::string>& tok, usize& i, f32& rad
 const std::vector<GymCommandInfo>& command_table() {
     static const std::vector<GymCommandInfo> table = {
         {"help", "[command]", "List commands, or explain one."},
-        {"spawn", "<family|all> <count> [at <x,y|portal|cursor>] [radius <r>]",
+        {"spawn", "<family|all> <count> [at <x,y|spawn_point|cursor>] [radius <r>]",
          "Spawn chaff. 'all' spawns every family at once."},
-        {"elite", "<name|id|all|list> [at <x,y|portal|cursor>]",
+        {"elite", "<name|id|all|list> [at <x,y|spawn_point|cursor>]",
          "Spawn a named elite."},
-        {"flood", "[count-per-portal]",
-         "Every family out of every portal at once. The stress button."},
+        {"flood", "[count-per-spawn-point]",
+         "Every family out of every spawn point at once. The stress button."},
         {"kill", "[family|all]",
          "Flag chaff for removal, with real kill accounting."},
         {"tower", "<type|all|list> [at <x,y|cursor>] [tier <1-3>]",
@@ -328,14 +329,15 @@ const std::vector<GymCommandInfo>& command_table() {
          "Raise a combat event so the particle layer draws it."},
         {"time", "<scale>", "Set the time scale (0 pauses)."},
         {"step", "[ticks]", "Advance the sim by N ticks. Works while paused."},
-        {"cam", "<x,y|portal|objective|fit> [height]", "Move the camera."},
-        {"overlay", "<debug|threat> [on|off]", "Toggle a HUD overlay."},
+        {"cam", "<x,y|spawn_point|objective|fit> [height]", "Move the camera."},
+        {"overlay", "<debug|threat|squads> [on|off]", "Toggle a HUD overlay."},
+        {"squads", "[on|off|list|paths]", "Inspect or toggle the squad layer."},
         {"invuln", "[on|off]",
          "Hold the objective's integrity, so a leak cannot end the run."},
         {"autoplay", "[on|off] [profile]",
          "Let the balance bot play this level. Pair with `time 8` to watch it fast."},
         {"stats", "", "Print the sim snapshot, economy, and wave state."},
-        {"portals", "", "List this level's spawn portals and its objective."},
+        {"spawn_points", "", "List this level's spawn points and its objective."},
         {"level", "<name|path>", "Load another level."},
         {"restart", "", "Reload the current level from scratch."},
         {"config", "<get|set|list|reload|dump> [path] [value]",
@@ -363,6 +365,29 @@ GymResult cmd_help(const std::vector<std::string>& tok) {
     return okay(std::move(out));
 }
 
+/// Lane of whichever spawn point is nearest `at`.
+///
+/// The gym can spawn anywhere, including points no spawn point owns, so there
+/// is no authored lane to read. Nearest spawn point is the cheapest answer
+/// that is right in the case that matters (`spawn ... at <spawn_point>`) and
+/// harmless otherwise -- an unknown lane simply falls back to the level's
+/// whole path list.
+const std::string& nearest_lane_id(const sim::SimWorld& world, Vec2 at) {
+    static const std::string kNone;
+    const auto& spawn_points = world.spawn_points();
+    if (spawn_points.empty()) return kNone;
+    usize best = 0;
+    f32 best_d2 = math::length_sq(spawn_points[0].position - at);
+    for (usize i = 1; i < spawn_points.size(); ++i) {
+        const f32 d2 = math::length_sq(spawn_points[i].position - at);
+        if (d2 < best_d2) {
+            best_d2 = d2;
+            best = i;
+        }
+    }
+    return spawn_points[best].lane_id;
+}
+
 /// How many agents ChaffSystem::spawn_burst() can place at `at` before its disc
 /// grows past the tissue there.
 ///
@@ -384,14 +409,79 @@ u32 burst_capacity(sim::SimWorld& world, PathogenFamily family, Vec2 at, f32 rad
     return math::clamp(static_cast<u32>(ratio * ratio), 1u, 4096u);
 }
 
+/// Places up to `count` agents at `at`, split into squads on their own paths.
+///
+/// Shared by the immediate path (release_spawn) and the streaming queue, so a
+/// command that lands in one tick and one that trickles over fifty produce the
+/// same thing: squads of SquadTuning::target_squad_size, each dropped on the
+/// next path of the lane rather than all in one disc. Returns how many landed.
+///
+/// `on_path` decides where each squad's burst actually lands. True puts it on
+/// the squad's own path, which is what makes a bare `spawn` produce what a wave
+/// produces. False keeps every burst at `at` and lets cohesion gather them over
+/// the next second instead.
+///
+/// The distinction exists because `spawn ... at 104,66` is a promise about a
+/// coordinate: the gym's whole value is placing a horde exactly where you want
+/// it and then firing something at it, and silently relocating the agents onto
+/// a nearby path would quietly invalidate every such test. So an EXPLICIT `at`
+/// is honoured literally and only the implicit default gets path placement.
+///
+/// Ungrouped -- one burst at `at`, exactly the pre-squad behaviour -- when the
+/// layer is off or the level authored no paths.
+u32 spawn_grouped(sim::SimWorld& world, PathogenFamily family, Vec2 at, f32 radius, u32 count,
+                  bool on_path) {
+    sim::SquadRegistry& reg = world.squads();
+    if (!reg.tuning().enabled || reg.paths().empty()) {
+        return world.chaff_system().spawn_burst(world.chaff(), family, at, radius, count,
+                                                world.rng());
+    }
+
+    const std::string& lane = nearest_lane_id(world, at);
+    const u32 squad_size = math::max(reg.tuning().target_squad_size, 1u);
+    u32 placed = 0;
+    u32 left = count;
+    while (left > 0) {
+        u16 path = 0;
+        const u16 squad =
+            reg.next_path_for_lane(lane, path) ? reg.create_squad(path, at) : sim::kNoSquad;
+        const u32 chunk = math::min(left, squad_size);
+
+        // On the squad's own path, so it starts grouped instead of on top of
+        // whatever else is already there. Radius 0 lets spawn_burst size the
+        // disc to exactly what this chunk needs at contact spacing -- which is
+        // a squad-sized clump, not a chunk smeared over the whole spawn point.
+        Vec2 spot = at;
+        f32 spot_radius = radius;
+        if (squad != sim::kNoSquad && on_path) {
+            spot = reg.get(squad).anchor;
+            spot_radius = 0.0f;
+        }
+        const u32 now = world.chaff_system().spawn_burst(world.chaff(), family, spot, spot_radius,
+                                                         chunk, world.rng(), squad);
+        placed += now;
+        left -= chunk;
+        if (now < chunk) break;   // chaff buffer full; stop rather than spin
+    }
+    return placed;
+}
+
 /// Spawns as much of `count` as fits at `at` right now and hands the remainder
 /// to the context's spawn queue (if it has one). Returns what went in now.
-u32 release_spawn(GymContext& ctx, PathogenFamily family, Vec2 at, f32 radius, u32 count) {
+///
+/// The budget is still measured at the REQUESTED point, not per squad: it is
+/// the honest answer to "how much horde does this stretch of lane hold", and
+/// keeping it there is what stops an oversized command from opening fifty
+/// squads in a single tick that would all land stacked on the same few metres
+/// of path. The surplus streams, and the squads come out spread over time.
+u32 release_spawn(GymContext& ctx, PathogenFamily family, Vec2 at, f32 radius, u32 count,
+                  bool on_path) {
     const u32 fits = math::min(count, burst_capacity(*ctx.world, family, at, radius));
-    const u32 now = ctx.world->chaff_system().spawn_burst(ctx.world->chaff(), family, at, radius,
-                                                          fits, ctx.world->rng());
+    const u32 now = spawn_grouped(*ctx.world, family, at, radius, fits, on_path);
     if (now < count && ctx.spawns != nullptr) {
-        ctx.spawns->enqueue(family, at, radius, count - now);
+        const bool group = ctx.world->squads().tuning().enabled &&
+                           !ctx.world->squads().paths().empty();
+        ctx.spawns->enqueue(family, at, radius, count - now, group, on_path);
     }
     return now;
 }
@@ -415,14 +505,19 @@ GymResult cmd_spawn(GymContext& ctx, const std::vector<std::string>& tok) {
     f32 radius = 3.0f;
     Vec2 at = default_spawn_point(ctx, radius);
     std::string error;
+    const usize before_at = i;
     if (!parse_at_clause(ctx, tok, i, at, error)) return fail(error);
+    // An explicit `at` is a promise about a coordinate; only the implicit
+    // default is free to be moved onto a squad path. See spawn_grouped().
+    const bool on_path = (i == before_at);
     if (!parse_radius_clause(tok, i, radius, error)) return fail(error);
 
     if (every_family) {
         const u32 per = static_cast<u32>(count);
         u32 now = 0;
         for (u32 f = 0; f < kFamilyCount; ++f) {
-            now += release_spawn(ctx, static_cast<PathogenFamily>(f), at, radius, per);
+            now += release_spawn(ctx, static_cast<PathogenFamily>(f), at, radius, per,
+                                 on_path);
         }
         const u32 queued = per * kFamilyCount - now;
         return okay(queued == 0
@@ -434,7 +529,7 @@ GymResult cmd_spawn(GymContext& ctx, const std::vector<std::string>& tok) {
     }
 
     const u32 asked = static_cast<u32>(count);
-    const u32 now = release_spawn(ctx, family, at, radius, asked);
+    const u32 now = release_spawn(ctx, family, at, radius, asked, on_path);
     if (now == asked) {
         return okay(fmt("spawned %u %s at (%.1f, %.1f) r=%.1f", now, family_name(family), at.x,
                         at.y, radius));
@@ -505,26 +600,28 @@ GymResult cmd_elite(GymContext& ctx, const std::vector<std::string>& tok) {
 
 GymResult cmd_flood(GymContext& ctx, const std::vector<std::string>& tok) {
     if (ctx.world == nullptr) return fail("no world in this context");
-    i64 per_portal = 600;
-    if (tok.size() > 1 && !parse_i64(tok[1], per_portal)) {
-        return fail("usage: flood [count-per-portal]");
+    i64 per_spawn_point = 600;
+    if (tok.size() > 1 && !parse_i64(tok[1], per_spawn_point)) {
+        return fail("usage: flood [count-per-spawn-point]");
     }
-    if (per_portal <= 0) return fail("count must be positive");
+    if (per_spawn_point <= 0) return fail("count must be positive");
 
-    const std::vector<sim::SpawnPortalRuntime>& portals = ctx.world->portals();
-    if (portals.empty()) return fail("this level has no portals");
+    const std::vector<sim::SpawnPointRuntime>& spawn_points = ctx.world->spawn_points();
+    if (spawn_points.empty()) return fail("this level has no spawn points");
 
-    const u32 per_family = math::max(1u, static_cast<u32>(per_portal) / kFamilyCount);
+    const u32 per_family = math::max(1u, static_cast<u32>(per_spawn_point) / kFamilyCount);
     u32 spawned = 0;
-    for (const sim::SpawnPortalRuntime& p : portals) {
+    for (const sim::SpawnPointRuntime& p : spawn_points) {
         for (u32 f = 0; f < kFamilyCount; ++f) {
+            // Spawn-point-sourced, so path placement is right here: `flood` is
+            // "what a wave would do, now", not a request for a coordinate.
             spawned += release_spawn(ctx, static_cast<PathogenFamily>(f), p.position, p.radius,
-                                     per_family);
+                                     per_family, /*on_path*/ true);
         }
     }
-    const u32 asked = per_family * kFamilyCount * static_cast<u32>(portals.size());
-    return okay(fmt("flood: %u of %u agents from %zu portal(s) now%s; chaff %zu/%zu", spawned,
-                    asked, portals.size(),
+    const u32 asked = per_family * kFamilyCount * static_cast<u32>(spawn_points.size());
+    return okay(fmt("flood: %u of %u agents from %zu spawn point(s) now%s; chaff %zu/%zu", spawned,
+                    asked, spawn_points.size(),
                     spawned < asked ? ", the rest streaming in" : "",
                     ctx.world->chaff().count(), ctx.world->chaff().capacity()));
 }
@@ -947,9 +1044,62 @@ GymResult cmd_cam(GymContext& ctx, const std::vector<std::string>& tok) {
                     ctx.camera->center().y, ctx.camera->view_height()));
 }
 
+GymResult cmd_squads(GymContext& ctx, const std::vector<std::string>& tok) {
+    if (ctx.world == nullptr) return fail("no world in this context");
+    sim::SquadRegistry& reg = ctx.world->squads();
+
+    const std::string sub = tok.size() > 1 ? lower(tok[1]) : std::string("list");
+
+    if (sub == "on" || sub == "off" || sub == "1" || sub == "0" || sub == "true" ||
+        sub == "false") {
+        const bool on = (sub == "on" || sub == "1" || sub == "true");
+        sim::SquadTuning t = reg.tuning();
+        t.enabled = on;
+        reg.set_tuning(t);
+        // Deliberately NOT clearing live squads on "off": leaving membership
+        // intact means `squads off` then `squads on` resumes the same groups,
+        // which is what makes an A/B comparison mid-wave actually comparable.
+        return okay(fmt("squads %s (%u live, %u paths)", on ? "on" : "off", reg.active_count(),
+                        static_cast<u32>(reg.paths().size())));
+    }
+
+    if (sub == "paths") {
+        if (reg.paths().empty()) return okay("no squad paths on this level");
+        std::string out;
+        for (usize i = 0; i < reg.paths().size(); ++i) {
+            const sim::SquadPath& p = reg.paths()[i];
+            out += fmt("[%u] %s lane=%s pts=%u len=%.1f half_width=%.1f\n", static_cast<u32>(i),
+                       p.id.c_str(), p.lane_id.c_str(), static_cast<u32>(p.points.size()),
+                       p.length(), p.half_width);
+        }
+        if (!out.empty() && out.back() == '\n') out.pop_back();
+        return okay(out);
+    }
+
+    if (sub == "list") {
+        if (reg.active_count() == 0) return okay("no live squads");
+        std::string out = fmt("%u live squads / %u paths, enabled=%s\n", reg.active_count(),
+                              static_cast<u32>(reg.paths().size()),
+                              reg.tuning().enabled ? "yes" : "no");
+        for (u32 id = 0; id < static_cast<u32>(reg.squads().size()); ++id) {
+            if (!reg.alive(static_cast<u16>(id))) continue;
+            const sim::Squad& sq = reg.get(static_cast<u16>(id));
+            const f32 drag = math::length(sq.anchor - sq.centroid);
+            out += fmt(
+                "  #%u path=%u n=%u arc=%.1f r=%.1f spread=%.1f centroid=(%.1f,%.1f) drag=%.1f\n",
+                id, static_cast<u32>(sq.path_index), sq.member_count, sq.arc_pos, sq.radius,
+                sq.spread, sq.centroid.x, sq.centroid.y, drag);
+        }
+        if (!out.empty() && out.back() == '\n') out.pop_back();
+        return okay(out);
+    }
+
+    return fail("usage: squads [on|off|list|paths]");
+}
+
 GymResult cmd_overlay(GymContext& ctx, const std::vector<std::string>& tok) {
     if (!ctx.set_overlay) return fail("no HUD in this context");
-    if (tok.size() < 2) return fail("usage: overlay <debug|threat> [on|off]");
+    if (tok.size() < 2) return fail("usage: overlay <debug|threat|squads> [on|off]");
     bool on = true;
     if (tok.size() > 2) {
         const std::string v = lower(tok[2]);
@@ -960,7 +1110,8 @@ GymResult cmd_overlay(GymContext& ctx, const std::vector<std::string>& tok) {
         }
     }
     const std::string name = lower(tok[1]);
-    if (!ctx.set_overlay(name, on)) return fail("unknown overlay '" + tok[1] + "' (debug, threat)");
+    if (!ctx.set_overlay(name, on))
+        return fail("unknown overlay '" + tok[1] + "' (debug, threat, squads)");
     return okay(fmt("%s overlay %s", name.c_str(), on ? "on" : "off"));
 }
 
@@ -1043,12 +1194,12 @@ GymResult cmd_stats(GymContext& ctx) {
     return okay(std::move(out));
 }
 
-GymResult cmd_portals(GymContext& ctx) {
+GymResult cmd_spawn_points(GymContext& ctx) {
     if (ctx.world == nullptr) return fail("no world in this context");
-    const std::vector<sim::SpawnPortalRuntime>& portals = ctx.world->portals();
-    if (portals.empty()) return okay("this level has no portals");
-    std::string out = fmt("%zu portal(s):", portals.size());
-    for (const sim::SpawnPortalRuntime& p : portals) {
+    const std::vector<sim::SpawnPointRuntime>& spawn_points = ctx.world->spawn_points();
+    if (spawn_points.empty()) return okay("this level has no spawn points");
+    std::string out = fmt("%zu spawn point(s):", spawn_points.size());
+    for (const sim::SpawnPointRuntime& p : spawn_points) {
         out += fmt("\n  %-10s (%.1f, %.1f) r=%.1f", p.id.c_str(), p.position.x, p.position.y,
                    p.radius);
     }
@@ -1089,18 +1240,20 @@ void GymToggles::apply(sim::SimWorld& world) const {
 // GymSpawnQueue
 // ---------------------------------------------------------------------------
 
-void GymSpawnQueue::enqueue(PathogenFamily family, Vec2 at, f32 radius, u32 count) {
+void GymSpawnQueue::enqueue(PathogenFamily family, Vec2 at, f32 radius, u32 count, bool group,
+                            bool on_path) {
     if (count == 0) return;
     // Merge into an identical pending entry rather than growing the list: a user
     // hammering the same quick-action button five times should get one stream,
     // not five interleaved ones releasing five bursts a tick into one spot.
     for (Entry& e : entries_) {
-        if (e.family == family && e.radius == radius && e.at == at) {
+        if (e.family == family && e.radius == radius && e.at == at && e.group == group &&
+            e.on_path == on_path) {
             e.remaining += count;
             return;
         }
     }
-    entries_.push_back(Entry{family, at, radius, count});
+    entries_.push_back(Entry{family, at, radius, count, group, on_path});
 }
 
 u32 GymSpawnQueue::tick(sim::SimWorld& world) {
@@ -1111,8 +1264,10 @@ u32 GymSpawnQueue::tick(sim::SimWorld& world) {
         // Re-measured every tick: the agents released last tick have moved off,
         // so how much fits now is a live question, not a cached one.
         const u32 fits = math::min(e.remaining, burst_capacity(world, e.family, e.at, e.radius));
-        const u32 got = world.chaff_system().spawn_burst(world.chaff(), e.family, e.at, e.radius,
-                                                         fits, world.rng());
+        const u32 got = e.group
+                            ? spawn_grouped(world, e.family, e.at, e.radius, fits, e.on_path)
+                            : world.chaff_system().spawn_burst(world.chaff(), e.family, e.at,
+                                                               e.radius, fits, world.rng());
         e.remaining -= got;
         released += got;
         if (got == 0 && world.chaff().full()) e.remaining = 0;   // buffer full: drop, do not spin
@@ -1238,12 +1393,13 @@ GymResult gym_execute(GymContext& ctx, std::string_view line) {
     if (cmd == "step") return cmd_step(ctx, tok);
     if (cmd == "cam" || cmd == "camera") return cmd_cam(ctx, tok);
     if (cmd == "overlay") return cmd_overlay(ctx, tok);
+    if (cmd == "squads") return cmd_squads(ctx, tok);
     if (cmd == "invuln" || cmd == "invulnerable" || cmd == "godmode") {
         return cmd_invuln(ctx, tok);
     }
     if (cmd == "autoplay" || cmd == "bot") return cmd_autoplay(ctx, tok);
     if (cmd == "stats") return cmd_stats(ctx);
-    if (cmd == "portals") return cmd_portals(ctx);
+    if (cmd == "spawn_points") return cmd_spawn_points(ctx);
     if (cmd == "level") return cmd_level(ctx, tok);
     if (cmd == "restart") return cmd_restart(ctx);
     if (cmd == "config") return cmd_config(ctx, tok);

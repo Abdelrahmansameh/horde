@@ -276,6 +276,7 @@ bool App::load_level(const std::string& path) {
     desc.max_fluid_particles = config_.sim.capacities.max_fluid_particles;
     desc.max_combat_events = config_.sim.capacities.max_combat_events;
     desc.fluid_tuning = config_.sim.fluid;
+    desc.squad_tuning = config_.sim.squads;
     desc.spatial_cell_size = config_.sim.globals.spatial_cell_size;
     desc.flow_rebake_budget_ms = config_.sim.globals.flow_rebake_budget_ms;
     enemies_.apply_to_tuning(desc.chaff_tuning);
@@ -609,6 +610,7 @@ game::GymContext App::make_gym_context() {
     ctx.set_overlay = [this](const std::string& name, bool on) {
         if (name == "debug") { hud_.set_debug_overlay_visible(on); return true; }
         if (name == "threat") { hud_.set_threat_overlay_visible(on); return true; }
+        if (name == "squads") { hud_.set_squad_overlay_visible(on); return true; }
         return false;
     };
     return ctx;
@@ -685,6 +687,7 @@ void App::render_frame() {
     renderer_.submit_particles(particle_scratch_.data(), particle_scratch_.size(),
                                vfx::BlendMode::AlphaBlend);
     if (hud_.debug_overlay_visible()) renderer_.submit_flow_debug(sim_.flow());
+    if (hud_.squad_overlay_visible()) renderer_.submit_squad_debug(sim_.squads());
     renderer_.end_frame();
     profiler_.record(prof_key::kRenderSubmit, submit.elapsed_ms());
 

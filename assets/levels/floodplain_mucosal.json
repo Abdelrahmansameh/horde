@@ -1,381 +1,381 @@
 {
-  "schema": 1,
-  "name": "floodplain_mucosal",
-  "region": "mucosal",
-  "world": {
-    "min": [
-      0,
-      0
-    ],
-    "max": [
-      189.11,
-      94.0
-    ],
-    "cell_size": 0.5
-  },
-  "vessels": [
-    {
-      "id": "branch_north",
-      "points": [
-        {
-          "p": [
-            15.6,
-            18.28
-          ],
-          "w": 22.33
-        },
-        {
-          "p": [
-            43.02,
-            26.11
-          ],
-          "w": 22.33
-        },
-        {
-          "p": [
-            75.66,
-            47.0
-          ],
-          "w": 27.29
-        }
-      ],
-      "children": [
-        "trunk"
-      ]
-    },
-    {
-      "id": "branch_mid",
-      "points": [
-        {
-          "p": [
-            15.6,
-            47.0
-          ],
-          "w": 27.29
-        },
-        {
-          "p": [
-            43.02,
-            47.0
-          ],
-          "w": 27.29
-        },
-        {
-          "p": [
-            75.66,
-            47.0
-          ],
-          "w": 27.29
-        }
-      ],
-      "children": [
-        "trunk"
-      ]
-    },
-    {
-      "id": "branch_south",
-      "points": [
-        {
-          "p": [
-            15.6,
-            75.72
-          ],
-          "w": 22.33
-        },
-        {
-          "p": [
-            43.02,
-            67.89
-          ],
-          "w": 22.33
-        },
-        {
-          "p": [
-            75.66,
-            47.0
-          ],
-          "w": 27.29
-        }
-      ],
-      "children": [
-        "trunk"
-      ]
-    },
-    {
-      "id": "trunk",
-      "points": [
-        {
-          "p": [
-            75.66,
-            47.0
-          ],
-          "w": 29.77
-        },
-        {
-          "p": [
-            121.35,
-            47.0
-          ],
-          "w": 29.77
-        },
-        {
-          "p": [
-            172.27,
-            47.0
-          ],
-          "w": 29.77
-        }
-      ],
-      "children": []
-    }
-  ],
-  "portals": [
-    {
-      "id": "p_north",
-      "pos": [
-        15.6,
-        18.28
-      ],
-      "radius": 11.16
-    },
-    {
-      "id": "p_mid",
-      "pos": [
-        15.6,
-        47.0
-      ],
-      "radius": 13.64
-    },
-    {
-      "id": "p_south",
-      "pos": [
-        15.6,
-        75.72
-      ],
-      "radius": 11.16
-    }
-  ],
-  "objectives": [
-    {
-      "id": "organ",
-      "pos": [
-        172.27,
-        47.0
-      ],
-      "radius": 5.22,
-      "integrity": 100
-    }
-  ],
-  "placement_zones": [
-    {
-      "min": [
-        20.82,
-        11.75
-      ],
-      "max": [
-        167.05,
-        82.25
-      ]
-    }
-  ],
   "ambient_drift": [
     0.0,
     0.0
   ],
-  "waves": [
+  "name": "floodplain_mucosal",
+  "objectives": [
     {
-      "name": "mucosal_wave_1",
-      "prep_time": 9.0,
-      "atp_reward": 60,
-      "spawns": [
+      "id": "organ",
+      "integrity": 100,
+      "pos": [
+        720.526,
+        167.477
+      ],
+      "radius": 13.519
+    }
+  ],
+  "placement_zones": [
+    {
+      "max": [
+        697.963,
+        319.841
+      ],
+      "min": [
+        65.901,
+        15.113
+      ]
+    }
+  ],
+  "spawn_points": [
+    {
+      "id": "p_north",
+      "pos": [
+        43.338,
+        43.338
+      ],
+      "radius": 28.902
+    },
+    {
+      "id": "p_mid",
+      "pos": [
+        43.338,
+        167.477
+      ],
+      "radius": 35.325
+    },
+    {
+      "id": "p_south",
+      "pos": [
+        43.338,
+        291.616
+      ],
+      "radius": 28.902
+    }
+  ],
+  "region": "mucosal",
+  "schema": 1,
+  "vessels": [
+    {
+      "children": [
+        "trunk"
+      ],
+      "id": "branch_north",
+      "points": [
         {
-          "family": "virus",
-          "count": 198,
-          "start_time": 0.0,
-          "duration": 4.67
+          "p": [
+            43.338,
+            43.338
+          ],
+          "w": 57.831
         },
         {
-          "family": "bacteria",
-          "count": 90,
-          "start_time": 0.33,
-          "duration": 6.0
+          "p": [
+            161.858,
+            77.182
+          ],
+          "w": 57.831
+        },
+        {
+          "p": [
+            302.94,
+            167.477
+          ],
+          "w": 70.676
         }
       ]
     },
     {
-      "name": "mucosal_wave_2",
-      "prep_time": 8.43,
-      "atp_reward": 75,
-      "spawns": [
+      "children": [
+        "trunk"
+      ],
+      "id": "branch_mid",
+      "points": [
         {
-          "family": "virus",
-          "count": 303,
-          "start_time": 0.0,
-          "duration": 4.67
+          "p": [
+            43.338,
+            167.477
+          ],
+          "w": 70.676
         },
         {
-          "family": "bacteria",
-          "count": 142,
-          "start_time": 0.33,
-          "duration": 6.0
+          "p": [
+            161.858,
+            167.477
+          ],
+          "w": 70.676
         },
         {
-          "family": "bacteria",
-          "count": 95,
-          "start_time": 0.83,
-          "duration": 4.0
+          "p": [
+            302.94,
+            167.477
+          ],
+          "w": 70.676
         }
       ]
     },
     {
-      "name": "mucosal_wave_3",
-      "prep_time": 7.86,
-      "atp_reward": 90,
-      "spawns": [
+      "children": [
+        "trunk"
+      ],
+      "id": "branch_south",
+      "points": [
         {
-          "family": "virus",
-          "count": 408,
-          "start_time": 0.0,
-          "duration": 4.67
+          "p": [
+            43.338,
+            291.616
+          ],
+          "w": 57.831
         },
         {
-          "family": "bacteria",
-          "count": 195,
-          "start_time": 0.33,
-          "duration": 6.0
+          "p": [
+            161.858,
+            257.772
+          ],
+          "w": 57.831
         },
         {
-          "family": "bacteria",
-          "count": 130,
-          "start_time": 0.83,
-          "duration": 4.0
+          "p": [
+            302.94,
+            167.477
+          ],
+          "w": 70.676
         }
       ]
     },
     {
-      "name": "mucosal_wave_4",
-      "prep_time": 7.29,
-      "atp_reward": 105,
-      "spawns": [
+      "children": [],
+      "id": "trunk",
+      "points": [
         {
-          "family": "virus",
-          "count": 513,
-          "start_time": 0.0,
-          "duration": 4.67
+          "p": [
+            302.94,
+            167.477
+          ],
+          "w": 77.099
         },
         {
-          "family": "bacteria",
-          "count": 247,
-          "start_time": 0.33,
-          "duration": 6.0
+          "p": [
+            500.43,
+            167.477
+          ],
+          "w": 77.099
         },
         {
-          "family": "bacteria",
-          "count": 165,
-          "start_time": 0.83,
-          "duration": 4.0
-        }
-      ]
-    },
-    {
-      "name": "mucosal_wave_5",
-      "prep_time": 6.71,
-      "atp_reward": 120,
-      "spawns": [
-        {
-          "family": "virus",
-          "count": 618,
-          "start_time": 0.0,
-          "duration": 4.67
-        },
-        {
-          "family": "bacteria",
-          "count": 300,
-          "start_time": 0.33,
-          "duration": 6.0
-        },
-        {
-          "family": "bacteria",
-          "count": 200,
-          "start_time": 0.83,
-          "duration": 4.0
-        }
-      ]
-    },
-    {
-      "name": "mucosal_wave_6",
-      "prep_time": 6.14,
-      "atp_reward": 135,
-      "spawns": [
-        {
-          "family": "virus",
-          "count": 723,
-          "start_time": 0.0,
-          "duration": 4.67
-        },
-        {
-          "family": "bacteria",
-          "count": 352,
-          "start_time": 0.33,
-          "duration": 6.0
-        },
-        {
-          "family": "bacteria",
-          "count": 235,
-          "start_time": 0.83,
-          "duration": 4.0
-        }
-      ]
-    },
-    {
-      "name": "mucosal_wave_7",
-      "prep_time": 5.57,
-      "atp_reward": 150,
-      "spawns": [
-        {
-          "family": "virus",
-          "count": 828,
-          "start_time": 0.0,
-          "duration": 4.67
-        },
-        {
-          "family": "bacteria",
-          "count": 405,
-          "start_time": 0.33,
-          "duration": 6.0
-        },
-        {
-          "family": "bacteria",
-          "count": 270,
-          "start_time": 0.83,
-          "duration": 4.0
-        }
-      ]
-    },
-    {
-      "name": "mucosal_wave_8",
-      "prep_time": 5.0,
-      "atp_reward": 165,
-      "spawns": [
-        {
-          "family": "virus",
-          "count": 933,
-          "start_time": 0.0,
-          "duration": 4.67
-        },
-        {
-          "family": "bacteria",
-          "count": 457,
-          "start_time": 0.33,
-          "duration": 6.0
-        },
-        {
-          "family": "bacteria",
-          "count": 305,
-          "start_time": 0.83,
-          "duration": 4.0
+          "p": [
+            720.526,
+            167.477
+          ],
+          "w": 77.099
         }
       ]
     }
-  ]
+  ],
+  "waves": [
+    {
+      "atp_reward": 60,
+      "name": "mucosal_wave_1",
+      "prep_time": 9.0,
+      "spawns": [
+        {
+          "count": 198,
+          "duration": 4.67,
+          "family": "virus",
+          "start_time": 0.0
+        },
+        {
+          "count": 90,
+          "duration": 6.0,
+          "family": "bacteria",
+          "start_time": 0.33
+        }
+      ]
+    },
+    {
+      "atp_reward": 75,
+      "name": "mucosal_wave_2",
+      "prep_time": 8.43,
+      "spawns": [
+        {
+          "count": 303,
+          "duration": 4.67,
+          "family": "virus",
+          "start_time": 0.0
+        },
+        {
+          "count": 142,
+          "duration": 6.0,
+          "family": "bacteria",
+          "start_time": 0.33
+        },
+        {
+          "count": 95,
+          "duration": 4.0,
+          "family": "bacteria",
+          "start_time": 0.83
+        }
+      ]
+    },
+    {
+      "atp_reward": 90,
+      "name": "mucosal_wave_3",
+      "prep_time": 7.86,
+      "spawns": [
+        {
+          "count": 408,
+          "duration": 4.67,
+          "family": "virus",
+          "start_time": 0.0
+        },
+        {
+          "count": 195,
+          "duration": 6.0,
+          "family": "bacteria",
+          "start_time": 0.33
+        },
+        {
+          "count": 130,
+          "duration": 4.0,
+          "family": "bacteria",
+          "start_time": 0.83
+        }
+      ]
+    },
+    {
+      "atp_reward": 105,
+      "name": "mucosal_wave_4",
+      "prep_time": 7.29,
+      "spawns": [
+        {
+          "count": 513,
+          "duration": 4.67,
+          "family": "virus",
+          "start_time": 0.0
+        },
+        {
+          "count": 247,
+          "duration": 6.0,
+          "family": "bacteria",
+          "start_time": 0.33
+        },
+        {
+          "count": 165,
+          "duration": 4.0,
+          "family": "bacteria",
+          "start_time": 0.83
+        }
+      ]
+    },
+    {
+      "atp_reward": 120,
+      "name": "mucosal_wave_5",
+      "prep_time": 6.71,
+      "spawns": [
+        {
+          "count": 618,
+          "duration": 4.67,
+          "family": "virus",
+          "start_time": 0.0
+        },
+        {
+          "count": 300,
+          "duration": 6.0,
+          "family": "bacteria",
+          "start_time": 0.33
+        },
+        {
+          "count": 200,
+          "duration": 4.0,
+          "family": "bacteria",
+          "start_time": 0.83
+        }
+      ]
+    },
+    {
+      "atp_reward": 135,
+      "name": "mucosal_wave_6",
+      "prep_time": 6.14,
+      "spawns": [
+        {
+          "count": 723,
+          "duration": 4.67,
+          "family": "virus",
+          "start_time": 0.0
+        },
+        {
+          "count": 352,
+          "duration": 6.0,
+          "family": "bacteria",
+          "start_time": 0.33
+        },
+        {
+          "count": 235,
+          "duration": 4.0,
+          "family": "bacteria",
+          "start_time": 0.83
+        }
+      ]
+    },
+    {
+      "atp_reward": 150,
+      "name": "mucosal_wave_7",
+      "prep_time": 5.57,
+      "spawns": [
+        {
+          "count": 828,
+          "duration": 4.67,
+          "family": "virus",
+          "start_time": 0.0
+        },
+        {
+          "count": 405,
+          "duration": 6.0,
+          "family": "bacteria",
+          "start_time": 0.33
+        },
+        {
+          "count": 270,
+          "duration": 4.0,
+          "family": "bacteria",
+          "start_time": 0.83
+        }
+      ]
+    },
+    {
+      "atp_reward": 165,
+      "name": "mucosal_wave_8",
+      "prep_time": 5.0,
+      "spawns": [
+        {
+          "count": 933,
+          "duration": 4.67,
+          "family": "virus",
+          "start_time": 0.0
+        },
+        {
+          "count": 457,
+          "duration": 6.0,
+          "family": "bacteria",
+          "start_time": 0.33
+        },
+        {
+          "count": 305,
+          "duration": 4.0,
+          "family": "bacteria",
+          "start_time": 0.83
+        }
+      ]
+    }
+  ],
+  "world": {
+    "cell_size": 1.0,
+    "max": [
+      767.08,
+      334.95
+    ],
+    "min": [
+      0,
+      0
+    ]
+  }
 }

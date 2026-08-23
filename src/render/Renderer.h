@@ -36,6 +36,7 @@ class ChaffBuffers;
 class SpatialHash;
 class EcsWorld;
 class FlowField;
+class SquadRegistry;
 class TissueMask;
 class DistanceField;
 class ProjectileBuffers;
@@ -241,6 +242,18 @@ public:
 
     /// Debug visualisation of the flow field vectors. Off in release play.
     void submit_flow_debug(const sim::FlowField& flow);
+
+    /// Draws the squad layer's routes and live anchors: each path as a
+    /// polyline, each squad as a cross at its anchor plus a ring at its
+    /// current radius, coloured per squad.
+    ///
+    /// Shares submit_flow_debug's shader, VAO and vertex buffer -- it is the
+    /// same "coloured world-space line list" problem, and giving it a private
+    /// pipeline would duplicate the upload path for no benefit. Debug overlay
+    /// only; nothing about the chaff instance layout or the family colour
+    /// language (DESIGN.md 6.2) is touched, so squads stay a SPATIAL read in
+    /// the shipped game and a coloured one only while this overlay is on.
+    void submit_squad_debug(const sim::SquadRegistry& squads);
 
     /// Resolves post-processing and leaves the result in the default framebuffer.
     void end_frame();

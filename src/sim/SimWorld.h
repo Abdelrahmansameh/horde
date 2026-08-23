@@ -17,6 +17,7 @@
 //
 // TICK ORDER (fixed; changing it is a contract change)
 //   1. spatial hash rebuild        [prof: spatial_hash]
+//   1b. squad centroids + anchors  [prof: squad_update]
 //   2. chaff update                [prof: chaff_update]
 //   3. ECS systems                 [prof: ecs_tick]
 //   4. damage fields apply
@@ -39,6 +40,7 @@
 #include "sim/projectile/Projectiles.h"
 #include "sim/swarm/Swarmers.h"
 #include "sim/spatial/SpatialHash.h"
+#include "sim/squad/Squads.h"
 
 #include <string>
 #include <vector>
@@ -77,17 +79,27 @@ struct SimDesc {
     /// Milliseconds per frame the flow field may spend on incremental rebakes.
     f64 flow_rebake_budget_ms = 0.5;
     ChaffTuning chaff_tuning{};
+    /// Squad grouping (sim/squad/Squads.h). Defaults are live: a world built
+    /// with a plain SimDesc gets squads as soon as a level installs paths, and
+    /// gets the pre-squad kernel until then.
+    SquadTuning squad_tuning{};
 };
 
 /// One vessel spawn point, captured from the level at load time by
 /// LevelLoader::instantiate(). Read-only after that: WaveDirector::tick()
-/// resolves each wave's SpawnEntry::portal_id against this list to know where
+/// resolves each wave's SpawnEntry::spawn_point_id against this list to know where
 /// to place new agents, since SimWorld -- not LevelDef, which doesn't survive
 /// past load -- is the only thing a running tick can reach.
-struct SpawnPortalRuntime {
+struct SpawnPointRuntime {
     std::string id;
     Vec2 position{0.0f, 0.0f};
     f32 radius = 3.0f;
+    /// Effective lane this spawn point feeds, already resolved through
+    /// LevelLoader::resolve_spawn_point_lane_id() -- never the raw authored
+    /// hint, so a tick never has to guess. WaveDirector uses it to pick which
+    /// of the level's squad paths a new squad from this spawn point is
+    /// assigned.
+    std::string lane_id;
 };
 
 /// Aggregate counters exposed to --sim-test invariants and the HUD.
@@ -99,6 +111,10 @@ struct SimSnapshot {
     f32 objective_integrity = 100.0f;
     u64 chaff_killed_total = 0;
     u64 chaff_leaked_total = 0;   ///< Reached the objective.
+    /// Live squads (sim/squad/Squads.h). Exposed so --sim-test can assert that
+    /// a real level's waves actually group -- an aggregate the HUD and the
+    /// balance report can read without walking the registry.
+    u32 active_squads = 0;
     u32 chaff_by_family[kFamilyCount] = {};
 
     // Per-family lifetime tallies. Additive to this struct (Wave "balance
@@ -142,6 +158,11 @@ public:
     /// validation, vessel-hugging steering, and the tissue render pass read it.
     DistanceField& sdf() { return sdf_; }
     const DistanceField& sdf() const { return sdf_; }
+    /// The level's squad paths and live squads. LevelLoader::instantiate()
+    /// installs the paths; WaveDirector opens squads against it at spawn time.
+    SquadRegistry& squads() { return squads_; }
+    const SquadRegistry& squads() const { return squads_; }
+
     DamageSystem& damage() { return damage_; }
     EcsWorld& ecs() { return ecs_; }
     const EcsWorld& ecs() const { return ecs_; }
@@ -179,11 +200,11 @@ public:
     Tick tick_index() const { return tick_; }
     const SimDesc& desc() const { return desc_; }
 
-    /// Spawn portals for the current level. Set once by
+    /// Spawn points for the current level. Set once by
     /// LevelLoader::instantiate(); empty for the CLI headless modes that never
     /// load a real level.
-    const std::vector<SpawnPortalRuntime>& portals() const { return portals_; }
-    void set_portals(std::vector<SpawnPortalRuntime> portals) { portals_ = std::move(portals); }
+    const std::vector<SpawnPointRuntime>& spawn_points() const { return spawn_points_; }
+    void set_spawn_points(std::vector<SpawnPointRuntime> spawn_points) { spawn_points_ = std::move(spawn_points); }
 
     /// Overwrites the objective's remaining integrity, clamped at zero.
     ///
@@ -220,6 +241,7 @@ private:
     SpatialHash spatial_;
     ChaffBuffers chaff_;
     ChaffSystem chaff_system_;
+    SquadRegistry squads_;
     DamageSystem damage_;
     ProjectileBuffers projectiles_;
     ProjectileSystem projectile_system_;
@@ -230,7 +252,7 @@ private:
     CombatEventSink combat_events_;
     EcsWorld ecs_;
 
-    std::vector<SpawnPortalRuntime> portals_;
+    std::vector<SpawnPointRuntime> spawn_points_;
     DamageStats last_damage_stats_{};
 
     u64 killed_total_ = 0;

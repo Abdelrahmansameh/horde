@@ -73,7 +73,19 @@ class WaveDirector;
 /// wall-clock input, so a scripted run replays identically.
 class GymSpawnQueue {
 public:
-    void enqueue(PathogenFamily family, Vec2 at, f32 radius, u32 count);
+    /// `group` asks each release to open fresh squads (sim/squad/Squads.h) and
+    /// put them on their own paths, rather than dumping one ungrouped burst.
+    ///
+    /// A flag rather than a fixed squad id, deliberately: a streamed command is
+    /// spread over many ticks precisely BECAUSE it is too big to land at once,
+    /// and something too big to land at once is by definition several squads.
+    /// Pinning one id would produce a single blob of hundreds, which is not a
+    /// squad and does not behave like one.
+    /// `on_path` places each squad's burst on that squad's own path rather than
+    /// at `at`; see spawn_grouped() in the .cpp for when that is and is not
+    /// appropriate.
+    void enqueue(PathogenFamily family, Vec2 at, f32 radius, u32 count, bool group = false,
+                 bool on_path = true);
 
     /// Releases everything due this tick. Call exactly once per sim tick, from
     /// outside SimWorld::tick(). Returns how many agents were spawned.
@@ -89,6 +101,8 @@ private:
         Vec2 at{0.0f, 0.0f};
         f32 radius = 3.0f;
         u32 remaining = 0;
+        bool group = false;
+        bool on_path = true;
     };
     std::vector<Entry> entries_;
 };

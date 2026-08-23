@@ -59,3 +59,13 @@ imgui.ini
 # reports plus their digest. Regenerated on demand and specific to one config
 # hash, so it is a local artifact, not a committed one.
 /tools/balance/
+build_log.txt
+build_log2.txt
+build_log3.txt
+ps_build_err.txt
+ps_build_err2.txt
+ps_build_err3.txt
+ps_build_out.txt
+ps_build_out2.txt
+ps_build_out3.txt
+test_vcvars_log.txt

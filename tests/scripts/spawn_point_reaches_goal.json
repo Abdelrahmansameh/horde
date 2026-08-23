@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "name": "portal_spawned_virus_should_reach_the_objective",
+  "name": "spawn_point_spawned_virus_should_reach_the_objective",
   "seed": 20260805,
   "ticks": 2400,
   "max_chaff": 20000,

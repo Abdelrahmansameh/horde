@@ -1,6 +1,7 @@
 // Tests for Wave 2D's remaining scope: instantiate()'s comp::Objective entity
 // spawning, and the two new content levels (capillary_switchback, floodplain_mucosal).
 // Owner: Wave 2D.
+#include "core/Math.h"
 #include "game/level/Level.h"
 #include "platform/FileIO.h"
 #include "sim/SimWorld.h"
@@ -8,6 +9,7 @@
 #include "sim/ecs/EcsWorld.h"
 
 #include <catch2/catch_test_macros.hpp>
+#include <algorithm>
 
 #include <cmath>
 #include <filesystem>
@@ -35,7 +37,7 @@ const char* kTwoObjectiveLevel = R"JSON({
       "children": []
     }
   ],
-  "portals": [ { "id": "p0", "pos": [4, 16], "radius": 3.0 } ],
+  "spawn_points": [ { "id": "p0", "pos": [4, 16], "radius": 3.0 } ],
   "objectives": [
     { "id": "organ_a", "pos": [32, 16], "radius": 4.0, "integrity": 75 },
     { "id": "organ_b", "pos": [60, 16], "radius": 2.5, "integrity": 40 }
@@ -128,33 +130,64 @@ TEST_CASE("capillary_switchback.json loads, validates, and bakes a flow field re
     REQUIRE(loader.load_file(path, def).ok);
     REQUIRE(loader.validate(def).ok);
     REQUIRE(def.name == "capillary_switchback");
-    REQUIRE_FALSE(def.portals.empty());
+    REQUIRE_FALSE(def.spawn_points.empty());
     REQUIRE_FALSE(def.objectives.empty());
     REQUIRE_FALSE(def.placement_zones.empty());
 
     sim::SimWorld world = make_world(def);
     REQUIRE(loader.instantiate(def, world).ok);
-    REQUIRE(world.flow().reachable(def.portals[0].position));
+    REQUIRE(world.flow().reachable(def.spawn_points[0].position));
 
     // This level replaced a pinch with a switchback, so pin both halves of
-    // that. (a) The lumen holds its ~11-wide profile end to end: x=67.56 sits
-    // mid-lane on both the top run (y=12.5) and the doubled-back middle run
-    // (y=38), and ~4.4 units off either centerline is still walkable -- the
-    // old level's narrowest point was ~2.5 wide there.
-    const IVec2 top_off = world.tissue().world_to_cell(Vec2{67.56f, 16.9f});
-    const IVec2 mid_off = world.tissue().world_to_cell(Vec2{67.56f, 42.4f});
+    // that -- derived from the level's own control points rather than from
+    // absolute coordinates, which move whenever the level is rescaled (they
+    // did, when every lane was widened to fit squads).
+    //
+    // A horizontal RUN is a y shared by two or more control points. Requiring
+    // two is what separates a run from a turn: the corner points that carry the
+    // lane between runs each sit at a y of their own, and treating one of those
+    // as a run would put the probes on the bend instead of on the pass.
+    std::vector<f32> run_y;
+    for (const VesselPoint& a : def.vessels[0].points) {
+        u32 shared = 0;
+        for (const VesselPoint& b : def.vessels[0].points)
+            if (std::fabs(a.position.y - b.position.y) < 1.0f) ++shared;
+        if (shared < 2) continue;
+        bool seen = false;
+        for (f32 y : run_y) if (std::fabs(y - a.position.y) < 1.0f) seen = true;
+        if (!seen) run_y.push_back(a.position.y);
+    }
+    std::sort(run_y.begin(), run_y.end());
+    REQUIRE(run_y.size() >= 2);   // a switchback has at least two passes
+
+    // A representative x that sits on both runs: the middle of their shared
+    // horizontal span.
+    f32 x_lo = 1e9f, x_hi = -1e9f;
+    for (const VesselPoint& vp : def.vessels[0].points) {
+        x_lo = math::min(x_lo, vp.position.x);
+        x_hi = math::max(x_hi, vp.position.x);
+    }
+    const f32 x_mid = math::lerp(x_lo, x_hi, 0.5f);
+    const f32 w = def.vessels[0].points[0].width;
+
+    // (a) The lumen holds its full profile on both passes: 40% of the authored
+    // width off either centerline is still walkable.
+    const IVec2 top_off = world.tissue().world_to_cell(Vec2{x_mid, run_y[0] + w * 0.40f});
+    const IVec2 mid_off = world.tissue().world_to_cell(Vec2{x_mid, run_y[1] - w * 0.40f});
+    INFO("runs at y=" << run_y[0] << " and " << run_y[1] << ", width " << w);
     REQUIRE(world.tissue().walkable(top_off.x, top_off.y));
     REQUIRE(world.tissue().walkable(mid_off.x, mid_off.y));
 
     // (b) The two runs are separate passes of the same lane, not one fat
-    // corridor: the tissue between them (y=25, squarely in the gap) is wall.
-    // That gap is what makes a tower cluster on it cover both passes, which is
-    // the concentration the pinch used to fake (DESIGN.md 4.3).
-    const IVec2 between = world.tissue().world_to_cell(Vec2{67.56f, 25.0f});
+    // corridor: the tissue halfway between their centerlines is wall. That gap
+    // is what makes a tower cluster on it cover both passes, which is the
+    // concentration the pinch used to fake (DESIGN.md 4.3).
+    const IVec2 between =
+        world.tissue().world_to_cell(Vec2{x_mid, math::lerp(run_y[0], run_y[1], 0.5f)});
     REQUIRE_FALSE(world.tissue().walkable(between.x, between.y));
 }
 
-TEST_CASE("floodplain_mucosal.json loads, validates, and bakes a flow field from every portal",
+TEST_CASE("floodplain_mucosal.json loads, validates, and bakes a flow field from every spawn point",
           "[level][content][floodplain]") {
     LevelLoader loader;
     LevelDef def;
@@ -163,13 +196,13 @@ TEST_CASE("floodplain_mucosal.json loads, validates, and bakes a flow field from
     REQUIRE(loader.load_file(path, def).ok);
     REQUIRE(loader.validate(def).ok);
     REQUIRE(def.name == "floodplain_mucosal");
-    REQUIRE(def.portals.size() >= 2);
+    REQUIRE(def.spawn_points.size() >= 2);
     REQUIRE_FALSE(def.objectives.empty());
     REQUIRE_FALSE(def.placement_zones.empty());
 
     sim::SimWorld world = make_world(def);
     REQUIRE(loader.instantiate(def, world).ok);
-    for (const SpawnPortal& p : def.portals) {
+    for (const SpawnPoint& p : def.spawn_points) {
         REQUIRE(world.flow().reachable(p.position));
     }
 

@@ -22,6 +22,7 @@ namespace immune {
 namespace prof_key {
 inline constexpr const char* kChaffUpdate   = "chaff_update";
 inline constexpr const char* kSpatialHash   = "spatial_hash";
+inline constexpr const char* kSquadUpdate   = "squad_update";
 inline constexpr const char* kEcsTick       = "ecs_tick";
 inline constexpr const char* kRenderSubmit  = "render_submit";
 inline constexpr const char* kFrameTotal    = "frame_total";

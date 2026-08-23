@@ -100,9 +100,9 @@ private:
     i32 force_tab_ = -1;            ///< Consumed by the next build(); -1 = leave it alone.
 
     // ---- Widget state ------------------------------------------------------
-    i32 target_mode_ = 0;           ///< 0 cursor, 1 portal, 2 objective, 3 custom.
-    i32 target_portal_ = 0;
-    std::string target_portal_id_;   ///< Resolved from the live portal list.
+    i32 target_mode_ = 0;           ///< 0 cursor, 1 spawn point, 2 objective, 3 custom.
+    i32 target_spawn_point_ = 0;
+    std::string target_spawn_point_id_;   ///< Resolved from the live spawn point list.
     f32 target_xy_[2] = {0.0f, 0.0f};
 
     i32 family_ = 0;

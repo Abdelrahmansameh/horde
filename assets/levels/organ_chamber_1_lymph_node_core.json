@@ -1,599 +1,599 @@
 {
-  "schema": 1,
-  "name": "organ_chamber_1_lymph_node_core",
-  "region": "organ_chamber",
-  "world": {
-    "min": [
-      0,
-      0
-    ],
-    "max": [
-      91.5,
-      90.0
-    ],
-    "cell_size": 0.5
-  },
-  "vessels": [
-    {
-      "id": "artery_n",
-      "lane_id": "artery_n",
-      "vessel_type": "artery",
-      "points": [
-        {
-          "p": [
-            4.03,
-            6.0
-          ],
-          "w": 5.7
-        },
-        {
-          "p": [
-            31.04,
-            6.0
-          ],
-          "w": 5.13
-        },
-        {
-          "p": [
-            55.03,
-            18.0
-          ],
-          "w": 4.56
-        },
-        {
-          "p": [
-            70.03,
-            33.0
-          ],
-          "w": 4.56
-        },
-        {
-          "p": [
-            70.03,
-            45.0
-          ],
-          "w": 4.56
-        }
-      ],
-      "children": []
-    },
-    {
-      "id": "vein_s",
-      "lane_id": "vein_s",
-      "vessel_type": "vein",
-      "points": [
-        {
-          "p": [
-            4.03,
-            84.0
-          ],
-          "w": 5.7
-        },
-        {
-          "p": [
-            31.04,
-            84.0
-          ],
-          "w": 5.13
-        },
-        {
-          "p": [
-            55.03,
-            72.0
-          ],
-          "w": 4.56
-        },
-        {
-          "p": [
-            70.03,
-            57.0
-          ],
-          "w": 4.56
-        },
-        {
-          "p": [
-            70.03,
-            45.0
-          ],
-          "w": 4.56
-        }
-      ],
-      "children": []
-    },
-    {
-      "id": "lymph_top",
-      "lane_id": "lymph_top",
-      "vessel_type": "lymphatic",
-      "points": [
-        {
-          "p": [
-            88.03,
-            6.0
-          ],
-          "w": 5.13
-        },
-        {
-          "p": [
-            85.03,
-            24.0
-          ],
-          "w": 5.13
-        },
-        {
-          "p": [
-            77.53,
-            36.0
-          ],
-          "w": 4.56
-        },
-        {
-          "p": [
-            70.03,
-            45.0
-          ],
-          "w": 4.56
-        }
-      ],
-      "children": []
-    },
-    {
-      "id": "nerve_bottom",
-      "lane_id": "nerve_bottom",
-      "vessel_type": "nerve_adjacent",
-      "points": [
-        {
-          "p": [
-            88.03,
-            84.0
-          ],
-          "w": 5.13
-        },
-        {
-          "p": [
-            85.03,
-            66.0
-          ],
-          "w": 5.13
-        },
-        {
-          "p": [
-            77.53,
-            54.0
-          ],
-          "w": 4.56
-        },
-        {
-          "p": [
-            70.03,
-            45.0
-          ],
-          "w": 4.56
-        }
-      ],
-      "children": []
-    },
-    {
-      "id": "fold_mid",
-      "lane_id": "fold_mid",
-      "vessel_type": "mucosal_fold",
-      "points": [
-        {
-          "p": [
-            4.03,
-            45.0
-          ],
-          "w": 6.27
-        },
-        {
-          "p": [
-            31.04,
-            45.0
-          ],
-          "w": 5.7
-        },
-        {
-          "p": [
-            52.03,
-            45.0
-          ],
-          "w": 5.13
-        },
-        {
-          "p": [
-            70.03,
-            45.0
-          ],
-          "w": 4.56
-        }
-      ],
-      "children": []
-    }
-  ],
-  "portals": [
-    {
-      "id": "p_artery_n",
-      "pos": [
-        4.03,
-        6.0
-      ],
-      "radius": 2.85,
-      "lane_id": "artery_n"
-    },
-    {
-      "id": "p_vein_s",
-      "pos": [
-        4.03,
-        84.0
-      ],
-      "radius": 2.85,
-      "lane_id": "vein_s"
-    },
-    {
-      "id": "p_lymph_top",
-      "pos": [
-        88.03,
-        6.0
-      ],
-      "radius": 2.85,
-      "lane_id": "lymph_top"
-    },
-    {
-      "id": "p_nerve_bottom",
-      "pos": [
-        88.03,
-        84.0
-      ],
-      "radius": 2.85,
-      "lane_id": "nerve_bottom"
-    },
-    {
-      "id": "p_fold_mid",
-      "pos": [
-        4.03,
-        45.0
-      ],
-      "radius": 3.42,
-      "lane_id": "fold_mid"
-    }
-  ],
-  "objectives": [
-    {
-      "id": "hub_core",
-      "pos": [
-        70.03,
-        45.0
-      ],
-      "radius": 3.0,
-      "integrity": 150
-    }
-  ],
-  "placement_zones": [
-    {
-      "min": [
-        52.03,
-        27.0
-      ],
-      "max": [
-        88.03,
-        63.0
-      ],
-      "concentrated": true,
-      "priority": 3.0
-    },
-    {
-      "min": [
-        46.03,
-        12.0
-      ],
-      "max": [
-        74.53,
-        39.0
-      ],
-      "concentrated": true,
-      "priority": 2.0
-    },
-    {
-      "min": [
-        46.03,
-        51.0
-      ],
-      "max": [
-        74.53,
-        78.0
-      ],
-      "concentrated": true,
-      "priority": 2.0
-    },
-    {
-      "min": [
-        67.03,
-        18.0
-      ],
-      "max": [
-        91.03,
-        42.0
-      ],
-      "concentrated": true,
-      "priority": 2.0
-    },
-    {
-      "min": [
-        67.03,
-        48.0
-      ],
-      "max": [
-        91.03,
-        72.0
-      ],
-      "concentrated": true,
-      "priority": 2.0
-    },
-    {
-      "min": [
-        7.03,
-        41.4
-      ],
-      "max": [
-        49.03,
-        48.6
-      ],
-      "concentrated": false,
-      "priority": 1.0
-    },
-    {
-      "min": [
-        5.23,
-        3.0
-      ],
-      "max": [
-        29.54,
-        9.6
-      ],
-      "concentrated": false,
-      "priority": 0.8
-    },
-    {
-      "min": [
-        5.23,
-        80.4
-      ],
-      "max": [
-        29.54,
-        87.6
-      ],
-      "concentrated": false,
-      "priority": 0.8
-    },
-    {
-      "min": [
-        75.43,
-        3.0
-      ],
-      "max": [
-        90.43,
-        21.6
-      ],
-      "concentrated": false,
-      "priority": 0.8
-    },
-    {
-      "min": [
-        75.43,
-        68.4
-      ],
-      "max": [
-        90.43,
-        87.0
-      ],
-      "concentrated": false,
-      "priority": 0.8
-    }
-  ],
   "ambient_drift": [
     0.0,
     0.0
   ],
+  "name": "organ_chamber_1_lymph_node_core",
+  "objectives": [
+    {
+      "id": "hub_core",
+      "integrity": 150,
+      "pos": [
+        389.471,
+        249.248
+      ],
+      "radius": 41.009
+    }
+  ],
+  "placement_zones": [
+    {
+      "concentrated": true,
+      "max": [
+        480.759,
+        340.536
+      ],
+      "min": [
+        298.184,
+        157.96
+      ],
+      "priority": 3.0
+    },
+    {
+      "concentrated": true,
+      "max": [
+        412.293,
+        218.819
+      ],
+      "min": [
+        267.754,
+        81.887
+      ],
+      "priority": 2.0
+    },
+    {
+      "concentrated": true,
+      "max": [
+        412.293,
+        416.609
+      ],
+      "min": [
+        267.754,
+        279.677
+      ],
+      "priority": 2.0
+    },
+    {
+      "concentrated": true,
+      "max": [
+        495.973,
+        234.033
+      ],
+      "min": [
+        374.257,
+        112.317
+      ],
+      "priority": 2.0
+    },
+    {
+      "concentrated": true,
+      "max": [
+        495.973,
+        386.179
+      ],
+      "min": [
+        374.257,
+        264.463
+      ],
+      "priority": 2.0
+    },
+    {
+      "concentrated": false,
+      "max": [
+        282.969,
+        267.506
+      ],
+      "min": [
+        69.965,
+        230.991
+      ],
+      "priority": 1.0
+    },
+    {
+      "concentrated": false,
+      "max": [
+        184.125,
+        69.716
+      ],
+      "min": [
+        60.836,
+        36.244
+      ],
+      "priority": 0.8
+    },
+    {
+      "concentrated": false,
+      "max": [
+        184.125,
+        465.295
+      ],
+      "min": [
+        60.836,
+        428.78
+      ],
+      "priority": 0.8
+    },
+    {
+      "concentrated": false,
+      "max": [
+        492.931,
+        130.574
+      ],
+      "min": [
+        416.858,
+        36.244
+      ],
+      "priority": 0.8
+    },
+    {
+      "concentrated": false,
+      "max": [
+        492.931,
+        462.253
+      ],
+      "min": [
+        416.858,
+        367.922
+      ],
+      "priority": 0.8
+    }
+  ],
+  "spawn_points": [
+    {
+      "id": "p_artery_n",
+      "lane_id": "artery_n",
+      "pos": [
+        54.75,
+        51.458
+      ],
+      "radius": 38.958
+    },
+    {
+      "id": "p_vein_s",
+      "lane_id": "vein_s",
+      "pos": [
+        54.75,
+        447.038
+      ],
+      "radius": 38.958
+    },
+    {
+      "id": "p_lymph_top",
+      "lane_id": "lymph_top",
+      "pos": [
+        480.759,
+        51.458
+      ],
+      "radius": 38.958
+    },
+    {
+      "id": "p_nerve_bottom",
+      "lane_id": "nerve_bottom",
+      "pos": [
+        480.759,
+        447.038
+      ],
+      "radius": 38.958
+    },
+    {
+      "id": "p_fold_mid",
+      "lane_id": "fold_mid",
+      "pos": [
+        54.75,
+        249.248
+      ],
+      "radius": 46.75
+    }
+  ],
+  "region": "organ_chamber",
+  "schema": 1,
+  "vessels": [
+    {
+      "children": [],
+      "id": "artery_n",
+      "lane_id": "artery_n",
+      "points": [
+        {
+          "p": [
+            54.75,
+            51.458
+          ],
+          "w": 77.917
+        },
+        {
+          "p": [
+            191.732,
+            51.458
+          ],
+          "w": 70.125
+        },
+        {
+          "p": [
+            313.398,
+            112.317
+          ],
+          "w": 62.333
+        },
+        {
+          "p": [
+            389.471,
+            188.39
+          ],
+          "w": 62.333
+        },
+        {
+          "p": [
+            389.471,
+            249.248
+          ],
+          "w": 62.333
+        }
+      ],
+      "vessel_type": "artery"
+    },
+    {
+      "children": [],
+      "id": "vein_s",
+      "lane_id": "vein_s",
+      "points": [
+        {
+          "p": [
+            54.75,
+            447.038
+          ],
+          "w": 77.917
+        },
+        {
+          "p": [
+            191.732,
+            447.038
+          ],
+          "w": 70.125
+        },
+        {
+          "p": [
+            313.398,
+            386.179
+          ],
+          "w": 62.333
+        },
+        {
+          "p": [
+            389.471,
+            310.106
+          ],
+          "w": 62.333
+        },
+        {
+          "p": [
+            389.471,
+            249.248
+          ],
+          "w": 62.333
+        }
+      ],
+      "vessel_type": "vein"
+    },
+    {
+      "children": [],
+      "id": "lymph_top",
+      "lane_id": "lymph_top",
+      "points": [
+        {
+          "p": [
+            480.759,
+            51.458
+          ],
+          "w": 70.125
+        },
+        {
+          "p": [
+            465.544,
+            142.746
+          ],
+          "w": 70.125
+        },
+        {
+          "p": [
+            427.508,
+            203.604
+          ],
+          "w": 62.333
+        },
+        {
+          "p": [
+            389.471,
+            249.248
+          ],
+          "w": 62.333
+        }
+      ],
+      "vessel_type": "lymphatic"
+    },
+    {
+      "children": [],
+      "id": "nerve_bottom",
+      "lane_id": "nerve_bottom",
+      "points": [
+        {
+          "p": [
+            480.759,
+            447.038
+          ],
+          "w": 70.125
+        },
+        {
+          "p": [
+            465.544,
+            355.75
+          ],
+          "w": 70.125
+        },
+        {
+          "p": [
+            427.508,
+            294.892
+          ],
+          "w": 62.333
+        },
+        {
+          "p": [
+            389.471,
+            249.248
+          ],
+          "w": 62.333
+        }
+      ],
+      "vessel_type": "nerve_adjacent"
+    },
+    {
+      "children": [],
+      "id": "fold_mid",
+      "lane_id": "fold_mid",
+      "points": [
+        {
+          "p": [
+            54.75,
+            249.248
+          ],
+          "w": 85.708
+        },
+        {
+          "p": [
+            191.732,
+            249.248
+          ],
+          "w": 77.917
+        },
+        {
+          "p": [
+            298.184,
+            249.248
+          ],
+          "w": 70.125
+        },
+        {
+          "p": [
+            389.471,
+            249.248
+          ],
+          "w": 62.333
+        }
+      ],
+      "vessel_type": "mucosal_fold"
+    }
+  ],
   "waves": [
     {
+      "atp_reward": 70,
       "name": "organ_chamber_wave_1",
       "prep_time": 10.0,
-      "atp_reward": 70,
       "spawns": [
         {
-          "family": "virus",
           "count": 153,
-          "start_time": 0.0,
-          "duration": 4.0
+          "duration": 4.0,
+          "family": "virus",
+          "start_time": 0.0
         },
         {
-          "family": "bacteria",
           "count": 67,
-          "start_time": 0.5,
-          "duration": 4.0
+          "duration": 4.0,
+          "family": "bacteria",
+          "start_time": 0.5
         },
         {
-          "family": "bacteria",
           "count": 45,
-          "start_time": 0.83,
-          "duration": 4.67
+          "duration": 4.67,
+          "family": "bacteria",
+          "start_time": 0.83
         }
       ]
     },
     {
+      "atp_reward": 85,
       "name": "organ_chamber_wave_2",
       "prep_time": 9.14,
-      "atp_reward": 85,
       "spawns": [
         {
-          "family": "virus",
           "count": 219,
-          "start_time": 0.0,
-          "duration": 4.0
+          "duration": 4.0,
+          "family": "virus",
+          "start_time": 0.0
         },
         {
-          "family": "bacteria",
           "count": 100,
-          "start_time": 0.5,
-          "duration": 4.0
+          "duration": 4.0,
+          "family": "bacteria",
+          "start_time": 0.5
         },
         {
-          "family": "bacteria",
           "count": 67,
-          "start_time": 0.83,
-          "duration": 4.67
+          "duration": 4.67,
+          "family": "bacteria",
+          "start_time": 0.83
         }
       ]
     },
     {
+      "atp_reward": 100,
       "name": "organ_chamber_wave_3",
       "prep_time": 8.29,
-      "atp_reward": 100,
       "spawns": [
         {
-          "family": "virus",
           "count": 285,
-          "start_time": 0.0,
-          "duration": 4.0
+          "duration": 4.0,
+          "family": "virus",
+          "start_time": 0.0
         },
         {
-          "family": "bacteria",
           "count": 133,
-          "start_time": 0.5,
-          "duration": 4.0
+          "duration": 4.0,
+          "family": "bacteria",
+          "start_time": 0.5
         },
         {
-          "family": "bacteria",
           "count": 89,
-          "start_time": 0.83,
-          "duration": 4.67
+          "duration": 4.67,
+          "family": "bacteria",
+          "start_time": 0.83
         }
       ]
     },
     {
+      "atp_reward": 115,
       "name": "organ_chamber_wave_4",
       "prep_time": 7.43,
-      "atp_reward": 115,
       "spawns": [
         {
-          "family": "virus",
           "count": 351,
-          "start_time": 0.0,
-          "duration": 4.0
+          "duration": 4.0,
+          "family": "virus",
+          "start_time": 0.0
         },
         {
-          "family": "bacteria",
           "count": 166,
-          "start_time": 0.5,
-          "duration": 4.0
+          "duration": 4.0,
+          "family": "bacteria",
+          "start_time": 0.5
         },
         {
-          "family": "bacteria",
           "count": 111,
-          "start_time": 0.83,
-          "duration": 4.67
+          "duration": 4.67,
+          "family": "bacteria",
+          "start_time": 0.83
         }
       ]
     },
     {
+      "atp_reward": 130,
       "name": "organ_chamber_wave_5",
       "prep_time": 6.57,
-      "atp_reward": 130,
       "spawns": [
         {
-          "family": "virus",
           "count": 417,
-          "start_time": 0.0,
-          "duration": 4.0
+          "duration": 4.0,
+          "family": "virus",
+          "start_time": 0.0
         },
         {
-          "family": "bacteria",
           "count": 199,
-          "start_time": 0.5,
-          "duration": 4.0
+          "duration": 4.0,
+          "family": "bacteria",
+          "start_time": 0.5
         },
         {
-          "family": "bacteria",
           "count": 133,
-          "start_time": 0.83,
-          "duration": 4.67
+          "duration": 4.67,
+          "family": "bacteria",
+          "start_time": 0.83
         }
       ]
     },
     {
+      "atp_reward": 145,
       "name": "organ_chamber_wave_6",
       "prep_time": 5.71,
-      "atp_reward": 145,
       "spawns": [
         {
-          "family": "virus",
           "count": 483,
-          "start_time": 0.0,
-          "duration": 4.0
+          "duration": 4.0,
+          "family": "virus",
+          "start_time": 0.0
         },
         {
-          "family": "bacteria",
           "count": 232,
-          "start_time": 0.5,
-          "duration": 4.0
+          "duration": 4.0,
+          "family": "bacteria",
+          "start_time": 0.5
         },
         {
-          "family": "bacteria",
           "count": 155,
-          "start_time": 0.83,
-          "duration": 4.67
+          "duration": 4.67,
+          "family": "bacteria",
+          "start_time": 0.83
         }
       ]
     },
     {
+      "atp_reward": 160,
       "name": "organ_chamber_wave_7",
       "prep_time": 4.86,
-      "atp_reward": 160,
       "spawns": [
         {
-          "family": "virus",
           "count": 549,
-          "start_time": 0.0,
-          "duration": 4.0
+          "duration": 4.0,
+          "family": "virus",
+          "start_time": 0.0
         },
         {
-          "family": "bacteria",
           "count": 265,
-          "start_time": 0.5,
-          "duration": 4.0
+          "duration": 4.0,
+          "family": "bacteria",
+          "start_time": 0.5
         },
         {
-          "family": "bacteria",
           "count": 177,
-          "start_time": 0.83,
-          "duration": 4.67
+          "duration": 4.67,
+          "family": "bacteria",
+          "start_time": 0.83
         }
       ]
     },
     {
-      "name": "organ_chamber_wave_8",
-      "prep_time": 4.0,
       "atp_reward": 262,
       "modifier": "swarm",
+      "name": "organ_chamber_wave_8",
+      "prep_time": 4.0,
       "spawns": [
         {
-          "family": "virus",
           "count": 1062,
-          "start_time": 0.0,
-          "duration": 4.0
+          "duration": 4.0,
+          "family": "virus",
+          "start_time": 0.0
         },
         {
-          "family": "bacteria",
           "count": 522,
-          "start_time": 0.5,
-          "duration": 4.0
+          "duration": 4.0,
+          "family": "bacteria",
+          "start_time": 0.5
         },
         {
-          "family": "bacteria",
           "count": 348,
-          "start_time": 0.83,
-          "duration": 4.67
+          "duration": 4.67,
+          "family": "bacteria",
+          "start_time": 0.83
         }
       ]
     }
-  ]
+  ],
+  "world": {
+    "cell_size": 1.0,
+    "max": [
+      527.72,
+      498.5
+    ],
+    "min": [
+      0,
+      0
+    ]
+  }
 }

@@ -7,7 +7,7 @@
 // Push/PopStyleColor — and a window that only appears when a human opens it is
 // exactly where such a bug ships unnoticed. So this stands up the same headless
 // GL context --screenshot uses, opens the panel over the real gym level (so the
-// tabs have portals, waves, elites, and towers to enumerate), and drives frames
+// tabs have spawn_points, waves, elites, and towers to enumerate), and drives frames
 // through every tab.
 #include "game/abilities/ActiveAbilities.h"
 #include "game/economy/Economy.h"
@@ -58,7 +58,7 @@ TEST_CASE("the gym panel builds and renders every tab", "[gym][ui][gl]") {
     ui::Hud hud;
     REQUIRE(hud.init(window, input));
 
-    // Over the real level where possible: the tabs enumerate portals, waves,
+    // Over the real level where possible: the tabs enumerate spawn_points, waves,
     // and elites, and an empty world would leave most of the draw code unrun.
     game::LevelLoader loader;
     game::LevelDef level;
@@ -112,7 +112,7 @@ TEST_CASE("the gym panel builds and renders every tab", "[gym][ui][gl]") {
     // Commands run through the panel land in its log, which is where a
     // multi-line result gets split into rows.
     CHECK(panel.execute(ctx, "help"));
-    CHECK(panel.execute(ctx, "portals"));
+    CHECK(panel.execute(ctx, "spawn_points"));
     CHECK_FALSE(panel.execute(ctx, "notacommand"));
     panel.print("banner line", true);
 

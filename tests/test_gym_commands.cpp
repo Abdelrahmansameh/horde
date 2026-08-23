@@ -152,9 +152,9 @@ TEST_CASE("spawn puts agents in the world", "[gym][spawn]") {
         for (int i = 0; i < 120 && h.spawns.pending() > 0; ++i) h.step();
         CHECK(h.world.chaff().family_count(PathogenFamily::Bacteria) >= 100);
     }
-    SECTION("targeted at a portal by id") {
-        if (!h.world.portals().empty()) {
-            const std::string id = h.world.portals().front().id;
+    SECTION("targeted at a spawn point by id") {
+        if (!h.world.spawn_points().empty()) {
+            const std::string id = h.world.spawn_points().front().id;
             REQUIRE(h.run("spawn bacteria 40 at " + id).ok);
             CHECK(h.world.chaff().family_count(PathogenFamily::Bacteria) == 40);
         }
@@ -197,7 +197,7 @@ TEST_CASE("kill flags chaff and the next tick removes it", "[gym][spawn]") {
 TEST_CASE("an oversized spawn streams in instead of spilling off the lane",
           "[gym][spawn][queue]") {
     Harness h;
-    // Far more than any one burst can place on tissue at a portal.
+    // Far more than any one burst can place on tissue at a spawn point.
     REQUIRE(h.run("spawn bacteria 3000 at p_lymph").ok);
     const usize immediate = h.world.chaff().count();
     CHECK(immediate > 0);
@@ -215,11 +215,11 @@ TEST_CASE("an oversized spawn streams in instead of spilling off the lane",
     CHECK(snap.objective_integrity == 100.0f);
 }
 
-TEST_CASE("flood spawns from every portal", "[gym][spawn]") {
+TEST_CASE("flood spawns from every spawn point", "[gym][spawn]") {
     Harness h;
-    if (h.world.portals().empty()) return;
+    if (h.world.spawn_points().empty()) return;
     REQUIRE(h.run("flood 60").ok);
-    CHECK(h.world.chaff().count() >= 10u * h.world.portals().size());
+    CHECK(h.world.chaff().count() >= 10u * h.world.spawn_points().size());
 }
 
 TEST_CASE("spawning never damages the objective", "[gym][spawn]") {
@@ -293,14 +293,30 @@ TEST_CASE("atp sets and adds", "[gym][economy]") {
     CHECK(h.economy.atp() == 0);
 }
 
+namespace {
+/// "x,y" as the `at` clause parser expects it.
+std::string fmt_point(Vec2 p) {
+    return std::to_string(p.x) + "," + std::to_string(p.y);
+}
+} // namespace
+
 // ---- Damage, waves, time ----------------------------------------------------
 
 TEST_CASE("field submits a damage field that actually thins the horde", "[gym][damage]") {
     Harness h;
-    REQUIRE(h.run("spawn virus 400 at 104,66 radius 4").ok);
-    const f32 density_before = h.world.chaff().total_density();
+    // Aimed at a SPAWN POINT rather than a fixed coordinate: a hardcoded point stops
+    // being inside the lumen the moment a level is rescaled (it did, when every
+    // lane was widened for squads), and a spawn that lands in the wall makes
+    // this a test of nothing. A spawn point is on tissue by definition.
+    REQUIRE_FALSE(h.world.spawn_points().empty());
+    const Vec2 p = h.world.spawn_points()[0].position;
+    const std::string at = fmt_point(p);
 
-    REQUIRE(h.run("field 20 400 1 at 104,66").ok);
+    REQUIRE(h.run("spawn virus 400 at " + at + " radius 4").ok);
+    const f32 density_before = h.world.chaff().total_density();
+    REQUIRE(density_before > 0.0f);
+
+    REQUIRE(h.run("field 20 400 1 at " + at).ok);
     for (int i = 0; i < 10; ++i) h.world.tick(nullptr);
 
     CHECK(h.world.chaff().total_density() < density_before);
@@ -308,7 +324,7 @@ TEST_CASE("field submits a damage field that actually thins the horde", "[gym][d
 
 TEST_CASE("invuln holds the objective while leaks still count", "[gym][objective]") {
     Harness h;
-    if (h.world.portals().empty()) return;
+    if (h.world.spawn_points().empty()) return;
 
     // Park a horde right on the objective so it leaks immediately and hard.
     REQUIRE(h.run("spawn bacteria 400 at objective").ok);
@@ -348,7 +364,7 @@ TEST_CASE("invuln holds the objective while leaks still count", "[gym][objective
 
 TEST_CASE("invuln restores integrity the moment it is switched on", "[gym][objective]") {
     Harness h;
-    if (h.world.portals().empty()) return;
+    if (h.world.spawn_points().empty()) return;
     REQUIRE(h.run("spawn bacteria 400 at objective").ok);
     h.step(120);
     REQUIRE(h.world.snapshot().objective_integrity < 100.0f);
@@ -405,7 +421,7 @@ TEST_CASE("a script runs several commands and stops at the first failure", "[gym
 
 // ---- The gym level itself ---------------------------------------------------
 
-TEST_CASE("the gym level loads, validates, and is reachable from every portal",
+TEST_CASE("the gym level loads, validates, and is reachable from every spawn point",
           "[gym][level]") {
     const std::string path = "assets/levels/gym.json";
     if (!platform::file_exists(path)) return;   // running from an unexpected cwd
@@ -431,17 +447,17 @@ TEST_CASE("the gym level loads, validates, and is reachable from every portal",
     CHECK(lanes.size() == 5);
     for (bool s : seen) CHECK(s);
 
-    CHECK(def.portals.size() == 5);
+    CHECK(def.spawn_points.size() == 5);
     CHECK_FALSE(def.waves.empty());
-    // Every portal must feed the objective, or a lane is decoration.
+    // Every spawn point must feed the objective, or a lane is decoration.
     sim::SimWorld world;
     sim::SimDesc desc;
     desc.world_bounds = def.world_bounds;
     desc.max_chaff = 20000;
     world.init(desc, nullptr);
     REQUIRE(loader.instantiate(def, world).ok);
-    for (const SpawnPortal& p : def.portals) {
-        INFO("portal: " << p.id);
+    for (const SpawnPoint& p : def.spawn_points) {
+        INFO("spawn point: " << p.id);
         CHECK(world.flow().reachable(p.position));
     }
 }

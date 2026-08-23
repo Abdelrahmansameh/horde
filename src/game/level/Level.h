@@ -22,8 +22,8 @@
 //     trunk plus a same-type branch); lane_id defaults to the vessel's own
 //     `id` when omitted, so every pre-existing single-vessel level is
 //     trivially a well-formed single-lane level with no JSON changes needed.
-//   - `SpawnPortal::lane_id`, resolved via LevelLoader::resolve_portal_lane_id()
-//     so a multi-lane level's waves know which portal feeds which lane.
+//   - `SpawnPoint::lane_id`, resolved via LevelLoader::resolve_spawn_point_lane_id()
+//     so a multi-lane level's waves know which spawn point feeds which lane.
 //   - `LaneOwnershipMap` + `LevelLoader::build_lane_ownership_map()`: a
 //     parallel, coarse per-cell "which lane owns this point" grid, since the
 //     real TissueMask/FlowField (frozen) stay lane-blind by design. See the
@@ -50,12 +50,18 @@
 //       "points": [ {"p":[8,72],"w":6.0}, {"p":[60,70],"w":5.0}, ... ],
 //       "children": ["branch_a"] }
 //   ],
-//   "portals":   [ { "id":"p0", "pos":[8,72], "radius":3.0,
+//   "spawn_points":   [ { "id":"p0", "pos":[8,72], "radius":3.0,
 //                     "lane_id":"main" } ],   // lane_id optional; see
-//                                             // resolve_portal_lane_id()
+//                                             // resolve_spawn_point_lane_id()
 //   "objectives":[ { "id":"organ", "pos":[248,72], "radius":5.0, "integrity":100 } ],
 //   "placement_zones": [
 //     { "min":[20,50], "max":[200,100], "concentrated": false, "priority": 1.0 }
+//   ],
+//   "squad_paths": [                           // OPTIONAL; derived when absent
+//     { "id": "high_road",
+//       "lane_id": "main",                     // optional; nearest lane if omitted
+//       "points": [ [8,72], [60,60], [140,58], [248,72] ],
+//       "half_width": 6.0 }                    // optional, default 6.0
 //   ],
 //   "ambient_drift": [0.0, 0.0],
 //   "waves": [                                 // REQUIRED, non-empty; see below
@@ -63,7 +69,7 @@
 //       "modifier": "none",                    // none|fever|swarm
 //       "spawns": [
 //         { "family": "virus", "count": 900, "start_time": 0.0,
-//           "duration": 6.0, "portal_id": "p0", "elite_id": 0 }
+//           "duration": 6.0, "spawn_point_id": "p0", "elite_id": 0 }
 //       ] }
 //   ]
 // }
@@ -92,8 +98,8 @@
 //
 // WORKED MULTI-LANE EXAMPLE (see assets/levels/lane_schema_test.json for the
 // full runnable fixture): three lanes -- an artery, a lymph channel, and a
-// nerve-adjacent duct -- each with its own portal, converging on one shared
-// objective:
+// nerve-adjacent duct -- each with its own spawn point, converging on one
+// shared objective:
 // {
 //   "schema": 1, "name": "lane_schema_test", "region": "organ_chamber",
 //   "world": { "min": [0,0], "max": [160,140], "cell_size": 0.5 },
@@ -105,7 +111,7 @@
 //     { "id": "nerve_main", "lane_id": "nerve_main", "vessel_type": "nerve_adjacent",
 //       "points": [ {"p":[8,124],"w":8}, {"p":[80,99],"w":7}, {"p":[140,72],"w":7} ] }
 //   ],
-//   "portals": [
+//   "spawn_points": [
 //     { "id": "p_artery", "pos": [8,20],  "radius": 5, "lane_id": "artery_main" },
 //     { "id": "p_lymph",  "pos": [8,72],  "radius": 5, "lane_id": "lymph_main" },
 //     { "id": "p_nerve",  "pos": [8,124], "radius": 5, "lane_id": "nerve_main" }
@@ -119,11 +125,12 @@
 
 #include "core/Types.h"
 #include "game/wave/WaveDirector.h"   // WaveDef, for optional authored waves.
+#include "sim/squad/Squads.h"         // SquadPath, produced by build_squad_paths().
 
 #include <string>
 #include <vector>
 
-namespace immune::sim { class SimWorld; }
+namespace immune::sim { class SimWorld; class TissueMask; }
 
 namespace immune::game {
 
@@ -161,13 +168,37 @@ struct Vessel {
     std::vector<std::string> children; ///< Ids of vessels branching off the end.
 };
 
-struct SpawnPortal {
+/// One authored route across a lane, for the squad layer (sim/squad/Squads.h).
+///
+/// OPTIONAL BY DESIGN. A level that authors none still gets squads: at load,
+/// LevelLoader::build_squad_paths() derives a few offset copies of each lane's
+/// vessel centerline. That is what keeps the feature zero-authoring across the
+/// existing content while leaving an author free to override any lane whose
+/// automatic spread does not read the way they want.
+///
+/// `points` is a plain polyline in world space rather than a spline, because
+/// unlike a vessel these are never rasterized -- nothing depends on their
+/// curvature, only on where they run -- and a polyline is the form the arclength
+/// table wants anyway.
+struct SquadPathDef {
+    std::string id;
+    /// Which lane this path serves. Empty resolves to the lane of whichever
+    /// vessel's centerline runs nearest the path's first point.
+    std::string lane_id;
+    std::vector<Vec2> points;
+    /// Lateral tolerance: caps how wide a squad on this path spreads, and
+    /// scales the per-squad offset that keeps squads sharing a path apart.
+    f32 half_width = 6.0f;
+};
+
+struct SpawnPoint {
     std::string id;
     Vec2 position{0.0f, 0.0f};
     f32 radius = 3.0f;
-    /// Which lane this portal feeds. Empty means "unspecified" -- callers
-    /// should resolve it via LevelLoader::resolve_portal_lane_id() rather than
-    /// reading this field directly, since it is only an author-supplied hint.
+    /// Which lane this spawn point feeds. Empty means "unspecified" -- callers
+    /// should resolve it via LevelLoader::resolve_spawn_point_lane_id() rather
+    /// than reading this field directly, since it is only an author-supplied
+    /// hint.
     std::string lane_id;
 };
 
@@ -197,9 +228,12 @@ struct LevelDef {
     Rect world_bounds{};
     f32 cell_size = 0.5f;
     std::vector<Vessel> vessels;
-    std::vector<SpawnPortal> portals;
+    std::vector<SpawnPoint> spawn_points;
     std::vector<ObjectivePoint> objectives;
     std::vector<Rect> placement_zones;
+    /// Optional authored squad routes; empty means "derive them" (see
+    /// SquadPathDef and build_squad_paths()).
+    std::vector<SquadPathDef> squad_paths;
     /// Same size and order as placement_zones; see PlacementZoneTag.
     std::vector<PlacementZoneTag> placement_zone_tags;
     Vec2 ambient_drift{0.0f, 0.0f};
@@ -254,8 +288,9 @@ public:
     LevelLoadResult load_file(const std::string& path, LevelDef& out) const;
     LevelLoadResult load_string(const std::string& json, LevelDef& out) const;
 
-    /// Schema/semantic validation: portals and objectives must lie on tissue,
-    /// every portal must reach at least one objective, widths must be positive.
+    /// Schema/semantic validation: spawn points and objectives must lie on
+    /// tissue, every spawn point must reach at least one objective, widths
+    /// must be positive.
     LevelLoadResult validate(const LevelDef& def) const;
 
     /// Rasterizes splines into the world's TissueMask, bakes the distance field
@@ -265,6 +300,22 @@ public:
     /// per-lane attribution after the fact, see build_lane_ownership_map().
     LevelLoadResult instantiate(const LevelDef& def, sim::SimWorld& world) const;
 
+    /// Resolves the level's squad routes (game/level SquadPathDef ->
+    /// sim::SquadPath): resamples every authored path, DERIVES a spread of
+    /// paths for any lane that authored none, snaps points that fall off the
+    /// tissue back toward the lane centerline, and builds each arclength table.
+    ///
+    /// Takes the baked mask because the snap step needs to know what is
+    /// walkable; call it after rasterize_vessels(). Pure function of its inputs
+    /// and load-time only -- never called from a tick.
+    ///
+    /// `auto_paths_per_lane` is sim::SquadTuning::auto_paths_per_lane's job in
+    /// spirit, but is passed explicitly so this stays independent of any live
+    /// SimWorld and can be unit-tested on a LevelDef alone.
+    std::vector<sim::SquadPath> build_squad_paths(const LevelDef& def,
+                                                  const sim::TissueMask& mask,
+                                                  u32 auto_paths_per_lane = 3) const;
+
     /// Builds the per-cell lane-ownership grid described above by rasterizing
     /// each lane's vessels into a private scratch mask and unioning the
     /// touched cells into one owner grid. Pure function of `def`; independent
@@ -273,11 +324,11 @@ public:
     /// level-load-time cost only, never called from a sim tick.
     LaneOwnershipMap build_lane_ownership_map(const LevelDef& def) const;
 
-    /// Effective lane a portal feeds: `portal.lane_id` if the author set one,
-    /// otherwise the lane_id of whichever vessel's first control point is
-    /// nearest the portal's position. Always returns a non-empty string for
-    /// any level with at least one vessel.
-    std::string resolve_portal_lane_id(const LevelDef& def, const SpawnPortal& portal) const;
+    /// Effective lane a spawn point feeds: `spawn_point.lane_id` if the author
+    /// set one, otherwise the lane_id of whichever vessel's first control
+    /// point is nearest the spawn point's position. Always returns a
+    /// non-empty string for any level with at least one vessel.
+    std::string resolve_spawn_point_lane_id(const LevelDef& def, const SpawnPoint& spawn_point) const;
 
     /// Built-in fallback level used when no level file is supplied. Keeps
     /// --bench and --screenshot runnable before any content exists.

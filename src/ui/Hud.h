@@ -96,6 +96,12 @@ public:
     void set_debug_overlay_visible(bool v) { debug_overlay_ = v; }
     bool debug_overlay_visible() const { return debug_overlay_; }
 
+    /// Squad routes/anchors overlay. Separate from the debug (flow-arrow)
+    /// overlay rather than folded into it: the two are drawn over the same
+    /// ground and reading either one is much harder with the other on.
+    void set_squad_overlay_visible(bool v) { squad_overlay_ = v; }
+    bool squad_overlay_visible() const { return squad_overlay_; }
+
     /// Tower currently armed on the build cursor, if any.
     bool has_build_cursor() const { return build_cursor_active_; }
     TowerType build_cursor_type() const { return build_cursor_type_; }
@@ -106,6 +112,7 @@ private:
     std::vector<LaneThreat> threats_;
     bool threat_overlay_ = true;
     bool debug_overlay_ = false;
+    bool squad_overlay_ = false;
     bool build_cursor_active_ = false;
     bool initialized_ = false;
     TowerType build_cursor_type_ = TowerType::Macrophage;

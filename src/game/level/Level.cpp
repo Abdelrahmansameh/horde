@@ -97,17 +97,17 @@ Vessel parse_vessel(const json& j, usize index) {
     return v;
 }
 
-SpawnPortal parse_portal(const json& j, usize index) {
-    const std::string ctx = "portals[" + std::to_string(index) + "]";
-    SpawnPortal p;
+SpawnPoint parse_spawn_point(const json& j, usize index) {
+    const std::string ctx = "spawn_points[" + std::to_string(index) + "]";
+    SpawnPoint p;
     if (!j.contains("id")) throw std::runtime_error(ctx + ": missing 'id'");
     p.id = j.at("id").get<std::string>();
     if (!j.contains("pos")) throw std::runtime_error(ctx + " ('" + p.id + "'): missing 'pos'");
-    p.position = parse_vec2(j.at("pos"), "portals[].pos");
+    p.position = parse_vec2(j.at("pos"), "spawn_points[].pos");
     p.radius = j.value("radius", 3.0f);
     // Empty is a valid, expected value here (legacy/single-lane levels never
     // set it); callers resolve the effective lane via
-    // LevelLoader::resolve_portal_lane_id() rather than reading this raw.
+    // LevelLoader::resolve_spawn_point_lane_id() rather than reading this raw.
     p.lane_id = j.value("lane_id", std::string{});
     return p;
 }
@@ -133,6 +133,37 @@ Rect parse_rect(const json& j, usize index) {
     r.min = parse_vec2(j.at("min"), "placement_zones[].min");
     r.max = parse_vec2(j.at("max"), "placement_zones[].max");
     return r;
+}
+
+/// One authored squad route. `lane_id` is left empty when omitted rather than
+/// guessed here -- build_squad_paths() resolves it against the vessel geometry,
+/// which this function cannot see.
+SquadPathDef parse_squad_path(const json& j, usize index) {
+    const std::string ctx = "squad_paths[" + std::to_string(index) + "]";
+    SquadPathDef sp;
+    if (!j.contains("id")) throw std::runtime_error(ctx + ": missing 'id'");
+    sp.id = j.at("id").get<std::string>();
+    sp.lane_id = j.value("lane_id", std::string{});
+    if (!j.contains("points")) {
+        throw std::runtime_error(ctx + " ('" + sp.id + "'): missing 'points'");
+    }
+    const json& pts = j.at("points");
+    if (!pts.is_array()) {
+        throw std::runtime_error(ctx + " ('" + sp.id + "'): 'points' must be an array");
+    }
+    // A one-point path has no direction, so it cannot carry an anchor anywhere.
+    // Rejecting it here rather than degrading silently keeps the failure at the
+    // level file, where the author can see it.
+    if (pts.size() < 2) {
+        throw std::runtime_error(ctx + " ('" + sp.id + "'): needs at least 2 points");
+    }
+    sp.points.reserve(pts.size());
+    for (const auto& p : pts) sp.points.push_back(parse_vec2(p, "squad_paths[].points[]"));
+    sp.half_width = j.value("half_width", 6.0f);
+    if (sp.half_width <= 0.0f) {
+        throw std::runtime_error(ctx + " ('" + sp.id + "'): 'half_width' must be > 0");
+    }
+    return sp;
 }
 
 /// DESIGN.md §4.3/§4.7 authoring hint, index-aligned with the Rect above.
@@ -173,7 +204,7 @@ SpawnEntry parse_spawn_entry(const json& j, const std::string& ctx) {
     e.count = j.value("count", u32{0});
     e.start_time = j.value("start_time", 0.0f);
     e.duration = j.value("duration", 1.0f);
-    e.portal_id = j.value("portal_id", std::string{});
+    e.spawn_point_id = j.value("spawn_point_id", std::string{});
     // A zero-length window would make the whole count due on the first tick of
     // the entry, which is a spawn spike, not a wave. Treated as an authoring
     // error rather than clamped, since the intent ("all at once") is better
@@ -252,11 +283,11 @@ LevelLoadResult LevelLoader::load_string(const std::string& text, LevelDef& out)
             def.vessels.reserve(arr.size());
             for (usize i = 0; i < arr.size(); ++i) def.vessels.push_back(parse_vessel(arr[i], i));
         }
-        if (j.contains("portals")) {
-            const json& arr = j.at("portals");
-            if (!arr.is_array()) throw std::runtime_error("'portals' must be an array");
-            def.portals.reserve(arr.size());
-            for (usize i = 0; i < arr.size(); ++i) def.portals.push_back(parse_portal(arr[i], i));
+        if (j.contains("spawn_points")) {
+            const json& arr = j.at("spawn_points");
+            if (!arr.is_array()) throw std::runtime_error("'spawn_points' must be an array");
+            def.spawn_points.reserve(arr.size());
+            for (usize i = 0; i < arr.size(); ++i) def.spawn_points.push_back(parse_spawn_point(arr[i], i));
         }
         if (j.contains("objectives")) {
             const json& arr = j.at("objectives");
@@ -273,6 +304,13 @@ LevelLoadResult LevelLoader::load_string(const std::string& text, LevelDef& out)
                 def.placement_zones.push_back(parse_rect(arr[i], i));
                 def.placement_zone_tags.push_back(parse_placement_zone_tag(arr[i]));
             }
+        }
+        if (j.contains("squad_paths")) {
+            const json& arr = j.at("squad_paths");
+            if (!arr.is_array()) throw std::runtime_error("'squad_paths' must be an array");
+            def.squad_paths.reserve(arr.size());
+            for (usize i = 0; i < arr.size(); ++i)
+                def.squad_paths.push_back(parse_squad_path(arr[i], i));
         }
         if (j.contains("ambient_drift")) {
             def.ambient_drift = parse_vec2(j.at("ambient_drift"), "ambient_drift");
@@ -311,27 +349,52 @@ LevelLoadResult LevelLoader::load_file(const std::string& path, LevelDef& out) c
 LevelLoadResult LevelLoader::validate(const LevelDef& def) const {
     if (def.schema != 1) return LevelLoadResult{false, "unsupported or missing level schema", 0};
     if (def.vessels.empty()) return LevelLoadResult{false, "level has no vessels", 0};
-    if (def.portals.empty()) return LevelLoadResult{false, "level has no spawn portals", 0};
+    if (def.spawn_points.empty()) return LevelLoadResult{false, "level has no spawn points", 0};
     if (def.objectives.empty()) return LevelLoadResult{false, "level has no objectives", 0};
     // Same rule load_string() enforces, repeated here so a LevelDef built in
     // code (a test fixture, default_test_level()) cannot skip it either.
     if (def.waves.empty()) return LevelLoadResult{false, "level declares no waves", 0};
-    // A named portal that doesn't exist would make WaveDirector fall back to
-    // the first portal at runtime, so the wave would silently come out of the
-    // wrong lane instead of failing loudly here.
+    // A named spawn point that doesn't exist would make WaveDirector fall back
+    // to the first spawn point at runtime, so the wave would silently come out
+    // of the wrong lane instead of failing loudly here.
     for (const WaveDef& w : def.waves) {
         for (const SpawnEntry& e : w.spawns) {
-            if (e.portal_id.empty()) continue;
+            if (e.spawn_point_id.empty()) continue;
             bool found = false;
-            for (const SpawnPortal& p : def.portals) {
-                if (p.id == e.portal_id) { found = true; break; }
+            for (const SpawnPoint& p : def.spawn_points) {
+                if (p.id == e.spawn_point_id) { found = true; break; }
             }
             if (!found) {
                 return LevelLoadResult{false,
-                                       "wave '" + w.name + "' spawns from unknown portal '" +
-                                           e.portal_id + "'",
+                                       "wave '" + w.name + "' spawns from unknown spawn point '" +
+                                           e.spawn_point_id + "'",
                                        0};
             }
+        }
+    }
+    // An authored squad path naming a lane that does not exist would be
+    // silently re-homed onto the nearest lane by build_squad_paths(), which is
+    // the right behaviour for an OMITTED lane_id and the wrong one for a typo'd
+    // one -- the author would get squads on a lane they never meant to touch.
+    for (const SquadPathDef& sp : def.squad_paths) {
+        if (sp.points.size() < 2) {
+            return LevelLoadResult{false, "squad path '" + sp.id + "' needs at least 2 points", 0};
+        }
+        if (sp.half_width <= 0.0f) {
+            return LevelLoadResult{false, "squad path '" + sp.id + "' has non-positive half_width",
+                                   0};
+        }
+        if (sp.lane_id.empty()) continue;
+        bool found = false;
+        for (const Vessel& v : def.vessels) {
+            if ((v.lane_id.empty() ? v.id : v.lane_id) == sp.lane_id) {
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            return LevelLoadResult{
+                false, "squad path '" + sp.id + "' names unknown lane '" + sp.lane_id + "'", 0};
         }
     }
     return LevelLoadResult{true, "", 0};
@@ -386,17 +449,247 @@ LevelLoadResult LevelLoader::instantiate(const LevelDef& def, sim::SimWorld& wor
     }
     world.chaff_system().set_world_bounds(def.world_bounds);
 
-    // Spawn portals: SimWorld is the only thing WaveDirector::tick() can
+    // Spawn points: SimWorld is the only thing WaveDirector::tick() can
     // reach, and LevelDef doesn't survive past this function, so this is the
-    // one place portal geometry can be captured for the run.
-    std::vector<sim::SpawnPortalRuntime> portals;
-    portals.reserve(def.portals.size());
-    for (const SpawnPortal& p : def.portals) {
-        portals.push_back(sim::SpawnPortalRuntime{p.id, p.position, p.radius});
+    // one place spawn point geometry can be captured for the run.
+    std::vector<sim::SpawnPointRuntime> spawn_points;
+    spawn_points.reserve(def.spawn_points.size());
+    for (const SpawnPoint& p : def.spawn_points) {
+        spawn_points.push_back(
+            sim::SpawnPointRuntime{p.id, p.position, p.radius, resolve_spawn_point_lane_id(def, p)});
     }
-    world.set_portals(std::move(portals));
+    world.set_spawn_points(std::move(spawn_points));
+
+    // Squad routes. Built here, after the mask exists (the derivation snaps
+    // off-tissue points back inside it) and pushed into the world for the same
+    // reason spawn points are: LevelDef does not survive this call, and the
+    // squad registry is the only thing a running tick can reach.
+    world.squads().set_paths(build_squad_paths(def, world.tissue()));
 
     return LevelLoadResult{true, "", 0};
+}
+
+namespace {
+
+/// World-space spacing at which a lane centerline is resampled into a polyline.
+/// Fine enough that the offset copies track a bend faithfully, coarse enough
+/// that a long lane stays a few dozen points rather than a few thousand -- and
+/// the anchor projection walks these points every tick, per squad.
+constexpr f32 kPathResampleStep = 2.0f;
+
+/// How much lumen one squad needs to itself, centre to centre, for two squads
+/// side by side to read as two things rather than one.
+///
+/// A squad of SquadTuning::target_squad_size is about 11.6 world units across
+/// at stock tuning (radius = 0.75 * sqrt(60)); this is that plus a gap of
+/// similar size, because two blobs separated by less than their own width read
+/// as one blob with a dent in it.
+constexpr f32 kMinPathSpacing = 22.0f;
+
+/// Clearance kept between the outermost path and the lane wall, so a squad
+/// riding that path is not permanently pressed against tissue.
+constexpr f32 kWallClearance = 8.0f;
+
+/// Hard cap on derived paths per lane, whatever the width.
+constexpr u32 kMaxAutoPaths = 4;
+
+sim::VesselSpline to_spline(const Vessel& v) {
+    sim::VesselSpline spline;
+    spline.points.reserve(v.points.size());
+    for (const VesselPoint& p : v.points)
+        spline.points.push_back(sim::VesselPoint{p.position, p.width, 1.0f});
+    return spline;
+}
+
+/// Walks a lane's vessels end to end, emitting a resampled centerline together
+/// with the local lumen width at each sample. Width travels with the point
+/// because the offset step below needs it per-sample: a lane that narrows into
+/// a capillary must pull its outer paths in rather than push them into rock.
+void sample_lane_centerline(const std::vector<const Vessel*>& vessels,
+                            std::vector<Vec2>& out_points, std::vector<f32>& out_widths) {
+    out_points.clear();
+    out_widths.clear();
+    for (const Vessel* v : vessels) {
+        if (v->points.size() < 2) continue;
+        const sim::VesselSpline spline = to_spline(*v);
+        const f32 max_u = static_cast<f32>(v->points.size() - 1);
+
+        // Estimate arclength off the control polygon to choose a sample count.
+        // Catmull-Rom bows outside its polygon, so this under-estimates -- the
+        // 1.5 factor is the same conservative allowance rasterize_vessel() uses.
+        f32 polygon_len = 0.0f;
+        for (usize i = 1; i < v->points.size(); ++i)
+            polygon_len += math::length(v->points[i].position - v->points[i - 1].position);
+        const u32 steps =
+            static_cast<u32>(math::max(2.0f, (polygon_len * 1.5f) / kPathResampleStep));
+
+        for (u32 k = 0; k <= steps; ++k) {
+            const f32 u = max_u * (static_cast<f32>(k) / static_cast<f32>(steps));
+            const sim::VesselPoint vp = sim::eval_spline(spline, u);
+            // Drop a sample landing on top of the previous one, so a lane built
+            // from touching vessels does not get zero-length segments (which
+            // would make the arclength table non-strictly-increasing).
+            if (!out_points.empty() && math::length_sq(vp.pos - out_points.back()) < 0.01f) {
+                continue;
+            }
+            out_points.push_back(vp.pos);
+            out_widths.push_back(vp.width);
+        }
+    }
+}
+
+/// Offsets a centerline sideways by `fraction` of the local width, then pulls
+/// any point that landed off the tissue back toward the centerline until it is
+/// walkable again. Returns false if the result is too short to be a path.
+///
+/// The snap is what makes automatic derivation safe on the existing content: a
+/// generous offset through a wide chamber is exactly the offset that would sit
+/// in rock where the same lane narrows, and an anchor parked inside a wall
+/// would drag its squad into it. Rather than pick a timid global offset, the
+/// offset is generous and clamped locally where the geometry demands.
+bool offset_centerline(const std::vector<Vec2>& center, const std::vector<f32>& widths,
+                       f32 fraction, const sim::TissueMask& mask, std::vector<Vec2>& out) {
+    out.clear();
+    if (center.size() < 2) return false;
+    out.reserve(center.size());
+
+    for (usize i = 0; i < center.size(); ++i) {
+        const usize a = (i == 0) ? 0 : i - 1;
+        const usize b = (i + 1 < center.size()) ? i + 1 : i;
+        const Vec2 tangent = math::normalize_safe(center[b] - center[a]);
+        const Vec2 normal{-tangent.y, tangent.x};
+
+        f32 dist = widths[i] * fraction;
+        Vec2 p = center[i] + normal * dist;
+        // Walk back toward the centerline in a few halvings; the centerline is
+        // walkable by construction, so this always lands somewhere legal.
+        for (u32 attempt = 0; attempt < 4; ++attempt) {
+            const IVec2 c = mask.world_to_cell(p);
+            if (mask.walkable(c.x, c.y)) break;
+            dist *= 0.5f;
+            p = center[i] + normal * dist;
+        }
+        const IVec2 c = mask.world_to_cell(p);
+        if (!mask.walkable(c.x, c.y)) p = center[i];
+        if (!out.empty() && math::length_sq(p - out.back()) < 0.01f) continue;
+        out.push_back(p);
+    }
+    return out.size() >= 2;
+}
+
+} // namespace
+
+std::vector<sim::SquadPath> LevelLoader::build_squad_paths(const LevelDef& def,
+                                                          const sim::TissueMask& mask,
+                                                          u32 auto_paths_per_lane) const {
+    std::vector<sim::SquadPath> out;
+
+    // Lane order = first appearance across def.vessels, the same stable order
+    // build_lane_ownership_map() uses, so a lane means the same thing in both.
+    std::vector<std::string> lane_ids;
+    std::vector<std::vector<const Vessel*>> lane_vessels;
+    for (const Vessel& v : def.vessels) {
+        const std::string lane = v.lane_id.empty() ? v.id : v.lane_id;
+        usize li = 0;
+        for (; li < lane_ids.size(); ++li)
+            if (lane_ids[li] == lane) break;
+        if (li == lane_ids.size()) {
+            lane_ids.push_back(lane);
+            lane_vessels.emplace_back();
+        }
+        lane_vessels[li].push_back(&v);
+    }
+
+    // Authored paths first. One that left `lane_id` blank resolves against
+    // whichever lane centerline starts nearest its first point -- the same
+    // "nearest first control point" rule resolve_spawn_point_lane_id() already
+    // uses for spawn points, so the two cannot disagree about what a lane is.
+    std::vector<bool> lane_authored(lane_ids.size(), false);
+    for (const SquadPathDef& spd : def.squad_paths) {
+        sim::SquadPath path;
+        path.id = spd.id;
+        path.half_width = spd.half_width;
+        path.points = spd.points;
+        path.rebuild_arc();
+
+        path.lane_id = spd.lane_id;
+        if (path.lane_id.empty() && !lane_ids.empty()) {
+            f32 best = 3.4e38f;
+            usize best_li = 0;
+            for (usize li = 0; li < lane_ids.size(); ++li) {
+                for (const Vessel* v : lane_vessels[li]) {
+                    if (v->points.empty()) continue;
+                    const f32 d = math::length_sq(v->points.front().position - spd.points.front());
+                    if (d < best) {
+                        best = d;
+                        best_li = li;
+                    }
+                }
+            }
+            path.lane_id = lane_ids[best_li];
+        }
+        for (usize li = 0; li < lane_ids.size(); ++li)
+            if (lane_ids[li] == path.lane_id) lane_authored[li] = true;
+        out.push_back(std::move(path));
+    }
+
+    // Then derive a spread for every lane the author left alone. A lane that
+    // authored even one path is left entirely to the author: mixing derived
+    // paths into a hand-tuned lane would silently undo the tuning.
+    const u32 cap = math::clamp(auto_paths_per_lane, 1u, kMaxAutoPaths);
+    std::vector<Vec2> center;
+    std::vector<f32> widths;
+    std::vector<Vec2> offset;
+    for (usize li = 0; li < lane_ids.size(); ++li) {
+        if (lane_authored[li]) continue;
+        sample_lane_centerline(lane_vessels[li], center, widths);
+        if (center.size() < 2) continue;
+
+        // The NARROWEST point decides how many paths fit, not the mean: a lane
+        // that pinches has to carry its squads through the pinch, and paths
+        // sized off the average would be shouldered into the wall there.
+        f32 min_width = widths[0];
+        f32 mean_width = 0.0f;
+        for (f32 w : widths) {
+            mean_width += w;
+            min_width = math::min(min_width, w);
+        }
+        mean_width /= static_cast<f32>(widths.size());
+
+        // Usable band = the lumen minus the wall clearance either side. How
+        // many paths fit is then just how many kMinPathSpacing steps span it.
+        //
+        // Derived rather than fixed at three, because "three" is only right for
+        // one particular lane width. On a 46-wide lane three paths sit 14 apart
+        // -- narrower than a squad -- and the horde reads as one mass no matter
+        // how well the steering works; on a 90-wide lane three paths waste half
+        // the lane. The count follows the geometry instead.
+        const f32 usable = math::max(0.0f, min_width - 2.0f * kWallClearance);
+        u32 want = 1u + static_cast<u32>(usable / kMinPathSpacing);
+        want = math::clamp(want, 1u, cap);
+
+        for (u32 k = 0; k < want; ++k) {
+            // Evenly spread across the usable band, centred on the centerline:
+            // one path IS the centerline, two straddle it, three are
+            // centre-plus-flanks, and so on.
+            const f32 t = want == 1u ? 0.0f
+                                     : (static_cast<f32>(k) / static_cast<f32>(want - 1u)) - 0.5f;
+            const f32 frac = min_width > 0.0f ? (t * usable) / min_width : 0.0f;
+            if (!offset_centerline(center, widths, frac, mask, offset)) continue;
+            sim::SquadPath path;
+            path.id = lane_ids[li] + "_auto_" + std::to_string(k);
+            path.lane_id = lane_ids[li];
+            path.points = offset;
+            // Half the spacing between neighbouring paths: this caps a squad's
+            // radius, so a squad can never grow wide enough to reach into the
+            // next path's lane.
+            path.half_width = want > 1u ? math::max(1.0f, (usable / static_cast<f32>(want - 1u)) * 0.5f)
+                                        : math::max(1.0f, mean_width * 0.25f);
+            path.rebuild_arc();
+            out.push_back(std::move(path));
+        }
+    }
+    return out;
 }
 
 namespace {
@@ -453,14 +746,21 @@ LevelDef LevelLoader::default_test_level() {
     v.lane_id = "main";
     v.type = VesselType::Artery;
     v.points = {
-        VesselPoint{Vec2{8.0f, 72.0f}, 8.0f},
-        VesselPoint{Vec2{72.0f, 60.0f}, 7.0f},
-        VesselPoint{Vec2{140.0f, 84.0f}, 5.0f},
-        VesselPoint{Vec2{200.0f, 72.0f}, 6.0f},
-        VesselPoint{Vec2{248.0f, 72.0f}, 8.0f},
+        // Widths match the shipped levels' post-widening profile (~68 world
+        // units of lumen). A squad is ~16 across once the crowd relaxes, so a
+        // lane narrower than about 50 cannot hold two of them side by side --
+        // and this level is what --bench/--screenshot/--sim-test run when no
+        // level file is supplied, so it has to be representative of the ones
+        // that ship or those modes measure a horde that behaves differently
+        // from the game's.
+        VesselPoint{Vec2{8.0f, 72.0f}, 68.0f},
+        VesselPoint{Vec2{72.0f, 60.0f}, 62.0f},
+        VesselPoint{Vec2{140.0f, 84.0f}, 56.0f},
+        VesselPoint{Vec2{200.0f, 72.0f}, 60.0f},
+        VesselPoint{Vec2{248.0f, 72.0f}, 68.0f},
     };
     d.vessels.push_back(v);
-    d.portals.push_back(SpawnPortal{"p0", Vec2{8.0f, 72.0f}, 4.0f, "main"});
+    d.spawn_points.push_back(SpawnPoint{"p0", Vec2{8.0f, 72.0f}, 4.0f, "main"});
     d.objectives.push_back(ObjectivePoint{"organ", Vec2{248.0f, 72.0f}, 5.0f, 100.0f});
     d.placement_zones.push_back(Rect{Vec2{16.0f, 40.0f}, Vec2{240.0f, 110.0f}});
     d.placement_zone_tags.push_back(PlacementZoneTag{});
@@ -468,14 +768,15 @@ LevelDef LevelLoader::default_test_level() {
     return d;
 }
 
-std::string LevelLoader::resolve_portal_lane_id(const LevelDef& def, const SpawnPortal& portal) const {
-    if (!portal.lane_id.empty()) return portal.lane_id;
+std::string LevelLoader::resolve_spawn_point_lane_id(const LevelDef& def,
+                                                     const SpawnPoint& spawn_point) const {
+    if (!spawn_point.lane_id.empty()) return spawn_point.lane_id;
 
     std::string best;
     f32 best_d2 = std::numeric_limits<f32>::max();
     for (const Vessel& v : def.vessels) {
         if (v.points.empty()) continue;
-        const f32 d2 = math::length_sq(v.points.front().position - portal.position);
+        const f32 d2 = math::length_sq(v.points.front().position - spawn_point.position);
         if (d2 < best_d2) {
             best_d2 = d2;
             best = v.lane_id.empty() ? v.id : v.lane_id;

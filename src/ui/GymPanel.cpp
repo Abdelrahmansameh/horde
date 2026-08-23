@@ -101,7 +101,7 @@ void GymPanel::set_level(const std::string& level_name) {
 
 std::string GymPanel::target_arg() const {
     switch (target_mode_) {
-        case 1: return target_portal_id_.empty() ? std::string("cursor") : target_portal_id_;
+        case 1: return target_spawn_point_id_.empty() ? std::string("cursor") : target_spawn_point_id_;
         case 2: return "objective";
         case 3: return text("%.1f,%.1f", target_xy_[0], target_xy_[1]);
         default: return "cursor";
@@ -119,7 +119,7 @@ void GymPanel::draw_target_bar(game::GymContext& ctx) {
     ImGui::SameLine();
     ImGui::RadioButton("cursor", &target_mode_, 0);
     ImGui::SameLine();
-    ImGui::RadioButton("portal", &target_mode_, 1);
+    ImGui::RadioButton("spawn point", &target_mode_, 1);
     ImGui::SameLine();
     ImGui::RadioButton("objective", &target_mode_, 2);
     ImGui::SameLine();
@@ -128,19 +128,19 @@ void GymPanel::draw_target_bar(game::GymContext& ctx) {
     if (target_mode_ == 1) {
         std::vector<const char*> ids;
         if (ctx.world != nullptr) {
-            for (const sim::SpawnPortalRuntime& p : ctx.world->portals()) ids.push_back(p.id.c_str());
+            for (const sim::SpawnPointRuntime& p : ctx.world->spawn_points()) ids.push_back(p.id.c_str());
         }
         if (ids.empty()) {
             ImGui::SameLine();
-            ImGui::TextColored(kColorErr, "(this level has no portals)");
+            ImGui::TextColored(kColorErr, "(this level has no spawn points)");
         } else {
-            if (target_portal_ >= static_cast<i32>(ids.size())) target_portal_ = 0;
+            if (target_spawn_point_ >= static_cast<i32>(ids.size())) target_spawn_point_ = 0;
             ImGui::SameLine();
             ImGui::SetNextItemWidth(160.0f);
-            ImGui::Combo("##portal", &target_portal_, ids.data(), static_cast<int>(ids.size()));
+            ImGui::Combo("##spawn_point", &target_spawn_point_, ids.data(), static_cast<int>(ids.size()));
             // Cached as a string because target_arg() has no context to look it
-            // up from, and the portal list belongs to whichever level is loaded.
-            target_portal_id_ = ids[static_cast<usize>(target_portal_)];
+            // up from, and the spawn point list belongs to whichever level is loaded.
+            target_spawn_point_id_ = ids[static_cast<usize>(target_spawn_point_)];
         }
     } else if (target_mode_ == 3) {
         ImGui::SameLine();
@@ -182,10 +182,10 @@ void GymPanel::draw_horde_tab(game::GymContext& ctx) {
 
     ImGui::Separator();
     ImGui::SetNextItemWidth(120.0f);
-    ImGui::InputInt("per portal", &flood_count_, 100, 500);
+    ImGui::InputInt("per spawn point", &flood_count_, 100, 500);
     if (flood_count_ < 1) flood_count_ = 1;
     ImGui::SameLine();
-    if (ImGui::Button("Flood every portal")) execute(ctx, text("flood %d", flood_count_));
+    if (ImGui::Button("Flood every spawn point")) execute(ctx, text("flood %d", flood_count_));
 
     ImGui::Separator();
     std::vector<const char*> elite_names;
@@ -452,7 +452,7 @@ void GymPanel::draw_world_tab(game::GymContext& ctx) {
     ImGui::Separator();
     if (command_button("Stats to log", "stats")) execute(ctx, "stats");
     ImGui::SameLine();
-    if (command_button("Portals to log", "portals")) execute(ctx, "portals");
+    if (command_button("Spawn points to log", "spawn_points")) execute(ctx, "spawn_points");
     ImGui::SameLine();
     if (command_button("Restart level", "restart")) execute(ctx, "restart");
 }

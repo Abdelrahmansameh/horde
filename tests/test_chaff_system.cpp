@@ -9,6 +9,7 @@
 #include "sim/chaff/ChaffSystem.h"
 #include "sim/flowfield/FlowField.h"
 #include "sim/spatial/SpatialHash.h"
+#include "sim/squad/Squads.h"
 
 #include "core/JobSystem.h"
 #include "core/Math.h"
@@ -23,6 +24,15 @@ using namespace immune;
 using namespace immune::sim;
 
 namespace {
+
+/// Squad-free registry: no paths, so ChaffSystem's squad terms collapse and the
+/// kernel behaves exactly as it did before the squad layer existed. Every test
+/// in this file is about the base movement rules, so they all steer through
+/// this. Squad behaviour has its own file, tests/test_squads.cpp.
+const SquadRegistry& no_squads() {
+    static const SquadRegistry empty;
+    return empty;
+}
 
 FlowField make_radial_flow(Rect bounds, Vec2 goal_world, f32 cell = 1.0f) {
     TissueMask mask;
@@ -91,7 +101,7 @@ TEST_CASE("flow acceleration steers an agent toward the goal", "[sim][chaff][mov
     Rng rng(1);
     for (int i = 0; i < 30; ++i) {
         rebuild(hash, buffers);
-        sys.update(buffers, flow, sdf, hash, rng, kFixedDt, nullptr);
+        sys.update(buffers, flow, sdf, hash, no_squads(), rng, kFixedDt, nullptr);
     }
 
     REQUIRE(buffers.count() == 1);
@@ -123,7 +133,7 @@ TEST_CASE("kDrifting agents ignore the flow field and follow ambient drift",
     Rng rng(2);
     for (int i = 0; i < 20; ++i) {
         rebuild(hash, buffers);
-        sys.update(buffers, flow, sdf, hash, rng, kFixedDt, nullptr);
+        sys.update(buffers, flow, sdf, hash, no_squads(), rng, kFixedDt, nullptr);
     }
 
     REQUIRE(buffers.count() == 1);
@@ -158,7 +168,7 @@ TEST_CASE("kSlowed lowers the effective max speed", "[sim][chaff][movement][flag
 
     Rng rng(4);
     rebuild(hash, buffers);
-    sys.update(buffers, flow, sdf, hash, rng, kFixedDt, nullptr);
+    sys.update(buffers, flow, sdf, hash, no_squads(), rng, kFixedDt, nullptr);
 
     const f32 speed_normal = std::sqrt(buffers.vel_x[0] * buffers.vel_x[0] +
                                        buffers.vel_y[0] * buffers.vel_y[0]);
@@ -192,7 +202,7 @@ TEST_CASE("kHidden agents do not move", "[sim][chaff][movement][flags]") {
     Rng rng(5);
     for (int i = 0; i < 10; ++i) {
         rebuild(hash, buffers);
-        sys.update(buffers, flow, sdf, hash, rng, kFixedDt, nullptr);
+        sys.update(buffers, flow, sdf, hash, no_squads(), rng, kFixedDt, nullptr);
         REQUIRE(buffers.pos_x[0] == Catch::Approx(25.0f));
         REQUIRE(buffers.pos_y[0] == Catch::Approx(25.0f));
         REQUIRE(buffers.vel_x[0] == 0.0f);
@@ -226,7 +236,7 @@ TEST_CASE("replication respects the per-tick global cap", "[sim][chaff][replicat
 
     Rng rng(6);
     rebuild(hash, buffers);
-    const ChaffUpdateStats stats = sys.update(buffers, flow, sdf, hash, rng, kFixedDt, nullptr);
+    const ChaffUpdateStats stats = sys.update(buffers, flow, sdf, hash, no_squads(), rng, kFixedDt, nullptr);
 
     REQUIRE(stats.replicated == 3);
     REQUIRE(buffers.count() == 53);
@@ -252,7 +262,7 @@ TEST_CASE("agents leaving the world bounds are flagged for despawn", "[sim][chaf
 
     Rng rng(7);
     rebuild(hash, buffers);
-    const ChaffUpdateStats stats = sys.update(buffers, flow, sdf, hash, rng, kFixedDt, nullptr);
+    const ChaffUpdateStats stats = sys.update(buffers, flow, sdf, hash, no_squads(), rng, kFixedDt, nullptr);
 
     REQUIRE(stats.despawned_out_of_bounds == 1);
     REQUIRE((buffers.flags[0] & chaff_flags::kPendingKill) != 0);
@@ -280,7 +290,7 @@ TEST_CASE("agents reaching the goal are flagged for despawn", "[sim][chaff][desp
 
     Rng rng(8);
     rebuild(hash, buffers);
-    const ChaffUpdateStats stats = sys.update(buffers, flow, sdf, hash, rng, kFixedDt, nullptr);
+    const ChaffUpdateStats stats = sys.update(buffers, flow, sdf, hash, no_squads(), rng, kFixedDt, nullptr);
 
     REQUIRE(stats.despawned_at_goal == 1);
     REQUIRE((buffers.flags[0] & chaff_flags::kPendingKill) != 0);
@@ -315,7 +325,7 @@ TEST_CASE("same seed reproduces identical results across repeated serial runs",
         Rng rng(4242);
         for (int t = 0; t < 60; ++t) {
             hash.rebuild(buffers.pos_x.data(), buffers.pos_y.data(), buffers.count(), &jobs);
-            sys.update(buffers, flow, sdf, hash, rng, kFixedDt, &jobs);
+            sys.update(buffers, flow, sdf, hash, no_squads(), rng, kFixedDt, &jobs);
             buffers.compact();
         }
         return buffers;
@@ -374,7 +384,7 @@ TEST_CASE("below the parallel_for grain, serial and multi-worker results match e
         Rng rng(555);
         for (int t = 0; t < 40; ++t) {
             hash.rebuild(buffers.pos_x.data(), buffers.pos_y.data(), buffers.count(), jobs);
-            sys.update(buffers, flow, sdf, hash, rng, kFixedDt, jobs);
+            sys.update(buffers, flow, sdf, hash, no_squads(), rng, kFixedDt, jobs);
             buffers.compact();
         }
         return buffers;
@@ -454,7 +464,7 @@ TEST_CASE("a dense pack stops overlapping instead of stacking",
     Rng rng(7);
     for (int t = 0; t < 240; ++t) {
         rebuild(hash, buffers);
-        sys.update(buffers, flow, sdf, hash, rng, kFixedDt, nullptr);
+        sys.update(buffers, flow, sdf, hash, no_squads(), rng, kFixedDt, nullptr);
         buffers.compact();
     }
 
@@ -492,11 +502,11 @@ TEST_CASE("spawn_burst never places two agents inside each other",
         ChaffBuffers buffers;
         buffers.reserve(512);
         Rng rng(4242);
-        // A portal far too small to hold the burst, to prove the packing grows
+        // A spawn point far too small to hold the burst, to prove the packing grows
         // the disc rather than stacking agents inside the requested radius.
         const u32 spawned =
             sys.spawn_burst(buffers, PathogenFamily::Virus, Vec2{50.0f, 50.0f},
-                            /*portal_radius*/ 1.5f, count, rng);
+                            /*spawn_point_radius*/ 1.5f, count, rng);
         REQUIRE(spawned == count);
 
         f32 worst = 0.0f;
@@ -531,7 +541,7 @@ TEST_CASE("spawn_burst stays deterministic and varies between bursts",
 
     // Same seed -> identical placement (the pattern is a pure function of the
     // one phase draw), different seed -> a rotated pattern, so repeated waves
-    // out of one portal are not stamped on top of each other.
+    // out of one spawn point are not stamped on top of each other.
     REQUIRE(burst(7) == burst(7));
     REQUIRE(burst(7) != burst(8));
 }

@@ -87,6 +87,7 @@ bool build_world(sim::SimWorld& world, const Options& opt, usize max_chaff,
             desc.max_fluid_particles = cfg.sim.capacities.max_fluid_particles;
             desc.max_combat_events = cfg.sim.capacities.max_combat_events;
             desc.fluid_tuning = cfg.sim.fluid;
+            desc.squad_tuning = cfg.sim.squads;
             desc.spatial_cell_size = cfg.sim.globals.spatial_cell_size;
             desc.flow_rebake_budget_ms = cfg.sim.globals.flow_rebake_budget_ms;
             roster.apply_to_tuning(desc.chaff_tuning);
@@ -225,6 +226,7 @@ bool read_metric(const sim::SimWorld& world, const std::string& metric, f64& out
     if (metric == "chaff_killed_total")   { out = static_cast<f64>(s.chaff_killed_total); return true; }
     if (metric == "chaff_leaked_total")   { out = static_cast<f64>(s.chaff_leaked_total); return true; }
     if (metric == "tick")                 { out = static_cast<f64>(s.tick); return true; }
+    if (metric == "active_squads")        { out = static_cast<f64>(s.active_squads); return true; }
     if (metric == "state_hash")           { out = static_cast<f64>(world.state_hash()); return true; }
 
     // Per-family forms: "<counter>.<family>", e.g. "chaff_leaked.virus". Worth
