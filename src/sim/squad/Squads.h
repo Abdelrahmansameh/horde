@@ -110,6 +110,28 @@ struct SquadTuning {
     bool enabled = true;
     /// Agents per squad before the spawner opens a new one.
     u32 target_squad_size = 60;
+    /// Hard ceiling on membership, enforced against REPLICATION.
+    ///
+    /// target_squad_size only governs intake at the spawn point; a daughter is
+    /// born on top of its parent mid-lane and used to join its parent's squad
+    /// unconditionally. For a replicating family that is a compounding process
+    /// with no fixed point -- every member is a source of new members of the
+    /// same squad -- so one cohort of 60 grows without bound until the lane is
+    /// a single squad again, which is exactly the blob squads exist to break
+    /// up. Worse, the steering degrades as it grows: `radius` clamps at
+    /// path.half_width, so past ~64 members the cohesion term is pulling an
+    /// ever-larger crowd toward a target smaller than the crowd itself.
+    ///
+    /// Past this count a daughter is stamped kNoSquad and steers on the flow
+    /// field alone. That is a deliberate release, not a failure: the parent
+    /// squad keeps the shape it was authored to have, and the overflow reads
+    /// as a full formation shedding loose stragglers.
+    ///
+    /// 1.5x target_squad_size leaves replication room to visibly reinforce its
+    /// own cohort before it starts shedding. Values below target_squad_size are
+    /// raised to it at set_tuning() time -- under it the spawner's own intake
+    /// rule would hand out squads that are already over the cap.
+    u32 max_squad_size = 90;
     /// Registry capacity. Overflow yields kNoSquad rather than failing a spawn.
     u32 max_squads = 1024;
 
@@ -195,6 +217,23 @@ struct SquadTuning {
     /// squad mid-spawn (created before its first member lands) is not retired
     /// out from under the spawner.
     u32 retire_ticks = 8;
+
+    /// How far a squad may travel from where it was born and still accept new
+    /// members. Past this it is closed and the next arrival opens a fresh squad.
+    ///
+    /// A squad is a COHORT, not a bucket that stays open until it reaches
+    /// target_squad_size. Without this, a spawner filling a 60-strong squad off
+    /// a wave ramp of ~1 agent/tick holds it open for a second or more, during
+    /// which its first members travel well down the lane while new ones keep
+    /// appearing at the spawn point. The centroid is dragged backwards, and
+    /// since the along-flow cohesion term steers toward the centroid, the
+    /// leaders then physically REVERSE down the lane to rejoin the stragglers.
+    /// That is not formation-keeping, it is two unrelated groups being told
+    /// they are one.
+    ///
+    /// Roughly a squad's own diameter: once it has moved its own length, the
+    /// spawn point is no longer somewhere it can plausibly still be standing.
+    f32 intake_distance = 16.0f;
 };
 
 /// One live group. Plain data: the registry owns every one of these and nothing
@@ -206,6 +245,10 @@ struct Squad {
     f32 arc_pos = 0.0f;
     /// Fixed lateral offset from the path centerline, in world units.
     f32 lateral = 0.0f;
+    /// `arc_pos` at creation. Backs the intake window: once a squad has
+    /// travelled `intake_distance` from where it was born it stops taking new
+    /// members, so it stays a COHORT rather than an ever-open bucket.
+    f32 birth_arc = 0.0f;
     Vec2 anchor{0.0f, 0.0f};
     Vec2 centroid{0.0f, 0.0f};
     u32 member_count = 0;
@@ -250,6 +293,23 @@ public:
     void update(const ChaffBuffers& chaff, f32 dt);
 
     bool alive(u16 id) const { return id < squads_.size() && squads_[id].active; }
+
+    /// True while `id` may still take new members: alive, under
+    /// target_squad_size, and still within intake_distance of where it was
+    /// born. Spawners ask this instead of tracking a fill count of their own,
+    /// so every spawn path closes a cohort on the same rule.
+    bool accepting(u16 id) const;
+
+    /// True while `id` may absorb a REPLICATED daughter: alive and below
+    /// max_squad_size. Deliberately not accepting(): a daughter is born on top
+    /// of its parent wherever the squad already is, so the intake DISTANCE
+    /// window that closes a spawner cohort is meaningless for it -- only the
+    /// size cap is. `pending` is the count of daughters already assigned to
+    /// this squad earlier in the same tick, which `member_count` (recomputed
+    /// once at the top of the tick) cannot yet see; without it a tick's worth
+    /// of replications all read the same stale count and overshoot the cap
+    /// together.
+    bool can_absorb(u16 id, u32 pending = 0) const;
     const Squad& get(u16 id) const { return squads_[id]; }
     const std::vector<Squad>& squads() const { return squads_; }
     u32 active_count() const { return active_count_; }

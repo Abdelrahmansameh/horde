@@ -25,17 +25,45 @@ namespace immune::sim {
 namespace {
 
 constexpr f32 kInf = std::numeric_limits<f32>::infinity();
-constexpr f32 kSqrt2 = 1.41421356237309504880f;
 
 /// Fixed neighbour order: 4 orthogonal then 4 diagonal. Frozen for determinism.
 constexpr i32 kOffX[8] = {-1, 1, 0, 0, -1, 1, -1, 1};
 constexpr i32 kOffY[8] = {0, 0, -1, 1, -1, -1, 1, 1};
-constexpr f32 kStep[8] = {1.0f, 1.0f, 1.0f, 1.0f, kSqrt2, kSqrt2, kSqrt2, kSqrt2};
+
+/// Weight a diagonal carries in the direction-smoothing kernel, relative to an
+/// orthogonal one. It is further away, so it counts for less -- with a flat
+/// square kernel the smoothed field grows its own faint 45-degree bias, which
+/// is exactly the artifact the eikonal solve was adopted to remove.
+constexpr f32 kDiagonalWeight = 0.70710678f;
 
 /// Tolerance used when deciding whether a neighbour could have been a cell's
 /// shortest-path parent. Costs are O(grid diagonal * cell size); 1e-3 world
 /// units is far below one cell yet comfortably above f32 sweep noise.
 constexpr f32 kSupportEps = 1e-3f;
+
+/// A smoothed direction must keep at least this much of the true descent
+/// direction; below it the cell reverts to its raw gradient.
+///
+/// This is the guarantee that smoothing cannot trap an agent: every published
+/// vector still has a strictly positive component down the cost gradient, so
+/// following the field always decreases cost-to-goal and no local minimum can
+/// be introduced. 0.25 is inside a 75-degree cone -- loose enough for a crease
+/// to round off over several cells, tight enough that nothing ever ends up
+/// travelling along an iso-cost line.
+constexpr f32 kMinDescentAlign = 0.25f;
+
+/// Relative weight a cell's own direction keeps in the smoothing kernel. Above
+/// 1 so a single pass is a gentle nudge and the radius (iteration count), not
+/// the kernel shape, controls how far smoothing reaches.
+constexpr f32 kSmoothCenterWeight = 2.0f;
+
+/// Cap on smoothing iterations, so a level authored with an absurd radius (or a
+/// very small cell size) cannot turn a bake into a multi-second stall.
+constexpr i32 kMaxSmoothIterations = 64;
+
+/// Floor on a cell's slowness multiplier. A zero or negative authored cost
+/// would make the eikonal update degenerate (everything reachable at cost 0).
+constexpr f32 kMinSlowness = 1e-3f;
 
 } // namespace
 
@@ -277,13 +305,75 @@ bool FlowField::heap_less(const HeapNode& a, const HeapNode& b) {
     return a.cell < b.cell; // deterministic tie-break
 }
 
-/// Edge weight from cell `a` to adjacent cell `b`, in world units. The per-cell
-/// multipliers are averaged so a cost boundary is symmetric (traversing it
-/// costs the same in either direction), which the incremental parent-support
-/// test relies on.
-f32 FlowField::edge_cost(const TissueMask& mask, i32 ax, i32 ay, i32 bx, i32 by, i32 dir) const {
-    const f32 mul = 0.5f * (mask.cost(ax, ay) + mask.cost(bx, by));
-    return cell_size_ * kStep[dir] * math::max(mul, 0.0f);
+/// Godunov upwind eikonal update -- the metric this field is solved under.
+///
+/// WHY NOT A GRAPH. The previous solver relaxed eight graph edges of length 1
+/// and sqrt(2). That is exact for the graph and wrong for the plane: octile
+/// distance carries ~8% directional error, so its iso-cost contours are
+/// octagons and the gradient of the result snaps toward the eight step
+/// directions. Agents inherited those bands as visible 45-degree kinks and the
+/// debug arrows drew them as a herringbone. Solving |grad T| = f instead gives
+/// a field whose contours are round to within a fraction of a cell, so its
+/// gradient is a genuine continuous direction rather than a quantized one.
+///
+/// The update never consumes a neighbour whose cost exceeds the value it
+/// returns: the two-sided branch is only taken while the two upwind values are
+/// within one cell-cost of each other, and the one-sided branch is capped by
+/// construction. That is what keeps it monotone, which is in turn what lets a
+/// plain Dijkstra-ordered heap drain it correctly and finally -- a popped cell
+/// is final, exactly as before.
+///
+/// `exclude_dirty` restricts the stencil to cells an incremental rebake still
+/// trusts; everything else reads the live field.
+f32 FlowField::eikonal(const TissueMask& mask, i32 x, i32 y, bool exclude_dirty) const {
+    const auto side = [&](i32 nx, i32 ny) -> f32 {
+        if (!mask.walkable(nx, ny)) return kInf;
+        const usize ni = mask.index(nx, ny);
+        if (exclude_dirty && dirty_mark_[ni] == dirty_gen_) return kInf;
+        return cost_[ni];
+    };
+
+    f32 a = math::min(side(x - 1, y), side(x + 1, y));
+    f32 b = math::min(side(x, y - 1), side(x, y + 1));
+    if (a > b) std::swap(a, b);
+    if (!std::isfinite(a)) return kInf;
+
+    const f32 f = cell_size_ * math::max(mask.cost(x, y), kMinSlowness);
+    // One-sided: the cross-axis wavefront is too far behind to contribute, or
+    // the caller asked for the axis-aligned (Manhattan) metric.
+    if (!desc_.allow_diagonals || !std::isfinite(b) || b - a >= f) return a + f;
+    const f32 diff = b - a;
+    return 0.5f * (a + b + std::sqrt(math::max(2.0f * f * f - diff * diff, 0.0f)));
+}
+
+/// Stamps the per-cell goal flag from `goal_cells` plus `goal_radius`.
+void FlowField::mark_goals(const TissueMask& mask) {
+    const usize n = static_cast<usize>(width_) * static_cast<usize>(height_);
+    goal_mark_.assign(n, 0u);
+    const f32 r = math::max(desc_.goal_radius, 0.0f);
+    const i32 span = static_cast<i32>(std::floor(r / math::max(cell_size_, 1e-6f)));
+    const f32 r2 = r * r;
+    for (const IVec2& g : desc_.goal_cells) {
+        for (i32 dy = -span; dy <= span; ++dy) {
+            for (i32 dx = -span; dx <= span; ++dx) {
+                const i32 x = g.x + dx;
+                const i32 y = g.y + dy;
+                if (!mask.walkable(x, y)) continue;
+                // The centre cell is a goal even when goal_radius is 0.
+                if (dx != 0 || dy != 0) {
+                    const Vec2 d = mask.cell_to_world(x, y) - mask.cell_to_world(g.x, g.y);
+                    if (math::length_sq(d) > r2) continue;
+                }
+                goal_mark_[mask.index(x, y)] = 1u;
+            }
+        }
+    }
+}
+
+i32 FlowField::smoothing_iterations() const {
+    if (desc_.smoothing_radius <= 0.0f || cell_size_ <= 0.0f) return 0;
+    return math::clamp(static_cast<i32>(desc_.smoothing_radius / cell_size_ + 0.5f), 0,
+                       kMaxSmoothIterations);
 }
 
 /// Diagonal steps may not squeeze between two blocking cells.
@@ -296,7 +386,6 @@ bool FlowField::diagonal_ok(const TissueMask& mask, i32 x, i32 y, i32 dir) {
 /// written; that is what confines an incremental rebake to its dirty set.
 /// Grows [touch_min_, touch_max_] to cover every cell whose cost changed.
 void FlowField::sweep(const TissueMask& mask, bool restricted) {
-    const i32 dir_count = desc_.allow_diagonals ? 8 : 4;
     while (!heap_.empty()) {
         const HeapNode node = heap_pop();
         if (node.key > cost_[node.cell]) continue; // stale entry
@@ -305,14 +394,17 @@ void FlowField::sweep(const TissueMask& mask, bool restricted) {
         const i32 x = static_cast<i32>(node.cell % static_cast<u32>(width_));
         const i32 y = static_cast<i32>(node.cell / static_cast<u32>(width_));
 
-        for (i32 d = 0; d < dir_count; ++d) {
+        // Propagation is 4-connected: the eikonal update reads the whole
+        // orthogonal stencil at once, so a diagonal neighbour is reached
+        // through the two cells between it and here rather than over a
+        // sqrt(2) edge. That is what removes the octile banding.
+        for (i32 d = 0; d < 4; ++d) {
             const i32 nx = x + kOffX[d];
             const i32 ny = y + kOffY[d];
             if (!mask.walkable(nx, ny)) continue;
             const u32 ni = static_cast<u32>(mask.index(nx, ny));
             if (restricted && !in_dirty(ni)) continue;
-            if (!diagonal_ok(mask, x, y, d)) continue;
-            const f32 nc = node.key + edge_cost(mask, x, y, nx, ny, d);
+            const f32 nc = eikonal(mask, nx, ny, /*exclude_dirty=*/false);
             if (nc < cost_[ni]) {
                 cost_[ni] = nc;
                 touch(nx, ny);
@@ -322,41 +414,60 @@ void FlowField::sweep(const TissueMask& mask, bool restricted) {
     }
 }
 
-/// Negative normalized gradient of the cost field over a cell rect.
+/// Negative normalized gradient of the cost field over a cell rect, written to
+/// `raw_direction_` (and mirrored into the published field, which a later
+/// smoothing pass may then overwrite).
+///
+/// WALL HANDLING IS NEUMANN. A neighbour that is a wall or unreachable
+/// contributes this cell's own cost rather than being dropped from the stencil.
+/// Reflecting instead of dropping zeroes the wall-normal component of the
+/// gradient at the boundary, so the field runs *along* a vessel wall instead of
+/// being biased away from it -- which is most of what makes a lane read as a
+/// channel the horde flows down rather than a corridor it bounces inside.
 void FlowField::compute_directions(const TissueMask& mask, i32 x0, i32 y0, i32 x1, i32 y1) {
     x0 = math::max(x0, 0);
     y0 = math::max(y0, 0);
     x1 = math::min(x1, width_ - 1);
     y1 = math::min(y1, height_ - 1);
     const i32 dir_count = desc_.allow_diagonals ? 8 : 4;
+    // With smoothing on, `direction_` is the smoothed field and only
+    // smooth_directions() may write it -- except where the raw direction moved,
+    // which is exactly the set smooth_directions() is about to revisit anyway.
+    // Writing raw everywhere would leave every unchanged cell in the rebake
+    // halo holding an unsmoothed vector: a visible seam around each tower.
+    const bool publish_raw = smoothing_iterations() <= 0;
+
+    // Records that a cell's raw direction moved, so smoothing knows how far it
+    // has to reach. Returns whether the published field may take the raw value.
+    const auto note = [&](usize i, i32 x, i32 y, Vec2 dir) {
+        const Vec2 prev = raw_direction_[i];
+        const bool changed = prev.x != dir.x || prev.y != dir.y;
+        if (changed) {
+            dir_touch_min_.x = math::min(dir_touch_min_.x, x);
+            dir_touch_min_.y = math::min(dir_touch_min_.y, y);
+            dir_touch_max_.x = math::max(dir_touch_max_.x, x);
+            dir_touch_max_.y = math::max(dir_touch_max_.y, y);
+        }
+        raw_direction_[i] = dir;
+        if (changed || publish_raw) direction_[i] = dir;
+    };
 
     for (i32 y = y0; y <= y1; ++y) {
         for (i32 x = x0; x <= x1; ++x) {
             const usize i = mask.index(x, y);
             const f32 c = cost_[i];
             if (!mask.walkable(x, y) || !std::isfinite(c) || c <= 0.0f) {
-                direction_[i] = Vec2{0.0f, 0.0f};
+                note(i, x, y, Vec2{0.0f, 0.0f});
                 continue;
             }
 
-            // One-sided where a neighbour is a wall or unreachable: substitute
-            // this cell's own cost and divide by the number of real samples, so
-            // a cell hugging a wall still gets an accurate downhill direction.
-            f32 acc[2] = {0.0f, 0.0f};
-            i32 cnt[2] = {0, 0};
-            for (i32 d = 0; d < 4; ++d) {
-                const i32 nx = x + kOffX[d];
-                const i32 ny = y + kOffY[d];
-                if (!mask.walkable(nx, ny)) continue;
+            const auto neighbour = [&](i32 nx, i32 ny) -> f32 {
+                if (!mask.walkable(nx, ny)) return c;
                 const f32 nc = cost_[mask.index(nx, ny)];
-                if (!std::isfinite(nc)) continue;
-                const i32 axis = (d < 2) ? 0 : 1;
-                const f32 sign = (d == 0 || d == 2) ? -1.0f : 1.0f; // -x, +x, -y, +y
-                acc[axis] += sign * (nc - c);
-                cnt[axis] += 1;
-            }
-            const f32 gx = cnt[0] > 0 ? acc[0] / static_cast<f32>(cnt[0]) : 0.0f;
-            const f32 gy = cnt[1] > 0 ? acc[1] / static_cast<f32>(cnt[1]) : 0.0f;
+                return std::isfinite(nc) ? nc : c;
+            };
+            const f32 gx = 0.5f * (neighbour(x + 1, y) - neighbour(x - 1, y));
+            const f32 gy = 0.5f * (neighbour(x, y + 1) - neighbour(x, y - 1));
             Vec2 dir = math::normalize_safe(Vec2{-gx, -gy});
 
             if (dir.x == 0.0f && dir.y == 0.0f) {
@@ -381,7 +492,95 @@ void FlowField::compute_directions(const TissueMask& mask, i32 x0, i32 y0, i32 x
                                                     static_cast<f32>(kOffY[best_d])});
                 }
             }
-            direction_[i] = dir;
+            note(i, x, y, dir);
+        }
+    }
+}
+
+/// Iterated neighbourhood averaging of the unit direction field. `direction_`
+/// is rewritten over [x0,y0]..[x1,y1]; see FlowFieldBakeDesc::smoothing_radius
+/// for why this exists at all.
+///
+/// EXACTNESS UNDER INCREMENTAL REBAKE. A smoothed vector is a pure function of
+/// the *raw* directions within N cells of it (N = iteration count), so it can
+/// always be rebuilt from scratch rather than iterated further -- which is what
+/// stops a cell that has been rebaked twice from drifting away from the same
+/// cell in a from-scratch bake. To get that, the pass runs over the requested
+/// rect expanded by N and publishes only the requested rect: values within N of
+/// the expanded rect's edge are contaminated by reads from outside it, and
+/// those are precisely the ones thrown away.
+void FlowField::smooth_directions(const TissueMask& mask, i32 x0, i32 y0, i32 x1, i32 y1) {
+    const i32 iterations = smoothing_iterations();
+    if (iterations <= 0) return;
+
+    x0 = math::max(x0, 0);
+    y0 = math::max(y0, 0);
+    x1 = math::min(x1, width_ - 1);
+    y1 = math::min(y1, height_ - 1);
+    if (x1 < x0 || y1 < y0) return;
+
+    // Working rect: the published rect plus the smoothing reach.
+    const i32 ex0 = math::max(x0 - iterations, 0);
+    const i32 ey0 = math::max(y0 - iterations, 0);
+    const i32 ex1 = math::min(x1 + iterations, width_ - 1);
+    const i32 ey1 = math::min(y1 + iterations, height_ - 1);
+
+    // Sized to the grid for a flat index, but only the working rect is ever
+    // touched: a rebake pays for its own region, not for a memset of the level.
+    // (assign() here cost more than the smoothing itself on a real level.)
+    const usize n = direction_.size();
+    if (smooth_front_.size() != n) {
+        smooth_front_.resize(n);
+        smooth_back_.resize(n);
+    }
+    for (i32 y = ey0; y <= ey1; ++y) {
+        for (i32 x = ex0; x <= ex1; ++x) {
+            const usize i = mask.index(x, y);
+            smooth_front_[i] = raw_direction_[i];
+        }
+    }
+
+    for (i32 it = 0; it < iterations; ++it) {
+        for (i32 y = ey0; y <= ey1; ++y) {
+            for (i32 x = ex0; x <= ex1; ++x) {
+                const usize i = mask.index(x, y);
+                const Vec2 raw = raw_direction_[i];
+                if (raw.x == 0.0f && raw.y == 0.0f) {
+                    smooth_back_[i] = Vec2{0.0f, 0.0f};
+                    continue;
+                }
+
+                Vec2 acc = smooth_front_[i] * kSmoothCenterWeight;
+                for (i32 d = 0; d < 8; ++d) {
+                    const i32 nx = x + kOffX[d];
+                    const i32 ny = y + kOffY[d];
+                    if (!mask.walkable(nx, ny)) continue;
+                    const usize ni = mask.index(nx, ny);
+                    // Outside the working rect there is no iterated value to
+                    // read, so the raw one stands in. It only perturbs the
+                    // outer ring, which is discarded rather than published.
+                    const bool inside =
+                        nx >= ex0 && nx <= ex1 && ny >= ey0 && ny <= ey1;
+                    const Vec2 nd = inside ? smooth_front_[ni] : raw_direction_[ni];
+                    if (nd.x == 0.0f && nd.y == 0.0f) continue;
+                    acc += nd * (d < 4 ? 1.0f : kDiagonalWeight);
+                }
+
+                const Vec2 sm = math::normalize_safe(acc);
+                // The descent guarantee. A cell whose neighbourhood disagrees
+                // with it this badly sits on a genuine watershed rather than on
+                // a seam worth rounding off, and it keeps the exact gradient.
+                const f32 align = sm.x * raw.x + sm.y * raw.y;
+                smooth_back_[i] = align >= kMinDescentAlign ? sm : raw;
+            }
+        }
+        smooth_front_.swap(smooth_back_);
+    }
+
+    for (i32 y = y0; y <= y1; ++y) {
+        for (i32 x = x0; x <= x1; ++x) {
+            const usize i = mask.index(x, y);
+            direction_[i] = smooth_front_[i];
         }
     }
 }
@@ -399,6 +598,12 @@ void FlowField::bake(const TissueMask& mask, const FlowFieldBakeDesc& desc) {
     const usize n = static_cast<usize>(width_) * static_cast<usize>(height_);
     cost_.assign(n, kInf);
     direction_.assign(n, Vec2{0.0f, 0.0f});
+    raw_direction_.assign(n, Vec2{0.0f, 0.0f});
+    smooth_front_.clear();
+    smooth_back_.clear();
+    smooth_front_.shrink_to_fit();
+    smooth_back_.shrink_to_fit();
+    goal_mark_.clear();
     dirty_.clear();
     dirty_mark_.assign(n, 0u);
     dirty_gen_ = 0u;
@@ -410,18 +615,20 @@ void FlowField::bake(const TissueMask& mask, const FlowFieldBakeDesc& desc) {
 
     touch_min_ = IVec2{0, 0};
     touch_max_ = IVec2{width_ - 1, height_ - 1};
+    dir_touch_min_ = IVec2{0, 0};
+    dir_touch_max_ = IVec2{width_ - 1, height_ - 1};
 
-    for (const IVec2& g : desc_.goal_cells) {
-        if (!mask.walkable(g.x, g.y)) continue;
-        const u32 gi = static_cast<u32>(mask.index(g.x, g.y));
-        if (cost_[gi] != 0.0f) {
-            cost_[gi] = 0.0f;
-            heap_push(gi, 0.0f);
-        }
+    // Every cell inside goal_radius is a sink, not just the authored centre.
+    mark_goals(mask);
+    for (usize i = 0; i < n; ++i) {
+        if (goal_mark_[i] == 0u) continue;
+        cost_[i] = 0.0f;
+        heap_push(static_cast<u32>(i), 0.0f);
     }
 
     sweep(mask, /*restricted=*/false);
     compute_directions(mask, 0, 0, width_ - 1, height_ - 1);
+    smooth_directions(mask, 0, 0, width_ - 1, height_ - 1);
 
     stats_.regions_processed = 1;
     stats_.last_bake_ms = clock.elapsed_ms();
@@ -430,13 +637,6 @@ void FlowField::bake(const TissueMask& mask, const FlowFieldBakeDesc& desc) {
 // ---- incremental rebake ----------------------------------------------------
 
 void FlowField::mark_dirty(const Rect& region) { dirty_.push_back(region); }
-
-bool FlowField::is_goal_cell(i32 x, i32 y) const {
-    for (const IVec2& g : desc_.goal_cells) {
-        if (g.x == x && g.y == y) return true;
-    }
-    return false;
-}
 
 void FlowField::touch(i32 x, i32 y) {
     touch_min_.x = math::min(touch_min_.x, x);
@@ -481,6 +681,9 @@ void FlowField::rebake_region(const TissueMask& mask, const Rect& world_region) 
 
     touch_min_ = IVec2{x0, y0};
     touch_max_ = IVec2{x1, y1};
+    // Empty until compute_directions() below finds a direction that moved.
+    dir_touch_min_ = IVec2{width_, height_};
+    dir_touch_max_ = IVec2{-1, -1};
 
     // --- 1a. seed the invalid set with the margin-expanded rect --------------
     scan_.clear();
@@ -493,12 +696,16 @@ void FlowField::rebake_region(const TissueMask& mask, const Rect& world_region) 
     }
 
     // --- 1b. flood invalidation outward using the *old* costs ---------------
-    const i32 dir_count = desc_.allow_diagonals ? 8 : 4;
+    // 4-connected, because that is the shape of an eikonal dependency: a cell's
+    // cost is a function of its four orthogonal neighbours and nothing else, so
+    // the set of cells that can lose support is exactly the 4-connected closure.
+    // Walking diagonals as well only re-tests cells the orthogonal walk already
+    // reaches, at four extra support solves apiece.
     for (usize head = 0; head < scan_.size(); ++head) {
         const u32 ci = scan_[head];
         const i32 cx = static_cast<i32>(ci % static_cast<u32>(width_));
         const i32 cy = static_cast<i32>(ci / static_cast<u32>(width_));
-        for (i32 d = 0; d < dir_count; ++d) {
+        for (i32 d = 0; d < 4; ++d) {
             const i32 nx = cx + kOffX[d];
             const i32 ny = cy + kOffY[d];
             if (!mask.walkable(nx, ny)) continue;
@@ -506,19 +713,13 @@ void FlowField::rebake_region(const TissueMask& mask, const Rect& world_region) 
             if (dirty_mark_[ni] == dirty_gen_) continue;
             if (is_goal_cell(nx, ny)) continue; // goals are self-supporting
 
-            // Does `ni` still have at least one valid parent?
-            bool supported = false;
-            for (i32 e = 0; e < dir_count && !supported; ++e) {
-                const i32 px = nx + kOffX[e];
-                const i32 py = ny + kOffY[e];
-                if (!mask.walkable(px, py)) continue;
-                const u32 pi = static_cast<u32>(mask.index(px, py));
-                if (dirty_mark_[pi] == dirty_gen_) continue;
-                if (!diagonal_ok(mask, nx, ny, e)) continue;
-                if (cost_[pi] + edge_cost(mask, px, py, nx, ny, e) <= cost_[ni] + kSupportEps) {
-                    supported = true;
-                }
-            }
+            // Is `ni`'s cost still reproducible from cells we still trust?
+            // Asking the solver itself, rather than re-deriving the rule here,
+            // is what keeps invalidation and the sweep in agreement about what
+            // a correct cost is -- and it is the whole rule under the eikonal
+            // metric, where a value comes from an upwind *pair*, not one edge.
+            const bool supported =
+                eikonal(mask, nx, ny, /*exclude_dirty=*/true) <= cost_[ni] + kSupportEps;
             if (!supported) {
                 dirty_mark_[ni] = dirty_gen_;
                 scan_.push_back(ni);
@@ -539,18 +740,7 @@ void FlowField::rebake_region(const TissueMask& mask, const Rect& world_region) 
             cost_[ci] = 0.0f;
             continue;
         }
-        f32 best = kInf;
-        for (i32 d = 0; d < dir_count; ++d) {
-            const i32 nx = cx + kOffX[d];
-            const i32 ny = cy + kOffY[d];
-            if (!mask.walkable(nx, ny)) continue;
-            const u32 ni = static_cast<u32>(mask.index(nx, ny));
-            if (dirty_mark_[ni] == dirty_gen_) continue; // also invalid
-            if (!std::isfinite(cost_[ni])) continue;
-            if (!diagonal_ok(mask, cx, cy, d)) continue;
-            best = math::min(best, cost_[ni] + edge_cost(mask, nx, ny, cx, cy, d));
-        }
-        cost_[ci] = best;
+        cost_[ci] = eikonal(mask, cx, cy, /*exclude_dirty=*/true);
     }
     for (const u32 ci : scan_) {
         const i32 cx = static_cast<i32>(ci % static_cast<u32>(width_));
@@ -567,14 +757,13 @@ void FlowField::rebake_region(const TissueMask& mask, const Rect& world_region) 
         const i32 cx = static_cast<i32>(ci % static_cast<u32>(width_));
         const i32 cy = static_cast<i32>(ci / static_cast<u32>(width_));
         if (!mask.walkable(cx, cy)) continue;
-        for (i32 d = 0; d < dir_count; ++d) {
+        for (i32 d = 0; d < 4; ++d) {
             const i32 nx = cx + kOffX[d];
             const i32 ny = cy + kOffY[d];
             if (!mask.walkable(nx, ny)) continue;
             const u32 ni = static_cast<u32>(mask.index(nx, ny));
             if (dirty_mark_[ni] == dirty_gen_) continue;
-            if (!diagonal_ok(mask, cx, cy, d)) continue;
-            const f32 nc = cost_[ci] + edge_cost(mask, cx, cy, nx, ny, d);
+            const f32 nc = eikonal(mask, nx, ny, /*exclude_dirty=*/false);
             if (nc < cost_[ni]) {
                 cost_[ni] = nc;
                 touch(nx, ny);
@@ -585,7 +774,24 @@ void FlowField::rebake_region(const TissueMask& mask, const Rect& world_region) 
     if (!heap_.empty()) sweep(mask, /*restricted=*/false);
 
     // --- 4. directions over everything that moved, plus a one-cell halo ------
+    // A raw direction reads its cell's four neighbours, so one cell of halo is
+    // exactly what a changed cost can reach.
     compute_directions(mask, touch_min_.x - 1, touch_min_.y - 1, touch_max_.x + 1, touch_max_.y + 1);
+
+    // Smoothing reaches one cell further per iteration, so a cell up to N away
+    // from a raw direction that just moved needs its smoothed value rebuilt
+    // too. smooth_directions() expands what it is given by a further N
+    // internally, which is what makes the published values here identical to a
+    // full bake's rather than merely close.
+    //
+    // Driven off the direction box, not the cost box. Those differ by an order
+    // of magnitude on a real reroute, and smoothing the cost box would spend
+    // most of its time rewriting cells with the values they already had.
+    if (const i32 pad = smoothing_iterations();
+        pad > 0 && dir_touch_max_.x >= dir_touch_min_.x) {
+        smooth_directions(mask, dir_touch_min_.x - pad, dir_touch_min_.y - pad,
+                          dir_touch_max_.x + pad, dir_touch_max_.y + pad);
+    }
     ++stats_.regions_processed;
 }
 
@@ -623,6 +829,12 @@ bool FlowField::pump_rebake(const TissueMask& mask, f64 budget_ms) {
 // ---- sampling (hot path) ---------------------------------------------------
 
 Vec2 FlowField::sample(Vec2 world_pos) const {
+    f32 support = 0.0f;
+    return sample_with_support(world_pos, support);
+}
+
+Vec2 FlowField::sample_with_support(Vec2 world_pos, f32& support) const {
+    support = 0.0f;
     if (width_ <= 0 || height_ <= 0) return Vec2{0.0f, 0.0f};
     const Vec2 g = (world_pos - origin_) / cell_size_ - Vec2{0.5f, 0.5f};
     const f32 fx = std::floor(g.x);
@@ -653,6 +865,7 @@ Vec2 FlowField::sample(Vec2 world_pos) const {
         }
     }
     if (wsum <= 0.0f) return Vec2{0.0f, 0.0f};
+    support = math::saturate(wsum);
     return math::normalize_safe(acc);
 }
 

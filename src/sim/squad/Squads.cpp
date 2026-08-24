@@ -127,6 +127,10 @@ void SquadRegistry::set_tuning(const SquadTuning& tuning) {
     tuning_.follow_ramp = math::max(tuning_.follow_ramp, math::kEpsilon);
     tuning_.min_radius = math::max(tuning_.min_radius, 0.0f);
     if (tuning_.max_squads > kNoSquad) tuning_.max_squads = kNoSquad;
+    // A cap below the spawner's own intake size is self-contradictory: the
+    // spawner would fill a squad to target_squad_size through accepting(), and
+    // every one of them would be born already over the replication cap.
+    tuning_.max_squad_size = math::max(tuning_.max_squad_size, tuning_.target_squad_size);
 
     if (squads_.size() > tuning_.max_squads) squads_.resize(tuning_.max_squads);
 }
@@ -232,6 +236,7 @@ u16 SquadRegistry::create_squad(u16 path_index, Vec2 spawn_pos) {
         if (!moved) break;
     }
     sq.arc_pos = math::min(arc, path.length());
+    sq.birth_arc = sq.arc_pos;
     sq.lateral = golden_offset(next_serial_) * 2.0f * path.half_width * tuning_.path_lateral_jitter;
     sq.radius = tuning_.min_radius;
     sq.centroid = spawn_pos;
@@ -239,6 +244,18 @@ u16 SquadRegistry::create_squad(u16 path_index, Vec2 spawn_pos) {
     ++next_serial_;
     ++active_count_;
     return slot;
+}
+
+bool SquadRegistry::accepting(u16 id) const {
+    if (!alive(id)) return false;
+    const Squad& sq = squads_[id];
+    if (sq.member_count >= tuning_.target_squad_size) return false;
+    return (sq.arc_pos - sq.birth_arc) < tuning_.intake_distance;
+}
+
+bool SquadRegistry::can_absorb(u16 id, u32 pending) const {
+    if (!alive(id)) return false;
+    return squads_[id].member_count + pending < tuning_.max_squad_size;
 }
 
 void SquadRegistry::update(const ChaffBuffers& chaff, f32 dt) {

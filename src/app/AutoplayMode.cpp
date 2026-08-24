@@ -88,6 +88,10 @@ bool setup(Run& run, const Options& opt, const HeadlessConfig& tuning, std::stri
     desc.fluid_tuning = tuning.cfg.sim.fluid;
     desc.spatial_cell_size = tuning.cfg.sim.globals.spatial_cell_size;
     desc.flow_rebake_budget_ms = tuning.cfg.sim.globals.flow_rebake_budget_ms;
+    desc.flow_smoothing_radius = tuning.cfg.sim.globals.flow_smoothing_radius;
+    desc.flow_wall_cost = tuning.cfg.sim.globals.flow_wall_cost;
+    desc.flow_wall_falloff = tuning.cfg.sim.globals.flow_wall_falloff;
+    desc.flow_wall_exponent = tuning.cfg.sim.globals.flow_wall_exponent;
     run.enemies.apply_to_tuning(desc.chaff_tuning);
     desc.chaff_tuning.max_replications_per_tick = tuning.cfg.sim.globals.max_replications_per_tick;
     desc.chaff_tuning.max_neighbors_sampled = tuning.cfg.sim.globals.max_neighbors_sampled;

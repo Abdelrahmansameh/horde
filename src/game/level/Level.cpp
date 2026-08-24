@@ -425,10 +425,61 @@ LevelLoadResult LevelLoader::instantiate(const LevelDef& def, sim::SimWorld& wor
     // TissueMask -> DistanceField -> FlowField, per the pipeline in FlowField.h.
     world.sdf().bake(world.tissue());
 
+    // Wall-proximity traversal cost, written into the mask's cost channel (the
+    // one TissueMask has always carried for sludge and NETs) now that the SDF
+    // that feeds it exists.
+    //
+    // Without it, the cheapest route round the end of a septum is the one that
+    // grazes the tip, so every route in the chamber converges on that one point
+    // and the horde beelines to it instead of sweeping round. Charging for wall
+    // proximity buys back a standoff -- on capillary_switchback the streamline
+    // goes from grazing the tip (0 clearance) to holding ~8 units off it.
+    //
+    // It does NOT fully open a hairpin into the wide arc a fluid would take.
+    // That is not a tuning shortfall: a shortest-path field converging at a
+    // convex corner is a property of the metric, and this term can only bias
+    // it, because clearance alone cannot distinguish the tip of a septum from
+    // the side of a straight lane. Pushed hard enough to round the hairpin, the
+    // same term tilts every lane's field toward its own centreline and the
+    // overlay grows a chevron. The defaults sit at the measured knee: an
+    // exponent this high keeps the penalty in a ~2-unit layer at the lining, so
+    // the open middle of a vessel stays flat.
+    //
+    // Baked once, from the load-time SDF. A tower placed later blocks cells and
+    // reroutes the field, but does not re-stamp this: the SDF is deliberately
+    // not rebaked in-frame (see ChaffSystem's wall-contact notes), and a tower
+    // is small next to a lumen, so the cost it would have added is not worth a
+    // full distance transform per placement. Both a full bake and an
+    // incremental rebake read the same stamped values, so they still agree
+    // exactly.
+    if (world.desc().flow_wall_cost > 0.0f && world.desc().flow_wall_falloff > 0.0f) {
+        sim::TissueMask& tissue = world.tissue();
+        const sim::DistanceField& sdf = world.sdf();
+        const f32 falloff = world.desc().flow_wall_falloff;
+        const f32 gain = world.desc().flow_wall_cost;
+        const f32 exponent = math::max(world.desc().flow_wall_exponent, 1.0f);
+        for (i32 y = 0; y < tissue.height(); ++y) {
+            for (i32 x = 0; x < tissue.width(); ++x) {
+                if (!tissue.walkable(x, y)) continue;
+                const f32 t = math::saturate(sdf.sample(tissue.cell_to_world(x, y)) / falloff);
+                tissue.set_cost(x, y,
+                                tissue.cost(x, y) * (1.0f + gain * std::pow(1.0f - t, exponent)));
+            }
+        }
+    }
+
     sim::FlowFieldBakeDesc flow_desc;
+    flow_desc.smoothing_radius = world.desc().flow_smoothing_radius;
     flow_desc.goal_cells.reserve(def.objectives.size());
     for (const ObjectivePoint& o : def.objectives) {
         flow_desc.goal_cells.push_back(world.tissue().world_to_cell(o.position));
+        // The whole objective disc is a sink, because ChaffSystem despawns an
+        // agent the moment it enters that radius -- the rim IS the goal. A
+        // single-cell sink instead aims every agent at the exact centre from
+        // across the level, which is what made a wide vessel read as a funnel.
+        // Multi-objective levels take the largest radius: the field is one
+        // solve, and undershooting would reinstate the funnel on that objective.
+        flow_desc.goal_radius = math::max(flow_desc.goal_radius, o.radius);
     }
     world.flow().bake(world.tissue(), flow_desc);
 

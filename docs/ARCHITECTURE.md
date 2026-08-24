@@ -250,6 +250,20 @@ not as a bug.
 `sample()` returns `(0,0)` outside the field or in an unreachable pocket. Callers
 must treat zero as **"no guidance"**, not as "standing still is fine".
 
+**Walls: the mask and the SDF disagree, deliberately.** `resolve_wall_contact`
+does the ordinary wall response off the `DistanceField`, but the SDF is *not*
+re-baked when a tower is built — tower placement validation reads it for "is
+there clearance here", so folding towers into it would make every tower block
+its own neighbours and kill tower clustering. `sim::block_rect` therefore
+updates only the `TissueMask` (and the flow field re-bakes to route around the
+tower). The consequence is that the SDF-based response cannot see towers at all,
+and a dense enough crowd pressed them straight through one — measured, 72 of
+1,200 agents inside a footprint at once. `contain_to_tissue` closes that by
+testing the **mask**, which is the walkability authority and is always current:
+the previous position was walkable, so bisection along the step finds the last
+walkable point, with no normal or penetration depth needed (neither is reliable
+inside solid ground anyway). The same net covers ordinary tissue walls.
+
 ### 4.5 `sim/damage` — aggregate damage
 
 Chaff is never hit individually. A tower publishes a `DamageField`: a region plus
@@ -343,6 +357,17 @@ Three forces, and only the third touches the hot neighbour loop:
   gets a wider separation radius and a stronger push, and is excluded from
   alignment. One `u16` compare per neighbour, short-circuited away entirely for
   ungrouped agents.
+
+**Membership is capped twice, for two different reasons.** `target_squad_size`
+(60) closes intake at the spawn point, together with `intake_distance` — that is
+what makes a squad a *cohort* rather than a bucket. `max_squad_size` (90) is the
+hard ceiling, and it exists for replication: a daughter is born on top of its
+parent mid-lane and inherits its squad, so an inheriting-only rule is unbounded
+compounding — every member is a source of more members of the same squad, and
+one cohort of 60 grows until the lane is a single blob again. Past the ceiling
+the daughter is stamped `kNoSquad` and steers on the flow field alone, which
+reads as a full formation shedding loose stragglers. The in-tick tally lives in
+`ChaffSystem::squad_growth_` because `member_count` is a top-of-tick snapshot.
 
 Two numbers are load-bearing and are *derived*, not chosen. `lateral_push` is a
 velocity impulse in the same units as `separation_strength`, because the flow

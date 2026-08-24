@@ -412,6 +412,11 @@ JSON:
 
 - **Elites are never squadded.** The squad branch is `if (e.elite_id == 0)`; an entry with
   an elite spawns ungrouped out of the spawn point disc.
+- **Replicating families outgrow the chop.** `target_squad_size` only bounds
+  *intake*; daughters join their parent's squad mid-lane, so a virus squad drifts
+  above 60 on its own until it hits `sim.squads.max_squad_size` (90), past which
+  daughters spawn ungrouped. A `900 → 15 squads × 60` readout is the arrival
+  shape, not the steady state.
 - **Authoring one path disables derivation for that whole lane** — "a lane that authored
   even one path is left entirely to the author". Hand-drawing a single path on a 3-path
   lane silently drops it to 1 and changes how every wave on it reads. The editor warns on

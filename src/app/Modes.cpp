@@ -90,6 +90,10 @@ bool build_world(sim::SimWorld& world, const Options& opt, usize max_chaff,
             desc.squad_tuning = cfg.sim.squads;
             desc.spatial_cell_size = cfg.sim.globals.spatial_cell_size;
             desc.flow_rebake_budget_ms = cfg.sim.globals.flow_rebake_budget_ms;
+            desc.flow_smoothing_radius = cfg.sim.globals.flow_smoothing_radius;
+            desc.flow_wall_cost = cfg.sim.globals.flow_wall_cost;
+            desc.flow_wall_falloff = cfg.sim.globals.flow_wall_falloff;
+            desc.flow_wall_exponent = cfg.sim.globals.flow_wall_exponent;
             roster.apply_to_tuning(desc.chaff_tuning);
             desc.chaff_tuning.max_replications_per_tick = cfg.sim.globals.max_replications_per_tick;
             desc.chaff_tuning.max_neighbors_sampled = cfg.sim.globals.max_neighbors_sampled;

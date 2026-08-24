@@ -264,6 +264,18 @@ struct SimGlobals {
     f32 spatial_cell_size = 4.0f;
     f64 flow_rebake_budget_ms = 0.5;
     u32 flow_rebake_margin_cells = 16;
+    /// World-space radius of the flow field's direction-smoothing pass. Raise
+    /// it for a lazier field that follows the lane's overall shape; drop it to
+    /// 0 for the exact shortest-path directions. See
+    /// sim::FlowFieldBakeDesc::smoothing_radius.
+    f32 flow_smoothing_radius = 2.0f;
+    /// Extra traversal cost for a cell hard against a vessel wall, and the
+    /// clearance over which it decays. Together these set how wide a turn the
+    /// horde takes; 0 cost restores exact shortest-path cornering. See
+    /// sim::SimDesc::flow_wall_cost.
+    f32 flow_wall_cost = 0.0f;
+    f32 flow_wall_falloff = 34.0f;
+    f32 flow_wall_exponent = 12.0f;
     u32 max_replications_per_tick = 128;
     u32 max_neighbors_sampled = 24;
     f32 slowed_speed_multiplier = 0.4f;

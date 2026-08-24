@@ -279,6 +279,10 @@ bool App::load_level(const std::string& path) {
     desc.squad_tuning = config_.sim.squads;
     desc.spatial_cell_size = config_.sim.globals.spatial_cell_size;
     desc.flow_rebake_budget_ms = config_.sim.globals.flow_rebake_budget_ms;
+    desc.flow_smoothing_radius = config_.sim.globals.flow_smoothing_radius;
+    desc.flow_wall_cost = config_.sim.globals.flow_wall_cost;
+    desc.flow_wall_falloff = config_.sim.globals.flow_wall_falloff;
+    desc.flow_wall_exponent = config_.sim.globals.flow_wall_exponent;
     enemies_.apply_to_tuning(desc.chaff_tuning);
     desc.chaff_tuning.max_replications_per_tick = config_.sim.globals.max_replications_per_tick;
     desc.chaff_tuning.max_neighbors_sampled = config_.sim.globals.max_neighbors_sampled;

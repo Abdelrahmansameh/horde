@@ -442,6 +442,10 @@ u32 spawn_grouped(sim::SimWorld& world, PathogenFamily family, Vec2 at, f32 radi
     u32 placed = 0;
     u32 left = count;
     while (left > 0) {
+        // A fresh squad per chunk: this is one command's worth of horde all
+        // arriving at once, so every chunk is genuinely its own cohort. (The
+        // wave director instead carries a cursor across ticks and closes it via
+        // SquadRegistry::accepting(), because its arrivals are spread in time.)
         u16 path = 0;
         const u16 squad =
             reg.next_path_for_lane(lane, path) ? reg.create_squad(path, at) : sim::kNoSquad;

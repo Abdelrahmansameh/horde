@@ -73,6 +73,7 @@ namespace immune::sim {
 class ChaffBuffers;
 class FlowField;
 class DistanceField;
+class TissueMask;
 class SpatialHash;
 
 /// Per-family movement tuning. Loaded from data by Wave 2C; the layout is
@@ -215,9 +216,21 @@ public:
     /// default-constructed (no paths, no squads) registry is safe to pass and
     /// reproduces the pre-squad kernel exactly, so tests that do not care about
     /// grouping do not need to build one.
+    ///
+    /// `mask` is the walkability authority, and is passed SEPARATELY from `sdf`
+    /// because the two disagree by design. sim::block_rect() marks a new
+    /// tower's footprint non-walkable in the mask and the flow field is re-baked
+    /// to route around it, but the DistanceField is deliberately never re-baked:
+    /// tower placement validation reads it for "is there clearance here", so
+    /// folding towers into it would make every tower block its own neighbours.
+    /// The consequence is that the SDF-based wall response cannot see towers at
+    /// all, and a dense enough crowd pushes agents straight through one. The
+    /// mask is what closes that. A default-constructed (empty) mask is safe to
+    /// pass and simply skips the check.
     ChaffUpdateStats update(ChaffBuffers& buffers,
                             const FlowField& flow,
                             const DistanceField& sdf,
+                            const TissueMask& mask,
                             const SpatialHash& hash,
                             const SquadRegistry& squads,
                             Rng& rng,
@@ -289,6 +302,13 @@ private:
     /// ranges concurrently would race. Resolved by one deterministic serial pass
     /// in index order after the parallel step joins.
     std::vector<u8> replicate_wanted_;
+    /// Per-squad count of daughters spawned so far in the CURRENT tick, indexed
+    /// by squad id. Sized to the registry (not to agent capacity) and rebuilt in
+    /// the replication resolve, so it is not part of ensure_scratch's
+    /// reserved-once set. Exists because SquadRegistry::member_count is a
+    /// top-of-tick snapshot: without it every daughter in a tick tests the same
+    /// stale count against max_squad_size and they all pass together.
+    std::vector<u32> squad_growth_;
 
     void ensure_scratch(usize capacity);
 

@@ -150,8 +150,15 @@ void WaveDirector::tick(sim::SimWorld& world, Rng& rng, f32 dt) {
                         f32 at_radius = spawn_point_radius;
 
                         if (grouping) {
-                            if (cursor.squad == sim::kNoSquad || cursor.filled >= squad_size ||
-                                !reg.alive(cursor.squad)) {
+                            // accepting() closes a squad both when it is full
+                            // AND when it has travelled away from where it was
+                            // born -- see SquadTuning::intake_distance. A ramp
+                            // that trickles agents out over seconds must not keep
+                            // pouring them into a cohort already halfway down the
+                            // lane: the centroid gets dragged back to the spawn
+                            // point and the leaders reverse to rejoin it.
+                            if (cursor.squad == sim::kNoSquad ||
+                                !reg.accepting(cursor.squad)) {
                                 u16 path = 0;
                                 cursor.squad = reg.next_path_for_lane(spawn_point_lane, path)
                                                    ? reg.create_squad(path, spawn_point_pos)
@@ -163,6 +170,9 @@ void WaveDirector::tick(sim::SimWorld& world, Rng& rng, f32 dt) {
                             // spawn ungrouped rather than stalling the wave.
                             if (squad != sim::kNoSquad) {
                                 chunk = math::min(left, squad_size - cursor.filled);
+                                // Cursor can be stale against a squad the registry
+                                // already considers full; next pass reopens one.
+                                if (chunk == 0) chunk = left;
 
                                 // SPAWN ON THE SQUAD'S OWN PATH, not at the
                                 // spawn point centre. create_squad() has already

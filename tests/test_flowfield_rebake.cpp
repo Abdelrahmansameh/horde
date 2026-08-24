@@ -187,6 +187,102 @@ TEST_CASE("incremental rebake equals a full rebake after a cost-only edit (no wa
     REQUIRE(d.cost_mismatches == 0);
 }
 
+TEST_CASE("incremental rebake equals a full rebake with direction smoothing on",
+          "[flowfield][rebake][equivalence][smoothing]") {
+    // Smoothing widens a cell's dependency cone from its four neighbours to
+    // everything within `smoothing_radius`, so a rebake that only refreshed the
+    // usual one-cell halo would leave a ring of cells holding directions
+    // smoothed against costs that no longer exist -- a seam around every tower,
+    // exactly the kind of artifact the smoothing was added to remove. This
+    // pins the padding that prevents it.
+    TissueMask mask = make_scene();
+    FlowFieldBakeDesc desc = make_desc(/*margin=*/4);
+    desc.smoothing_radius = 5.0f; // cell_size is 1.0, so five iterations
+    desc.goal_radius = 3.0f;
+
+    FlowField incremental;
+    incremental.bake(mask, desc);
+
+    const Rect edit = block_rect(mask, Rect{Vec2{17.0f, 17.0f}, Vec2{19.0f, 19.0f}});
+    incremental.mark_dirty(edit);
+    incremental.rebake_pending(mask);
+
+    FlowField full;
+    full.bake(mask, desc);
+
+    const DiffResult d = diff_fields(incremental, full, kW, kH, /*cost_tol=*/0.05f);
+    REQUIRE(d.reachability_mismatches == 0);
+    REQUIRE(d.cost_mismatches == 0);
+    REQUIRE(d.compared_reachable > 0);
+    // Directions, not just costs: the smoothing halo is the thing under test,
+    // and an under-padded rebake shows up here and nowhere else.
+    REQUIRE((d.dot_sum / static_cast<f32>(d.dot_count)) > 0.9999f);
+
+    // And the smoothed field still leads everywhere it is defined. This is the
+    // property smoothing could plausibly break and that nothing else here would
+    // catch: averaging directions can, in principle, manufacture a swirl or a
+    // standing point that a shortest-path field can never contain, and an agent
+    // that wanders into one stops arriving.
+    //
+    // The walk is cell-wise rather than a free-flying point, because a point
+    // integrating a direction field with no collision response will eventually
+    // clip a corner into a pillar and stall there -- which says something about
+    // the probe, not about the field. Stepping to the walkable neighbour the
+    // direction actually points at asks the question that matters: does
+    // following this field always make progress toward the goal?
+    u32 walked = 0;
+    for (i32 sy = 1; sy < kH - 1; sy += 3) {
+        for (i32 sx = 1; sx < kW - 1; sx += 3) {
+            if (!mask.walkable(sx, sy)) continue;
+            if (!full.reachable(mask.cell_to_world(sx, sy))) continue;
+
+            const f32* costs = full.costs();
+            i32 x = sx;
+            i32 y = sy;
+            bool arrived = false;
+            // Cost falls strictly every step, so a walk longer than the grid
+            // has cells means the field is circling.
+            for (i32 step = 0; step < kW * kH && !arrived; ++step) {
+                const f32 here = costs[y * kW + x];
+                if (here <= 0.0f) {
+                    arrived = true;
+                    break;
+                }
+                const Vec2 dir = full.sample_nearest(mask.cell_to_world(x, y));
+                if (dir.x == 0.0f && dir.y == 0.0f) break;
+
+                // Best-aligned walkable neighbour that actually descends.
+                i32 bx = x, by = y;
+                f32 best_align = 0.0f;
+                for (i32 oy = -1; oy <= 1; ++oy) {
+                    for (i32 ox = -1; ox <= 1; ++ox) {
+                        if (ox == 0 && oy == 0) continue;
+                        const i32 nx = x + ox;
+                        const i32 ny = y + oy;
+                        if (!mask.walkable(nx, ny)) continue;
+                        if (!(costs[ny * kW + nx] < here)) continue;
+                        const f32 inv_len = (ox != 0 && oy != 0) ? 0.70710678f : 1.0f;
+                        const f32 align =
+                            (static_cast<f32>(ox) * dir.x + static_cast<f32>(oy) * dir.y) * inv_len;
+                        if (align > best_align) {
+                            best_align = align;
+                            bx = nx;
+                            by = ny;
+                        }
+                    }
+                }
+                if (bx == x && by == y) break; // nowhere the field points goes downhill
+                x = bx;
+                y = by;
+            }
+            INFO("field walk stalled starting from cell " << sx << "," << sy);
+            REQUIRE(arrived);
+            ++walked;
+        }
+    }
+    REQUIRE(walked > 100);
+}
+
 TEST_CASE("pump_rebake drains the dirty queue over several budgeted calls and matches rebake_pending",
           "[flowfield][rebake][budget]") {
     TissueMask mask_budgeted = make_scene();

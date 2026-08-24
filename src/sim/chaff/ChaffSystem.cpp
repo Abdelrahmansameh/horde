@@ -309,6 +309,58 @@ void resolve_wall_contact(const DistanceField& sdf, f32& px, f32& py,
     vy += uy * blocked;
 }
 
+/// Last-resort guarantee that an agent which STARTED the tick on walkable
+/// ground also ENDS it there.
+///
+/// Tests the TISSUE MASK, not the distance field, and that is the whole point.
+/// The mask is the authority on what is walkable and it is kept current: when a
+/// tower is built, sim::block_rect() marks its footprint non-walkable and the
+/// flow field is re-baked to route around it. The DISTANCE field is not
+/// re-baked -- it cannot be, because tower placement validation reads it for
+/// "is there clearance for a tower here", and folding towers into it would make
+/// every tower block its own neighbours and kill tower clustering outright.
+///
+/// So the SDF has never heard of towers, and resolve_wall_contact() above reads
+/// only the SDF. The flow field steers the horde around a tower, but nothing
+/// physically stops agents entering one, and once the crowd behind is dense
+/// enough it simply presses them through. Measured on a 1,200-agent jam: 72
+/// agents inside the footprint at once.
+///
+/// The mask closes that hole for towers and for ordinary tissue alike, and it
+/// does so geometrically rather than by any force balance: the previous
+/// position was walkable, so some point on the segment to the new one is the
+/// last walkable point, and bisection finds it without needing a normal, a
+/// penetration depth, or a gradient -- none of which are reliable deep inside
+/// solid ground anyway.
+///
+/// Velocity is deliberately left alone. An agent pinned here still has its
+/// velocity pointing into the obstacle, so it re-attempts next tick and stays
+/// pressed against the face -- which is how a crowd crushed against something
+/// should behave. Zeroing it would make the front rank go slack and the jam
+/// would visibly stop pushing.
+void contain_to_tissue(const TissueMask& mask, f32& px, f32& py, f32 ox, f32 oy) {
+    auto walkable = [&mask](f32 x, f32 y) {
+        const IVec2 c = mask.world_to_cell(Vec2{x, y});
+        return mask.walkable(c.x, c.y);
+    };
+    if (walkable(px, py)) return;       // ended legal; nothing to do
+    if (!walkable(ox, oy)) return;      // started illegal too; pass A's SDF-gradient
+                                        // recovery owns this agent, not us
+
+    f32 good = 0.0f;   // fraction along [old -> new] known walkable
+    f32 bad = 1.0f;    // known blocked
+    for (u32 k = 0; k < 6; ++k) {   // 6 halvings: within ~1.5% of the step
+        const f32 mid = 0.5f * (good + bad);
+        if (walkable(ox + (px - ox) * mid, oy + (py - oy) * mid)) {
+            good = mid;
+        } else {
+            bad = mid;
+        }
+    }
+    px = ox + (px - ox) * good;
+    py = oy + (py - oy) * good;
+}
+
 /// Pass B: branch-free clamp_length + p += v*dt over six contiguous streams.
 /// Pulled out into its own small free function on purpose — MSVC's
 /// auto-vectorizer has a complexity/size budget per function, and this loop
@@ -367,8 +419,8 @@ void ChaffSystem::ensure_scratch(usize capacity) {
 }
 
 ChaffUpdateStats ChaffSystem::update(ChaffBuffers& buffers, const FlowField& flow,
-                                     const DistanceField& sdf, const SpatialHash& hash,
-                                     const SquadRegistry& squads,
+                                     const DistanceField& sdf, const TissueMask& mask,
+                                     const SpatialHash& hash, const SquadRegistry& squads,
                                      Rng& rng, f32 dt, JobSystem* jobs) {
     ChaffUpdateStats stats{};
     const usize count = buffers.count();
@@ -534,7 +586,29 @@ ChaffUpdateStats ChaffSystem::update(ChaffBuffers& buffers, const FlowField& flo
                     const f32 aw = sq_tuning.follow_weight_max * at;
                     if (aw > 0.0f) {
                         const f32 push = aw * sq_tuning.lateral_push;
-                        squad_impulse += fdir * (along < 0.0f ? -push : push);
+                        if (along >= 0.0f) {
+                            // Behind the squad: close up. Free to push as hard
+                            // as the tuning says -- catching up is with the
+                            // flow, so it can never fight the field.
+                            squad_impulse += fdir * push;
+                        } else {
+                            // AHEAD of the squad: brake, never reverse.
+                            //
+                            // Capped at the agent's own forward speed, so the
+                            // hardest this can do is bring it to a standstill
+                            // and let the squad catch up. Uncapped it was a
+                            // 1.65/tick impulse opposing a 0.33/tick flow
+                            // term, so a leader accelerated BACKWARDS until
+                            // max_speed clamped and then drove upstream at full
+                            // speed -- agents visibly turning round and heading
+                            // back up the lane. The flow field is supposed to
+                            // keep sole authority over which way "forward" is
+                            // (see the header); this is what actually enforces
+                            // it for the along-flow term.
+                            const f32 v_along = vx[i] * fdir.x + vy[i] * fdir.y;
+                            const f32 brake = math::min(push, math::max(0.0f, v_along));
+                            squad_impulse -= fdir * brake;
+                        }
                     }
                 } else if (math::length_sq(to_anchor) > math::kEpsilon) {
                     // No flow guidance at all (off-mask, or a genuine dead
@@ -557,8 +631,25 @@ ChaffUpdateStats ChaffSystem::update(ChaffBuffers& buffers, const FlowField& flo
                                   fp.separation_radius, fp.alignment_radius,
                                   contact_radius, fp.contact_stiffness,
                                   tuning.max_neighbors_sampled);
-            push_x[i] = nb.contact_push.x;
-            push_y[i] = nb.contact_push.y;
+            // CAPPED. contact_push is a SUM over every overlapping neighbour
+            // (up to max_neighbors_sampled), and pass B applies it as raw
+            // displacement that deliberately bypasses max_speed. Both are right
+            // on their own, but together they mean a deeply packed agent can be
+            // translated a long way in a single tick -- and a translation big
+            // enough to step over a wall defeats every wall test there is,
+            // because nothing samples the space in between. Bounding one tick's
+            // un-overlapping to the agent's own radius keeps it a relaxation
+            // rather than a teleport; the jam simply takes a few more ticks to
+            // resolve, which is what it looks like anyway.
+            {
+                const f32 cap = fp.radius;
+                const f32 mag2 = math::length_sq(nb.contact_push);
+                const Vec2 capped = mag2 > cap * cap
+                                        ? nb.contact_push * (cap / std::sqrt(mag2))
+                                        : nb.contact_push;
+                push_x[i] = capped.x;
+                push_y[i] = capped.y;
+            }
 
             // Crowd pressure amplifies separation rather than adding a
             // second independent force. Separation already points "away
@@ -631,14 +722,22 @@ ChaffUpdateStats ChaffSystem::update(ChaffBuffers& buffers, const FlowField& flo
     // Skipped entirely when the field was never baked (width 0). Most unit
     // tests pass a default-constructed DistanceField, and its sample() returns
     // 0, which would otherwise read as "every agent is buried in a wall".
-    if (sdf.width() > 0 && sdf.height() > 0) {
+    const bool has_sdf = sdf.width() > 0 && sdf.height() > 0;
+    const bool has_mask = mask.width() > 0 && mask.height() > 0;
+    if (has_sdf || has_mask) {
         auto resolve_range = [&](usize begin, usize end, u32) {
             for (usize i = begin; i < end; ++i) {
                 if ((flg[i] & chaff_flags::kHidden) != 0) continue;   // burrowed: not in the world
                 const u32 f = fam[i];
                 const ChaffFamilyParams& fp = tuning.family[f < kFamilyCount ? f : 0];
-                resolve_wall_contact(sdf, px[i], py[i], vx[i], vy[i], fp.radius,
-                                     fp.wall_restitution, fp.wall_splash);
+                if (has_sdf) {
+                    resolve_wall_contact(sdf, px[i], py[i], vx[i], vy[i], fp.radius,
+                                         fp.wall_restitution, fp.wall_splash);
+                }
+                // Runs AFTER, not instead: the resolver does the splash and the
+                // shallow-contact response, this only catches what it could not
+                // -- including everything about towers, which it cannot see.
+                if (has_mask) contain_to_tissue(mask, px[i], py[i], old_px[i], old_py[i]);
             }
         };
         if (jobs) {
@@ -680,6 +779,11 @@ ChaffUpdateStats ChaffSystem::update(ChaffBuffers& buffers, const FlowField& flo
     // deferred to `replicate_wanted` instead of spawning inline.
     u32 replicated = 0;
     const u32 cap = tuning_.max_replications_per_tick;
+    // Daughters assigned to each squad SO FAR THIS TICK. squads.update() ran at
+    // the top of the tick, so its member_count predates every spawn below; with
+    // a stale count alone a squad one short of the cap would accept every
+    // daughter this tick produced instead of exactly one.
+    squad_growth_.assign(squads.squads().size(), 0u);
     for (usize i = 0; i < count; ++i) {
         if (!replicate_wanted[i]) continue;
         replicate_wanted[i] = 0;
@@ -692,16 +796,28 @@ ChaffUpdateStats ChaffSystem::update(ChaffBuffers& buffers, const FlowField& flo
         sp.family = static_cast<PathogenFamily>(f);
         sp.density = fp.base_density > 0.0f ? fp.base_density : 1.0f;
         sp.flags = chaff_flags::kReplicated;
-        // A daughter joins its parent's squad. It is spawned ON the parent, so
-        // any other answer is incoherent -- and kNoSquad (the struct default,
-        // which is what this used to leave it as) is the worst of them: a
-        // replicating family would shed an ungrouped agent per parent per five
-        // seconds, each one steering purely on the flow field and drifting out
-        // of the group it was born in. Measured on capillary_2 that was 662 of
-        // 842 live agents unaffiliated -- the squads were real, but four out of
-        // five pathogens on screen belonged to none of them.
-        sp.squad_id = sqid[i];
-        if (buffers.spawn(sp).valid()) ++replicated;
+        // A daughter joins its parent's squad while that squad has room. It is
+        // spawned ON the parent, so no other squad is a coherent answer -- and
+        // defaulting them all to kNoSquad (which this used to do) is the worst
+        // answer of all: a replicating family sheds an ungrouped agent per
+        // parent per five seconds, each steering purely on the flow field and
+        // drifting out of the group it was born in. Measured on capillary_2
+        // that was 662 of 842 live agents unaffiliated.
+        //
+        // Above SquadTuning::max_squad_size the daughter goes independent
+        // instead. Inheritance is unbounded compounding otherwise -- every
+        // member is a source of more members of the same squad -- so a cohort
+        // of 60 grows until the lane is one squad again. See the max_squad_size
+        // rationale in sim/squad/Squads.h.
+        const u16 parent_squad = sqid[i];
+        const u32 pending =
+            parent_squad < squad_growth_.size() ? squad_growth_[parent_squad] : 0u;
+        const bool inherit = squads.can_absorb(parent_squad, pending);
+        sp.squad_id = inherit ? parent_squad : kNoSquad;
+        if (buffers.spawn(sp).valid()) {
+            ++replicated;
+            if (inherit) ++squad_growth_[parent_squad];
+        }
     }
 
     stats.moved = static_cast<u32>(count);

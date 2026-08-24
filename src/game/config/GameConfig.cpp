@@ -51,6 +51,10 @@ constexpr Field kSimGlobalsFields[] = {
     IMMUNE_CONFIG_FIELD(SimGlobals, spatial_cell_size, FieldKind::F32, "Spatial hash cell size; caps alignment_radius"),
     IMMUNE_CONFIG_FIELD(SimGlobals, flow_rebake_budget_ms, FieldKind::F64, "Milliseconds per frame for incremental rebakes"),
     IMMUNE_CONFIG_FIELD(SimGlobals, flow_rebake_margin_cells, FieldKind::U32, ""),
+    IMMUNE_CONFIG_FIELD(SimGlobals, flow_smoothing_radius, FieldKind::F32, "World-space radius of flow-field direction smoothing (0 = exact shortest path)"),
+    IMMUNE_CONFIG_FIELD(SimGlobals, flow_wall_cost, FieldKind::F32, "Extra traversal cost hard against a vessel wall (0 = tight corners)"),
+    IMMUNE_CONFIG_FIELD(SimGlobals, flow_wall_falloff, FieldKind::F32, "Clearance in world units over which flow_wall_cost decays"),
+    IMMUNE_CONFIG_FIELD(SimGlobals, flow_wall_exponent, FieldKind::F32, "Decay shape; higher keeps the wall cost in a thin layer at the lining"),
     IMMUNE_CONFIG_FIELD(SimGlobals, max_replications_per_tick, FieldKind::U32, "Global cap on replication spawns"),
     IMMUNE_CONFIG_FIELD(SimGlobals, max_neighbors_sampled, FieldKind::U32, "Neighbours one agent inspects per tick"),
     IMMUNE_CONFIG_FIELD(SimGlobals, slowed_speed_multiplier, FieldKind::F32, "Speed multiplier while slowed/frozen"),
@@ -97,6 +101,7 @@ IMMUNE_CONFIG_SCHEMA_ASSERT(sim::SquadTuning);
 constexpr Field kSquadFields[] = {
     IMMUNE_CONFIG_FIELD(sim::SquadTuning, enabled, FieldKind::Bool, "Master switch; off reproduces the pre-squad horde exactly"),
     IMMUNE_CONFIG_FIELD(sim::SquadTuning, target_squad_size, FieldKind::U32, "Agents per squad before the spawner opens a new one"),
+    IMMUNE_CONFIG_FIELD(sim::SquadTuning, max_squad_size, FieldKind::U32, "Membership ceiling; replicated daughters past it spawn independent (raised to target_squad_size if lower)"),
     IMMUNE_CONFIG_FIELD(sim::SquadTuning, max_squads, FieldKind::U32, "Registry capacity; overflow spawns ungrouped rather than failing"),
     IMMUNE_CONFIG_FIELD(sim::SquadTuning, follow_weight_max, FieldKind::F32, "Cap on the flow-vs-anchor blend; must stay below 1 so the flow field keeps a vote"),
     IMMUNE_CONFIG_FIELD(sim::SquadTuning, follow_ramp, FieldKind::F32, "World units outside the squad radius over which the steer reaches its cap"),
@@ -111,6 +116,7 @@ constexpr Field kSquadFields[] = {
     IMMUNE_CONFIG_FIELD(sim::SquadTuning, path_lateral_jitter, FieldKind::F32, "Per-squad lateral offset as a fraction of path half-width"),
     IMMUNE_CONFIG_FIELD(sim::SquadTuning, spawn_spacing, FieldKind::F32, "Minimum arc distance between two squads opening on the same path"),
     IMMUNE_CONFIG_FIELD(sim::SquadTuning, retire_ticks, FieldKind::U32, "Consecutive empty ticks before a squad slot is recycled"),
+    IMMUNE_CONFIG_FIELD(sim::SquadTuning, intake_distance, FieldKind::F32, "How far a squad may travel from its birthplace and still take new members"),
 };
 constexpr Schema kSquadSchema{"squads", kSquadFields};
 
@@ -527,6 +533,10 @@ GameConfig default_game_config() {
         cfg.sim.globals.spatial_cell_size = desc.spatial_cell_size;
         cfg.sim.globals.flow_rebake_budget_ms = desc.flow_rebake_budget_ms;
         cfg.sim.globals.flow_rebake_margin_cells = 16u;
+        cfg.sim.globals.flow_smoothing_radius = 2.0f;
+        cfg.sim.globals.flow_wall_cost = desc.flow_wall_cost;
+        cfg.sim.globals.flow_wall_falloff = desc.flow_wall_falloff;
+        cfg.sim.globals.flow_wall_exponent = desc.flow_wall_exponent;
         cfg.sim.globals.max_replications_per_tick = desc.chaff_tuning.max_replications_per_tick;
         cfg.sim.globals.max_neighbors_sampled = desc.chaff_tuning.max_neighbors_sampled;
         cfg.sim.globals.slowed_speed_multiplier = 0.4f;

@@ -542,6 +542,9 @@ struct Renderer::Impl {
     GLuint flow_vao = 0;
     GLuint flow_vbo = 0;
     usize flow_vbo_capacity_bytes = 0;
+    /// Rebuilt every frame the overlay is on; owned here so that rebuild is a
+    /// clear() rather than an allocation of up to a megabyte per frame.
+    std::vector<FlowDebugVertex> flow_verts;
 
     WallClock clock;
     f32 time = 0.0f;
@@ -1972,24 +1975,74 @@ void Renderer::submit_flow_debug(const sim::FlowField& flow) {
     const ShaderProgram prog = imp.shaders.get("flow_debug");
     if (!prog.valid()) return;
 
-    std::vector<FlowDebugVertex> verts;
     const Rect vis = imp.visible_bounds;
-    const f32 step = math::max(flow.cell_size() * 3.0f, 1.0f);
-    const f32 arrow_len = step * 0.4f;
-    const Vec4 color{0.55f, 0.95f, 1.0f, 0.65f};
+    const Vec2 span = vis.size();
+    if (span.x <= 0.0f || span.y <= 0.0f || flow.cell_size() <= 0.0f) return;
 
-    for (f32 y = vis.min.y; y <= vis.max.y; y += step) {
-        for (f32 x = vis.min.x; x <= vis.max.x; x += step) {
+    // SPACING IS IN PIXELS, NOT CELLS. Stepping by a multiple of the cell size
+    // ties arrow density to the level's grid resolution, so a 0.5-unit-cell
+    // level drew thousands of overlapping 6-pixel arrows -- a hatch pattern,
+    // not a field. Deriving the step from the viewport keeps the overlay
+    // legible at any zoom, and clamping to the cell size stops it from
+    // claiming more resolution than the data has.
+    constexpr f32 kSpacingPx = 26.0f;
+    constexpr usize kMaxArrows = 6000;
+    const f32 world_per_px = span.y / static_cast<f32>(math::max(desc_.framebuffer_height, 1));
+    f32 step = math::max(kSpacingPx * world_per_px, flow.cell_size());
+
+    // Snap the lattice to world space rather than to the visible rect, or every
+    // arrow slides continuously under a panning camera and the whole field
+    // shimmers. Halving density (rather than clipping the list) keeps a
+    // zoomed-out view an honest, if coarser, picture of the same field.
+    auto lattice_count = [&](f32 s) {
+        return (static_cast<usize>(span.x / s) + 2) * (static_cast<usize>(span.y / s) + 2);
+    };
+    while (lattice_count(step) > kMaxArrows) step *= 2.0f;
+
+    const f32 x0 = std::floor(vis.min.x / step) * step;
+    const f32 y0 = std::floor(vis.min.y / step) * step;
+
+    // Head geometry: two barbs swept back from the tip. The overlay previously
+    // emitted one, which read as a stray tick rather than an arrowhead and was
+    // most of why the field looked like noise.
+    const f32 arrow_len = step * 0.62f;
+    const f32 head_len = arrow_len * 0.34f;
+    const f32 head_half = arrow_len * 0.20f;
+    constexpr Vec4 kColor{0.55f, 0.95f, 1.0f, 0.75f};
+    /// Below this much of the bilinear stencil the sample is mostly outside the
+    /// lumen; its direction is an extrapolation, so it is not drawn at all.
+    constexpr f32 kMinSupport = 0.35f;
+
+    std::vector<FlowDebugVertex>& verts = imp.flow_verts;
+    verts.clear();
+    verts.reserve(lattice_count(step) * 6);
+
+    for (f32 y = y0; y <= vis.max.y + step; y += step) {
+        for (f32 x = x0; x <= vis.max.x + step; x += step) {
             const Vec2 p{x, y};
-            const Vec2 dir = flow.sample(p);
+            f32 support = 0.0f;
+            const Vec2 dir = flow.sample_with_support(p, support);
             if (math::length_sq(dir) < 1e-6f) continue;
-            const Vec2 tip = p + dir * arrow_len;
-            verts.push_back(FlowDebugVertex{p, color});
-            verts.push_back(FlowDebugVertex{tip, color});
+            if (support < kMinSupport) continue;
+
+            // Fade the last stretch to the wall instead of stopping dead: an
+            // abrupt cutoff at the lumen edge is itself read as an artifact.
+            Vec4 color = kColor;
+            color.a *= math::saturate((support - kMinSupport) / (1.0f - kMinSupport));
+
+            // Centred on the sample point, so the lattice reads as a field
+            // rather than as ticks hanging off their own grid corners.
             const Vec2 perp{-dir.y, dir.x};
-            const Vec2 back = tip - dir * (arrow_len * 0.35f);
+            const Vec2 tip = p + dir * (arrow_len * 0.5f);
+            const Vec2 tail = p - dir * (arrow_len * 0.5f);
+            const Vec2 base = tip - dir * head_len;
+
+            verts.push_back(FlowDebugVertex{tail, color});
             verts.push_back(FlowDebugVertex{tip, color});
-            verts.push_back(FlowDebugVertex{back + perp * (arrow_len * 0.2f), color});
+            verts.push_back(FlowDebugVertex{tip, color});
+            verts.push_back(FlowDebugVertex{base + perp * head_half, color});
+            verts.push_back(FlowDebugVertex{tip, color});
+            verts.push_back(FlowDebugVertex{base - perp * head_half, color});
         }
     }
     if (verts.empty()) return;
@@ -2007,6 +2060,11 @@ void Renderer::submit_flow_debug(const sim::FlowField& flow) {
 
     glUseProgram(prog.gl_id);
     glUniformMatrix4fv(0, 1, GL_FALSE, glm::value_ptr(imp.view_projection));
+    // Explicit, because the per-vertex alpha fade at the lumen edge is only a
+    // fade if blending is on -- and this pass inherits whatever state the last
+    // one happened to leave behind.
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glBindVertexArray(imp.flow_vao);
     glDrawArrays(GL_LINES, 0, static_cast<GLsizei>(verts.size()));
     ++stats_.draw_calls;

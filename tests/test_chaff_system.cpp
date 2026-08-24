@@ -8,6 +8,7 @@
 #include "sim/chaff/ChaffBuffers.h"
 #include "sim/chaff/ChaffSystem.h"
 #include "sim/flowfield/FlowField.h"
+#include "sim/flowfield/TissueRaster.h"
 #include "sim/spatial/SpatialHash.h"
 #include "sim/squad/Squads.h"
 
@@ -101,7 +102,7 @@ TEST_CASE("flow acceleration steers an agent toward the goal", "[sim][chaff][mov
     Rng rng(1);
     for (int i = 0; i < 30; ++i) {
         rebuild(hash, buffers);
-        sys.update(buffers, flow, sdf, hash, no_squads(), rng, kFixedDt, nullptr);
+        sys.update(buffers, flow, sdf, TissueMask{}, hash, no_squads(), rng, kFixedDt, nullptr);
     }
 
     REQUIRE(buffers.count() == 1);
@@ -133,7 +134,7 @@ TEST_CASE("kDrifting agents ignore the flow field and follow ambient drift",
     Rng rng(2);
     for (int i = 0; i < 20; ++i) {
         rebuild(hash, buffers);
-        sys.update(buffers, flow, sdf, hash, no_squads(), rng, kFixedDt, nullptr);
+        sys.update(buffers, flow, sdf, TissueMask{}, hash, no_squads(), rng, kFixedDt, nullptr);
     }
 
     REQUIRE(buffers.count() == 1);
@@ -168,7 +169,7 @@ TEST_CASE("kSlowed lowers the effective max speed", "[sim][chaff][movement][flag
 
     Rng rng(4);
     rebuild(hash, buffers);
-    sys.update(buffers, flow, sdf, hash, no_squads(), rng, kFixedDt, nullptr);
+    sys.update(buffers, flow, sdf, TissueMask{}, hash, no_squads(), rng, kFixedDt, nullptr);
 
     const f32 speed_normal = std::sqrt(buffers.vel_x[0] * buffers.vel_x[0] +
                                        buffers.vel_y[0] * buffers.vel_y[0]);
@@ -202,7 +203,7 @@ TEST_CASE("kHidden agents do not move", "[sim][chaff][movement][flags]") {
     Rng rng(5);
     for (int i = 0; i < 10; ++i) {
         rebuild(hash, buffers);
-        sys.update(buffers, flow, sdf, hash, no_squads(), rng, kFixedDt, nullptr);
+        sys.update(buffers, flow, sdf, TissueMask{}, hash, no_squads(), rng, kFixedDt, nullptr);
         REQUIRE(buffers.pos_x[0] == Catch::Approx(25.0f));
         REQUIRE(buffers.pos_y[0] == Catch::Approx(25.0f));
         REQUIRE(buffers.vel_x[0] == 0.0f);
@@ -236,7 +237,7 @@ TEST_CASE("replication respects the per-tick global cap", "[sim][chaff][replicat
 
     Rng rng(6);
     rebuild(hash, buffers);
-    const ChaffUpdateStats stats = sys.update(buffers, flow, sdf, hash, no_squads(), rng, kFixedDt, nullptr);
+    const ChaffUpdateStats stats = sys.update(buffers, flow, sdf, TissueMask{}, hash, no_squads(), rng, kFixedDt, nullptr);
 
     REQUIRE(stats.replicated == 3);
     REQUIRE(buffers.count() == 53);
@@ -262,7 +263,7 @@ TEST_CASE("agents leaving the world bounds are flagged for despawn", "[sim][chaf
 
     Rng rng(7);
     rebuild(hash, buffers);
-    const ChaffUpdateStats stats = sys.update(buffers, flow, sdf, hash, no_squads(), rng, kFixedDt, nullptr);
+    const ChaffUpdateStats stats = sys.update(buffers, flow, sdf, TissueMask{}, hash, no_squads(), rng, kFixedDt, nullptr);
 
     REQUIRE(stats.despawned_out_of_bounds == 1);
     REQUIRE((buffers.flags[0] & chaff_flags::kPendingKill) != 0);
@@ -290,7 +291,7 @@ TEST_CASE("agents reaching the goal are flagged for despawn", "[sim][chaff][desp
 
     Rng rng(8);
     rebuild(hash, buffers);
-    const ChaffUpdateStats stats = sys.update(buffers, flow, sdf, hash, no_squads(), rng, kFixedDt, nullptr);
+    const ChaffUpdateStats stats = sys.update(buffers, flow, sdf, TissueMask{}, hash, no_squads(), rng, kFixedDt, nullptr);
 
     REQUIRE(stats.despawned_at_goal == 1);
     REQUIRE((buffers.flags[0] & chaff_flags::kPendingKill) != 0);
@@ -325,7 +326,7 @@ TEST_CASE("same seed reproduces identical results across repeated serial runs",
         Rng rng(4242);
         for (int t = 0; t < 60; ++t) {
             hash.rebuild(buffers.pos_x.data(), buffers.pos_y.data(), buffers.count(), &jobs);
-            sys.update(buffers, flow, sdf, hash, no_squads(), rng, kFixedDt, &jobs);
+            sys.update(buffers, flow, sdf, TissueMask{}, hash, no_squads(), rng, kFixedDt, &jobs);
             buffers.compact();
         }
         return buffers;
@@ -384,7 +385,7 @@ TEST_CASE("below the parallel_for grain, serial and multi-worker results match e
         Rng rng(555);
         for (int t = 0; t < 40; ++t) {
             hash.rebuild(buffers.pos_x.data(), buffers.pos_y.data(), buffers.count(), jobs);
-            sys.update(buffers, flow, sdf, hash, no_squads(), rng, kFixedDt, jobs);
+            sys.update(buffers, flow, sdf, TissueMask{}, hash, no_squads(), rng, kFixedDt, jobs);
             buffers.compact();
         }
         return buffers;
@@ -464,7 +465,7 @@ TEST_CASE("a dense pack stops overlapping instead of stacking",
     Rng rng(7);
     for (int t = 0; t < 240; ++t) {
         rebuild(hash, buffers);
-        sys.update(buffers, flow, sdf, hash, no_squads(), rng, kFixedDt, nullptr);
+        sys.update(buffers, flow, sdf, TissueMask{}, hash, no_squads(), rng, kFixedDt, nullptr);
         buffers.compact();
     }
 
@@ -544,4 +545,165 @@ TEST_CASE("spawn_burst stays deterministic and varies between bursts",
     // out of one spawn point are not stamped on top of each other.
     REQUIRE(burst(7) == burst(7));
     REQUIRE(burst(7) != burst(8));
+}
+
+TEST_CASE("a crushing crowd cannot be squeezed out through a lane wall",
+          "[sim][chaff][walls]") {
+    // Reported from play: past a certain local density, agents jammed against
+    // tissue start appearing on the wrong side of it.
+    //
+    // Shaped like a real level rather than like a physics demo, because that is
+    // where it happens: a narrow lane with solid tissue either side, a flow
+    // field running along it, and far more horde in it than it comfortably
+    // holds. The pressure that squeezes agents out is the crowd's own, not a
+    // contrived head-on impact.
+    constexpr f32 kCell = 1.0f;          // as coarse as the widened levels use
+    constexpr f32 kLaneHalf = 6.0f;      // narrow: pressure has nowhere to go
+    const Rect bounds{Vec2{0.0f, 0.0f}, Vec2{120.0f, 60.0f}};
+    const f32 mid_y = 30.0f;
+
+    TissueMask mask;
+    const i32 w = static_cast<i32>(bounds.size().x / kCell);
+    const i32 h = static_cast<i32>(bounds.size().y / kCell);
+    mask.resize(w, h, kCell, bounds.min);
+    for (i32 y = 0; y < h; ++y) {
+        const f32 wy = (static_cast<f32>(y) + 0.5f) * kCell;
+        const bool inside = std::fabs(wy - mid_y) <= kLaneHalf;
+        for (i32 x = 0; x < w; ++x) mask.set_walkable(x, y, inside);
+    }
+    DistanceField sdf;
+    sdf.bake(mask);
+
+    FlowField flow;
+    FlowFieldBakeDesc fd;
+    fd.goal_cells = {mask.world_to_cell(Vec2{116.0f, mid_y})};
+    flow.bake(mask, fd);
+
+    SpatialHash hash = make_hash(bounds);
+    ChaffSystem sys;
+    ChaffTuning t = flat_tuning(/*accel*/ 40.0f, /*max_speed*/ 14.0f, /*sep_radius*/ 1.6f,
+                                /*sep_strength*/ 8.0f, /*jitter*/ 0.3f);
+    for (u32 f = 0; f < kFamilyCount; ++f) {
+        t.family[f].radius = 0.5f;
+        t.family[f].contact_spacing = 2.0f;
+        t.family[f].contact_stiffness = 1.0f;
+        t.family[f].pressure_gain = 0.5f;
+        t.family[f].pressure_max = 8.0f;
+    }
+    sys.set_tuning(t);
+    sys.set_world_bounds(bounds);
+    sys.set_goal(Vec2{116.0f, mid_y}, 0.0f);
+
+    ChaffBuffers buffers;
+    buffers.reserve(4000);
+    Rng rng(6502);
+    // 1600 agents into a lane 12 units wide: several times what the width can
+    // carry, so the crowd is permanently over-packed against both walls.
+    for (u32 i = 0; i < 1600; ++i) {
+        ChaffSpawnParams p;
+        p.position = Vec2{6.0f + static_cast<f32>(i % 60) * 0.55f,
+                          mid_y - 5.0f + static_cast<f32>((i / 60) % 20) * 0.5f};
+        p.density = 1.0f;
+        buffers.spawn(p);
+    }
+
+    u32 worst_outside = 0;
+    f32 deepest = 0.0f;
+    for (u32 tick = 0; tick < 900; ++tick) {
+        rebuild(hash, buffers);
+        sys.update(buffers, flow, sdf, mask, hash, no_squads(), rng, kFixedDt, nullptr);
+
+        u32 outside = 0;
+        for (usize i = 0; i < buffers.count(); ++i) {
+            const f32 dy = std::fabs(buffers.pos_y[i] - mid_y);
+            if (dy > kLaneHalf) {
+                ++outside;
+                deepest = math::max(deepest, dy - kLaneHalf);
+            }
+        }
+        worst_outside = math::max(worst_outside, outside);
+    }
+
+    INFO("worst outside the lane " << worst_outside << " of " << buffers.count()
+                                   << ", deepest " << deepest << " units into tissue");
+    // Agents may touch the wall -- their centre can sit a hair outside while
+    // their body overlaps it -- but nothing may end up meaningfully embedded in
+    // solid tissue, and nothing at all may end up beyond it.
+    REQUIRE(deepest < 1.0f);
+}
+
+TEST_CASE("a crowd cannot be pushed through a tower footprint", "[sim][chaff][walls][tower]") {
+    // Placing a tower calls sim::block_rect() to mark its footprint
+    // non-walkable and FlowField::mark_dirty() to reroute the horde around it.
+    // The DistanceField is NOT rebaked -- so the wall-contact resolver, which
+    // reads only the SDF, has never heard of the tower. The flow field steers
+    // agents around it, but nothing physically stops them entering it, and once
+    // the crowd is dense enough the pressure behind simply pushes them through.
+    //
+    // This reproduces that directly: bake the field, THEN block a rectangle the
+    // way a tower does, then drive a dense crowd at it.
+    constexpr f32 kCell = 0.5f;
+    const Rect bounds{Vec2{0.0f, 0.0f}, Vec2{80.0f, 40.0f}};
+    const f32 mid_y = 20.0f;
+
+    TissueMask mask;
+    const i32 w = static_cast<i32>(bounds.size().x / kCell);
+    const i32 h = static_cast<i32>(bounds.size().y / kCell);
+    mask.resize(w, h, kCell, bounds.min);
+    for (i32 y = 0; y < h; ++y) {
+        const f32 wy = (static_cast<f32>(y) + 0.5f) * kCell;
+        for (i32 x = 0; x < w; ++x) mask.set_walkable(x, y, std::fabs(wy - mid_y) <= 9.0f);
+    }
+    DistanceField sdf;
+    sdf.bake(mask);   // baked BEFORE the tower, exactly as the game does
+
+    // The tower: a solid block mid-lane, leaving gaps above and below so the
+    // flow field still has a route and the horde is not simply dammed.
+    const Rect footprint{Vec2{38.0f, mid_y - 4.0f}, Vec2{44.0f, mid_y + 4.0f}};
+    sim::block_rect(mask, footprint);
+
+    FlowField flow;
+    FlowFieldBakeDesc fd;
+    fd.goal_cells = {mask.world_to_cell(Vec2{76.0f, mid_y})};
+    flow.bake(mask, fd);
+
+    SpatialHash hash = make_hash(bounds);
+    ChaffSystem sys;
+    ChaffTuning t = flat_tuning(/*accel*/ 40.0f, /*max_speed*/ 14.0f, /*sep_radius*/ 1.6f,
+                                /*sep_strength*/ 8.0f, /*jitter*/ 0.3f);
+    for (u32 f = 0; f < kFamilyCount; ++f) {
+        t.family[f].radius = 0.5f;
+        t.family[f].contact_spacing = 2.0f;
+        t.family[f].contact_stiffness = 1.0f;
+        t.family[f].pressure_gain = 0.5f;
+        t.family[f].pressure_max = 8.0f;
+    }
+    sys.set_tuning(t);
+    sys.set_world_bounds(bounds);
+    sys.set_goal(Vec2{76.0f, mid_y}, 0.0f);
+
+    ChaffBuffers buffers;
+    buffers.reserve(3000);
+    Rng rng(1234);
+    for (u32 i = 0; i < 1200; ++i) {
+        ChaffSpawnParams p;
+        p.position = Vec2{4.0f + static_cast<f32>(i % 40) * 0.6f,
+                          mid_y - 7.0f + static_cast<f32>((i / 40) % 30) * 0.5f};
+        p.density = 1.0f;
+        buffers.spawn(p);
+    }
+
+    u32 worst_in_tower = 0;
+    for (u32 tick = 0; tick < 900; ++tick) {
+        rebuild(hash, buffers);
+        sys.update(buffers, flow, sdf, mask, hash, no_squads(), rng, kFixedDt, nullptr);
+        u32 in_tower = 0;
+        for (usize i = 0; i < buffers.count(); ++i) {
+            if (footprint.contains(Vec2{buffers.pos_x[i], buffers.pos_y[i]})) ++in_tower;
+        }
+        worst_in_tower = math::max(worst_in_tower, in_tower);
+    }
+    INFO("worst agents inside the tower footprint: " << worst_in_tower << " of "
+                                                     << buffers.count());
+    REQUIRE(worst_in_tower == 0);
 }

@@ -78,6 +78,47 @@ struct SimDesc {
     f32 spatial_cell_size = 4.0f;
     /// Milliseconds per frame the flow field may spend on incremental rebakes.
     f64 flow_rebake_budget_ms = 0.5;
+    /// World-space radius of the flow field's direction-smoothing pass, applied
+    /// when LevelLoader::instantiate() bakes the field. See
+    /// sim::FlowFieldBakeDesc::smoothing_radius.
+    f32 flow_smoothing_radius = 2.0f;
+    /// How much more a cell costs to cross when it is hard against a vessel
+    /// wall, versus one clear of it. DEFAULT OFF -- see the measurement below.
+    ///
+    /// WHAT IT IS FOR. A shortest-path field takes corners infinitely tight: at
+    /// the free end of a septum every route to the goal touches that one tip,
+    /// so the field is a fan converging on a point and the horde beelines to it
+    /// rather than sweeping round the bend. Charging for wall proximity bows
+    /// the path off the corner, because scraping it is expensive.
+    ///
+    /// WHY IT SHIPS OFF ANYWAY. Clearance cannot tell the tip of a septum from
+    /// the side of a straight lane -- both are just "near a wall" -- so the same
+    /// term that opens a hairpin also tilts every lane's field toward its own
+    /// centreline. Measured on capillary_switchback and capillary_2: the
+    /// best-case setting bought ~8 world units of standoff at the hairpin, and
+    /// cost capillary_2 its straight-lane flatness (mean cross-lane component
+    /// 0.22 -> 0.36, i.e. most of the way back to the pre-eikonal field) while
+    /// making the field measurably less smooth (mean neighbour disagreement
+    /// 0.32 -> 1.17 degrees). That is a bad trade, so it is opt-in: turn it up
+    /// on a level whose hairpins matter more than its straights.
+    f32 flow_wall_cost = 0.0f;
+    /// Clearance, in world units, at which flow_wall_cost has fully decayed.
+    /// Roughly the radius of the arc a turn will take, so it wants to be on the
+    /// order of half a lane width, not a couple of cells.
+    f32 flow_wall_falloff = 34.0f;
+    /// Shape of that decay. This is the knob that separates "take corners wide"
+    /// from "funnel every lane onto its own centreline", and it matters more
+    /// than either value above.
+    ///
+    /// The penalty is gain * (1 - clearance/falloff)^exponent. At exponent 2 the
+    /// cost gradient is still substantial halfway across a lumen, so a straight
+    /// lane develops a herringbone pointing at its axis -- agents near either
+    /// wall cut steeply inward and the overlay shows a chevron. Raising the
+    /// exponent concentrates the whole penalty into a thin boundary layer at
+    /// the lining, which is enough to stop a path grazing a septum tip while
+    /// leaving the open middle of a vessel almost perfectly flat.
+    f32 flow_wall_exponent = 12.0f;
+
     ChaffTuning chaff_tuning{};
     /// Squad grouping (sim/squad/Squads.h). Defaults are live: a world built
     /// with a plain SimDesc gets squads as soon as a level installs paths, and

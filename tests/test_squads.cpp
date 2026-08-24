@@ -383,7 +383,7 @@ void run_two_squads(TwoSquadRun& r, bool grouping, u32 ticks, u32 per_squad = 40
     for (u32 i = 0; i < ticks; ++i) {
         rebuild(hash, r.buffers);
         r.reg.update(r.buffers, kFixedDt);
-        sys.update(r.buffers, flow, sdf, hash, r.reg, rng, kFixedDt, nullptr);
+        sys.update(r.buffers, flow, sdf, TissueMask{}, hash, r.reg, rng, kFixedDt, nullptr);
     }
 }
 
@@ -460,7 +460,7 @@ TEST_CASE("agents with no squad are unaffected by the squad layer",
         for (u32 i = 0; i < 120; ++i) {
             rebuild(hash, b);
             reg.update(b, kFixedDt);
-            sys.update(b, flow, sdf, hash, reg, rng, kFixedDt, nullptr);
+            sys.update(b, flow, sdf, TissueMask{}, hash, reg, rng, kFixedDt, nullptr);
         }
         return b;
     };
@@ -507,7 +507,7 @@ TEST_CASE("squad movement is reproducible and thread-count independent",
         for (u32 i = 0; i < 150; ++i) {
             rebuild(hash, b);
             reg.update(b, kFixedDt);
-            sys.update(b, flow, sdf, hash, reg, rng, kFixedDt, jobs);
+            sys.update(b, flow, sdf, TissueMask{}, hash, reg, rng, kFixedDt, jobs);
         }
         return std::pair<ChaffBuffers, u64>{b, reg.state_hash()};
     };
@@ -678,7 +678,7 @@ TEST_CASE("10k agents in squads stay inside the chaff movement budget",
     for (u32 i = 0; i < 30; ++i) {
         rebuild(hash, b);
         reg.update(b, kFixedDt);
-        sys.update(b, flow, sdf, hash, reg, rng, kFixedDt, &jobs);
+        sys.update(b, flow, sdf, TissueMask{}, hash, reg, rng, kFixedDt, &jobs);
     }
     f64 worst_chaff = 0.0;
     f64 worst_squad = 0.0;
@@ -692,7 +692,7 @@ TEST_CASE("10k agents in squads stay inside the chaff movement budget",
                 worst_squad, std::chrono::duration<f64, std::milli>(t1 - t0).count());
         }
         const auto t0 = std::chrono::steady_clock::now();
-        sys.update(b, flow, sdf, hash, reg, rng, kFixedDt, &jobs);
+        sys.update(b, flow, sdf, TissueMask{}, hash, reg, rng, kFixedDt, &jobs);
         const auto t1 = std::chrono::steady_clock::now();
         worst_chaff =
             math::max(worst_chaff, std::chrono::duration<f64, std::milli>(t1 - t0).count());
@@ -724,7 +724,16 @@ TEST_CASE("a replicated agent joins its parent's squad", "[sim][squad][replicati
     sys.set_goal(Vec2{115.0f, 30.0f}, 0.0f);
 
     SquadRegistry reg;
-    reg.set_tuning(SquadTuning{});
+    {
+        // This case is about WHICH squad a daughter inherits, so the size cap
+        // is lifted out of the way -- at this replication rate both squads blow
+        // past the stock 90 in well under 120 ticks, and the orphans that
+        // produces (correct behaviour, pinned by its own case below) would
+        // drown the signal here.
+        SquadTuning st;
+        st.max_squad_size = 4096;
+        reg.set_tuning(st);
+    }
     std::vector<SquadPath> paths;
     paths.push_back(straight_path("a", "lane", 22.0f));
     paths.push_back(straight_path("b", "lane", 38.0f));
@@ -747,7 +756,7 @@ TEST_CASE("a replicated agent joins its parent's squad", "[sim][squad][replicati
     for (u32 i = 0; i < 120; ++i) {
         rebuild(hash, b);
         reg.update(b, kFixedDt);
-        sys.update(b, flow, sdf, hash, reg, rng, kFixedDt, nullptr);
+        sys.update(b, flow, sdf, TissueMask{}, hash, reg, rng, kFixedDt, nullptr);
         b.compact();
     }
     REQUIRE(b.count() > before);   // replication actually happened
@@ -768,6 +777,88 @@ TEST_CASE("a replicated agent joins its parent's squad", "[sim][squad][replicati
     REQUIRE(in_b > 40);
 }
 
+
+TEST_CASE("a squad stops absorbing daughters at max_squad_size",
+          "[sim][squad][replication]") {
+    // Inheritance on its own is a compounding process with no fixed point:
+    // every member is a source of more members of the SAME squad, so a cohort
+    // of 60 grows until the lane is one squad again -- the blob squads exist to
+    // break up. target_squad_size cannot stop it; it only governs intake at the
+    // spawn point, and a daughter never goes near a spawn point.
+    //
+    // Two claims, and both matter. The squad must stay at or under the cap
+    // (a cap the daughters can outrun within a tick is not a cap), and the
+    // overflow must actually exist as independent agents rather than being
+    // dropped -- going ungrouped is the release valve, not a spawn failure.
+    const Rect bounds = test_bounds();
+    FlowField flow = make_flow(bounds, Vec2{115.0f, 30.0f});
+    DistanceField sdf;
+    SpatialHash hash = make_hash(bounds);
+
+    ChaffSystem sys;
+    ChaffTuning t = flat_tuning();
+    // Fast enough that a single tick offers the squad far more daughters than
+    // its remaining headroom -- which is the case the in-tick `pending` tally
+    // exists for. With only the top-of-tick member_count to test against, every
+    // daughter in the tick would read the same stale number and pass together.
+    for (u32 f = 0; f < kFamilyCount; ++f) t.family[f].replication_rate = 4.0f;
+    sys.set_tuning(t);
+    sys.set_world_bounds(bounds);
+    sys.set_goal(Vec2{115.0f, 30.0f}, 0.0f);
+
+    SquadRegistry reg;
+    SquadTuning st;
+    st.max_squad_size = 60;
+    reg.set_tuning(st);
+    std::vector<SquadPath> paths;
+    paths.push_back(straight_path("a", "lane", 30.0f));
+    reg.set_paths(std::move(paths));
+
+    ChaffBuffers b;
+    b.reserve(4000);
+    Rng rng(777);
+    const u16 sq = reg.create_squad(0, Vec2{20.0f, 30.0f});
+    REQUIRE(sq != kNoSquad);
+    sys.spawn_burst(b, PathogenFamily::Virus, Vec2{20.0f, 30.0f}, 3.0f, 40, rng, sq);
+
+    u32 peak_members = 0;
+    for (u32 i = 0; i < 120; ++i) {
+        rebuild(hash, b);
+        reg.update(b, kFixedDt);
+        sys.update(b, flow, sdf, TissueMask{}, hash, reg, rng, kFixedDt, nullptr);
+        b.compact();
+        u32 members = 0;
+        for (usize k = 0; k < b.count(); ++k)
+            if (b.squad_id[k] == sq) ++members;
+        // Checked EVERY tick, not just at the end: a squad that overshoots and
+        // is then trimmed back by despawns would slip past an end-state check.
+        REQUIRE(members <= st.max_squad_size);
+        peak_members = math::max(peak_members, members);
+    }
+
+    u32 independent = 0;
+    for (usize i = 0; i < b.count(); ++i)
+        if (b.squad_id[i] == kNoSquad) ++independent;
+
+    INFO("peak members " << peak_members << ", independent " << independent
+                         << ", total " << b.count());
+    REQUIRE(peak_members == st.max_squad_size);   // it filled to the cap...
+    REQUIRE(independent > 0);                     // ...and the rest went free
+}
+
+TEST_CASE("max_squad_size below target_squad_size is raised to it", "[sim][squad]") {
+    // The two caps govern different doors -- intake at the spawn point vs.
+    // replication mid-lane -- and a max under the target is self-contradictory:
+    // accepting() would fill a squad to 60 while can_absorb() called it full at
+    // 20. set_tuning() reconciles them rather than leaving the registry to
+    // enforce two rules that disagree.
+    SquadRegistry reg;
+    SquadTuning st;
+    st.target_squad_size = 60;
+    st.max_squad_size = 20;
+    reg.set_tuning(st);
+    REQUIRE(reg.tuning().max_squad_size == 60);
+}
 
 TEST_CASE("replication spreads across squads rather than compounding in one",
           "[sim][squad][replication][determinism]") {
@@ -797,7 +888,14 @@ TEST_CASE("replication spreads across squads rather than compounding in one",
     sys.set_goal(Vec2{115.0f, 30.0f}, 0.0f);
 
     SquadRegistry reg;
-    reg.set_tuning(SquadTuning{});
+    {
+        // The cap is lifted here for the same reason it exists: it would clamp
+        // all three squads to the same ceiling and the test could no longer
+        // tell a healthy spread from the 60/60/260 runaway it is pinning.
+        SquadTuning st;
+        st.max_squad_size = 4096;
+        reg.set_tuning(st);
+    }
     std::vector<SquadPath> paths;
     paths.push_back(straight_path("a", "lane", 22.0f));
     paths.push_back(straight_path("b", "lane", 30.0f));
@@ -818,7 +916,7 @@ TEST_CASE("replication spreads across squads rather than compounding in one",
     for (u32 i = 0; i < 300; ++i) {
         rebuild(hash, b);
         reg.update(b, kFixedDt);
-        sys.update(b, flow, sdf, hash, reg, rng, kFixedDt, nullptr);
+        sys.update(b, flow, sdf, TissueMask{}, hash, reg, rng, kFixedDt, nullptr);
         b.compact();
     }
 
@@ -836,4 +934,82 @@ TEST_CASE("replication spreads across squads rather than compounding in one",
     // comparable rates. The bug produced a >4x spread; anything under 2x is
     // ordinary sampling noise on a stochastic rate.
     REQUIRE(biggest < smallest * 2u);
+}
+
+TEST_CASE("a squad is a cohort: it closes once it moves off its spawn point",
+          "[sim][squad][wave]") {
+    // The failure this pins, reported from play: enemies partway down the lane
+    // turning round and heading BACK up it to join agents that had just
+    // spawned.
+    //
+    // Cause was that the director held one squad open until it reached
+    // target_squad_size, counted in agents rather than in time. A wave ramp
+    // trickles out ~1 agent/tick, so a 60-strong squad stayed open for a second
+    // or more; its first members were well down the lane while new ones kept
+    // appearing at the spawn point. That drags the centroid backwards, and the
+    // along-flow cohesion term steers toward the centroid -- so the leaders
+    // dutifully reversed. Two unrelated groups had been told they were one.
+    game::LevelLoader loader;
+    game::LevelDef def = game::LevelLoader::default_test_level();
+
+    // A deliberately SLOW ramp -- the shape that triggered it. 200 agents over
+    // 8 seconds is well under one per tick.
+    def.waves.clear();
+    game::WaveDef w;
+    w.index = 0;
+    w.prep_time = 0.0f;
+    game::SpawnEntry e;
+    e.family = PathogenFamily::Virus;
+    e.count = 200;
+    e.start_time = 0.0f;
+    e.duration = 8.0f;
+    w.spawns.push_back(e);
+    def.waves.push_back(w);
+
+    SimDesc desc;
+    desc.max_chaff = 4000;
+    desc.world_bounds = def.world_bounds;
+    // Replication off: this is about spawn cohorts, and a growing population
+    // would blur the per-squad centroid measurement.
+    for (u32 f = 0; f < kFamilyCount; ++f) desc.chaff_tuning.family[f].replication_rate = 0.0f;
+    SimWorld world;
+    world.init(desc, nullptr);
+    REQUIRE(loader.instantiate(def, world).ok);
+
+    game::WaveDirector waves;
+    waves.set_waves(def.waves);
+    waves.start(world);
+
+    // What the player actually sees is AGENTS reversing, not centroids. The
+    // lane runs left to right, so sustained negative x-velocity is the symptom
+    // stated literally. Counted rather than peaked: a single shove backwards is
+    // ordinary crowd physics, a steady stream of agents driving upstream is not.
+    Rng rng(90210);
+    u64 backward_samples = 0;
+    u64 total_samples = 0;
+    f32 worst_backward = 0.0f;
+
+    for (u32 i = 0; i < 900; ++i) {
+        waves.tick(world, rng, kFixedDt);
+        world.tick(nullptr);
+        if (i < 300) continue;   // let the wave establish before measuring
+
+        const ChaffBuffers& b = world.chaff();
+        for (usize k = 0; k < b.count(); ++k) {
+            ++total_samples;
+            if (b.vel_x[k] < -1.0f) ++backward_samples;
+            worst_backward = math::max(worst_backward, -b.vel_x[k]);
+        }
+    }
+    const f64 backward_fraction =
+        total_samples == 0 ? 0.0
+                           : static_cast<f64>(backward_samples) / static_cast<f64>(total_samples);
+
+    INFO("backward fraction " << backward_fraction << ", worst backward speed "
+                              << worst_backward << ", over " << total_samples << " samples");
+    // A shove backwards from the crowd is ordinary physics; a steady stream of
+    // agents driving upstream is the bug. Before the brake was capped, leaders
+    // reversed under a 1.65/tick impulse against a 0.33/tick flow term.
+    REQUIRE(backward_fraction < 0.0005);
+    REQUIRE(worst_backward < 3.0f);
 }
