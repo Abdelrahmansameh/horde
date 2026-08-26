@@ -63,6 +63,21 @@ constexpr f32 kSlowedSpeedMultiplier = 0.4f;
 /// 3x3 cells around it.
 struct NeighbourSample {
     Vec2 separation{0.0f, 0.0f};   ///< Mean normalized push-away, weighted by closeness.
+    /// Which way the crowd ISN'T, over the whole alignment neighbourhood:
+    /// every neighbour's unit push-away summed, weighted 1 at zero distance
+    /// down to 0 at alignment_radius. Not averaged -- dividing by the count
+    /// would discard the "how many of them agree" signal, which is the entire
+    /// difference between an interior (everything cancels, near zero) and a
+    /// face with open space in front of it (nothing cancels, large).
+    ///
+    /// Deliberately NOT the separation sum, which was the first thing tried
+    /// here. Separation lives between contact spacing and separation_radius --
+    /// a shell about a tenth of a unit thick once contact has done its job --
+    /// so its sum collapses to nothing at exactly the density this is meant to
+    /// act on, and relief measured as a 3% effect. The gradient has to be read
+    /// over the longest range already being scanned or it cannot see the space
+    /// it is supposed to spend.
+    Vec2 crowd_gradient{0.0f, 0.0f};
     Vec2 avg_velocity{0.0f, 0.0f}; ///< Mean neighbour velocity, for alignment.
     /// SUMMED (not averaged) positional correction that resolves actual
     /// interpenetration. Summed on purpose: this is a geometric constraint, not
@@ -110,100 +125,148 @@ NeighbourSample gather_neighbours(const SpatialHash& hash,
     const f32 sep_r2 = sep_radius * sep_radius;
     const f32 foreign_sep_r2 = foreign_sep_radius * foreign_sep_radius;
     const f32 align_r2 = align_radius * align_radius;
+    const f32 inv_align = align_radius > 0.0f ? 1.0f / align_radius : 0.0f;
     const f32 contact_r2 = contact_radius * contact_radius;
     const u32* indices = hash.indices();
 
-    const i32 y0 = math::max(0, c.y - 1);
-    const i32 y1 = math::min(dims.y - 1, c.y + 1);
-    const i32 x0 = math::max(0, c.x - 1);
-    const i32 x1 = math::min(dims.x - 1, c.x + 1);
+    // Cell visit order: the agent's OWN cell first, then the ring around it.
+    //
+    // The budgets below truncate this scan, so scan order decides WHICH
+    // neighbours an agent gets to keep when it cannot afford them all -- and
+    // row-major order answered "the ones down and to the left". Every agent in
+    // a packed cell then pushed off the same lopsided sample, which is a bias
+    // pointing one way per cell: a 4-unit grid pressed into a crowd whose whole
+    // job is to look organic. Worse, an agent's own cell is FIFTH in row-major
+    // order, so at high density the budget ran out before reaching the agents
+    // it was actually overlapping -- contact resolution switched itself off
+    // exactly where it was needed, and the horde stayed interpenetrated.
+    //
+    // Own-cell-first fixes both. What gets dropped is now the far ring, which
+    // feeds alignment -- an average, and averages survive subsampling -- rather
+    // than contact, which is a sum over specific overlapping bodies and does
+    // not.
+    static constexpr i32 kCellOrder[9][2] = {
+        {0, 0},
+        {-1, 0}, {1, 0}, {0, -1}, {0, 1},
+        {-1, -1}, {1, -1}, {-1, 1}, {1, 1},
+    };
+
+    // Iteration cap. `max_sampled` rations the crowd rules; this rations the
+    // WALK, and it is what keeps the contact exemption below from turning a jam
+    // into an unbounded scan. A visit that only tests for contact is a subtract
+    // and a compare -- no square root, no gather, no accumulation -- so a wider
+    // walk is much cheaper per step than the sampled work it is protecting.
+    const u32 max_visited = max_sampled * 4u;
 
     Vec2 sep{0.0f, 0.0f};
     Vec2 vel{0.0f, 0.0f};
     Vec2 contact{0.0f, 0.0f};
+    Vec2 gradient{0.0f, 0.0f};
     u32 sep_count = 0;
     u32 align_count = 0;
     u32 foreign_crowd = 0;
     u32 sampled = 0;
+    u32 visited = 0;
 
-    for (i32 cy = y0; cy <= y1; ++cy) {
-        const u32 row = static_cast<u32>(cy) * static_cast<u32>(dims.x);
+    for (const auto& off : kCellOrder) {
+        const i32 cx = c.x + off[0];
+        const i32 cy = c.y + off[1];
+        if (cx < 0 || cy < 0 || cx >= dims.x || cy >= dims.y) continue;
         u32 begin, end;
-        // A row of cells is contiguous in the CSR array (SpatialHash.cpp lays
-        // cells out row-major), so this could be one range instead of per-cell
-        // ranges; kept per-cell here for clarity since 3 cells/row is already
-        // tiny. See SpatialHash::gather_cells for the row-span version used by
-        // the box/circle/cone queries.
-        for (i32 cx = x0; cx <= x1; ++cx) {
-            hash.cell_range(row + static_cast<u32>(cx), begin, end);
-            for (u32 k = begin; k < end; ++k) {
-                // The density cap. Truncating in CSR order keeps this a pure
-                // function of positions (see ChaffTuning::max_neighbors_sampled)
-                // while bounding the worst case a single packed cell can cost.
-                if (sampled >= max_sampled) goto done;
-                const u32 j = indices[k];
-                if (j == i) continue;
-                const f32 dx = p.x - px[j];
-                const f32 dy = p.y - py[j];
-                const f32 d2 = dx * dx + dy * dy;
-                if (d2 < kSeparationEpsSq) continue;
-                // An agent with no squad is nobody's foreigner: ungrouped chaff
-                // must keep behaving exactly as it did before squads existed.
-                // `my_squad` is tested FIRST so short-circuiting skips the
-                // squad[j] load entirely when the agent is ungrouped -- that
-                // load is a random access into a separate stream, and it would
-                // otherwise be paid once per neighbour on every level whether
-                // or not the squad layer is doing anything.
-                const bool foreign = my_squad != kNoSquad && squad[j] != kNoSquad &&
-                                     squad[j] != my_squad;
-                const f32 my_sep_r2 = foreign ? foreign_sep_r2 : sep_r2;
-                if (d2 >= align_r2 && d2 >= my_sep_r2 && d2 >= contact_r2) continue;
-                ++sampled;
+        hash.cell_range(static_cast<u32>(cy) * static_cast<u32>(dims.x) +
+                            static_cast<u32>(cx),
+                        begin, end);
+        for (u32 k = begin; k < end; ++k) {
+            // Truncating in CSR order keeps this a pure function of positions
+            // (see ChaffTuning::max_neighbors_sampled) while bounding the worst
+            // case a single packed cell can cost.
+            if (visited >= max_visited) goto done;
+            const u32 j = indices[k];
+            if (j == i) continue;
+            const f32 dx = p.x - px[j];
+            const f32 dy = p.y - py[j];
+            const f32 d2 = dx * dx + dy * dy;
+            if (d2 < kSeparationEpsSq) continue;
+            ++visited;
 
-                // One square root, shared by the two rules that need a real
-                // distance. Contact is deliberately NOT capped by max_sampled's
-                // spirit even though it shares the counter: geometry already
-                // bounds how many agents can physically be inside contact_radius
-                // at once, so this term is self-limiting in a way the
-                // alignment/pressure sums are not.
-                const f32 d = std::sqrt(d2);
-                const f32 inv_d = 1.0f / d;
-                const f32 nx = dx * inv_d;   // unit vector from neighbour to me
-                const f32 ny = dy * inv_d;
+            // TWO budgets, not one. Contact does not draw on `max_sampled`.
+            //
+            // Sharing one counter looked cheap and was not: contact radius is a
+            // fraction of alignment radius, so the disc that feeds alignment
+            // holds several times as many agents as the disc that feeds
+            // contact. In a jam the far neighbours therefore spend the entire
+            // budget first, and the pass that keeps bodies out of each other
+            // gets nothing -- the failure mode being that overlap resolution
+            // vanishes as density rises, which is the one density where it is
+            // load-bearing. Contact is self-limiting on its own terms anyway:
+            // geometry bounds how many agents fit inside contact_radius once
+            // they are no longer allowed to interpenetrate.
+            const bool in_contact = d2 < contact_r2;
+            const bool has_budget = sampled < max_sampled;
+            if (!in_contact && !has_budget) continue;
 
-                if (d2 < contact_r2) {
-                    // Half the overlap, because the neighbour independently
-                    // computes and applies the other half.
-                    const f32 correction = (contact_radius - d) * 0.5f * contact_stiffness;
-                    contact.x += nx * correction;
-                    contact.y += ny * correction;
-                }
-                if (d2 < my_sep_r2) {
-                    const f32 r = foreign ? foreign_sep_radius : sep_radius;
-                    const f32 w = foreign ? foreign_strength_mult : 1.0f;
-                    const f32 push = ((r - d) / r) * w;   // w at d=0, 0 at edge
-                    sep.x += nx * push;
-                    sep.y += ny * push;
-                    ++sep_count;
-                }
-                // Foreign neighbours are EXCLUDED from alignment: steering
-                // toward another squad's mean heading is precisely how two
-                // squads would converge and merge. They still count toward
-                // `crowd` below, because a jam is a jam regardless of who is in
-                // it, and still contribute contact_push above, because physical
-                // overlap resolution has to stay squad-blind or bodies
-                // interpenetrate at every squad boundary.
-                if (!foreign && d2 < align_r2) {
-                    vel.x += vx[j];
-                    vel.y += vy[j];
-                    ++align_count;
-                }
-                if (foreign && d2 < align_r2) ++foreign_crowd;
+            // An agent with no squad is nobody's foreigner: ungrouped chaff
+            // must keep behaving exactly as it did before squads existed.
+            // `my_squad` is tested FIRST so short-circuiting skips the
+            // squad[j] load entirely when the agent is ungrouped -- that
+            // load is a random access into a separate stream, and it would
+            // otherwise be paid once per neighbour on every level whether
+            // or not the squad layer is doing anything.
+            const bool foreign = my_squad != kNoSquad && squad[j] != kNoSquad &&
+                                 squad[j] != my_squad;
+            const f32 my_sep_r2 = foreign ? foreign_sep_r2 : sep_r2;
+            const bool in_crowd = has_budget && (d2 < align_r2 || d2 < my_sep_r2);
+            if (!in_contact && !in_crowd) continue;
+            if (in_crowd) ++sampled;
+
+            // One square root, shared by every rule that needs a real distance.
+            const f32 d = std::sqrt(d2);
+            const f32 inv_d = 1.0f / d;
+            const f32 nx = dx * inv_d;   // unit vector from neighbour to me
+            const f32 ny = dy * inv_d;
+
+            if (in_contact) {
+                // Half the overlap, because the neighbour independently
+                // computes and applies the other half.
+                const f32 correction = (contact_radius - d) * 0.5f * contact_stiffness;
+                contact.x += nx * correction;
+                contact.y += ny * correction;
+            }
+            if (!in_crowd) continue;
+            if (d2 < my_sep_r2) {
+                const f32 r = foreign ? foreign_sep_radius : sep_radius;
+                const f32 w = foreign ? foreign_strength_mult : 1.0f;
+                const f32 push = ((r - d) / r) * w;   // w at d=0, 0 at edge
+                sep.x += nx * push;
+                sep.y += ny * push;
+                ++sep_count;
+            }
+            // Foreign neighbours are EXCLUDED from alignment: steering
+            // toward another squad's mean heading is precisely how two
+            // squads would converge and merge. They still count toward
+            // `crowd` below, because a jam is a jam regardless of who is in
+            // it, and still contribute contact_push above, because physical
+            // overlap resolution has to stay squad-blind or bodies
+            // interpenetrate at every squad boundary.
+            if (!foreign && d2 < align_r2) {
+                vel.x += vx[j];
+                vel.y += vy[j];
+                ++align_count;
+            }
+            if (d2 < align_r2) {
+                // Squad-blind, like contact and unlike alignment: standing in
+                // someone's way is not a question of whose squad they are in.
+                const f32 aw = 1.0f - d * inv_align;
+                gradient.x += nx * aw;
+                gradient.y += ny * aw;
+                if (foreign) ++foreign_crowd;
             }
         }
     }
+
 done:
     out.contact_push = contact;
+    out.crowd_gradient = gradient;
     if (sep_count > 0) {
         // Plain mean over the neighbours that contributed, exactly as before
         // squads existed. The foreign multiplier rides INSIDE each term rather
@@ -460,6 +523,14 @@ ChaffUpdateStats ChaffSystem::update(ChaffBuffers& buffers, const FlowField& flo
     const f32 foreign_radius_mult = squads_on ? sq_tuning.foreign_radius_mult : 1.0f;
     const f32 foreign_strength_mult = squads_on ? sq_tuning.foreign_strength_mult : 1.0f;
 
+    // Crowd-relief constants, hoisted: one multiply per family per tick instead
+    // of one per agent per tick. Same reasoning as the family tables in the
+    // renderer's batcher -- six lookups, not ten thousand.
+    f32 relief_step[kFamilyCount];
+    for (u32 f = 0; f < kFamilyCount; ++f) {
+        relief_step[f] = tuning.family[f].crowd_relief * tuning.family[f].radius;
+    }
+
     // ---- Pass A: accumulate (parallel, gather-heavy, not vectorized) --------
     std::atomic<u32> replication_rolls{0};
 
@@ -631,6 +702,43 @@ ChaffUpdateStats ChaffSystem::update(ChaffBuffers& buffers, const FlowField& flo
                                   fp.separation_radius, fp.alignment_radius,
                                   contact_radius, fp.contact_stiffness,
                                   tuning.max_neighbors_sampled);
+            // Crowd relief: displacement DOWN the local pressure gradient,
+            // toward the density `pressure_threshold` describes as comfortable.
+            //
+            // The threshold is what makes this expansion rather than a faster
+            // way to finish un-overlapping. Gating on the crowd a family reaches
+            // when packed at its own CONTACT spacing was the first attempt and
+            // it measured as doing nothing at all (6.77 spread vs 6.76 without
+            // it): contact already drives the crowd to exactly that density, so
+            // the gate closed at the moment relief would have started to matter.
+            // pressure_threshold sits looser than contact packing by
+            // construction -- it is the count at which the crowd rules already
+            // consider a neighbourhood packed -- so relief keeps pushing after
+            // bodies separate, and the crowd settles at a spacing rather than at
+            // a touch. Lower it to make a horde stand on more ground.
+            //
+            // It is the SAME "packed" the pressure multiplier below reads,
+            // deliberately: one notion of crowded, two responses to it.
+            //
+            // The gradient is clamped to unit length before scaling: one
+            // neighbour's worth of uncancelled push already means "there is
+            // space that way", and past that the direction stops sharpening,
+            // only the count grows. Without the clamp the deepest part of a jam
+            // would relieve hardest, which is backwards -- it is the part with
+            // nowhere to go.
+            Vec2 relief{0.0f, 0.0f};
+            const f32 fits = math::max(fp.pressure_threshold, 1.0f);
+            const f32 step = relief_step[f < kFamilyCount ? f : 0];
+            if (step > 0.0f && static_cast<f32>(nb.crowd) > fits) {
+                const f32 over =
+                    math::saturate((static_cast<f32>(nb.crowd) - fits) / fits);
+                const f32 g2 = math::length_sq(nb.crowd_gradient);
+                if (g2 > kSeparationEpsSq) {
+                    const f32 g = std::sqrt(g2);
+                    relief = nb.crowd_gradient * (step * over / math::max(g, 1.0f));
+                }
+            }
+
             // CAPPED. contact_push is a SUM over every overlapping neighbour
             // (up to max_neighbors_sampled), and pass B applies it as raw
             // displacement that deliberately bypasses max_speed. Both are right
@@ -641,12 +749,16 @@ ChaffUpdateStats ChaffSystem::update(ChaffBuffers& buffers, const FlowField& flo
             // un-overlapping to the agent's own radius keeps it a relaxation
             // rather than a teleport; the jam simply takes a few more ticks to
             // resolve, which is what it looks like anyway.
+            //
+            // Relief is capped together with contact rather than beside it:
+            // the cap exists because of how far an agent moves in a tick, and
+            // a wall does not care which term paid for the step.
             {
                 const f32 cap = fp.radius;
-                const f32 mag2 = math::length_sq(nb.contact_push);
-                const Vec2 capped = mag2 > cap * cap
-                                        ? nb.contact_push * (cap / std::sqrt(mag2))
-                                        : nb.contact_push;
+                const Vec2 total = nb.contact_push + relief;
+                const f32 mag2 = math::length_sq(total);
+                const Vec2 capped =
+                    mag2 > cap * cap ? total * (cap / std::sqrt(mag2)) : total;
                 push_x[i] = capped.x;
                 push_y[i] = capped.y;
             }
@@ -751,13 +863,15 @@ ChaffUpdateStats ChaffSystem::update(ChaffBuffers& buffers, const FlowField& flo
     u32 despawned_goal = 0;
     u32 despawned_bounds = 0;
     const bool has_goal = goal_radius_ > 0.0f;
-    const f32 goal_r2 = goal_radius_ * goal_radius_;
     for (usize i = 0; i < count; ++i) {
         bool killed = false;
         if (has_goal) {
-            const f32 dx = px[i] - goal_.x;
-            const f32 dy = py[i] - goal_.y;
-            if (dx * dx + dy * dy <= goal_r2) {
+            // Chebyshev, not Euclidean: the objective's footprint is a square
+            // of half-extent goal_radius_ (game::ObjectivePoint), and this test
+            // is what actually defines "reached the organ".
+            const f32 dx = std::fabs(px[i] - goal_.x);
+            const f32 dy = std::fabs(py[i] - goal_.y);
+            if (math::max(dx, dy) <= goal_radius_) {
                 buffers.kill(i);
                 ++despawned_goal;
                 const u32 f = fam[i];

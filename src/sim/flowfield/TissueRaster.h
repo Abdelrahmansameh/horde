@@ -15,6 +15,7 @@
 #include "core/Math.h"
 #include "sim/flowfield/FlowField.h"
 
+#include <cmath>
 #include <vector>
 
 namespace immune::sim {
@@ -127,8 +128,49 @@ inline void rasterize_vessel(TissueMask& mask, const VesselSpline& spline) {
                                  spline.points[static_cast<usize>(i)].pos);
     }
     const f32 span = static_cast<f32>(n - 1);
-    // Two samples per cell of estimated length, floor of 8 per segment.
-    i32 steps = static_cast<i32>(poly_len / math::max(cs, 1e-3f) * 4.0f);
+
+    // SAMPLE RATE IS WIDTH-AWARE, and has to be.
+    //
+    // The rate used to be a flat four samples per cell of arc length, chosen
+    // for THIN vessels: when the lumen is around a cell across, no single disc
+    // reliably covers a cell centre, so it is the overlapping CHAIN of stamps
+    // that fills the mask, and the chain has to be dense in cell units.
+    //
+    // That rate is catastrophic for the wide lanes the game actually ships.
+    // stamp_disc writes the disc's whole bounding box, so the cost of a vessel
+    // is `steps * (width / cell_size)^2` regardless of how much NEW area each
+    // stamp covers. Lanes are ~68 units across since they were widened to hold
+    // two squads abreast (ARCHITECTURE.md 4.7), which at cell_size 0.5 put
+    // stamps of radius 34 a quarter-unit apart: consecutive discs overlapping
+    // by 99%, every cell of the lumen written a few hundred times. Measured on
+    // capillary_switchback that was 151M cell-writes into a 421k-cell mask and
+    // 556 ms of a 617 ms level bake -- 90% of it, and the reason an editor that
+    // re-bakes on every edit could not feel immediate.
+    //
+    // The real constraint is SCALLOPING, not cell size: stamping discs of
+    // radius r every d along a curve leaves the lumen edge bulging inward by
+    // about d^2 / (8r) between stamps. Holding that under a quarter cell gives
+    // d = sqrt(2 * r * cs), which grows with the radius exactly as the old rule
+    // failed to. The floors below keep the two degenerate cases honest: never
+    // step further than the radius itself (so stamps always overlap at all),
+    // and never coarser than the old rate, which sub-cell lumens fall back to
+    // outright because there the chain really is what does the covering.
+    //
+    // Uses the NARROWEST control point, so a vessel that tapers is sampled for
+    // its thinnest part along its whole length.
+    f32 min_width = spline.points[0].width;
+    for (i32 i = 1; i < n; ++i) {
+        min_width = math::min(min_width, spline.points[static_cast<usize>(i)].width);
+    }
+    const f32 min_radius = math::max(min_width * 0.5f, 0.0f);
+    const f32 fine = math::max(cs, 1e-3f) * 0.25f;   // the old, width-blind rate
+    f32 step = fine;
+    if (min_radius >= cs) {
+        const f32 scallop = std::sqrt(2.0f * min_radius * cs);
+        step = math::clamp(scallop, fine, math::max(min_radius, fine));
+    }
+
+    i32 steps = static_cast<i32>(poly_len / step) + 1;
     steps = math::max(steps, 8 * (n - 1));
     steps = math::min(steps, 1 << 20);
 

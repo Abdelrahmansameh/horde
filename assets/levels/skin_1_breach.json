@@ -1,231 +1,96 @@
 {
-  "ambient_drift": [
-    0.0,
-    0.0
-  ],
+  "schema": 1,
   "name": "skin_1_breach",
-  "objectives": [
+  "region": "skin",
+  "world": { "min": [0, 0], "max": [293.39, 128.64] },
+  "vessels": [
     {
-      "id": "organ",
-      "integrity": 100,
-      "pos": [
-        248.2,
-        78.138
-      ],
-      "radius": 27.961
-    }
-  ],
-  "placement_zones": [
-    {
-      "concentrated": false,
-      "max": [
-        103.22,
-        96.26
-      ],
-      "min": [
-        57.09,
-        60.015
-      ],
-      "priority": 1.0
-    },
-    {
-      "concentrated": true,
-      "max": [
-        182.3,
-        69.9
-      ],
-      "min": [
-        119.695,
-        20.475
-      ],
-      "priority": 2.5
-    },
-    {
-      "concentrated": false,
-      "max": [
-        241.61,
-        92.965
-      ],
-      "min": [
-        192.185,
-        63.31
-      ],
-      "priority": 1.0
+      "id": "main",
+      "vessel_type": "vein",
+      "points": [
+        { "p": [50.5, 78.138], "w": 74.375 },
+        { "p": [108.162, 78.138], "w": 63.75 },
+        { "p": [149.35, 45.188], "w": 63.75 },
+        { "p": [190.537, 78.138], "w": 63.75 },
+        { "p": [248.2, 78.138], "w": 74.375 }
+      ]
     }
   ],
   "spawn_points": [
-    {
-      "id": "p0",
-      "lane_id": "main",
-      "pos": [
-        50.5,
-        78.138
-      ],
-      "radius": 42.5
-    }
+    { "id": "p0", "pos": [50.5, 78.138], "radius": 42.5, "lane_id": "main" }
   ],
-  "region": "skin",
-  "schema": 1,
-  "vessels": [
-    {
-      "children": [],
-      "id": "main",
-      "lane_id": "main",
-      "points": [
-        {
-          "p": [
-            50.5,
-            78.138
-          ],
-          "w": 74.375
-        },
-        {
-          "p": [
-            108.162,
-            78.138
-          ],
-          "w": 63.75
-        },
-        {
-          "p": [
-            149.35,
-            45.188
-          ],
-          "w": 63.75
-        },
-        {
-          "p": [
-            190.537,
-            78.138
-          ],
-          "w": 63.75
-        },
-        {
-          "p": [
-            248.2,
-            78.138
-          ],
-          "w": 74.375
-        }
-      ],
-      "vessel_type": "vein"
-    }
+  "objectives": [
+    { "id": "organ", "pos": [248.2, 78.138], "radius": 27.961 }
+  ],
+  "placement_zones": [
+    { "min": [57.09, 60.015], "max": [103.22, 96.26] },
+    { "min": [119.695, 20.475], "max": [182.3, 69.9], "concentrated": true, "priority": 2.5 },
+    { "min": [192.185, 63.31], "max": [241.61, 92.965] }
   ],
   "waves": [
     {
-      "atp_reward": 40,
       "name": "skin_wave_1",
-      "prep_time": 12.0,
+      "prep_time": 12,
+      "atp_reward": 40,
       "spawns": [
-        {
-          "count": 66,
-          "duration": 4.67,
-          "family": "virus",
-          "start_time": 0.0
-        }
+        { "family": "virus", "count": 66, "duration": 4.67 }
       ]
     },
     {
-      "atp_reward": 48,
       "name": "skin_wave_2",
       "prep_time": 11.57,
+      "atp_reward": 48,
       "spawns": [
-        {
-          "count": 84,
-          "duration": 4.67,
-          "family": "virus",
-          "start_time": 0.0
-        }
+        { "family": "virus", "count": 84, "duration": 4.67 }
       ]
     },
     {
-      "atp_reward": 56,
       "name": "skin_wave_3",
       "prep_time": 11.14,
+      "atp_reward": 56,
       "spawns": [
-        {
-          "count": 102,
-          "duration": 4.67,
-          "family": "virus",
-          "start_time": 0.0
-        }
+        { "family": "virus", "count": 102, "duration": 4.67 }
       ]
     },
     {
-      "atp_reward": 64,
       "name": "skin_wave_4",
       "prep_time": 10.71,
+      "atp_reward": 64,
       "spawns": [
-        {
-          "count": 120,
-          "duration": 4.67,
-          "family": "virus",
-          "start_time": 0.0
-        }
+        { "family": "virus", "count": 120, "duration": 4.67 }
       ]
     },
     {
-      "atp_reward": 72,
       "name": "skin_wave_5",
       "prep_time": 10.29,
+      "atp_reward": 72,
       "spawns": [
-        {
-          "count": 138,
-          "duration": 4.67,
-          "family": "virus",
-          "start_time": 0.0
-        }
+        { "family": "virus", "count": 138, "duration": 4.67 }
       ]
     },
     {
-      "atp_reward": 80,
       "name": "skin_wave_6",
       "prep_time": 9.86,
+      "atp_reward": 80,
       "spawns": [
-        {
-          "count": 156,
-          "duration": 4.67,
-          "family": "virus",
-          "start_time": 0.0
-        }
+        { "family": "virus", "count": 156, "duration": 4.67 }
       ]
     },
     {
-      "atp_reward": 88,
       "name": "skin_wave_7",
       "prep_time": 9.43,
+      "atp_reward": 88,
       "spawns": [
-        {
-          "count": 174,
-          "duration": 4.67,
-          "family": "virus",
-          "start_time": 0.0
-        }
+        { "family": "virus", "count": 174, "duration": 4.67 }
       ]
     },
     {
-      "atp_reward": 96,
       "name": "skin_wave_8",
-      "prep_time": 9.0,
+      "prep_time": 9,
+      "atp_reward": 96,
       "spawns": [
-        {
-          "count": 192,
-          "duration": 4.67,
-          "family": "virus",
-          "start_time": 0.0
-        }
+        { "family": "virus", "count": 192, "duration": 4.67 }
       ]
     }
-  ],
-  "world": {
-    "cell_size": 0.5,
-    "max": [
-      293.39,
-      128.64
-    ],
-    "min": [
-      0,
-      0
-    ]
-  }
+  ]
 }

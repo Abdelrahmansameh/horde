@@ -287,6 +287,17 @@ public:
     /// Returns false when the lane has no paths.
     bool next_path_for_lane(const std::string& lane_id, u16& out_path_index);
 
+    /// Round-robin restricted to paths whose id is in `allowed`.
+    ///
+    /// Backs schema 2's per-entry `squad_paths`: it lets a wave entry commit to
+    /// the outer paths only -- a flank -- which plain round-robin cannot express
+    /// at any count. An EMPTY `allowed`, or one naming nothing on this lane,
+    /// falls back to next_path_for_lane(), so the field defaulting to empty is
+    /// exactly today's behaviour.
+    bool next_path_for_lane_filtered(const std::string& lane_id,
+                                     const std::vector<std::string>& allowed,
+                                     u16& out_path_index);
+
     /// One fixed step: recompute centroids/radii from live membership, advance
     /// each anchor along its path, retire empty squads. Runs before the chaff
     /// movement pass so anchors and the positions that produced them agree.

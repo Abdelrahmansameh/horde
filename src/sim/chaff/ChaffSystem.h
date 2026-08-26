@@ -147,11 +147,58 @@ struct ChaffFamilyParams {
     ///
     /// 2.0 means "two agents may not be closer than the sum of their radii",
     /// i.e. exactly touching. Slightly above 2 leaves a visible gap.
+    ///
+    /// Left at exactly 2.0 deliberately, and 2.2 was tried: this number is the
+    /// GEOMETRIC constraint -- bodies may not interpenetrate -- and the gap a
+    /// comfortable crowd stands at is `crowd_relief`'s job, expressed as a
+    /// density with an equilibrium instead of as a distance. Raising it only
+    /// changes behaviour where relief has already lost, i.e. in a jam, where it
+    /// buys no gap (there is no room for one) and spends the difference
+    /// pressing the crowd harder into the lane walls: it measurably raised the
+    /// worst upstream shove in tests/test_squads.cpp by the same 0.5 units/s
+    /// that full-strength contact does, for nothing visible in return.
     f32 contact_spacing = 2.0f;
-    /// How much of each detected overlap is corrected per tick, 0..1. Below 1
-    /// the crowd settles over a few ticks instead of snapping, which reads as
-    /// a dense fluid relaxing rather than as a rigid lattice popping apart.
-    f32 contact_stiffness = 0.7f;
+    /// How much of each detected overlap is corrected per tick, 0..1.
+    ///
+    /// 1.0 is the exactly-resolving value, not an aggressive one: each agent
+    /// takes HALF of each overlap and the neighbour independently takes the
+    /// other half, so a lone pair at stiffness 1 lands exactly at spacing. The
+    /// old 0.7 was under-relaxation -- it left 30% of every overlap standing
+    /// each tick, which compounds through a jam that is being re-compressed by
+    /// the flow field every tick and never actually converges.
+    f32 contact_stiffness = 1.0f;
+
+    /// Positional relief for an over-packed agent, as a multiple of `radius`
+    /// per tick. 0 disables it.
+    ///
+    /// Contact answers "am I inside someone" and stops the moment bodies are
+    /// merely touching. Nothing then makes a touching crowd USE the empty lane
+    /// beside it: expansion past contact distance is left to the separation
+    /// force, and force is rationed by max_speed, which the flow field has
+    /// already spent driving everyone toward the goal. So the horde travels as
+    /// a clot -- correctly un-overlapped, and much denser than the space it is
+    /// standing in.
+    ///
+    /// This is the term that spends free space. Like contact it is a
+    /// DISPLACEMENT, so it is not rationed by max_speed and a crowd can open up
+    /// far faster than it can walk; unlike contact it acts out to
+    /// alignment_radius, so it keeps pushing after bodies separate.
+    ///
+    /// It expands toward the density `pressure_threshold` calls comfortable and
+    /// fades to nothing there, so it cannot boil a settled crowd apart -- and
+    /// where the room to reach that density does not exist (a narrow lane, a
+    /// jam against a wall) contact still governs and the crowd simply packs in.
+    /// That is what makes a horde fill whatever it is given: the target is a
+    /// DENSITY, and the geometry decides whether it is reachable.
+    ///
+    /// At 0.7 a virus relieves up to 0.54 units/tick -- about 32 units/second,
+    /// roughly twice its own top speed, which is the point: a crowd should be
+    /// able to open up faster than it can walk. It is still bounded by the same
+    /// per-tick displacement cap that keeps the crowd from stepping over a lane
+    /// wall, and that cap is what makes the returns above ~0.7 shallow (a
+    /// 400-agent clump settles at mean radius 10.4 at 0.7 against 10.8 at 1.2,
+    /// measured in tests/test_chaff_system.cpp).
+    f32 crowd_relief = 0.7f;
 };
 
 struct ChaffTuning {
@@ -254,8 +301,10 @@ public:
     void set_world_bounds(const Rect& bounds) { bounds_ = bounds; }
     const Rect& world_bounds() const { return bounds_; }
 
-    /// Radius around the objective at which chaff is consumed and scores damage
-    /// against organ integrity.
+    /// Half-extent of the SQUARE around the objective inside which chaff is
+    /// consumed and scores damage against organ integrity. The objective's
+    /// footprint is axis-aligned and square (game::ObjectivePoint), so the
+    /// despawn test is Chebyshev, not Euclidean; 0 disables it entirely.
     void set_goal(Vec2 goal, f32 radius) { goal_ = goal; goal_radius_ = radius; }
 
 private:
@@ -315,7 +364,7 @@ private:
     ChaffTuning tuning_{};
     Rect bounds_{};
     Vec2 goal_{0.0f, 0.0f};
-    f32 goal_radius_ = 2.0f;
+    f32 goal_radius_ = 2.0f;   ///< Square half-extent; see set_goal().
 };
 
 } // namespace immune::sim

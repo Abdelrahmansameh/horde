@@ -82,6 +82,10 @@ MenuResult Menu::build_main_menu(i32 screen_width, i32 screen_height) {
 
         ImGui::Dummy(ImVec2(0.0f, 8.0f));
         center_next_item(button.x);
+        if (ImGui::Button("Level Editor", button)) result.action = MenuAction::OpenEditor;
+
+        ImGui::Dummy(ImVec2(0.0f, 8.0f));
+        center_next_item(button.x);
         if (ImGui::Button("Quit", button)) result.action = MenuAction::Quit;
     }
     ImGui::End();

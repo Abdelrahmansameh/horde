@@ -177,6 +177,7 @@ void EnemyRoster::apply_to_tuning(sim::ChaffTuning& tuning) const {
         p.wall_splash = fc.wall_splash;
         p.contact_spacing = fc.contact_spacing;
         p.contact_stiffness = fc.contact_stiffness;
+        p.crowd_relief = fc.crowd_relief;
 
         p.drift_bias = from_config ? fc.drift_bias : 0.0f;
         p.replication_rate = from_config ? fc.replication_rate : (d.replicates ? 0.2f : 0.0f);

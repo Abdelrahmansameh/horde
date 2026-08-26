@@ -24,6 +24,20 @@ struct SpawnEntry {
     f32 start_time = 0.0f;    ///< Seconds after wave start.
     f32 duration = 1.0f;      ///< Spread the count evenly over this window.
     std::string spawn_point_id;    ///< Empty = any/first spawn point.
+
+    // ---- schema 2 -----------------------------------------------------------
+    /// Squad size for THIS entry; 0 uses the global sim.squads.target_squad_size.
+    ///
+    /// The most expressive knob in the wave table, and it was a global. 900
+    /// arriving as 15 squads of 60 and 900 arriving as 6 squads of 150 are
+    /// different silhouettes reaching the line at different times, and no level
+    /// could ask for the second.
+    u32 squad_size = 0;
+    /// Squad paths this entry is allowed to use, by SquadPathDef::id. Empty
+    /// round-robins the lane's paths, as it always has. A non-empty list lets an
+    /// entry commit to the outer paths only -- a flank -- which round-robin
+    /// cannot express at any count.
+    std::vector<std::string> squad_paths;
 };
 
 /// Curveball modifiers applied to a whole wave (DESIGN.md §6).

@@ -1,6 +1,7 @@
 #include "app/App.h"
 #include "app/AutoplayMode.h"
 #include "app/Cli.h"
+#include "app/LevelTools.h"
 #include "app/Modes.h"
 #include "core/Log.h"
 
@@ -33,6 +34,12 @@ int main(int argc, char** argv) {
         case app::Mode::DumpConfig:
             return app::run_dump_config(options);
 
+        case app::Mode::LevelCheck:
+            return app::run_level_check(options);
+
+        case app::Mode::LevelFmt:
+            return app::run_level_fmt(options);
+
         case app::Mode::Bench:
             return app::run_bench(options);
 
@@ -45,6 +52,9 @@ int main(int argc, char** argv) {
         case app::Mode::Autoplay:
             return app::run_autoplay(options);
 
+        // The editor is an interactive App state, not a headless mode: it needs
+        // the window, the renderer and the real level-load path.
+        case app::Mode::Editor:
         case app::Mode::Play:
         default: {
             app::App application;

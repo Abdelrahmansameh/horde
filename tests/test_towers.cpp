@@ -30,6 +30,9 @@
 #include "game/towers/TowerSystem.h"
 #include "game/towers/TowerMechanics.h"
 
+#include "game/economy/Economy.h"
+#include "game/session/LevelSession.h"
+
 #include "core/JobSystem.h"
 #include "core/Math.h"
 #include "core/Profiler.h"
@@ -609,6 +612,54 @@ TEST_CASE("GUNNER spawns real rounds into world.projectiles(), and those rounds 
     REQUIRE(count_events(world, CombatEventType::ProjectileImpact, TowerType::Count) > 0);
     // ...and the stream is a stream: many shots over 1.5 simulated seconds.
     REQUIRE(count_events(world, CombatEventType::MuzzleFlash, TowerType::Neutrophil) >= 10);
+}
+
+TEST_CASE("GUNNER kills pay ATP -- every damage source credits kill income, not just fields",
+          "[towers][combat][gunner][economy]") {
+    // Regression: SimWorld::tick() used to publish only the DamageSystem's
+    // stats as last_damage_stats_, and threw away what the projectile, swarmer
+    // and fluid passes returned. The economy reads kill income from exactly
+    // that snapshot, so the one tower in the roster that publishes NO damage
+    // field -- the Gunner -- was killing chaff for free and paying the player
+    // nothing for it.
+    SimWorld world = make_world();
+    TowerSystem ts;
+    ts.register_systems(world);
+    const EntityId tower = ts.place(world, TowerType::Neutrophil, kRoomCenterLeft);
+    REQUIRE(tower.valid());
+    ready_now(world, tower);
+
+    // Passive income off and starting balance zero, so every ATP below is
+    // provably kill income and not the clock ticking.
+    Economy economy;
+    EconomyConfig cfg;
+    cfg.starting_atp = 0;
+    cfg.passive_income_per_second = 0.0f;
+    cfg.atp_per_density = 1.0f;
+    economy.configure(cfg);
+
+    LevelSystems systems;
+    systems.world = &world;
+    systems.economy = &economy;
+
+    // Unlike step_combat(), this is the real tick: the horde flows toward the
+    // goal and away from the tower, so the cluster is topped up to keep a
+    // target inside the Gunner's range for the whole run.
+    const Vec2 horde = kRoomCenterLeft + Vec2{3.0f, 0.0f};
+    for (int i = 0; i < 240; ++i) {
+        if (i % 30 == 0) spawn_chaff_cluster(world, horde, 12, 2.0f, /*spread=*/0.35f);
+        REQUIRE(step_level(systems) == SessionOutcome::InProgress);
+    }
+
+    // Rounds are what did the killing: the Gunner submits no field, so the
+    // DamageSystem cannot have earned any of this.
+    REQUIRE(count_events(world, CombatEventType::ProjectileImpact, TowerType::Count) > 0);
+    for (const DamageField& f : world.damage().fields()) {
+        INFO("gunner must not submit a damage field");
+        REQUIRE(f.owner != tower);
+    }
+    INFO("atp=" << economy.atp());
+    REQUIRE(economy.atp() > 0);
 }
 
 TEST_CASE("GUNNER leads a moving target instead of firing at where it already was",

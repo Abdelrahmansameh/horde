@@ -44,6 +44,9 @@ enum class PlacementResult : u8 {
     WouldBlockAllPaths, ///< Every lane becomes unreachable.
     CannotAfford,
     OutsidePlacementZone,
+    /// The level's schema-2 `allowed_towers` list does not include this type.
+    /// A level that is ABOUT one tower is the design lever this exists for.
+    TowerNotAllowed,
 };
 
 /// Result of a validation query. The build cursor UI renders from this every
@@ -62,6 +65,19 @@ public:
 
     const TowerStats& stats(TowerType type, u8 tier) const;
     void set_stats(TowerType type, u8 tier, const TowerStats& stats);
+
+    /// Restricts which tower types may be built, as a bitmask over TowerType.
+    /// 0 means "no restriction", which is what every level without a schema-2
+    /// `allowed_towers` list means -- so this is inert unless a level opts in.
+    ///
+    /// Enforced in validate() rather than by hiding HUD buttons, so the gym
+    /// console and the balance bot obey it too: a rule only the UI knows about
+    /// is a rule the game does not actually have.
+    void set_allowed_towers(u32 mask) { allowed_mask_ = mask; }
+    u32 allowed_towers() const { return allowed_mask_; }
+    bool tower_allowed(TowerType t) const {
+        return allowed_mask_ == 0 || (allowed_mask_ & (1u << static_cast<u32>(t))) != 0;
+    }
 
     /// Non-mutating placement check. Safe to call every frame from the UI.
     PlacementQuery validate(const sim::SimWorld& world, TowerType type,
@@ -104,6 +120,8 @@ public:
 private:
     TowerStats stats_[kTowerTypeCount][3]{};
     std::vector<EntityId> towers_;
+    /// Bitmask over TowerType; 0 = unrestricted. See set_allowed_towers().
+    u32 allowed_mask_ = 0;
 };
 
 /// Human-readable name, for UI and for --sim-test script parsing.

@@ -4,6 +4,7 @@
 #include "platform/FileIO.h"
 #include "sim/SimWorld.h"
 
+#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 #include <string>
@@ -140,8 +141,11 @@ TEST_CASE("load_string rejects a level with no \"schema\" field", "[level][loade
 }
 
 TEST_CASE("load_string rejects an unsupported schema version", "[level][loader]") {
+    // 1 and 2 both load (schema 2 is additive; see Level.h). 3 is the first
+    // version this build does not know, and a level from the future must fail
+    // loudly rather than silently drop the fields it does not understand.
     const char* badSchema = R"JSON({
-      "schema": 2,
+      "schema": 3,
       "name": "future_schema",
       "vessels": [], "spawn_points": [], "objectives": []
     })JSON";
@@ -151,6 +155,82 @@ TEST_CASE("load_string rejects an unsupported schema version", "[level][loader]"
     const LevelLoadResult res = loader.load_string(badSchema, def);
     REQUIRE_FALSE(res.ok);
     REQUIRE(res.error.find("schema") != std::string::npos);
+}
+
+TEST_CASE("schema 2 loads, and every new field is optional", "[level][loader]") {
+    // The compatibility promise: a v2 file that uses none of the new fields is
+    // the same LevelDef as the v1 file it came from.
+    const char* v2 = R"JSON({
+      "schema": 2,
+      "name": "v2_minimal",
+      "world": { "min": [0,0], "max": [64,32], "cell_size": 1.0 },
+      "vessels": [ { "id": "main", "points": [ {"p":[6,16],"w":10}, {"p":[58,16],"w":10} ] } ],
+      "spawn_points": [ { "id": "p0", "pos": [8,16], "radius": 3 } ],
+      "objectives": [ { "id": "o", "pos": [56,16], "radius": 4 } ],
+      "waves": [ { "name": "w", "spawns": [ { "family": "virus", "count": 10 } ] } ]
+    })JSON";
+    LevelLoader loader;
+    LevelDef def;
+    const LevelLoadResult res = loader.load_string(v2, def);
+    INFO(res.error);
+    REQUIRE(res.ok);
+    REQUIRE(loader.validate(def).ok);
+    REQUIRE(def.display_name.empty());
+    REQUIRE(def.allowed_towers.empty());
+    REQUIRE(def.economy.starting_atp == 0);
+    REQUIRE_FALSE(def.camera.has_center);
+    REQUIRE_FALSE(def.editor.present);
+    REQUIRE(def.waves[0].spawns[0].squad_size == 0);
+}
+
+TEST_CASE("schema 2 parses every new field", "[level][loader]") {
+    const char* v2 = R"JSON({
+      "schema": 2,
+      "name": "v2_full",
+      "display_name": "The Full House",
+      "description": "everything at once",
+      "author": "tester",
+      "difficulty": 3,
+      "tags": ["tutorial", "skin"],
+      "region": "skin",
+      "world": { "min": [0,0], "max": [64,32], "cell_size": 1.0 },
+      "camera": { "center": [30,16], "view_height": 40, "min_view_height": 10,
+                  "max_view_height": 90 },
+      "economy": { "starting_atp": 450, "income_multiplier": 1.5 },
+      "allowed_towers": ["macrophage", "neutrophil"],
+      "win": { "survive_seconds": 120 },
+      "vessels": [ { "id": "main", "points": [ {"p":[6,16],"w":10}, {"p":[58,16],"w":10} ] } ],
+      "spawn_points": [ { "id": "p0", "pos": [8,16], "radius": 3 } ],
+      "objectives": [ { "id": "o", "pos": [56,16], "radius": 4 } ],
+      "waves": [ { "name": "w", "spawns": [
+        { "family": "virus", "count": 900, "squad_size": 150,
+          "squad_paths": ["a_0", "a_2"] } ] } ],
+      "editor": { "grid_size": 2.5, "notes": "mind the bend" }
+    })JSON";
+    LevelLoader loader;
+    LevelDef def;
+    const LevelLoadResult res = loader.load_string(v2, def);
+    INFO(res.error);
+    REQUIRE(res.ok);
+
+    REQUIRE(def.display_name == "The Full House");
+    REQUIRE(def.description == "everything at once");
+    REQUIRE(def.author == "tester");
+    REQUIRE(def.difficulty == 3);
+    REQUIRE(def.tags == std::vector<std::string>{"tutorial", "skin"});
+    REQUIRE(def.allowed_towers == std::vector<std::string>{"macrophage", "neutrophil"});
+    REQUIRE(def.economy.starting_atp == 450);
+    REQUIRE(def.economy.income_multiplier == Catch::Approx(1.5f));
+    REQUIRE(def.camera.has_center);
+    REQUIRE(def.camera.center.x == Catch::Approx(30.0f));
+    REQUIRE(def.camera.view_height == Catch::Approx(40.0f));
+    REQUIRE(def.win.survive_seconds == Catch::Approx(120.0f));
+    REQUIRE(def.editor.present);
+    REQUIRE(def.editor.grid_size == Catch::Approx(2.5f));
+    REQUIRE(def.editor.notes == "mind the bend");
+    REQUIRE(def.waves[0].spawns[0].squad_size == 150);
+    REQUIRE(def.waves[0].spawns[0].squad_paths ==
+            std::vector<std::string>{"a_0", "a_2"});
 }
 
 TEST_CASE("load_string rejects malformed JSON", "[level][loader]") {

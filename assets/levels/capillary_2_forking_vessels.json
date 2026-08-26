@@ -1,407 +1,125 @@
 {
-  "ambient_drift": [
-    0.0,
-    0.0
-  ],
+  "schema": 1,
   "name": "capillary_2_forking_vessels",
-  "objectives": [
+  "region": "capillary",
+  "world": { "min": [0, 0], "max": [331.38, 170.93] },
+  "vessels": [
     {
-      "id": "organ",
-      "integrity": 100,
-      "pos": [
-        287.378,
-        85.278
-      ],
-      "radius": 25.269
-    }
-  ],
-  "placement_zones": [
-    {
-      "concentrated": true,
-      "max": [
-        231.375,
-        69.716
-      ],
-      "min": [
-        160.237,
-        33.258
-      ],
-      "priority": 2.0
+      "id": "capillary_a",
+      "points": [
+        { "p": [43.998, 44.374], "w": 71.997 },
+        { "p": [95.129, 44.374], "w": 71.997 },
+        { "p": [125.807, 44.374], "w": 70.019 },
+        { "p": [156.485, 44.374], "w": 67.969 },
+        { "p": [187.163, 49.478], "w": 65.991 },
+        { "p": [248.519, 75.052], "w": 64.014 },
+        { "p": [287.378, 85.278], "w": 64.014 }
+      ]
     },
     {
-      "concentrated": true,
-      "max": [
-        231.375,
-        137.297
-      ],
-      "min": [
-        160.237,
-        100.839
-      ],
-      "priority": 2.0
-    },
-    {
-      "concentrated": true,
-      "max": [
-        279.197,
-        100.608
-      ],
-      "min": [
-        233.189,
-        69.93
-      ],
-      "priority": 2.5
-    },
-    {
-      "concentrated": false,
-      "max": [
-        105.355,
-        52.554
-      ],
-      "min": [
-        48.089,
-        36.193
-      ],
-      "priority": 1.0
-    },
-    {
-      "concentrated": false,
-      "max": [
-        105.355,
-        134.363
-      ],
-      "min": [
-        48.089,
-        118.001
-      ],
-      "priority": 1.0
+      "id": "capillary_b",
+      "vessel_type": "vein",
+      "points": [
+        { "p": [43.998, 126.182], "w": 71.997 },
+        { "p": [95.129, 126.182], "w": 71.997 },
+        { "p": [125.807, 126.182], "w": 70.019 },
+        { "p": [156.485, 126.182], "w": 67.969 },
+        { "p": [187.163, 115.956], "w": 65.991 },
+        { "p": [248.519, 95.504], "w": 64.014 },
+        { "p": [287.378, 85.278], "w": 64.014 }
+      ]
     }
   ],
   "spawn_points": [
-    {
-      "id": "p_a",
-      "lane_id": "capillary_a",
-      "pos": [
-        43.998,
-        44.374
-      ],
-      "radius": 32.007
-    },
-    {
-      "id": "p_b",
-      "lane_id": "capillary_b",
-      "pos": [
-        43.998,
-        126.182
-      ],
-      "radius": 32.007
-    }
+    { "id": "p_a", "pos": [43.998, 44.374], "radius": 32.007, "lane_id": "capillary_a" },
+    { "id": "p_b", "pos": [43.998, 126.182], "radius": 32.007, "lane_id": "capillary_b" }
   ],
-  "region": "capillary",
-  "schema": 1,
-  "vessels": [
-    {
-      "children": [],
-      "id": "capillary_a",
-      "lane_id": "capillary_a",
-      "points": [
-        {
-          "p": [
-            43.998,
-            44.374
-          ],
-          "w": 71.997
-        },
-        {
-          "p": [
-            95.129,
-            44.374
-          ],
-          "w": 71.997
-        },
-        {
-          "p": [
-            125.807,
-            44.374
-          ],
-          "w": 70.019
-        },
-        {
-          "p": [
-            156.485,
-            44.374
-          ],
-          "w": 67.969
-        },
-        {
-          "p": [
-            187.163,
-            49.478
-          ],
-          "w": 65.991
-        },
-        {
-          "p": [
-            248.519,
-            75.052
-          ],
-          "w": 64.014
-        },
-        {
-          "p": [
-            287.378,
-            85.278
-          ],
-          "w": 64.014
-        }
-      ],
-      "vessel_type": "artery"
-    },
-    {
-      "children": [],
-      "id": "capillary_b",
-      "lane_id": "capillary_b",
-      "points": [
-        {
-          "p": [
-            43.998,
-            126.182
-          ],
-          "w": 71.997
-        },
-        {
-          "p": [
-            95.129,
-            126.182
-          ],
-          "w": 71.997
-        },
-        {
-          "p": [
-            125.807,
-            126.182
-          ],
-          "w": 70.019
-        },
-        {
-          "p": [
-            156.485,
-            126.182
-          ],
-          "w": 67.969
-        },
-        {
-          "p": [
-            187.163,
-            115.956
-          ],
-          "w": 65.991
-        },
-        {
-          "p": [
-            248.519,
-            95.504
-          ],
-          "w": 64.014
-        },
-        {
-          "p": [
-            287.378,
-            85.278
-          ],
-          "w": 64.014
-        }
-      ],
-      "vessel_type": "vein"
-    }
+  "objectives": [
+    { "id": "organ", "pos": [287.378, 85.278], "radius": 25.269 }
+  ],
+  "placement_zones": [
+    { "min": [160.237, 33.258], "max": [231.375, 69.716], "concentrated": true, "priority": 2 },
+    { "min": [160.237, 100.839], "max": [231.375, 137.297], "concentrated": true, "priority": 2 },
+    { "min": [233.189, 69.93], "max": [279.197, 100.608], "concentrated": true, "priority": 2.5 },
+    { "min": [48.089, 36.193], "max": [105.355, 52.554] },
+    { "min": [48.089, 118.001], "max": [105.355, 134.363] }
   ],
   "waves": [
     {
-      "atp_reward": 50,
       "name": "capillary_wave_1",
-      "prep_time": 8.0,
+      "prep_time": 8,
+      "atp_reward": 50,
       "spawns": [
-        {
-          "count": 135,
-          "duration": 4.0,
-          "family": "virus",
-          "start_time": 0.0
-        }
+        { "family": "virus", "count": 135, "duration": 4 }
       ]
     },
     {
-      "atp_reward": 60,
       "name": "capillary_wave_2",
       "prep_time": 7.43,
+      "atp_reward": 60,
       "spawns": [
-        {
-          "count": 210,
-          "duration": 4.0,
-          "family": "virus",
-          "start_time": 0.0
-        },
-        {
-          "count": 65,
-          "duration": 3.34,
-          "family": "bacteria",
-          "start_time": 1.0
-        }
+        { "family": "virus", "count": 210, "duration": 4 },
+        { "family": "bacteria", "count": 65, "start_time": 1, "duration": 3.34 }
       ]
     },
     {
-      "atp_reward": 70,
       "name": "capillary_wave_3",
       "prep_time": 6.86,
+      "atp_reward": 70,
       "spawns": [
-        {
-          "count": 285,
-          "duration": 4.0,
-          "family": "virus",
-          "start_time": 0.0
-        },
-        {
-          "count": 90,
-          "duration": 3.34,
-          "family": "bacteria",
-          "start_time": 1.0
-        }
+        { "family": "virus", "count": 285, "duration": 4 },
+        { "family": "bacteria", "count": 90, "start_time": 1, "duration": 3.34 }
       ]
     },
     {
-      "atp_reward": 80,
       "name": "capillary_wave_4",
       "prep_time": 6.29,
+      "atp_reward": 80,
       "spawns": [
-        {
-          "count": 360,
-          "duration": 4.0,
-          "family": "virus",
-          "start_time": 0.0
-        },
-        {
-          "count": 115,
-          "duration": 3.34,
-          "family": "bacteria",
-          "start_time": 1.0
-        },
-        {
-          "count": 86,
-          "duration": 5.34,
-          "family": "bacteria",
-          "start_time": 0.67
-        }
+        { "family": "virus", "count": 360, "duration": 4 },
+        { "family": "bacteria", "count": 115, "start_time": 1, "duration": 3.34 },
+        { "family": "bacteria", "count": 86, "start_time": 0.67, "duration": 5.34 }
       ]
     },
     {
-      "atp_reward": 90,
       "name": "capillary_wave_5",
       "prep_time": 5.71,
+      "atp_reward": 90,
       "spawns": [
-        {
-          "count": 435,
-          "duration": 4.0,
-          "family": "virus",
-          "start_time": 0.0
-        },
-        {
-          "count": 140,
-          "duration": 3.34,
-          "family": "bacteria",
-          "start_time": 1.0
-        },
-        {
-          "count": 105,
-          "duration": 5.34,
-          "family": "bacteria",
-          "start_time": 0.67
-        }
+        { "family": "virus", "count": 435, "duration": 4 },
+        { "family": "bacteria", "count": 140, "start_time": 1, "duration": 3.34 },
+        { "family": "bacteria", "count": 105, "start_time": 0.67, "duration": 5.34 }
       ]
     },
     {
-      "atp_reward": 100,
       "name": "capillary_wave_6",
       "prep_time": 5.14,
+      "atp_reward": 100,
       "spawns": [
-        {
-          "count": 510,
-          "duration": 4.0,
-          "family": "virus",
-          "start_time": 0.0
-        },
-        {
-          "count": 165,
-          "duration": 3.34,
-          "family": "bacteria",
-          "start_time": 1.0
-        },
-        {
-          "count": 123,
-          "duration": 5.34,
-          "family": "bacteria",
-          "start_time": 0.67
-        }
+        { "family": "virus", "count": 510, "duration": 4 },
+        { "family": "bacteria", "count": 165, "start_time": 1, "duration": 3.34 },
+        { "family": "bacteria", "count": 123, "start_time": 0.67, "duration": 5.34 }
       ]
     },
     {
-      "atp_reward": 110,
       "name": "capillary_wave_7",
       "prep_time": 4.57,
+      "atp_reward": 110,
       "spawns": [
-        {
-          "count": 585,
-          "duration": 4.0,
-          "family": "virus",
-          "start_time": 0.0
-        },
-        {
-          "count": 190,
-          "duration": 3.34,
-          "family": "bacteria",
-          "start_time": 1.0
-        },
-        {
-          "count": 142,
-          "duration": 5.34,
-          "family": "bacteria",
-          "start_time": 0.67
-        }
+        { "family": "virus", "count": 585, "duration": 4 },
+        { "family": "bacteria", "count": 190, "start_time": 1, "duration": 3.34 },
+        { "family": "bacteria", "count": 142, "start_time": 0.67, "duration": 5.34 }
       ]
     },
     {
-      "atp_reward": 120,
       "name": "capillary_wave_8",
-      "prep_time": 4.0,
+      "prep_time": 4,
+      "atp_reward": 120,
       "spawns": [
-        {
-          "count": 660,
-          "duration": 4.0,
-          "family": "virus",
-          "start_time": 0.0
-        },
-        {
-          "count": 215,
-          "duration": 3.34,
-          "family": "bacteria",
-          "start_time": 1.0
-        },
-        {
-          "count": 161,
-          "duration": 5.34,
-          "family": "bacteria",
-          "start_time": 0.67
-        }
+        { "family": "virus", "count": 660, "duration": 4 },
+        { "family": "bacteria", "count": 215, "start_time": 1, "duration": 3.34 },
+        { "family": "bacteria", "count": 161, "start_time": 0.67, "duration": 5.34 }
       ]
     }
-  ],
-  "world": {
-    "cell_size": 0.5,
-    "max": [
-      331.38,
-      170.93
-    ],
-    "min": [
-      0,
-      0
-    ]
-  }
+  ]
 }

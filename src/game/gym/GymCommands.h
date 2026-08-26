@@ -51,6 +51,8 @@ namespace immune::sim { class SimWorld; }
 
 namespace immune::game {
 
+class LevelDoc;
+
 class ActiveAbilitySystem;
 class Economy;
 class EnemyRoster;
@@ -169,6 +171,22 @@ struct GymContext {
     /// Toggles a named HUD overlay ("debug", "threat"). Names it does not know
     /// must be reported as unknown by the implementer, not ignored.
     std::function<bool(const std::string&, bool)> set_overlay;
+
+    /// The level editor's document, when one is open. Absent otherwise, in
+    /// which case `edit` reports that rather than pretending.
+    ///
+    /// Exposing the editor through the SAME command language everything else
+    /// uses is what keeps the GUI from becoming a second API: the panels are a
+    /// typist for LevelDoc, `edit` is a typist for LevelDoc, and neither can
+    /// drift from the other. It also makes an editor operation reachable from
+    /// --exec, and therefore from --sim-test and screenshot regressions.
+    LevelDoc* doc = nullptr;
+    /// Re-bakes and re-validates after a document edit. Supplied by app/.
+    std::function<void()> doc_changed;
+    /// Writes the document. Empty path means its own source path.
+    std::function<bool(const std::string& path, bool force, std::string& err)> doc_save;
+    /// Re-reads the document from its source path, discarding edits.
+    std::function<bool(std::string& err)> doc_revert;
 
     // --- Tuning config (assets/config/*.json) -------------------------------
     // Supplied by app/, which owns the ConfigStore. Absent in a context that

@@ -11,13 +11,16 @@
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
+#include <cmath>
+
 using namespace immune;
 using namespace immune::render;
 using Catch::Approx;
 
 TEST_CASE("lod_split conserves mass at and below the threshold", "[render][lod]") {
     for (u32 occ = 0; occ <= 24; ++occ) {
-        const LodSplit s = lod_split(occ, 24, 48);
+        const LodSplit s = lod_split(static_cast<f32>(occ), 24, 48);
         REQUIRE(s.instance_alpha == Approx(1.0f));
         REQUIRE(s.blob_weight == Approx(0.0f));
         REQUIRE(s.instance_alpha + s.blob_weight == Approx(1.0f));
@@ -26,7 +29,7 @@ TEST_CASE("lod_split conserves mass at and below the threshold", "[render][lod]"
 
 TEST_CASE("lod_split conserves mass at and above full", "[render][lod]") {
     for (u32 occ = 48; occ <= 96; ++occ) {
-        const LodSplit s = lod_split(occ, 24, 48);
+        const LodSplit s = lod_split(static_cast<f32>(occ), 24, 48);
         REQUIRE(s.instance_alpha == Approx(0.0f));
         REQUIRE(s.blob_weight == Approx(1.0f));
         REQUIRE(s.instance_alpha + s.blob_weight == Approx(1.0f));
@@ -35,7 +38,7 @@ TEST_CASE("lod_split conserves mass at and above full", "[render][lod]") {
 
 TEST_CASE("lod_split conserves mass across every step of the crossfade band", "[render][lod]") {
     for (u32 occ = 24; occ <= 48; ++occ) {
-        const LodSplit s = lod_split(occ, 24, 48);
+        const LodSplit s = lod_split(static_cast<f32>(occ), 24, 48);
         REQUIRE(s.instance_alpha >= 0.0f);
         REQUIRE(s.instance_alpha <= 1.0f);
         REQUIRE(s.blob_weight >= 0.0f);
@@ -47,7 +50,7 @@ TEST_CASE("lod_split conserves mass across every step of the crossfade band", "[
 TEST_CASE("lod_split is monotonic through the band", "[render][lod]") {
     f32 prev_alpha = 1.0f;
     for (u32 occ = 24; occ <= 48; ++occ) {
-        const LodSplit s = lod_split(occ, 24, 48);
+        const LodSplit s = lod_split(static_cast<f32>(occ), 24, 48);
         REQUIRE(s.instance_alpha <= prev_alpha + 1e-6f);
         prev_alpha = s.instance_alpha;
     }
@@ -63,6 +66,81 @@ TEST_CASE("lod_split degrades to pure-instance when full <= threshold", "[render
     // matters strictly above it.
     const LodSplit above = lod_split(25, 24, 24);
     REQUIRE(above.blob_weight == Approx(1.0f));
+}
+
+// ---------------------------------------------------------------------------
+// OccupancyGrid: the crossfade's INPUT has to be continuous too.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("at_smooth reads a cell's own value at its centre", "[render][lod]") {
+    // The interpolation must be centred on cell CENTRES, not corners. Get this
+    // wrong and the whole field shifts half a cell, which is a silent bug: it
+    // still looks smooth, it is just in the wrong place.
+    const u32 occ[9] = {0, 0, 0,
+                        0, 40, 0,
+                        0, 0, 0};
+    OccupancyGrid g;
+    g.bounds = Rect{Vec2{0.0f, 0.0f}, Vec2{30.0f, 30.0f}};
+    g.cell_size = 10.0f;
+    g.dims = IVec2{3, 3};
+    g.occupancy = occ;
+
+    REQUIRE(g.at_smooth(Vec2{15.0f, 15.0f}) == Approx(40.0f));
+    REQUIRE(g.at_smooth(Vec2{5.0f, 5.0f}) == Approx(0.0f));
+    // Halfway between the hot cell's centre and its neighbour's: half the value.
+    REQUIRE(g.at_smooth(Vec2{10.0f, 15.0f}) == Approx(20.0f));
+}
+
+TEST_CASE("at_smooth never steps across a cell boundary", "[render][lod]") {
+    // The dark-squares regression, stated as the property that was missing.
+    // `at()` is a step function of position, so two agents a millimetre apart
+    // either side of a cell edge got completely different LOD treatment and the
+    // horde tiled into squares. Walking the smooth field across the same edge
+    // must produce no jump larger than the ramp itself.
+    const u32 occ[4] = {0, 60,
+                        0, 60};
+    OccupancyGrid g;
+    g.bounds = Rect{Vec2{0.0f, 0.0f}, Vec2{20.0f, 20.0f}};
+    g.cell_size = 10.0f;
+    g.dims = IVec2{2, 2};
+    g.occupancy = occ;
+
+    f32 prev = g.at_smooth(Vec2{5.0f, 10.0f});
+    f32 worst_step = 0.0f;
+    for (int i = 1; i <= 100; ++i) {
+        const f32 x = 5.0f + 10.0f * (static_cast<f32>(i) / 100.0f);   // centre to centre
+        const f32 v = g.at_smooth(Vec2{x, 10.0f});
+        worst_step = std::max(worst_step, std::abs(v - prev));
+        REQUIRE(v >= prev - 1e-4f);   // monotonic: no ripple at the seam
+        prev = v;
+    }
+    // 60 occupancy spread over 100 samples of one cell width. `at()` would step
+    // the whole 60 at once, right at x = 10.
+    REQUIRE(worst_step < 1.0f);
+    REQUIRE(prev == Approx(60.0f));
+}
+
+TEST_CASE("at_smooth clamps at the grid border instead of fading to zero",
+          "[render][lod]") {
+    // Outside the grid the nearest edge cell is the honest answer. Fading to
+    // zero would pop the agents at the rim back to full sprites.
+    const u32 occ[4] = {30, 30,
+                        30, 30};
+    OccupancyGrid g;
+    g.bounds = Rect{Vec2{0.0f, 0.0f}, Vec2{20.0f, 20.0f}};
+    g.cell_size = 10.0f;
+    g.dims = IVec2{2, 2};
+    g.occupancy = occ;
+
+    REQUIRE(g.at_smooth(Vec2{0.0f, 0.0f}) == Approx(30.0f));
+    REQUIRE(g.at_smooth(Vec2{-50.0f, 30.0f}) == Approx(30.0f));
+}
+
+TEST_CASE("an unavailable occupancy grid reads as empty", "[render][lod]") {
+    // The correct degradation is "every agent draws as an instance".
+    OccupancyGrid g;
+    REQUIRE(g.at_smooth(Vec2{1.0f, 1.0f}) == Approx(0.0f));
+    REQUIRE(lod_split(g.at_smooth(Vec2{1.0f, 1.0f}), 24, 48).instance_alpha == Approx(1.0f));
 }
 
 // ---------------------------------------------------------------------------

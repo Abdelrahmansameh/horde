@@ -117,6 +117,11 @@ void apply_immune_theme() {
 bool Hud::init(platform::Window& window, platform::InputState& input) {
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
+    // Docking, for the level editor's panel layout (docs/LEVEL_EDITOR.md). It
+    // is opt-in per config flag and changes nothing for a window that does not
+    // ask for it, so the HUD, the menus and the gym panel are unaffected --
+    // they keep the free-floating placement imgui.ini already persists.
+    ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_DockingEnable;
     apply_immune_theme();
     load_system_fonts(); // must run before backend Init() builds the atlas texture
 
@@ -433,8 +438,12 @@ void Hud::build(const sim::SimWorld& world, const game::Economy& economy,
             char label[64];
             std::snprintf(label, sizeof(label), "%s (%u)", game::tower_type_name(type),
                          stats.build_cost);
+            // A level's schema-2 allowed_towers list. TowerSystem::validate()
+            // is what actually enforces it; greying the button here is so you
+            // can SEE the restriction instead of discovering it by clicking.
+            const bool allowed = towers.tower_allowed(type);
             const bool affordable = economy.can_afford(stats.build_cost);
-            if (!affordable) ImGui::BeginDisabled();
+            if (!affordable || !allowed) ImGui::BeginDisabled();
             const bool armed = build_cursor_active_ && build_cursor_type_ == type;
             if (armed) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.2f, 0.5f, 0.9f, 1.0f));
             if (ImGui::Button(label)) {
@@ -442,7 +451,10 @@ void Hud::build(const sim::SimWorld& world, const game::Economy& economy,
                 g_cast_cursor_active = false; // mutually exclusive armed cursor
             }
             if (armed) ImGui::PopStyleColor();
-            if (!affordable) ImGui::EndDisabled();
+            if (!affordable || !allowed) ImGui::EndDisabled();
+            if (!allowed && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+                ImGui::SetTooltip("not available on this level");
+            }
             if (i + 1 < kTowerTypeCount) ImGui::SameLine();
         }
         if (build_cursor_active_) {

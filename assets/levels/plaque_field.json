@@ -1,0 +1,91 @@
+{
+  "schema": 1,
+  "name": "plaque_field",
+  "region": "capillary",
+  "world": { "min": [0, 0], "max": [480, 260] },
+  "vessels": [
+    {
+      "id": "main",
+      "points": [
+        { "p": [40, 130], "w": 76 },
+        { "p": [140, 120], "w": 76 },
+        { "p": [250, 140], "w": 76 },
+        { "p": [360, 120], "w": 76 },
+        { "p": [440, 130], "w": 76 }
+      ]
+    }
+  ],
+  "obstacles": [
+    { "id": "plaque", "shape": "disc", "pos": [120, 120], "radius": 14 },
+    { "id": "strut", "shape": "capsule", "points": [[200, 112], [215, 146]], "radius": 7 },
+    { "id": "shelf", "shape": "box", "pos": [290, 132], "half_extents": [26, 6], "rotation": 20 },
+    { "id": "shard", "shape": "polygon", "points": [[336, 100], [364, 108], [344, 128]], "inflate": 1.5 },
+    {
+      "id": "septum",
+      "shape": "ridge",
+      "points": [
+        { "p": [390, 102], "w": 10 },
+        { "p": [404, 120], "w": 14 },
+        { "p": [398, 142], "w": 8 }
+      ]
+    }
+  ],
+  "spawn_points": [
+    { "id": "p0", "pos": [40, 130], "radius": 30 }
+  ],
+  "objectives": [
+    { "id": "organ", "pos": [440, 130], "radius": 19 }
+  ],
+  "placement_zones": [
+    { "min": [70, 60], "max": [240, 200], "concentrated": true, "priority": 1.2 },
+    { "min": [240, 60], "max": [420, 200] }
+  ],
+  "waves": [
+    {
+      "name": "plaque_wave_1",
+      "prep_time": 8,
+      "atp_reward": 50,
+      "spawns": [
+        { "family": "virus", "count": 140, "duration": 4 }
+      ]
+    },
+    {
+      "name": "plaque_wave_2",
+      "prep_time": 7,
+      "atp_reward": 60,
+      "spawns": [
+        { "family": "virus", "count": 220, "duration": 4 },
+        { "family": "bacteria", "count": 70, "start_time": 1, "duration": 3.4 }
+      ]
+    },
+    {
+      "name": "plaque_wave_3",
+      "prep_time": 6.5,
+      "atp_reward": 70,
+      "spawns": [
+        { "family": "virus", "count": 300, "duration": 4 },
+        { "family": "bacteria", "count": 95, "start_time": 1, "duration": 3.4 }
+      ]
+    },
+    {
+      "name": "plaque_wave_4",
+      "prep_time": 6,
+      "atp_reward": 80,
+      "spawns": [
+        { "family": "virus", "count": 380, "duration": 4 },
+        { "family": "bacteria", "count": 120, "start_time": 1, "duration": 3.4 },
+        { "family": "bacteria", "count": 90, "start_time": 0.7, "duration": 5.4 }
+      ]
+    },
+    {
+      "name": "plaque_wave_5",
+      "prep_time": 5.5,
+      "atp_reward": 95,
+      "spawns": [
+        { "family": "virus", "count": 470, "duration": 4 },
+        { "family": "bacteria", "count": 150, "start_time": 1, "duration": 3.4 },
+        { "family": "bacteria", "count": 110, "start_time": 0.7, "duration": 5.4 }
+      ]
+    }
+  ]
+}

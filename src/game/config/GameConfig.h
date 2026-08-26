@@ -195,7 +195,8 @@ struct FamilyChaffParams {
     f32 wall_restitution = 0.15f;
     f32 wall_splash = 0.75f;
     f32 contact_spacing = 2.0f;
-    f32 contact_stiffness = 0.7f;
+    f32 contact_stiffness = 1.0f;
+    f32 crowd_relief = 0.7f;
     f32 drift_bias = 0.0f;
     f32 replication_rate = 0.0f;
 };

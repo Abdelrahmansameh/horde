@@ -37,6 +37,11 @@ public:
 
     /// Clamps the centre so the view stays inside the level bounds.
     void set_bounds(const Rect& world_bounds) { bounds_ = world_bounds; }
+    /// The clamp rect. Read by the level editor, which drives its own free
+    /// pan/zoom and needs to know the limits it is navigating within (and
+    /// deliberately widens them, so you can see outside the level while
+    /// dragging the world rectangle itself).
+    const Rect& bounds() const { return bounds_; }
     void clamp_to_bounds();
 
     /// Combined view-projection for the sprite shaders.

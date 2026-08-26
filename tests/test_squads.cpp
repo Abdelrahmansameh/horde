@@ -1010,6 +1010,17 @@ TEST_CASE("a squad is a cohort: it closes once it moves off its spawn point",
     // A shove backwards from the crowd is ordinary physics; a steady stream of
     // agents driving upstream is the bug. Before the brake was capped, leaders
     // reversed under a 1.65/tick impulse against a 0.33/tick flow term.
+    //
+    // The FRACTION is the bug's signature and is what this case is really
+    // guarding; it measures 0.00017 against the 0.0005 bound below.
     REQUIRE(backward_fraction < 0.0005);
-    REQUIRE(worst_backward < 3.0f);
+    // The tail is one sample in 113,000, and it moved from 2.9 to 3.5 when
+    // contact_stiffness went to 1.0 -- i.e. when overlap started being resolved
+    // in full each tick instead of 70% of it. A crowd that pushes apart harder
+    // shoves harder, and in a lane the only place a shove can go is along the
+    // lane; measured independently, crowd_relief adds nothing to this (3.504
+    // with it, 3.506 without). 4.0 keeps the guard meaningful -- it is still a
+    // quarter of the family's 16.9 top speed -- without asserting that the
+    // crowd must stay soft.
+    REQUIRE(worst_backward < 4.0f);
 }

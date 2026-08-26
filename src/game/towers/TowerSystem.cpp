@@ -375,7 +375,6 @@ bool would_block_all_paths(const sim::SimWorld& world, const Rect& footprint) {
     const IVec2 f0 = mask.world_to_cell(footprint.min);
     const IVec2 f1 = mask.world_to_cell(footprint.max);
     auto blocked = [&](i32 x, i32 y) { return x >= f0.x && x <= f1.x && y >= f0.y && y <= f1.y; };
-    auto passable = [&](i32 x, i32 y) { return mask.in_range(x, y) && !blocked(x, y) && mask.walkable(x, y); };
 
     // Transient BFS scratch only — never holds anything meaningful across
     // calls, so reusing capacity via function-local statics is safe even
@@ -404,25 +403,55 @@ bool would_block_all_paths(const sim::SimWorld& world, const Rect& footprint) {
     }
     if (anchors.size() < 2) return false; // nothing that could be disconnected
 
-    stack.push_back(anchors[0]);
-    visited_gen[local_index(anchors[0].x, anchors[0].y)] = gen;
+    // DIFFERENTIAL, not absolute: flood the window twice from the same seed,
+    // once over the mask as it stands and once with the footprint blocked, and
+    // report only anchors the footprint newly cut off.
+    //
+    // Asking the second flood alone "did every anchor stay connected" answers
+    // the wrong question, because a window can contain walls the tower had
+    // nothing to do with. A level with an authored obstacle inside a lane
+    // (game/level Level.h) puts border anchors on either side of an island
+    // whose way round lies outside the window, so an absolute test calls every
+    // placement near one WouldBlockAllPaths and the lane becomes unbuildable
+    // for no reason. Comparing against the baseline attributes the
+    // disconnection to the footprint or to nothing.
     const IVec2 offsets[4] = {IVec2{1, 0}, IVec2{-1, 0}, IVec2{0, 1}, IVec2{0, -1}};
-    while (!stack.empty()) {
-        const IVec2 cur = stack.back();
-        stack.pop_back();
-        for (const IVec2& o : offsets) {
-            const i32 nx = cur.x + o.x;
-            const i32 ny = cur.y + o.y;
-            if (nx < x0 || nx > x1 || ny < y0 || ny > y1 || !passable(nx, ny)) continue;
-            const usize idx = local_index(nx, ny);
-            if (visited_gen[idx] == gen) continue;
-            visited_gen[idx] = gen;
-            stack.push_back(IVec2{nx, ny});
+    auto flood_from_first_anchor = [&](bool block_footprint, std::vector<u8>& reached) {
+        auto open = [&](i32 x, i32 y) {
+            if (!mask.in_range(x, y) || !mask.walkable(x, y)) return false;
+            return !(block_footprint && blocked(x, y));
+        };
+        reached.assign(anchors.size(), 0u);
+        ++gen;
+        stack.clear();
+        if (!open(anchors[0].x, anchors[0].y)) return;
+        stack.push_back(anchors[0]);
+        visited_gen[local_index(anchors[0].x, anchors[0].y)] = gen;
+        while (!stack.empty()) {
+            const IVec2 cur = stack.back();
+            stack.pop_back();
+            for (const IVec2& o : offsets) {
+                const i32 nx = cur.x + o.x;
+                const i32 ny = cur.y + o.y;
+                if (nx < x0 || nx > x1 || ny < y0 || ny > y1 || !open(nx, ny)) continue;
+                const usize idx = local_index(nx, ny);
+                if (visited_gen[idx] == gen) continue;
+                visited_gen[idx] = gen;
+                stack.push_back(IVec2{nx, ny});
+            }
         }
-    }
+        for (usize i = 0; i < anchors.size(); ++i) {
+            reached[i] = visited_gen[local_index(anchors[i].x, anchors[i].y)] == gen ? 1u : 0u;
+        }
+    };
+
+    static thread_local std::vector<u8> reached_before;
+    static thread_local std::vector<u8> reached_after;
+    flood_from_first_anchor(/*block_footprint=*/false, reached_before);
+    flood_from_first_anchor(/*block_footprint=*/true, reached_after);
 
     for (usize i = 1; i < anchors.size(); ++i) {
-        if (visited_gen[local_index(anchors[i].x, anchors[i].y)] != gen) return true;
+        if (reached_before[i] != 0u && reached_after[i] == 0u) return true;
     }
     return false;
 }
@@ -1443,9 +1472,34 @@ PlacementQuery TowerSystem::validate(const sim::SimWorld& world, TowerType type,
         return q;
     }
 
-    // NOTE: PlacementResult::OutsidePlacementZone is never returned.
-    // LevelDef::placement_zones (game/level/Level.h) is never threaded onto
-    // sim::SimWorld, so TowerSystem has no data source for it. See the report.
+    // The level's schema-2 allowed_towers list. Checked HERE and not in the HUD
+    // so the gym console and the balance bot are bound by it too.
+    if (!tower_allowed(type)) {
+        q.result = PlacementResult::TowerNotAllowed;
+        return q;
+    }
+
+    // Buildable area. A level that authors no zones means "anywhere", which is
+    // how every shipped level behaved before zones were enforceable at all --
+    // so this branch is inert for content that does not opt in.
+    //
+    // The whole FOOTPRINT has to be inside one zone, not just the centre: a
+    // tower half outside the buildable margin is exactly the placement the
+    // author drew the rectangle to prevent.
+    if (!world.placement_zones().empty()) {
+        const Rect fp = footprint_rect(pos, st.footprint_radius);
+        bool inside = false;
+        for (const Rect& z : world.placement_zones()) {
+            if (fp.min.x < z.min.x || fp.min.y < z.min.y) continue;
+            if (fp.max.x > z.max.x || fp.max.y > z.max.y) continue;
+            inside = true;
+            break;
+        }
+        if (!inside) {
+            q.result = PlacementResult::OutsidePlacementZone;
+            return q;
+        }
+    }
 
     if (st.blocks_flow && would_block_all_paths(world, footprint_rect(pos, st.footprint_radius))) {
         q.result = PlacementResult::WouldBlockAllPaths;

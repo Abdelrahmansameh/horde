@@ -95,6 +95,37 @@ float vnoise(vec2 p) {
                mix(hash21(i + vec2(0, 1)), hash21(i + vec2(1, 1)), u.x), u.y);
 }
 
+/// Rotation applied to every domain the plasma LIC samples in.
+///
+/// `vnoise` lives on the integer lattice, so its features sit in rows and
+/// columns aligned to the world axes. A vessel that runs left-to-right hands
+/// the LIC a flow of very nearly +x, and the smear then runs exactly ALONG one
+/// lattice axis: it averages out the variation it walks through and leaves the
+/// rows it never crosses standing at full contrast. The lumen fills with a
+/// regular grid of blobs -- the loudest artifact on the layer, and one no
+/// amount of smoothing on the flow field itself can touch, because the flow
+/// field is not what is wrong.
+///
+/// Sampling in a frame rotated by an angle that is not a multiple of 45 degrees
+/// costs two multiply-adds and puts the lattice off-axis from any lane a level
+/// is likely to be authored with. It cannot be off-axis from ALL of them, which
+/// is what the domain warp below is for.
+const mat2 kNoiseRot = mat2(0.8607, 0.5090, -0.5090, 0.8607); // ~30.6 degrees
+
+/// Low-frequency displacement applied to the LIC domain, in noise-space units.
+///
+/// The rotation moves the lattice; this bends it. Sampling the noise through a
+/// smooth warp means the "rows" are curves that drift in and out of any given
+/// direction over ~10 world units, so no straight smear can stay aligned with
+/// them for long enough to leave one standing. It is computed ONCE per pixel,
+/// outside the tap loop, so every tap of a given LIC still walks a straight
+/// line through the same warped field -- the smear stays a line integral, it is
+/// only the field underneath it that is no longer a grid.
+vec2 lic_domain(vec2 p, float scale, float warp) {
+    vec2 w = vec2(vnoise(p * 0.09), vnoise(p * 0.09 + 13.7)) - 0.5;
+    return kNoiseRot * (p * scale) + w * warp;
+}
+
 float fbm(vec2 p) {
     float v = 0.0, a = 0.5;
     for (int k = 0; k < 4; ++k) {
@@ -517,10 +548,27 @@ void main() {
         // improvement on one with a starburst in it. The plasma still advects
         // along `flow` at full rate there; it was the smear that read wrong at
         // a fan, never the motion.
-        vec2 sp = p * 0.80 - flow * (u_time * 1.00 * tempo);
+        //
+        // Collapsing the taps ALL the way, though, hands the fallback region a
+        // single raw vnoise lookup, and a single raw vnoise lookup is exactly
+        // the lattice this pass spends kNoiseRot and lic_domain trying not to
+        // show. Worse, the boundary where it takes over is visible as a hard
+        // line across the lumen, because the taps go from spread to stacked
+        // over the width of the coherence ramp. A floor keeps a short smear
+        // everywhere: too short to commit to a direction nobody computed, long
+        // enough that the taps still decorrelate and the handover has no edge.
+        float spread = mix(0.42, 1.0, coherence);
+        //
+        // Both the domain and the direction go through kNoiseRot together. The
+        // rotation is a change of frame, not a change of direction: rotating
+        // the domain alone would leave the taps walking world-space +x through
+        // a turned lattice, which draws the filaments 30 degrees off the lane
+        // they belong to.
+        vec2 nflow = kNoiseRot * flow;
+        vec2 sp = lic_domain(p, 0.80, 1.6) - nflow * (u_time * 1.00 * tempo);
         float lic = 0.0;
         for (int k = -3; k <= 3; ++k) {
-            lic += vnoise(sp + flow * (float(k) * 0.38 * coherence));
+            lic += vnoise(sp + nflow * (float(k) * 0.38 * spread));
         }
         lic *= 1.0 / 7.0;
         // Centred on the mean so the streaks both brighten and darken; a purely
@@ -540,10 +588,10 @@ void main() {
         // A faster, finer filament layer over the top, strongest where the
         // plasma drags against the wall — the same place a real velocity
         // profile has its steepest gradient.
-        vec2 sp2 = p * 2.10 - flow * (u_time * 1.90 * tempo);
+        vec2 sp2 = lic_domain(p, 2.10, 1.1) - nflow * (u_time * 1.90 * tempo);
         float fine = 0.0;
         for (int k = -2; k <= 2; ++k) {
-            fine += vnoise(sp2 + flow * (float(k) * 0.34 * coherence));
+            fine += vnoise(sp2 + nflow * (float(k) * 0.34 * spread));
         }
         fine *= 0.2;
         plasma *= 1.0 + 0.26 * (fine - 0.5) * (1.0 - 0.55 * depth) *
@@ -568,7 +616,7 @@ void main() {
         // Corpuscles drifting downstream. Deliberately near the threshold of
         // visibility: they add life to an empty lane and must vanish under a
         // horde rather than dot it.
-        vec2 cp = (p - flow * (u_time * 1.9 * tempo)) * 0.55;
+        vec2 cp = kNoiseRot * (p - flow * (u_time * 1.9 * tempo)) * 0.55;
         vec2 ci = floor(cp);
         float ch = hash21(ci);
         float cd = length(fract(cp) - vec2(ch, fract(ch * 17.0)));

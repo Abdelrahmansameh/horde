@@ -135,7 +135,16 @@ void WaveDirector::tick(sim::SimWorld& world, Rng& rng, f32 dt) {
                     // packing still applies per squad rather than smearing one
                     // spiral across several of them.
                     sim::SquadRegistry& reg = world.squads();
-                    const u32 squad_size = math::max(reg.tuning().target_squad_size, 1u);
+                    // schema 2: the ENTRY may set its own squad size. 0 keeps
+                    // the global, which is what every pre-v2 level means. 900
+                    // arriving as 15 squads of 60 and 900 arriving as 6 squads
+                    // of 150 are different silhouettes reaching the line at
+                    // different times, and this is the only way to ask for the
+                    // second.
+                    const u32 squad_size =
+                        math::max(e.squad_size != 0 ? e.squad_size
+                                                    : reg.tuning().target_squad_size,
+                                  1u);
                     const bool grouping = reg.tuning().enabled && !reg.paths().empty();
                     SquadCursor& cursor = squad_cursor_[i];
 
@@ -160,9 +169,15 @@ void WaveDirector::tick(sim::SimWorld& world, Rng& rng, f32 dt) {
                             if (cursor.squad == sim::kNoSquad ||
                                 !reg.accepting(cursor.squad)) {
                                 u16 path = 0;
-                                cursor.squad = reg.next_path_for_lane(spawn_point_lane, path)
-                                                   ? reg.create_squad(path, spawn_point_pos)
-                                                   : sim::kNoSquad;
+                                // schema 2: an entry may restrict itself to a
+                                // named subset of the lane's paths. Empty (the
+                                // default, and every pre-v2 level) is the plain
+                                // lane rotation.
+                                cursor.squad =
+                                    reg.next_path_for_lane_filtered(spawn_point_lane,
+                                                                    e.squad_paths, path)
+                                        ? reg.create_squad(path, spawn_point_pos)
+                                        : sim::kNoSquad;
                                 cursor.filled = 0;
                             }
                             squad = cursor.squad;

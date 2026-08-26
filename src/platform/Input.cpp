@@ -18,6 +18,8 @@ void InputState::bind_defaults() {
     bind(Action::CancelPlacement, SDL_SCANCODE_ESCAPE);
     bind(Action::ToggleDebugOverlay, SDL_SCANCODE_F1);
     bind(Action::ToggleThreatOverlay, SDL_SCANCODE_TAB);
+    // F1 is the debug overlay and F2 the gym panel, so the editor takes F4.
+    bind(Action::OpenEditor, SDL_SCANCODE_F4);
     bind(Action::SelectTower1, SDL_SCANCODE_1);
     bind(Action::SelectTower2, SDL_SCANCODE_2);
     bind(Action::SelectTower3, SDL_SCANCODE_3);

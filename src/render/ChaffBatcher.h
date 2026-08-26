@@ -87,6 +87,49 @@ struct OccupancyGrid {
         return occupancy[static_cast<usize>(cy) * static_cast<usize>(dims.x) +
                          static_cast<usize>(cx)];
     }
+
+    /// Occupancy at `p` interpolated between the four surrounding cell CENTRES.
+    ///
+    /// THIS is what the crossfade must read, not `at()`. Occupancy is a
+    /// per-cell integer, so `at()` is a step function of position: every agent
+    /// inside one broadphase cell gets bit-identical LOD treatment, and an
+    /// agent a hair across the boundary gets a different one. A band that is
+    /// smooth in occupancy buys nothing when its INPUT jumps -- the horde tiles
+    /// into hard-edged squares of "all sprite" and "all blob", axis-aligned to
+    /// a grid that exists for broadphase reasons and is supposed to be
+    /// invisible.
+    ///
+    /// Reading the field bilinearly makes the split continuous across cell
+    /// borders: same numbers, same band, no seam. Four loads and three lerps
+    /// per agent, against the one load `at()` does.
+    f32 at_smooth(Vec2 p) const {
+        if (!valid()) return 0.0f;
+        const f32 inv = 1.0f / cell_size;
+        // -0.5 puts the sample on the cell-CENTRE lattice: a point at a cell's
+        // centre must read that cell's value and nothing else, or the
+        // interpolation smears the whole field half a cell toward -x/-y.
+        const f32 fx = (p.x - bounds.min.x) * inv - 0.5f;
+        const f32 fy = (p.y - bounds.min.y) * inv - 0.5f;
+        const f32 x0f = std::floor(fx);
+        const f32 y0f = std::floor(fy);
+        const i32 x0 = static_cast<i32>(x0f);
+        const i32 y0 = static_cast<i32>(y0f);
+        const f32 tx = fx - x0f;
+        const f32 ty = fy - y0f;
+        const auto load = [&](i32 x, i32 y) {
+            // Clamped, not zeroed: outside the grid the nearest edge cell is
+            // the honest answer, and it stops the border from reading as empty
+            // and popping its agents back to full sprites.
+            x = math::clamp(x, 0, dims.x - 1);
+            y = math::clamp(y, 0, dims.y - 1);
+            return static_cast<f32>(occupancy[static_cast<usize>(y) *
+                                                  static_cast<usize>(dims.x) +
+                                              static_cast<usize>(x)]);
+        };
+        const f32 lo = load(x0, y0) * (1.0f - tx) + load(x0 + 1, y0) * tx;
+        const f32 hi = load(x0, y0 + 1) * (1.0f - tx) + load(x0 + 1, y0 + 1) * tx;
+        return lo * (1.0f - ty) + hi * ty;
+    }
 };
 
 // ---------------------------------------------------------------------------
@@ -98,11 +141,16 @@ struct LodSplit {
     f32 blob_weight = 0.0f;
 };
 
-inline LodSplit lod_split(u32 occupancy, u32 threshold, u32 full) {
-    if (occupancy <= threshold) return LodSplit{1.0f, 0.0f};
-    if (full <= threshold || occupancy >= full) return LodSplit{0.0f, 1.0f};
-    const f32 t = static_cast<f32>(occupancy - threshold) /
-                  static_cast<f32>(full - threshold);
+/// `occupancy` is a float because the renderer feeds it
+/// OccupancyGrid::at_smooth -- see there for why a stepped input makes this
+/// band's smoothness irrelevant. Integer call sites are unaffected: the same
+/// integers through the same formula.
+inline LodSplit lod_split(f32 occupancy, u32 threshold, u32 full) {
+    const f32 thr = static_cast<f32>(threshold);
+    const f32 fll = static_cast<f32>(full);
+    if (occupancy <= thr) return LodSplit{1.0f, 0.0f};
+    if (full <= threshold || occupancy >= fll) return LodSplit{0.0f, 1.0f};
+    const f32 t = (occupancy - thr) / (fll - thr);
     const f32 s = math::smoothstep01(t);
     return LodSplit{1.0f - s, s};
 }
@@ -188,6 +236,12 @@ private:
 // ---------------------------------------------------------------------------
 
 struct ChaffBatchParams {
+    /// Whether the crossfade runs. False makes every agent a full-alpha
+    /// instance that deposits nothing, which is how the game ships -- see
+    /// RendererDesc::lod_blob_enabled for why. Defaults TRUE here because the
+    /// crossfade is this file's own unit under test; the renderer passes its
+    /// own value.
+    bool lod_blob_enabled = true;
     u32 lod_blob_threshold = 24;
     u32 lod_blob_full = 48;
     /// Instance slots reserved per family. The destination buffer is
@@ -249,9 +303,19 @@ inline ChaffBatchResult build_chaff_batches(const sim::ChaffBuffers& chaff,
     // Family constants hoisted out of the loop: six table lookups, not 10,000.
     Vec4 fam_color[kFamilyCount];
     FamilyVisual fam_vis[kFamilyCount];
+    // Reciprocal of the occupancy at which this family's sprites cover a
+    // broadphase cell: cell area over the area of one silhouette disc. A virus
+    // (1.53 across) fills a 4-unit cell at ~8.7 agents, a bacterium (2.25) at
+    // ~4.0 -- "packed" is not the same number for both, and a shadow term that
+    // used one number for both would retire on the wrong one.
+    f32 inv_crowd_full[kFamilyCount];
+    const f32 cell_area = occ.cell_size * occ.cell_size;
     for (u32 f = 0; f < kFamilyCount; ++f) {
         fam_color[f] = family_color(static_cast<PathogenFamily>(f));
         fam_vis[f] = family_visual(static_cast<PathogenFamily>(f));
+        const f32 s = math::max(fam_vis[f].silhouette, 0.01f);
+        const f32 disc = 0.25f * math::kPi * s * s;
+        inv_crowd_full[f] = disc / math::max(cell_area, disc);
     }
 
     for (usize i = 0; i < n; ++i) {
@@ -263,8 +327,13 @@ inline ChaffBatchResult build_chaff_batches(const sim::ChaffBuffers& chaff,
 
         const u32 f = fam[i] < kFamilyCount ? fam[i] : 0u;
         const f32 d = den[i];
-        const LodSplit split = lod_split(occ.at(p), params.lod_blob_threshold,
-                                         params.lod_blob_full);
+        // Sampled even when the crossfade is off: this is also the crowd signal
+        // the sprite shadow reads, and that is not part of the LOD.
+        const f32 local_occ = occ.at_smooth(p);
+        const LodSplit split =
+            params.lod_blob_enabled
+                ? lod_split(local_occ, params.lod_blob_threshold, params.lod_blob_full)
+                : LodSplit{1.0f, 0.0f};
 
         out.instance_mass += split.instance_alpha * d;
         out.blob_mass += split.blob_weight * d;
@@ -308,7 +377,31 @@ inline ChaffBatchResult build_chaff_batches(const sim::ChaffBuffers& chaff,
         // inferring it from the tint would tie shape to colour and break the
         // "these are separate channels" rule this file's header states.
         // Mirrored by CHAFF_FAMILY_SHIFT in chaff.frag.
-        inst.flags = static_cast<u32>(flg[i]) | (f << 8);
+        // Local crowding, 0..1 over [0, lod_blob_threshold], in bits 16..23.
+        //
+        // The sprite pass needs this for its drop shadow and nothing else. Every
+        // agent lays down a near-black contact shadow -- that shadow is what
+        // gives a lone virion local contrast against a vivid red lumen -- and an
+        // agent buried inside a horde is casting it onto the BODIES of its
+        // neighbours rather than onto the lane. Stacked dozens deep they
+        // composite to black and the mass reads as a hole punched in the
+        // screen. A shadow is a figure-ground cue, so it belongs to the crowd's
+        // silhouette, not to each individual inside it; this byte is what lets
+        // the fragment stage keep it at the rim and retire it in the interior.
+        //
+        // Fed from the SMOOTH occupancy, so it fades across the crowd instead
+        // of switching per broadphase cell. Bits 0..7 are chaff_flags, 8..15 the
+        // family id; the top byte is still free. Mirrored by CHAFF_CROWD_SHIFT
+        // in chaff.frag.
+        // Scaled against how many of THIS family's sprites cover a cell, not
+        // against lod_blob_threshold. The question a shadow is asking is "is
+        // there lane under me or another body?", which is a question about
+        // drawn area -- so it is answered from the silhouette and the cell
+        // size, and it keeps its meaning whether or not the LOD pass this used
+        // to borrow its scale from is even enabled.
+        const f32 crowd_norm = math::saturate(local_occ * inv_crowd_full[f]);
+        const u32 crowd_bits = static_cast<u32>(crowd_norm * 255.0f + 0.5f) << 16;
+        inst.flags = static_cast<u32>(flg[i]) | (f << 8) | crowd_bits;
         inst.anim_phase = offset + params.time * vis.tempo * math::kTwoPi;
         inst.pad = vis.wobble;
     }

@@ -53,6 +53,15 @@ struct LevelSystems {
     ActiveAbilitySystem* abilities = nullptr;
     GymSpawnQueue* spawns = nullptr;
     GymToggles* toggles = nullptr;
+
+    /// Schema-2 alternative win condition: clear at this many SECONDS survived
+    /// rather than by finishing the wave table. 0 -- the default, and every
+    /// level that authors none -- keeps the wave-clear rule.
+    ///
+    /// Passed per-step rather than read off a level, because this layer owns
+    /// nothing: every pointer above belongs to the caller, and LevelDef does
+    /// not survive instantiate().
+    f32 survive_seconds = 0.0f;
 };
 
 /// Why a level stopped, or that it has not. Mirrors app::LevelOutcome's two

@@ -197,6 +197,41 @@ bool SquadRegistry::next_path_for_lane(const std::string& lane_id, u16& out_path
     return true;
 }
 
+bool SquadRegistry::next_path_for_lane_filtered(const std::string& lane_id,
+                                                const std::vector<std::string>& allowed,
+                                                u16& out_path_index) {
+    if (allowed.empty()) return next_path_for_lane(lane_id, out_path_index);
+    if (paths_.empty()) return false;
+
+    // Collect this lane's paths that the entry named, in path order so the
+    // round-robin walks them in the order the author listed the lane's paths.
+    u16 matches[64];
+    u16 n = 0;
+    for (u16 i = 0; i < static_cast<u16>(paths_.size()) && n < 64; ++i) {
+        if (!lane_id.empty() && !paths_[i].lane_id.empty() && paths_[i].lane_id != lane_id) {
+            continue;
+        }
+        for (const std::string& want : allowed) {
+            if (paths_[i].id != want) continue;
+            matches[n++] = i;
+            break;
+        }
+    }
+    // Naming nothing that exists is an authoring mistake the validator reports;
+    // at runtime it must not silently produce an unsquadded flood, so fall back
+    // to the lane's normal rotation.
+    if (n == 0) return next_path_for_lane(lane_id, out_path_index);
+
+    const i32 li = lane_index(lane_id);
+    const usize l = li >= 0 ? static_cast<usize>(li) : 0;
+    const u32 cursor = li >= 0 ? lane_cursor_[l] : 0;
+    out_path_index = matches[cursor % n];
+    if (li >= 0 && lane_count_[l] > 0) {
+        lane_cursor_[l] = (lane_cursor_[l] + 1) % lane_count_[l];
+    }
+    return true;
+}
+
 u16 SquadRegistry::create_squad(u16 path_index, Vec2 spawn_pos) {
     if (path_index >= paths_.size()) return kNoSquad;
 

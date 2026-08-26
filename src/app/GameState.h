@@ -18,6 +18,12 @@ enum class GameStateId : u8 {
     Loadout,         ///< Antibody-memory pre-run choice.
     InLevel,         ///< The only state that ticks SimWorld.
     Paused,
+    /// The in-game level editor (docs/LEVEL_EDITOR.md). Deliberately NOT a
+    /// sim-running state: the horde freezes while you edit, but render_frame()
+    /// keeps drawing the world, because the whole point of editing in-game is
+    /// that the tissue on screen is the real bake of the document you are
+    /// dragging. Play/Stop transitions between this and InLevel.
+    Editor,
     LevelComplete,
     LevelFailed,
     Quitting,

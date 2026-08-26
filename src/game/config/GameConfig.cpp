@@ -494,6 +494,7 @@ GameConfig default_game_config() {
             fc.chaff.wall_splash = p.wall_splash;
             fc.chaff.contact_spacing = p.contact_spacing;
             fc.chaff.contact_stiffness = p.contact_stiffness;
+            fc.chaff.crowd_relief = p.crowd_relief;
             fc.chaff.drift_bias = p.drift_bias;
             fc.chaff.replication_rate = p.replication_rate;
 

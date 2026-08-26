@@ -42,6 +42,17 @@ SessionOutcome step_level(const LevelSystems& s, Profiler* profiler) {
     // loss, not a photo-finish win.
     const sim::SimSnapshot snap = world.snapshot();
     if (snap.objective_integrity <= 0.0f) return SessionOutcome::ObjectiveDestroyed;
+    // Schema 2's survive-N-seconds objective, when the level authors one.
+    // Checked from the sim's own tick counter rather than a wall clock, so it
+    // stays deterministic and replays identically.
+    if (s.survive_seconds > 0.0f) {
+        const f64 elapsed = static_cast<f64>(world.tick_index()) * kFixedDtSeconds;
+        if (elapsed >= static_cast<f64>(s.survive_seconds)) return SessionOutcome::Cleared;
+        // A survive level is NOT also cleared by exhausting its table: running
+        // out of waves early would end it before the clock, which is the
+        // opposite of what "survive for two minutes" asks for.
+        return SessionOutcome::InProgress;
+    }
     if (s.waves != nullptr && s.waves->status().all_waves_complete && snap.chaff_count == 0) {
         return SessionOutcome::Cleared;
     }

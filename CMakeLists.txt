@@ -109,9 +109,13 @@ add_library(immune_game STATIC
   src/game/config/GameConfig.cpp
   src/game/config/TowerConfig.cpp
   src/game/economy/Economy.cpp
+  src/game/editor/LevelDoc.cpp
+  src/game/editor/LevelTemplates.cpp
+  src/game/editor/LevelValidate.cpp
   src/game/enemies/EnemyRoster.cpp
   src/game/gym/GymCommands.cpp
   src/game/level/Level.cpp
+  src/game/level/LevelWriter.cpp
   src/game/meta/MetaProgression.cpp
   src/game/session/LevelSession.cpp
   src/game/telemetry/RunTelemetry.cpp
@@ -121,7 +125,10 @@ target_link_libraries(immune_game PUBLIC immune_core immune_config immune_sim im
   nlohmann_json::nlohmann_json)
 
 add_library(immune_ui STATIC src/ui/Hud.cpp src/ui/Menu.cpp src/ui/Fonts.cpp
-  src/ui/GymPanel.cpp)
+  src/ui/GymPanel.cpp
+  src/ui/editor/EditorCanvas.cpp
+  src/ui/editor/EditorGizmos.cpp
+  src/ui/editor/EditorPanels.cpp)
 target_link_libraries(immune_ui PUBLIC immune_core immune_platform immune_render immune_game
   PRIVATE imgui::imgui)
 
@@ -132,7 +139,9 @@ add_library(immune_app STATIC
   src/app/App.cpp
   src/app/AutoplayMode.cpp
   src/app/Cli.cpp
+  src/app/EditorMode.cpp
   src/app/GameState.cpp
+  src/app/LevelTools.cpp
   src/app/Modes.cpp)
 target_link_libraries(immune_app PUBLIC
   immune_core immune_platform immune_sim immune_render immune_game immune_ui immune_audio

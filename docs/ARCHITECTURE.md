@@ -230,6 +230,19 @@ TissueMask  ──►  DistanceField  ──►  FlowField
  per-cell cost)   placement rules)     then negative gradient)
 ```
 
+**The rasterizer's sample rate is width-aware, and has to be.** It used to be a
+flat four samples per cell of arc length, chosen for thin vessels where the
+overlapping *chain* of disc stamps is what fills the mask. But `stamp_disc`
+writes each disc's whole bounding box, so a vessel costs
+`steps * (width / cell_size)^2` regardless of how much NEW area a stamp covers —
+and lanes are ~68 wide since 4.7 widened them for squads. Measured on
+`capillary_switchback`: 151M cell-writes into a 421k-cell mask, every cell
+written ~360 times, 556 ms of a 617 ms bake. The rate is now scallop-limited
+(`d = sqrt(2*r*cs)` holds the inter-stamp bulge under a quarter cell) and grows
+with the radius, with the old rate kept as the floor for sub-cell lumens. Same
+geometry to within a sub-cell edge wobble; 617 ms becomes 77 ms, which is what
+lets the level editor re-bake on every gesture.
+
 10,000 agents cannot each run A*. Baking a vector field once turns an agent's
 entire pathfinding cost into one bilinear sample. Vessels get organic width and
 branching for free because the field comes from a rasterized mask, not a corridor
@@ -442,6 +455,17 @@ boundary draws at partial instance alpha *and* contributes partial blob density,
 conserving apparent mass. Without this a floodplain level would try to draw
 10,000 overlapping sprites into a few hundred pixels.
 
+The pass **ships disabled** (`RendererDesc::lod_blob_enabled = false`). It was
+sized for a horde that could stack: its threshold is 24 agents in a broadphase
+cell, and a 4-unit cell only reaches that if the agents in it are interpenetrating.
+Once the contact pass stopped allowing that, a packed cell holds around eight, so
+the LOD engaged only in wall jams — and where it did engage it cost resolution,
+because the density texture is 320x180 for the entire visible world and
+`blob.frag` has no silhouette to be sharp with. The sprite path carries the full
+horde on its own: 10k instances measure 0.4-0.5 ms of `submit_chaff`
+(`tests/test_render_gl.cpp`). The mechanism stays live and tested; the flag turns
+it back on.
+
 `Camera` is a fixed tilted-topdown (15–25°, no rotation). Because tilt is fixed,
 world↔screen is affine and `screen_to_world` is exact — which is precisely what
 grid-free continuous tower placement needs. World Y is foreshortened by
@@ -488,8 +512,19 @@ PNG top-down flip. This is the project's primary visual verification channel.
 
 - **`towers/`** — grid-free continuous placement validated against the distance
   field (clearance) and reachability (a placement that walls off every lane is
-  rejected, not allowed-then-exploited). A successful placement edits the tissue
-  mask and marks the flow field dirty over the footprint only. Targeting goes
+  rejected, not allowed-then-exploited). That reachability test is
+  **differential**: a local window around the footprint is flooded twice, once
+  as the mask stands and once with the footprint blocked, and only anchors the
+  footprint *newly* cut off count. Asking the second flood alone whether
+  everything is still connected blames the tower for walls it did not build —
+  an authored in-lane obstacle inside the window makes every placement near it
+  unbuildable for no reason. A level's `placement_zones` are enforced here too -- the whole
+  footprint must lie inside one, and an empty list means anywhere, which is what
+  every level authoring none has always meant. So is schema 2's
+  `allowed_towers`. Both live in `validate()` rather than in the HUD, so the gym
+  console and the balance bot are bound by them: a rule only the UI knows about
+  is a rule the game does not actually have. A successful placement edits the
+  tissue mask and marks the flow field dirty over the footprint only. Targeting goes
   through the spatial hash; a tower asks the grid for cells in range and never
   iterates agents. Anti-chaff towers don't target at all — they publish a
   `DamageField`.
@@ -503,6 +538,49 @@ PNG top-down flip. This is the project's primary visual verification channel.
   visual editor, and this project ships no binary assets. At load, splines
   rasterize into TissueMask → DistanceField → FlowField. Schema v1 is documented
   in `Level.h`; a missing `"schema"` is an error, not a default.
+  The optional `obstacles` array is the **subtractive** half of that: five
+  primitives (disc, capsule, oriented box, polygon, width-varying ridge) carved
+  back out of the lumen by `sim/flowfield/ObstacleRaster.h`, so a lane can have
+  islands of solid tissue standing inside it instead of being exactly the union
+  of its splines. The design point is that an obstacle is **not a new kind of
+  thing** — carved after rasterization and *before* the SDF bake, it is
+  indistinguishable downstream from ground no spline ever covered, so it shades
+  as vessel wall, collides as vessel wall, reroutes the flow field, and refuses
+  towers with no code in the renderer, the steering, or `TowerSystem` that knows
+  the concept exists. That ordering is the one rule; carving after the bake
+  leaves a hole only the mask can see. Obstacles are fully static. Two ways to
+  seal a lane by accident are caught: burying a spawn point or objective fails
+  the parse, and a carve that leaves a spawn point unable to reach any objective
+  fails `instantiate()` after the bake.
+  `LevelWriter.h` is the missing other half: `LevelDef` -> **canonical** JSON,
+  with a fixed key order, defaults omitted, three-decimal floats and one line
+  per thing an author drags. Canonical rather than merely valid because a level
+  file is a git artifact before it is a game asset -- without those rules a
+  one-pixel gizmo nudge rewrites the whole file. Round-trip and idempotence are
+  asserted across every shipped level (`tests/test_level_writer.cpp`), and
+  `--level-fmt` re-parses its own output before overwriting anything.
+  `LevelLoader::bake_geometry()` is the geometry half of `instantiate()` against
+  caller-owned buffers, split out so a caller that wants only the walkable shape
+  does not have to construct and destroy a `SimWorld` for it -- `SimWorld::init()`
+  is destructive, and re-running it per edit is exactly what an editor must not
+  do. Keeping it as the ONE rasterizer is the point: a preview-only second bake
+  would be free to drift from what ships.
+- **`editor/`** — the headless half of the in-game level editor
+  (`docs/LEVEL_EDITOR.md`): `LevelDoc` (document, selection, snapshot undo, and
+  the edit operations), `LevelValidate`, and `LevelTemplates`. Same split as
+  `gym/` and for the same reason — every line of ImGui lives in `ui/`, so the
+  validator that draws the editor's red halos is the same one `--level-check`
+  runs in CI with no window, and `ui/editor` and the `edit` gym commands are
+  both typists for one document API rather than two that can drift.
+  `LevelValidate` returns a *list* of issues, each carrying an `ElementRef` to
+  select and a world anchor to fly to, because an author needs every problem at
+  once and a place to look, not one bool. Three of its rules need the baked
+  geometry (spawn/objective on tissue, spawn reaches an objective) and are the
+  reason `bake_geometry()` exists.
+  **Id hygiene is the document's job**: renaming a spawn point rewrites the
+  `spawn_point_id` of every wave entry that named it, and deleting one clears
+  them — an editor that can break its own references produces levels the loader
+  rejects.
 - **`wave/`** — the director is a pure function of (tick, wave table, RNG). No
   wall-clock, no background spawning, so a wave sequence replays identically. It
   schedules a table; it never builds one. Tables come from the level file only.
@@ -570,6 +648,14 @@ renderer.draw(clock.alpha());              // variable rate
 The sim's tick count over a wall-clock span is identical regardless of frame
 rate, so a 144 Hz machine and a 30 Hz machine play the same game.
 
+`GameStateId::Editor` is the level editor. It deliberately does NOT tick the sim
+(`sim_running()` is false for it) while `render_frame()` keeps drawing — but it
+draws from the EDITOR's own baked geometry, not from `sim_`, which is what
+`bake_geometry()` exists for: no world has to exist for the real tissue to be on
+screen, and editing therefore never destroys a run. `load_level_def()` is the
+half of `load_level()` that builds a world from a `LevelDef` already in memory,
+so Play tests the document including unsaved edits.
+
 `GameStateMachine` keeps exactly one state live with explicit transitions applied
 at the top of a frame, so a state never destroys itself mid-update — and so the
 headless modes can construct just `InLevel` without dragging in menus, an audio
@@ -614,6 +700,17 @@ renders one frame, and writes a PNG. Also prints a JSON metadata block including
 `state_hash`, so a visual diff can be correlated with a sim-state diff.
 `--exec "<gym commands>"` sets the world up first, so a look found by hand in the
 console can be reproduced as a capture.
+
+### `--level-check <file|dir>` / `--level-fmt <file|dir> [--check]`
+
+Content tooling, in `app/LevelTools.h` rather than `Modes.h` -- they tick no
+sim, and `Modes.h` is the frozen contract for the three verification modes whose
+stdout other tools parse. `--level-check` runs `game/editor`'s validator over a
+level or a directory (including the bake-dependent reachability check) and
+prints a JSON report; exit 1 if any level has an error. `--level-fmt` rewrites
+through `LevelWriter`; `--check` makes it a gate instead, exiting 1 if anything
+is not already canonical. Together they are what stops an editor session
+producing content that surprises the game.
 
 ---
 

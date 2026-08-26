@@ -7,11 +7,13 @@
 // and FlowField.h (Wave 1A) for the geometry -> grid pipeline this drives.
 #include "game/level/Level.h"
 
+#include "core/Clock.h"
 #include "core/Math.h"
 #include "platform/FileIO.h"
 #include "sim/SimWorld.h"
 #include "sim/ecs/Components.h"
 #include "sim/ecs/EcsWorld.h"
+#include "sim/flowfield/ObstacleRaster.h"
 #include "sim/flowfield/TissueRaster.h"
 
 #include <nlohmann/json.hpp>
@@ -41,6 +43,27 @@ VesselType vessel_type_from_string(const std::string& s) {
     if (s == "nerve_adjacent") return VesselType::NerveAdjacent;
     if (s == "mucosal_fold") return VesselType::MucosalFold;
     return VesselType::Artery; // unknown or omitted -> documented default.
+}
+
+const char* obstacle_shape_to_string(ObstacleShape s) {
+    switch (s) {
+        case ObstacleShape::Disc: return "disc";
+        case ObstacleShape::Capsule: return "capsule";
+        case ObstacleShape::Box: return "box";
+        case ObstacleShape::Polygon: return "polygon";
+        case ObstacleShape::Ridge: return "ridge";
+    }
+    return "disc";
+}
+
+bool obstacle_shape_from_string(const std::string& s, ObstacleShape& out) {
+    if (s == "disc") { out = ObstacleShape::Disc; return true; }
+    if (s == "capsule") { out = ObstacleShape::Capsule; return true; }
+    if (s == "box") { out = ObstacleShape::Box; return true; }
+    if (s == "polygon") { out = ObstacleShape::Polygon; return true; }
+    if (s == "ridge") { out = ObstacleShape::Ridge; return true; }
+    // No fallback on purpose (see ObstacleShape): the caller reports the typo.
+    return false;
 }
 
 IVec2 LaneOwnershipMap::world_to_cell(Vec2 p) const {
@@ -95,6 +118,100 @@ Vessel parse_vessel(const json& j, usize index) {
         for (const auto& c : j.at("children")) v.children.push_back(c.get<std::string>());
     }
     return v;
+}
+
+/// One point of an obstacle's `points` array. Two spellings are accepted on
+/// purpose: a bare `[x,y]` pair, which is all a polygon vertex or a capsule end
+/// ever needs, and the vessel-style `{"p":[x,y],"w":w}` object, which a ridge
+/// needs for its per-point thickness. Bare pairs get width 0 rather than
+/// VesselPoint's 4.0 default, so a ridge that forgets its widths fails the
+/// positive-width check below instead of silently carving a 4-unit bar.
+VesselPoint parse_obstacle_point(const json& j, const std::string& ctx) {
+    VesselPoint vp;
+    if (j.is_array()) {
+        vp.position = parse_vec2(j, "obstacles[].points[]");
+        vp.width = 0.0f;
+        return vp;
+    }
+    if (!j.is_object() || !j.contains("p")) {
+        throw std::runtime_error(ctx + ": point must be [x,y] or {\"p\":[x,y],\"w\":w}");
+    }
+    vp.position = parse_vec2(j.at("p"), "obstacles[].points[].p");
+    vp.width = j.value("w", 0.0f);
+    return vp;
+}
+
+/// Obstacles are validated here rather than in validate() for the same reason
+/// the wave table is: validate() is not on the app's load path, so a check that
+/// only lives there does not protect a level the game actually loads.
+ObstacleDef parse_obstacle(const json& j, usize index) {
+    std::string ctx = "obstacles[" + std::to_string(index) + "]";
+    ObstacleDef o;
+    if (!j.is_object()) throw std::runtime_error(ctx + " must be an object");
+    o.id = j.value("id", std::string{});
+    if (!o.id.empty()) ctx += " ('" + o.id + "')";
+
+    if (!j.contains("shape")) throw std::runtime_error(ctx + ": missing 'shape'");
+    const std::string shape = j.at("shape").get<std::string>();
+    if (!obstacle_shape_from_string(shape, o.shape)) {
+        throw std::runtime_error(ctx + ": unknown shape '" + shape +
+                                 "' (expected disc|capsule|box|polygon|ridge)");
+    }
+
+    if (j.contains("points")) {
+        const json& pts = j.at("points");
+        if (!pts.is_array()) throw std::runtime_error(ctx + ": 'points' must be an array");
+        o.points.reserve(pts.size());
+        for (const auto& p : pts) o.points.push_back(parse_obstacle_point(p, ctx));
+    }
+    if (j.contains("pos")) o.position = parse_vec2(j.at("pos"), "obstacles[].pos");
+    if (j.contains("half_extents")) {
+        o.half_extents = parse_vec2(j.at("half_extents"), "obstacles[].half_extents");
+    }
+    // Degrees in the file, radians in the struct: nobody hand-authors radians,
+    // and the conversion has exactly one right place to live.
+    o.rotation = j.value("rotation", 0.0f) * (math::kPi / 180.0f);
+
+    switch (o.shape) {
+        case ObstacleShape::Disc:
+            o.radius = j.value("radius", 0.0f);
+            if (o.radius <= 0.0f) throw std::runtime_error(ctx + ": disc needs a positive 'radius'");
+            break;
+        case ObstacleShape::Capsule:
+            o.radius = j.value("radius", 0.0f);
+            if (o.points.size() != 2) {
+                throw std::runtime_error(ctx + ": capsule needs exactly 2 'points'");
+            }
+            if (o.radius <= 0.0f) {
+                throw std::runtime_error(ctx + ": capsule needs a positive 'radius'");
+            }
+            break;
+        case ObstacleShape::Box:
+            if (o.half_extents.x <= 0.0f || o.half_extents.y <= 0.0f) {
+                throw std::runtime_error(ctx + ": box needs positive 'half_extents'");
+            }
+            break;
+        case ObstacleShape::Polygon:
+            // `inflate` grows the polygon outward; it is the same field the
+            // round shapes call `radius`, since both are "how far past the
+            // authored skeleton does solid ground reach".
+            o.radius = j.value("inflate", 0.0f);
+            if (o.points.size() < 3 && !(o.points.size() == 2 && o.radius > 0.0f)) {
+                throw std::runtime_error(
+                    ctx + ": polygon needs at least 3 'points' (or 2 with a positive 'inflate')");
+            }
+            if (o.radius < 0.0f) throw std::runtime_error(ctx + ": polygon 'inflate' must be >= 0");
+            break;
+        case ObstacleShape::Ridge:
+            if (o.points.size() < 2) throw std::runtime_error(ctx + ": ridge needs 2+ 'points'");
+            for (const VesselPoint& p : o.points) {
+                if (p.width <= 0.0f) {
+                    throw std::runtime_error(ctx + ": every ridge point needs a positive 'w'");
+                }
+            }
+            break;
+    }
+    return o;
 }
 
 SpawnPoint parse_spawn_point(const json& j, usize index) {
@@ -205,6 +322,12 @@ SpawnEntry parse_spawn_entry(const json& j, const std::string& ctx) {
     e.start_time = j.value("start_time", 0.0f);
     e.duration = j.value("duration", 1.0f);
     e.spawn_point_id = j.value("spawn_point_id", std::string{});
+    // schema 2. Both default to today's behaviour when absent, so a v1 file
+    // parses to exactly the SpawnEntry it always did.
+    e.squad_size = j.value("squad_size", u32{0});
+    if (j.contains("squad_paths")) {
+        for (const auto& p : j.at("squad_paths")) e.squad_paths.push_back(p.get<std::string>());
+    }
     // A zero-length window would make the whole count due on the first tick of
     // the entry, which is a spawn spike, not a wave. Treated as an authoring
     // error rather than clamped, since the intent ("all at once") is better
@@ -236,6 +359,129 @@ WaveDef parse_wave(const json& j, usize index) {
     return w;
 }
 
+// ---------------------------------------------------------------------------
+// Obstacles: carving, and the two checks that need the whole LevelDef.
+// ---------------------------------------------------------------------------
+
+sim::VesselSpline to_ridge_spline(const ObstacleDef& o) {
+    sim::VesselSpline spline;
+    spline.points.reserve(o.points.size());
+    for (const VesselPoint& p : o.points) {
+        spline.points.push_back(sim::VesselPoint{p.position, p.width, 1.0f});
+    }
+    return spline;
+}
+
+/// game::ObstacleDef -> the matching sim/flowfield/ObstacleRaster.h primitive.
+/// Called on the real mask by instantiate() and on the per-lane scratch masks
+/// by build_lane_ownership_map(), so the two can never disagree about which
+/// cells an obstacle covers.
+void carve_obstacles(sim::TissueMask& mask, const std::vector<ObstacleDef>& obstacles) {
+    for (const ObstacleDef& o : obstacles) {
+        switch (o.shape) {
+            case ObstacleShape::Disc:
+                sim::carve_disc(mask, o.position, o.radius);
+                break;
+            case ObstacleShape::Capsule:
+                sim::carve_capsule(mask, o.points[0].position, o.points[1].position, o.radius);
+                break;
+            case ObstacleShape::Box:
+                sim::carve_box(mask, o.position, o.half_extents, o.rotation);
+                break;
+            case ObstacleShape::Polygon: {
+                std::vector<Vec2> verts;
+                verts.reserve(o.points.size());
+                for (const VesselPoint& p : o.points) verts.push_back(p.position);
+                sim::carve_polygon(mask, verts, o.radius);
+                break;
+            }
+            case ObstacleShape::Ridge:
+                sim::carve_ridge(mask, to_ridge_spline(o));
+                break;
+        }
+    }
+}
+
+/// Is `p` inside the solid? Analytic rather than a mask lookup so the checks
+/// below can run on a LevelDef alone, before any grid exists. It mirrors the
+/// carve functions' geometry (and borrows their two distance helpers outright)
+/// but not their cell-center quantization, so a point within half a cell of a
+/// boundary may disagree with the rasterized mask -- fine for the "did the
+/// author bury a spawn point" question, not a substitute for asking the mask.
+bool obstacle_contains(const ObstacleDef& o, Vec2 p) {
+    switch (o.shape) {
+        case ObstacleShape::Disc:
+            return math::length_sq(p - o.position) <= o.radius * o.radius;
+        case ObstacleShape::Capsule:
+            return sim::detail::dist_sq_to_segment(p, o.points[0].position,
+                                                   o.points[1].position) <= o.radius * o.radius;
+        case ObstacleShape::Box: {
+            const Vec2 d = p - o.position;
+            const f32 cs = std::cos(o.rotation);
+            const f32 sn = std::sin(o.rotation);
+            return std::fabs(d.x * cs + d.y * sn) <= o.half_extents.x &&
+                   std::fabs(-d.x * sn + d.y * cs) <= o.half_extents.y;
+        }
+        case ObstacleShape::Polygon: {
+            std::vector<Vec2> verts;
+            verts.reserve(o.points.size());
+            for (const VesselPoint& v : o.points) verts.push_back(v.position);
+            if (verts.size() >= 3 && sim::detail::point_in_polygon(p, verts)) return true;
+            if (o.radius <= 0.0f) return false;
+            for (usize i = 0, j = verts.size() - 1; i < verts.size(); j = i++) {
+                if (sim::detail::dist_sq_to_segment(p, verts[j], verts[i]) <= o.radius * o.radius) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        case ObstacleShape::Ridge: {
+            const sim::VesselSpline spline = to_ridge_spline(o);
+            const f32 span = static_cast<f32>(o.points.size() - 1);
+            // 32 samples per segment: finer than the widest plausible gap
+            // between a ridge's own stamped discs, and this runs once per
+            // spawn point at load.
+            const i32 steps = 32 * static_cast<i32>(span);
+            for (i32 k = 0; k <= steps; ++k) {
+                const sim::VesselPoint vp =
+                    sim::eval_spline(spline, span * static_cast<f32>(k) / static_cast<f32>(steps));
+                const f32 r = vp.width * 0.5f;
+                if (math::length_sq(p - vp.pos) <= r * r) return true;
+            }
+            return false;
+        }
+    }
+    return false;
+}
+
+/// Cross-field obstacle checks, shared by load_string() (so the game's own
+/// load path enforces them) and validate() (so a LevelDef built in code does
+/// too). Returns an empty string when the level is fine.
+///
+/// Burying a spawn point or an objective is the failure mode worth naming
+/// precisely: the level still loads, the horde still spawns, and it spawns
+/// inside rock, which reads as a mysteriously dead lane rather than as the
+/// authoring mistake it is. The wider failure -- an obstacle that seals a lane
+/// without burying either endpoint -- cannot be seen from the LevelDef and is
+/// caught after the flow bake in instantiate().
+std::string check_obstacles(const LevelDef& def) {
+    for (const ObstacleDef& o : def.obstacles) {
+        const std::string name = o.id.empty() ? std::string(obstacle_shape_to_string(o.shape))
+                                              : ("'" + o.id + "'");
+        for (const SpawnPoint& s : def.spawn_points) {
+            if (obstacle_contains(o, s.position)) {
+                return "obstacle " + name + " buries spawn point '" + s.id + "'";
+            }
+        }
+        for (const ObjectivePoint& ob : def.objectives) {
+            if (obstacle_contains(o, ob.position)) {
+                return "obstacle " + name + " buries objective '" + ob.id + "'";
+            }
+        }
+    }
+    return {};
+}
+
 } // namespace
 
 LevelLoadResult LevelLoader::load_string(const std::string& text, LevelDef& out) const {
@@ -257,15 +503,60 @@ LevelLoadResult LevelLoader::load_string(const std::string& text, LevelDef& out)
     LevelDef def;
     try {
         def.schema = j.at("schema").get<i32>();
-        if (def.schema != 1) {
+        // Both versions load. Every schema-2 field is optional with today's
+        // behaviour as its default, so a v1 file and the v2 file the writer
+        // emits for it parse to the same LevelDef.
+        if (def.schema != 1 && def.schema != 2) {
             return LevelLoadResult{false,
                                    "level JSON has unsupported schema version " +
-                                       std::to_string(def.schema) + " (expected 1)",
+                                       std::to_string(def.schema) + " (expected 1 or 2)",
                                    0};
         }
 
         def.name = j.value("name", std::string{});
         def.region = j.value("region", std::string{});
+
+        // ---- schema 2 header ------------------------------------------------
+        def.display_name = j.value("display_name", std::string{});
+        def.description = j.value("description", std::string{});
+        def.author = j.value("author", std::string{});
+        def.difficulty = j.value("difficulty", 0);
+        if (j.contains("tags")) {
+            for (const auto& t : j.at("tags")) def.tags.push_back(t.get<std::string>());
+        }
+        if (j.contains("allowed_towers")) {
+            for (const auto& t : j.at("allowed_towers")) {
+                def.allowed_towers.push_back(t.get<std::string>());
+            }
+        }
+        if (j.contains("economy")) {
+            const json& e = j.at("economy");
+            def.economy.starting_atp = e.value("starting_atp", u32{0});
+            def.economy.income_multiplier = e.value("income_multiplier", 1.0f);
+        }
+        if (j.contains("camera")) {
+            const json& c = j.at("camera");
+            if (c.contains("center")) {
+                def.camera.center = parse_vec2(c.at("center"), "camera.center");
+                def.camera.has_center = true;
+            }
+            def.camera.view_height = c.value("view_height", 0.0f);
+            def.camera.min_view_height = c.value("min_view_height", 0.0f);
+            def.camera.max_view_height = c.value("max_view_height", 0.0f);
+        }
+        if (j.contains("win")) {
+            def.win.survive_seconds = j.at("win").value("survive_seconds", 0.0f);
+        }
+        if (j.contains("editor")) {
+            const json& e = j.at("editor");
+            def.editor.present = true;
+            def.editor.grid_size = e.value("grid_size", 0.0f);
+            if (e.contains("camera_center")) {
+                def.editor.camera_center = parse_vec2(e.at("camera_center"), "editor.camera_center");
+            }
+            def.editor.camera_view_height = e.value("camera_view_height", 0.0f);
+            def.editor.notes = e.value("notes", std::string{});
+        }
 
         if (j.contains("world")) {
             const json& w = j.at("world");
@@ -282,6 +573,12 @@ LevelLoadResult LevelLoader::load_string(const std::string& text, LevelDef& out)
             if (!arr.is_array()) throw std::runtime_error("'vessels' must be an array");
             def.vessels.reserve(arr.size());
             for (usize i = 0; i < arr.size(); ++i) def.vessels.push_back(parse_vessel(arr[i], i));
+        }
+        if (j.contains("obstacles")) {
+            const json& arr = j.at("obstacles");
+            if (!arr.is_array()) throw std::runtime_error("'obstacles' must be an array");
+            def.obstacles.reserve(arr.size());
+            for (usize i = 0; i < arr.size(); ++i) def.obstacles.push_back(parse_obstacle(arr[i], i));
         }
         if (j.contains("spawn_points")) {
             const json& arr = j.at("spawn_points");
@@ -330,6 +627,11 @@ LevelLoadResult LevelLoader::load_string(const std::string& text, LevelDef& out)
             def.waves.reserve(arr.size());
             for (usize i = 0; i < arr.size(); ++i) def.waves.push_back(parse_wave(arr[i], i));
         }
+        // Needs spawn points, objectives and obstacles all parsed, so it can
+        // only run once the whole object is read.
+        if (const std::string err = check_obstacles(def); !err.empty()) {
+            throw std::runtime_error(err);
+        }
     } catch (const std::exception& e) {
         return LevelLoadResult{false, std::string("level JSON malformed: ") + e.what(), 0};
     }
@@ -347,13 +649,20 @@ LevelLoadResult LevelLoader::load_file(const std::string& path, LevelDef& out) c
 }
 
 LevelLoadResult LevelLoader::validate(const LevelDef& def) const {
-    if (def.schema != 1) return LevelLoadResult{false, "unsupported or missing level schema", 0};
+    if (def.schema != 1 && def.schema != 2) {
+        return LevelLoadResult{false, "unsupported or missing level schema", 0};
+    }
     if (def.vessels.empty()) return LevelLoadResult{false, "level has no vessels", 0};
     if (def.spawn_points.empty()) return LevelLoadResult{false, "level has no spawn points", 0};
     if (def.objectives.empty()) return LevelLoadResult{false, "level has no objectives", 0};
     // Same rule load_string() enforces, repeated here so a LevelDef built in
     // code (a test fixture, default_test_level()) cannot skip it either.
     if (def.waves.empty()) return LevelLoadResult{false, "level declares no waves", 0};
+    // Ditto for obstacles: load_string() already ran this, but a LevelDef
+    // assembled in code never went through it.
+    if (const std::string err = check_obstacles(def); !err.empty()) {
+        return LevelLoadResult{false, err, 0};
+    }
     // A named spawn point that doesn't exist would make WaveDirector fall back
     // to the first spawn point at runtime, so the wave would silently come out
     // of the wrong lane instead of failing loudly here.
@@ -400,12 +709,18 @@ LevelLoadResult LevelLoader::validate(const LevelDef& def) const {
     return LevelLoadResult{true, "", 0};
 }
 
-LevelLoadResult LevelLoader::instantiate(const LevelDef& def, sim::SimWorld& world) const {
+LevelLoadResult LevelLoader::bake_geometry(const LevelDef& def, const GeometryBakeDesc& desc,
+                                           sim::TissueMask& mask, sim::DistanceField& sdf,
+                                           sim::FlowField& flow, GeometryBakeStats* stats) const {
+    GeometryBakeStats scratch;
+    GeometryBakeStats& st = stats ? *stats : scratch;
+    st = GeometryBakeStats{};
+    const WallClock bake_timer;
+    WallClock stage;
     const f32 cell = def.cell_size > 0.0f ? def.cell_size : 0.5f;
     const Vec2 extent = def.world_bounds.size();
-    world.tissue().resize(static_cast<i32>(extent.x / cell),
-                          static_cast<i32>(extent.y / cell),
-                          cell, def.world_bounds.min);
+    mask.resize(static_cast<i32>(extent.x / cell), static_cast<i32>(extent.y / cell), cell,
+                def.world_bounds.min);
 
     // Splines -> TissueMask. game::VesselPoint (position/width) maps onto
     // sim::VesselPoint (pos/width/cost_mul); levels don't yet author per-point
@@ -420,10 +735,24 @@ LevelLoadResult LevelLoader::instantiate(const LevelDef& def, sim::SimWorld& wor
         }
         splines.push_back(std::move(spline));
     }
-    sim::rasterize_vessels(world.tissue(), splines);
+    sim::rasterize_vessels(mask, splines);
+    st.rasterize_ms = stage.elapsed_ms();
+    stage = WallClock{};
+
+    // Solid islands back out of the lumen. This is the ONE ordering rule the
+    // feature has (ObstacleRaster.h): after the lumen exists, before the SDF
+    // is baked. Everything an obstacle does downstream -- shading as vessel
+    // wall, deflecting steering, rerouting the horde, refusing towers -- is a
+    // consequence of the distance field below having seen it, and none of it
+    // happens if these two calls are the other way round.
+    carve_obstacles(mask, def.obstacles);
+    st.carve_ms = stage.elapsed_ms();
+    stage = WallClock{};
 
     // TissueMask -> DistanceField -> FlowField, per the pipeline in FlowField.h.
-    world.sdf().bake(world.tissue());
+    sdf.bake(mask);
+    st.sdf_ms = stage.elapsed_ms();
+    stage = WallClock{};
 
     // Wall-proximity traversal cost, written into the mask's cost channel (the
     // one TissueMask has always carried for sludge and NETs) now that the SDF
@@ -452,36 +781,78 @@ LevelLoadResult LevelLoader::instantiate(const LevelDef& def, sim::SimWorld& wor
     // full distance transform per placement. Both a full bake and an
     // incremental rebake read the same stamped values, so they still agree
     // exactly.
-    if (world.desc().flow_wall_cost > 0.0f && world.desc().flow_wall_falloff > 0.0f) {
-        sim::TissueMask& tissue = world.tissue();
-        const sim::DistanceField& sdf = world.sdf();
-        const f32 falloff = world.desc().flow_wall_falloff;
-        const f32 gain = world.desc().flow_wall_cost;
-        const f32 exponent = math::max(world.desc().flow_wall_exponent, 1.0f);
-        for (i32 y = 0; y < tissue.height(); ++y) {
-            for (i32 x = 0; x < tissue.width(); ++x) {
-                if (!tissue.walkable(x, y)) continue;
-                const f32 t = math::saturate(sdf.sample(tissue.cell_to_world(x, y)) / falloff);
-                tissue.set_cost(x, y,
-                                tissue.cost(x, y) * (1.0f + gain * std::pow(1.0f - t, exponent)));
+    if (desc.flow_wall_cost > 0.0f && desc.flow_wall_falloff > 0.0f) {
+        const f32 falloff = desc.flow_wall_falloff;
+        const f32 gain = desc.flow_wall_cost;
+        const f32 exponent = math::max(desc.flow_wall_exponent, 1.0f);
+        for (i32 y = 0; y < mask.height(); ++y) {
+            for (i32 x = 0; x < mask.width(); ++x) {
+                if (!mask.walkable(x, y)) continue;
+                const f32 t = math::saturate(sdf.sample(mask.cell_to_world(x, y)) / falloff);
+                mask.set_cost(x, y,
+                              mask.cost(x, y) * (1.0f + gain * std::pow(1.0f - t, exponent)));
             }
         }
     }
 
+    st.wall_cost_ms = stage.elapsed_ms();
+    stage = WallClock{};
+
     sim::FlowFieldBakeDesc flow_desc;
-    flow_desc.smoothing_radius = world.desc().flow_smoothing_radius;
+    flow_desc.smoothing_radius = desc.flow_smoothing_radius;
     flow_desc.goal_cells.reserve(def.objectives.size());
     for (const ObjectivePoint& o : def.objectives) {
-        flow_desc.goal_cells.push_back(world.tissue().world_to_cell(o.position));
-        // The whole objective disc is a sink, because ChaffSystem despawns an
-        // agent the moment it enters that radius -- the rim IS the goal. A
+        flow_desc.goal_cells.push_back(mask.world_to_cell(o.position));
+        // The whole objective square is a sink, because ChaffSystem despawns
+        // an agent the moment it enters the footprint -- the rim IS the goal. A
         // single-cell sink instead aims every agent at the exact centre from
         // across the level, which is what made a wide vessel read as a funnel.
         // Multi-objective levels take the largest radius: the field is one
         // solve, and undershooting would reinstate the funnel on that objective.
         flow_desc.goal_radius = math::max(flow_desc.goal_radius, o.radius);
     }
-    world.flow().bake(world.tissue(), flow_desc);
+    flow.bake(mask, flow_desc);
+    st.flow_ms = stage.elapsed_ms();
+    st.total_ms = bake_timer.elapsed_ms();
+
+    return LevelLoadResult{true, "", 0};
+}
+
+LevelLoadResult LevelLoader::instantiate(const LevelDef& def, sim::SimWorld& world) const {
+    // The geometry half. Every SimDesc value the bake reads is forwarded here
+    // and nowhere else, so the editor's standalone bake and this one cannot
+    // silently disagree about wall cost or smoothing.
+    GeometryBakeDesc bake_desc;
+    bake_desc.flow_smoothing_radius = world.desc().flow_smoothing_radius;
+    bake_desc.flow_wall_cost = world.desc().flow_wall_cost;
+    bake_desc.flow_wall_falloff = world.desc().flow_wall_falloff;
+    bake_desc.flow_wall_exponent = world.desc().flow_wall_exponent;
+    if (const LevelLoadResult r =
+            bake_geometry(def, bake_desc, world.tissue(), world.sdf(), world.flow());
+        !r.ok) {
+        return r;
+    }
+
+    // Did the carving seal a lane? A spawn point with no route to any
+    // objective is a lane that quietly does nothing all match, and an obstacle
+    // is by far the easiest way to author one by accident -- a bar two units
+    // wider than intended closes a channel that still looks open in the JSON.
+    // The baked field is the only place the question can be answered
+    // (connectivity is a property of the whole grid, not of any one shape), and
+    // failing the load is the only response an author cannot miss.
+    //
+    // Gated on the level actually having obstacles: an existing level with an
+    // unreachable spawn point has whatever behaviour it has always had, and
+    // this is not the change that should start rejecting it.
+    if (!def.obstacles.empty()) {
+        for (const SpawnPoint& sp : def.spawn_points) {
+            if (world.flow().reachable(sp.position)) continue;
+            return LevelLoadResult{false,
+                                   "spawn point '" + sp.id +
+                                       "' cannot reach any objective -- an obstacle seals its lane",
+                                   0};
+        }
+    }
 
     // ECS objective entities: the structural, potentially-multi-objective
     // representation future rendering/UI reads. Distinct from SimWorld's
@@ -510,6 +881,11 @@ LevelLoadResult LevelLoader::instantiate(const LevelDef& def, sim::SimWorld& wor
             sim::SpawnPointRuntime{p.id, p.position, p.radius, resolve_spawn_point_lane_id(def, p)});
     }
     world.set_spawn_points(std::move(spawn_points));
+
+    // Buildable area. Empty means "anywhere" -- the behaviour every level
+    // without zones has always had -- so threading this changes nothing for
+    // content that authors none.
+    world.set_placement_zones(def.placement_zones);
 
     // Squad routes. Built here, after the mask exists (the derivation snaps
     // off-tissue points back inside it) and pushed into the world for the same
@@ -610,18 +986,50 @@ bool offset_centerline(const std::vector<Vec2>& center, const std::vector<f32>& 
         const Vec2 tangent = math::normalize_safe(center[b] - center[a]);
         const Vec2 normal{-tangent.y, tangent.x};
 
+        auto walkable_at = [&mask](Vec2 q) {
+            const IVec2 c = mask.world_to_cell(q);
+            return mask.walkable(c.x, c.y);
+        };
+
         f32 dist = widths[i] * fraction;
         Vec2 p = center[i] + normal * dist;
-        // Walk back toward the centerline in a few halvings; the centerline is
-        // walkable by construction, so this always lands somewhere legal.
+        // Walk back toward the centerline in a few halvings. This handles the
+        // common case: the lane narrowed and a generous offset overshot the
+        // wall.
+        bool placed = false;
         for (u32 attempt = 0; attempt < 4; ++attempt) {
-            const IVec2 c = mask.world_to_cell(p);
-            if (mask.walkable(c.x, c.y)) break;
+            if (walkable_at(p)) { placed = true; break; }
             dist *= 0.5f;
             p = center[i] + normal * dist;
         }
-        const IVec2 c = mask.world_to_cell(p);
-        if (!mask.walkable(c.x, c.y)) p = center[i];
+        if (!placed && walkable_at(center[i])) {
+            p = center[i];
+            placed = true;
+        }
+        // The centerline used to be walkable by construction, so the two steps
+        // above were the whole story. An authored obstacle can now sit ON the
+        // centerline, which leaves the halvings converging onto solid rock --
+        // so sweep sideways instead, both ways, out to the local half width,
+        // and take the first legal spot. That is what makes a derived path go
+        // AROUND an island rather than through it.
+        if (!placed) {
+            const f32 step = math::max(mask.cell_size(), 0.25f);
+            const f32 limit = math::max(widths[i] * 0.5f, step * 4.0f);
+            for (f32 d = step; d <= limit && !placed; d += step) {
+                for (const f32 sign : {1.0f, -1.0f}) {
+                    const Vec2 candidate = center[i] + normal * (d * sign);
+                    if (!walkable_at(candidate)) continue;
+                    p = candidate;
+                    placed = true;
+                    break;
+                }
+            }
+        }
+        // Still nothing: the lane is fully blocked at this station. Drop the
+        // sample rather than park an anchor inside rock -- the path simply
+        // steps across the gap, and the squad's own steering handles the
+        // detour it implies.
+        if (!placed) continue;
         if (!out.empty() && math::length_sq(p - out.back()) < 0.01f) continue;
         out.push_back(p);
     }
@@ -899,6 +1307,13 @@ LaneOwnershipMap LevelLoader::build_lane_ownership_map(const LevelDef& def) cons
         sim::TissueMask scratch;
         scratch.resize(out.width, out.height, cell, out.world_origin);
         sim::rasterize_vessels(scratch, lane_splines);
+        // Same carve instantiate() applies to the real mask, so a cell inside
+        // an island is unowned rather than attributed to the lane it sits in.
+        // A lane's ownership footprint is meant to be the ground that lane's
+        // traffic can actually occupy; solid rock in the middle of it is not
+        // that, and leaving it claimed would let lane_at() answer "artery" for
+        // a point no agent can ever stand on.
+        carve_obstacles(scratch, def.obstacles);
 
         for (i32 y = 0; y < out.height; ++y) {
             for (i32 x = 0; x < out.width; ++x) {

@@ -104,15 +104,23 @@ struct FlowFieldBakeDesc {
     /// time (false -> a Manhattan field whose contours are diamonds).
     bool allow_diagonals = true;
 
-    /// World-space radius around every goal cell that also counts as "arrived",
-    /// seeded at cost 0. Zero keeps the historical single-cell sink.
+    /// World-space half-extent of the SQUARE around every goal cell that also
+    /// counts as "arrived", seeded at cost 0. Zero keeps the historical
+    /// single-cell sink.
     ///
-    /// WHY. Chaff despawns the moment it enters the objective's radius, so the
-    /// rim *is* the goal — but a one-cell sink makes the field aim every agent
-    /// at the exact centre from halfway across the level, which reads as the
-    /// organ sucking the horde into a point instead of the horde arriving at
-    /// it. Seeding the disc removes the singularity and, with it, most of the
-    /// long-range lateral pull inside a wide vessel.
+    /// WHY A REGION. Chaff despawns the moment it enters the objective's
+    /// footprint, so the rim *is* the goal — but a one-cell sink makes the
+    /// field aim every agent at the exact centre from halfway across the level,
+    /// which reads as the organ sucking the horde into a point instead of the
+    /// horde arriving at it. Seeding the whole footprint removes the
+    /// singularity and, with it, most of the long-range lateral pull inside a
+    /// wide vessel.
+    ///
+    /// WHY A SQUARE. The seeded region has to be the shape the despawn test in
+    /// ChaffSystem uses, or the field aims at a region that is not the one that
+    /// consumes agents — the corners would be either a sink nothing despawns
+    /// in or a despawn area the field steers around. The objective's footprint
+    /// is a square (game::ObjectivePoint), so this is one too.
     f32 goal_radius = 0.0f;
 
     /// World-space radius of the direction-field smoothing pass (0 = off).

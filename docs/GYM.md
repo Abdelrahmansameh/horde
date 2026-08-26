@@ -226,3 +226,36 @@ good config and logs the parse error rather than taking the game down.
 files mid-run would change a determinism input. `get`, `set` and `list` work
 there, and every sim-test report carries a `config_hash` so a run records which
 tuning produced it.
+
+## `edit` — the level editor's document
+
+Available only while the level editor is open (`immune --editor`, the main
+menu's Level Editor button, or F4 from a running level). Drives the same
+`game::editor::LevelDoc` the editor panels drive, so the GUI cannot become a
+second API — and so an editor operation is reachable from `--exec`, and
+therefore from `--sim-test` and screenshot regressions.
+
+```
+edit list                              describe the document
+edit new <template> [name]             straight | fork | switchback | convergent | multi
+edit vessel add <x,y> <x,y> [width]
+edit point add <vessel> at <x,y>
+edit point <vessel> <i> w <width>
+edit obstacle <disc|capsule|box|polygon|ridge> <x,y> [r <size>]
+edit spawn add <x,y>                   edit objective add <x,y>
+edit zone <x,y> <x,y>
+edit undo | edit redo | edit delete
+edit validate                          FAILS when the level has errors
+edit save [path] [force]               edit revert
+```
+
+`edit validate` returning a failure on errors is deliberate: it makes a one-line
+CI gate out of a level you just generated, instead of something the caller has
+to grep for.
+
+```bash
+immune --editor --exec "edit new switchback lvl; edit obstacle ridge 240,130 r 18; edit validate; edit save assets/levels/lvl.json"
+```
+
+Points accept `x,y` or the literal `cursor` (the mouse position), matching how
+every other command that takes a point behaves.

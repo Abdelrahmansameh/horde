@@ -10,6 +10,9 @@
 //   immune --screenshot <level> --tick N --out <file.png>
 //   immune --dump-config <dir>                 Write the live tuning values as JSON.
 //   immune --autoplay --level <f.json>         Bot-played balance run, JSON report.
+//   immune --editor [<f.json>]                 In-game level editor (docs/LEVEL_EDITOR.md).
+//   immune --level-check <f.json|dir>          Validate levels; JSON report; exit 0/1.
+//   immune --level-fmt <f.json|dir> [--check]  Canonical rewrite through LevelWriter.
 //
 // Global options: --seed N, --level <path>, --width N, --height N, --verbose,
 //                 --quiet, --threads N, --list-scenarios, --help
@@ -34,6 +37,9 @@ enum class Mode : u8 {
     Autoplay,
     ListScenarios,
     DumpConfig,
+    Editor,         ///< --editor [level]: open the in-game level editor.
+    LevelCheck,     ///< --level-check: validate level files, JSON report, exit 0/1.
+    LevelFmt,       ///< --level-fmt: rewrite level files canonically (--check = dry run).
     Help,
     Invalid,
 };
@@ -83,6 +89,14 @@ struct Options {
     /// of JSON files and exit. This is how assets/config is generated from the
     /// code rather than transcribed by hand.
     std::string dump_config_dir;
+
+    // --- --level-check / --level-fmt (app/LevelTools.h) ---------------------
+    /// The file or directory those two modes operate on. A directory is swept
+    /// for *.json, which is what makes `--level-check assets/levels` a CI step.
+    std::string level_path;
+    /// --check: report what --level-fmt would rewrite and exit 1 if anything is
+    /// not already canonical, instead of writing. The gate form.
+    bool check_only = false;
 
     // --- --autoplay (app/AutoplayMode.h) -----------------------------------
     /// --profile <name>: which strategy the bot plays. Empty means the

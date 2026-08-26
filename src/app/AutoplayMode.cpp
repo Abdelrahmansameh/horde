@@ -159,6 +159,7 @@ int run_autoplay(const Options& opt) {
     systems.abilities = &run.abilities;
     systems.spawns = &run.spawns;
     systems.toggles = &run.toggles;
+    systems.survive_seconds = run.level.win.survive_seconds;
 
     const u64 max_ticks = opt.max_ticks == 0 ? kDefaultMaxTicks : opt.max_ticks;
     game::RunResult result = game::RunResult::TickLimit;

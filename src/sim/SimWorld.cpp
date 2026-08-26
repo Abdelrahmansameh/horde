@@ -121,15 +121,17 @@ void SimWorld::tick(Profiler* profiler) {
     // ChaffBuffers::compact() runs exactly once per tick, after every source
     // has applied. Running it here also means a round and a field that kill the
     // same agent on the same tick both get their damage counted.
-    projectile_system_.update(projectiles_, chaff_, spatial_, desc_.world_bounds,
-                              rng_, kFixedDt, &combat_events_);
+    const ProjectileStats projectile_stats =
+        projectile_system_.update(projectiles_, chaff_, spatial_, desc_.world_bounds,
+                                  rng_, kFixedDt, &combat_events_);
 
     // 4c. Swarmers. Same placement rule and the same reason as projectiles
     // above: after the ECS tick so this tick's newly released granules exist,
     // and before the single chaff compaction so a swarmer's drain and a field's
     // damage on the same agent on the same tick both get counted.
-    swarmer_system_.update(swarmers_, chaff_, spatial_, desc_.world_bounds,
-                           rng_, kFixedDt, &combat_events_);
+    const SwarmerStats swarmer_stats =
+        swarmer_system_.update(swarmers_, chaff_, spatial_, desc_.world_bounds,
+                               rng_, kFixedDt, &combat_events_);
 
     // 4d. Fluid. Same placement rule and the same reason again -- after the ECS
     // tick so this tick's freshly emitted jet exists, and before the single
@@ -138,8 +140,26 @@ void SimWorld::tick(Profiler* profiler) {
     // reads the chaff spatial hash for crowd braking, and running it after the
     // other two means a round or a granule that already killed an agent this
     // tick has not yet moved that agent's slot out from under the grid.
-    fluid_system_.update(fluid_, chaff_, spatial_, sdf_, desc_.world_bounds,
-                         kFixedDt, &combat_events_);
+    const FluidStats fluid_stats =
+        fluid_system_.update(fluid_, chaff_, spatial_, sdf_, desc_.world_bounds,
+                             kFixedDt, &combat_events_);
+
+    // 4e. Kill accounting for the tick. DamageField.h's ACCOUNTING rule is
+    // "removed density is attributed to the economy", and the economy reads it
+    // from last_damage_stats_ -- but damage_.apply() above only knows about
+    // FIELDS. The other three sources above thin real chaff too, and a Gunner
+    // publishes no field at all (TowerSystem.cpp), so leaving their stats on
+    // the floor means the only projectile tower in the roster earns nothing
+    // for its kills. Fold them in here, where every source for the tick has
+    // run and none has been compacted away yet.
+    //
+    // Aggregate density only: the per-family split stays field-exclusive
+    // because rounds, granules and fluid do not track which family they thinned,
+    // and inventing a split would make the HUD's colour-coded feed lie. Nothing
+    // reads density_removed_by_family off this snapshot today.
+    last_damage_stats_.density_removed +=
+        projectile_stats.density_removed + swarmer_stats.density_removed +
+        fluid_stats.density_removed;
 
     // 5. Compaction / kill accounting.
     // Compaction sees every retirement; the leak/out-of-bounds tallies above

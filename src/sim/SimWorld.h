@@ -247,6 +247,19 @@ public:
     const std::vector<SpawnPointRuntime>& spawn_points() const { return spawn_points_; }
     void set_spawn_points(std::vector<SpawnPointRuntime> spawn_points) { spawn_points_ = std::move(spawn_points); }
 
+    /// Buildable rectangles from the level (game/level/Level.h's
+    /// `placement_zones`). EMPTY MEANS "ANYWHERE", which is what every level
+    /// that authors none has always meant.
+    ///
+    /// Threaded here for the same reason spawn points are: LevelDef does not
+    /// survive instantiate(), and TowerSystem::validate() is the only thing
+    /// that needs to answer "may a tower go here". Before this, the field was
+    /// authorable, validated, drawn by the editor, read by the balance bot --
+    /// and enforced by nothing, because PlacementResult::OutsidePlacementZone
+    /// had no data source to be returned from.
+    const std::vector<Rect>& placement_zones() const { return placement_zones_; }
+    void set_placement_zones(std::vector<Rect> zones) { placement_zones_ = std::move(zones); }
+
     /// Overwrites the objective's remaining integrity, clamped at zero.
     ///
     /// Nothing in the sim ever *raises* this -- tick() only subtracts the chaff
@@ -260,10 +273,16 @@ public:
         objective_integrity_ = value < 0.0f ? 0.0f : value;
     }
 
-    /// DamageStats from the most recently completed tick. Economy reads
+    /// Kill accounting for the most recently completed tick. Economy reads
     /// density_removed from this to credit kill income -- aggregate damage
-    /// means only sim/damage knows a kill happened, so nothing else may infer
-    /// it by diffing agent counts (DamageField.h's own rationale).
+    /// means only sim knows a kill happened, so nothing else may infer it by
+    /// diffing agent counts (DamageField.h's own rationale).
+    ///
+    /// `density_removed` covers EVERY chaff damage source in the tick: fields,
+    /// projectiles, swarmers and fluid (see tick() step 4e). The remaining
+    /// members are the DamageSystem's own and describe fields only -- including
+    /// density_removed_by_family, because the other three sources do not track
+    /// which family they thinned.
     const DamageStats& last_damage_stats() const { return last_damage_stats_; }
 
     /// Hash of the sim state, for --sim-test determinism assertions:
@@ -294,6 +313,7 @@ private:
     EcsWorld ecs_;
 
     std::vector<SpawnPointRuntime> spawn_points_;
+    std::vector<Rect> placement_zones_;
     DamageStats last_damage_stats_{};
 
     u64 killed_total_ = 0;

@@ -48,12 +48,16 @@ const char* usage_text() {
 "                                                      (e.g. \"spawn all 300; tower all\")\n"
 "  immune --level <f.json> --exec \"autoplay on; time 8\"  watch the bot play\n"
 "  immune --list-scenarios                             print available bench scenarios\n"
+"  immune --editor [<f.json>]                          open the in-game level editor\n"
+"  immune --level-check <f.json|dir>                   validate levels, JSON report, exit 0/1\n"
+"  immune --level-fmt <f.json|dir> [--check]           canonical rewrite of level JSON\n"
 "\n"
 "OPTIONS\n"
 "  --ticks N        ticks to simulate (bench; default 600)\n"
 "  --tick N         tick to advance to before capture (screenshot; default 0)\n"
 "  --out PATH       output PNG path (screenshot; default shot.png)\n"
 "  --level PATH     level JSON to load (default: built-in test level)\n"
+"  --check          with --level-fmt: report, do not write; exit 1 if not canonical\n"
 "  --seed N         PRNG seed; identical seeds give identical runs\n"
 "  --width N        framebuffer width (default 1600)\n"
 "  --height N       framebuffer height (default 900)\n"
@@ -131,6 +135,21 @@ Options parse_args(int argc, char** argv) {
         } else if (a == "--dump-config") {
             if (!next_value(argc, argv, i, a, o.dump_config_dir, o.error)) break;
             o.mode = Mode::DumpConfig;
+        } else if (a == "--editor") {
+            o.mode = Mode::Editor;
+            // The level is OPTIONAL here, unlike every other path-taking flag:
+            // `--editor` with nothing after it opens the editor on a new blank
+            // level, which is how you author one from scratch. Only consume the
+            // next argument if it is not itself a flag.
+            if (i + 1 < argc && argv[i + 1][0] != '-') o.level = argv[++i];
+        } else if (a == "--level-check") {
+            if (!next_value(argc, argv, i, a, o.level_path, o.error)) break;
+            o.mode = Mode::LevelCheck;
+        } else if (a == "--level-fmt") {
+            if (!next_value(argc, argv, i, a, o.level_path, o.error)) break;
+            o.mode = Mode::LevelFmt;
+        } else if (a == "--check") {
+            o.check_only = true;
         } else if (a == "--scenario") {
             // Unlike --bench, does not force Mode::Bench — lets --screenshot
             // populate agents from a bench_scenarios() entry before capture.

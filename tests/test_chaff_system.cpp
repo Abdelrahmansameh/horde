@@ -20,6 +20,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <cmath>
+#include <cstdio>
 
 using namespace immune;
 using namespace immune::sim;
@@ -478,6 +479,176 @@ TEST_CASE("a dense pack stops overlapping instead of stacking",
     // rather than a hard geometric guarantee -- a quarter of a radius.
     REQUIRE(after < contact_radius * 0.25f);
     REQUIRE(after < before * 0.5f);
+}
+
+TEST_CASE("an over-packed clump spends the free space around it",
+          "[sim][chaff][movement][crowd]") {
+    // Contact alone only answers "am I inside someone", so it stops the moment
+    // bodies are touching and a horde travels as a clot: un-overlapped, and far
+    // denser than the lane it is standing in. Expansion past contact distance
+    // was left to the separation FORCE, which is rationed by max_speed -- and
+    // the flow field has already spent that budget driving everyone at the
+    // goal. crowd_relief is the displacement channel that pays for it instead.
+    //
+    // Measured as a race between two identical runs, because the absolute
+    // numbers belong to the tuning and the ordering belongs to the mechanism.
+    const Rect bounds{Vec2{0.0f, 0.0f}, Vec2{200.0f, 120.0f}};
+    FlowField flow = make_radial_flow(bounds, Vec2{190.0f, 60.0f});
+    DistanceField sdf;   // unbaked: open ground, so the only limit is the crowd
+    const Vec2 seed_at{40.0f, 60.0f};
+
+    auto run = [&](f32 crowd_relief, int ticks) {
+        SpatialHash hash = make_hash(bounds, 4.0f);
+        ChaffTuning tuning = flat_tuning(/*accel*/ 24.0f, /*max_speed*/ 6.0f,
+                                         /*sep_radius*/ 1.2f, /*sep_strength*/ 8.0f,
+                                         /*jitter*/ 0.0f);
+        for (u32 f = 0; f < kFamilyCount; ++f) tuning.family[f].crowd_relief = crowd_relief;
+
+        ChaffBuffers buffers;
+        buffers.reserve(1024);
+        Rng seed_rng(90210);
+        for (u32 i = 0; i < 400; ++i) {
+            ChaffSpawnParams p;
+            p.position = seed_at + seed_rng.unit_disc() * 4.0f;
+            buffers.spawn(p);
+        }
+
+        ChaffSystem sys;
+        sys.set_tuning(tuning);
+        sys.set_world_bounds(bounds);
+        sys.set_goal(Vec2{190.0f, 60.0f}, 0.0f);
+        Rng rng(7);
+        for (int t = 0; t < ticks; ++t) {
+            rebuild(hash, buffers);
+            sys.update(buffers, flow, sdf, TissueMask{}, hash, no_squads(), rng, kFixedDt,
+                       nullptr);
+            buffers.compact();
+        }
+
+        // Mean distance from the centroid: one number for "how much ground is
+        // this crowd standing on", insensitive to where the flow carried it.
+        Vec2 c{0.0f, 0.0f};
+        for (usize i = 0; i < buffers.count(); ++i) c += Vec2{buffers.pos_x[i], buffers.pos_y[i]};
+        c = c * (1.0f / static_cast<f32>(buffers.count()));
+        f32 spread = 0.0f;
+        for (usize i = 0; i < buffers.count(); ++i) {
+            spread += math::length(Vec2{buffers.pos_x[i], buffers.pos_y[i]} - c);
+        }
+        return spread / static_cast<f32>(buffers.count());
+    };
+
+    const f32 seeded = 4.0f * 2.0f / 3.0f;   // mean radius of a uniform disc of r=4
+    const f32 without_30 = run(0.0f, 30);
+    const f32 with_30 = run(0.7f, 30);
+    const f32 without_900 = run(0.0f, 900);
+    const f32 with_600 = run(0.7f, 600);
+    const f32 with_900 = run(0.7f, 900);
+    std::fprintf(stderr,
+                 "[crowd relief] mean radius: seeded %.2f | 30 ticks %.2f -> %.2f"
+                 " | settled %.2f -> %.2f (600t %.2f)\n",
+                 static_cast<double>(seeded), static_cast<double>(without_30),
+                 static_cast<double>(with_30), static_cast<double>(without_900),
+                 static_cast<double>(with_900), static_cast<double>(with_600));
+
+    // Half a second is the window that matters: this should read as the crowd
+    // RELEASING, not as it slowly diffusing. Measured 1.33x.
+    REQUIRE(with_30 > without_30 * 1.2f);
+
+    // And it has to HOLD the ground it took. Without relief the clump reaches
+    // its widest around two seconds and is then squeezed back in by the flow
+    // field, which converges on the goal and never stops compressing what it
+    // is carrying (8.5 at 120 ticks, back to 8.1 by 900). Measured 1.31x.
+    REQUIRE(with_900 > without_900 * 1.2f);
+
+    // And it has to stop. Relief targets the density pressure_threshold calls
+    // comfortable, so a crowd that reached it stops triggering -- if that were
+    // wrong the clump would boil apart forever, a worse look than the clot it
+    // replaced. Measured 1.02x over the last five seconds.
+    REQUIRE(with_900 < with_600 * 1.10f);
+}
+
+TEST_CASE("a crowd of distant neighbours cannot starve the contact pass",
+          "[sim][chaff][movement][crowd]") {
+    // The regression the dark squares came from.
+    //
+    // One counter used to ration both halves of the neighbour gather, and the
+    // 3x3 cell scan that fed it ran in row-major order -- so it spent the whole
+    // budget on the cells BELOW and LEFT of the agent before ever reaching the
+    // agent's own cell. The alignment disc holds several times as many agents
+    // as the contact disc, so at high density the budget was always gone first,
+    // and the pass that keeps bodies out of each other went silent exactly
+    // where it was load-bearing. The horde stayed interpenetrated, and (because
+    // whether it happened depended on where in its 4-unit cell an agent stood)
+    // it happened in square patches.
+    //
+    // Constructed to be unambiguous: the only agent inside contact range is in
+    // the victim's own cell, and everything eating the budget is outside
+    // contact range and in the cells the old order visited first.
+    const Rect bounds{Vec2{0.0f, 0.0f}, Vec2{60.0f, 60.0f}};
+    FlowField flow = make_radial_flow(bounds, Vec2{55.0f, 30.0f});
+    DistanceField sdf;
+    SpatialHash hash = make_hash(bounds, 4.0f);
+
+    // Low speed so a single tick's steering cannot swamp what is being
+    // measured: this asserts on the POSITIONAL correction, which is applied as
+    // displacement and is not rationed by max_speed.
+    ChaffTuning tuning = flat_tuning(/*accel*/ 2.0f, /*max_speed*/ 2.0f,
+                                     /*sep_radius*/ 1.2f, /*sep_strength*/ 8.0f,
+                                     /*jitter*/ 0.0f);
+    const f32 contact_radius =
+        tuning.family[0].radius * tuning.family[0].contact_spacing;   // 1.0
+
+    ChaffBuffers buffers;
+    buffers.reserve(256);
+
+    // The pair, both just inside the low corner of cell (5,5) = [20,24]^2, and
+    // overlapping each other badly.
+    const Vec2 victim{20.35f, 20.35f};
+    const Vec2 partner{20.55f, 20.55f};
+    ChaffSpawnParams a;
+    a.position = victim;
+    const u32 vi = buffers.spawn(a).index;
+    a.position = partner;
+    const u32 pi = buffers.spawn(a).index;
+
+    // The budget eaters: 32 agents in the quarter-annulus below-left of the
+    // victim, all between contact_radius and alignment_radius away, so every
+    // one of them is close enough to be SAMPLED and none is close enough to
+    // contribute a contact push of its own. Below-left puts them in the three
+    // cells row-major order used to reach first.
+    Rng place(4242);
+    for (u32 i = 0; i < 32; ++i) {
+        const f32 ang = math::kPi + (math::kPi * 0.5f) * (static_cast<f32>(i) / 32.0f);
+        const f32 rad = place.range_f(1.15f, 2.15f);
+        a.position = victim + Vec2{std::cos(ang) * rad, std::sin(ang) * rad};
+        buffers.spawn(a);
+    }
+
+    auto pair_distance = [&]() {
+        const f32 dx = buffers.pos_x[vi] - buffers.pos_x[pi];
+        const f32 dy = buffers.pos_y[vi] - buffers.pos_y[pi];
+        return std::sqrt(dx * dx + dy * dy);
+    };
+
+    const f32 before = pair_distance();
+    REQUIRE(before < contact_radius * 0.5f);   // genuinely inside each other
+
+    ChaffSystem sys;
+    sys.set_tuning(tuning);
+    sys.set_world_bounds(bounds);
+    sys.set_goal(Vec2{55.0f, 30.0f}, 0.0f);
+
+    Rng rng(11);
+    rebuild(hash, buffers);
+    sys.update(buffers, flow, sdf, TissueMask{}, hash, no_squads(), rng, kFixedDt, nullptr);
+
+    const f32 after = pair_distance();
+    INFO("pair distance " << before << " -> " << after
+                          << " in ONE tick, with 32 distant neighbours present");
+    // Both agents push off half the overlap each, scaled by contact_stiffness,
+    // in the single tick. Starved, this number does not move at all -- the
+    // steering terms available in one tick at max_speed 2 are worth under 0.04.
+    REQUIRE(after > before + 0.25f);
 }
 
 TEST_CASE("spawn_burst never places two agents inside each other",

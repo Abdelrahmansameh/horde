@@ -25,6 +25,11 @@ enum class Action : u8 {
     CancelPlacement,
     ToggleDebugOverlay,
     ToggleThreatOverlay,
+    /// Opens the in-game level editor on the level being played
+    /// (docs/LEVEL_EDITOR.md). An Action rather than a raw Ctrl+E because this
+    /// header's whole rule is that game code never names physical keys, and
+    /// modifier chords are not part of the abstraction.
+    OpenEditor,
     SelectTower1, SelectTower2, SelectTower3, SelectTower4,
     SelectTower5, SelectTower6, SelectTower7, SelectTower8,
     Screenshot,

@@ -346,13 +346,14 @@ f32 FlowField::eikonal(const TissueMask& mask, i32 x, i32 y, bool exclude_dirty)
     return 0.5f * (a + b + std::sqrt(math::max(2.0f * f * f - diff * diff, 0.0f)));
 }
 
-/// Stamps the per-cell goal flag from `goal_cells` plus `goal_radius`.
+/// Stamps the per-cell goal flag from `goal_cells` plus `goal_radius`. The
+/// seeded region is the SQUARE of half-extent `goal_radius` around each goal
+/// cell -- see FlowFieldBakeDesc::goal_radius for why it is not a disc.
 void FlowField::mark_goals(const TissueMask& mask) {
     const usize n = static_cast<usize>(width_) * static_cast<usize>(height_);
     goal_mark_.assign(n, 0u);
     const f32 r = math::max(desc_.goal_radius, 0.0f);
     const i32 span = static_cast<i32>(std::floor(r / math::max(cell_size_, 1e-6f)));
-    const f32 r2 = r * r;
     for (const IVec2& g : desc_.goal_cells) {
         for (i32 dy = -span; dy <= span; ++dy) {
             for (i32 dx = -span; dx <= span; ++dx) {
@@ -362,7 +363,8 @@ void FlowField::mark_goals(const TissueMask& mask) {
                 // The centre cell is a goal even when goal_radius is 0.
                 if (dx != 0 || dy != 0) {
                     const Vec2 d = mask.cell_to_world(x, y) - mask.cell_to_world(g.x, g.y);
-                    if (math::length_sq(d) > r2) continue;
+                    // Chebyshev: inside the square footprint, not the disc.
+                    if (math::max(std::fabs(d.x), std::fabs(d.y)) > r) continue;
                 }
                 goal_mark_[mask.index(x, y)] = 1u;
             }

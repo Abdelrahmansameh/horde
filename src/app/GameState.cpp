@@ -20,6 +20,7 @@ const char* GameStateMachine::name(GameStateId id) {
         case GameStateId::Loadout:       return "Loadout";
         case GameStateId::InLevel:       return "InLevel";
         case GameStateId::Paused:        return "Paused";
+        case GameStateId::Editor:        return "Editor";
         case GameStateId::LevelComplete: return "LevelComplete";
         case GameStateId::LevelFailed:   return "LevelFailed";
         case GameStateId::Quitting:      return "Quitting";

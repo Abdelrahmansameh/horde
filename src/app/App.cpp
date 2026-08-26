@@ -72,10 +72,15 @@ bool App::init(const Options& options) {
 
     profiler_.reserve(4096);
 
-    // An explicit --level means "play this now" (that is what the headless
-    // modes and every existing launch script expect), so it skips the front
-    // end. A bare launch goes to the menu.
-    if (!options.level.empty()) {
+    // --editor opens the editor directly, with or without a level. Checked
+    // before --level because `--editor <path>` puts the path in `level` too,
+    // and "edit this" must win over "play this".
+    if (options.mode == Mode::Editor) {
+        enter_editor(options.level);
+    } else if (!options.level.empty()) {
+        // An explicit --level means "play this now" (that is what the headless
+        // modes and every existing launch script expect), so it skips the front
+        // end. A bare launch goes to the menu.
         if (!load_level(options.level)) return false;
         state_.request(GameStateId::InLevel);
     } else {
@@ -142,12 +147,18 @@ void App::build_menus() {
     case GameStateId::LevelFailed:  r = menu_.build_level_failed_screen(w, h); break;
     case GameStateId::LevelComplete: r = menu_.build_level_complete_screen(w, h); break;
     case GameStateId::Paused:        r = menu_.build_pause_menu(w, h); break;
+    // The editor draws its own chrome (ui/editor/EditorPanels); a front-end
+    // screen on top of it would be a second, competing menu bar.
+    case GameStateId::Editor: return;
     default: return;
     }
 
     switch (r.action) {
     case ui::MenuAction::OpenLevelSelect:
         state_.request(GameStateId::LevelSelect);
+        break;
+    case ui::MenuAction::OpenEditor:
+        enter_editor({});
         break;
     case ui::MenuAction::Resume:
         state_.request(GameStateId::InLevel);
@@ -210,6 +221,14 @@ void App::apply_tuning_config() {
     game::apply_enemy_config(enemies_, config_.enemies);
     economy_.configure(config_.economy);
     game::apply_ability_config(abilities_, config_.abilities);
+
+    // The loaded level gets the LAST word. Folded in here rather than called
+    // beside every apply_tuning_config() site, because there are five of them
+    // (init, level load, and three gym/hot-reload paths) and a level's own
+    // economy override silently reverting on a config reload would be a very
+    // hard bug to see. Inert before any level is loaded, and for any level that
+    // authors no schema-2 rules.
+    apply_level_rules(current_level_def_);
 }
 
 void App::poll_config_reload(f32 dt) {
@@ -262,6 +281,12 @@ bool App::load_level(const std::string& path) {
     } else {
         level = game::LevelLoader::default_test_level();
     }
+    return load_level_def(level, path);
+}
+
+bool App::load_level_def(const game::LevelDef& level, const std::string& source_path) {
+    game::LevelLoader loader;
+    const std::string& path = source_path;
 
     sim::SimDesc desc;
     desc.seed = options_.seed;
@@ -332,15 +357,24 @@ bool App::load_level(const std::string& path) {
 
     // Camera framing moved here from init(): with a front end, a level can be
     // loaded long after startup, and each one has its own world bounds.
+    //
+    // schema 2's `camera` block overrides the default "frame the whole level",
+    // which is wrong for a long capillary -- the lane ends up a ribbon a few
+    // pixels tall. Absent fields keep the old behaviour exactly.
     camera_.set_viewport(window_.width(), window_.height());
     camera_.set_bounds(sim_.desc().world_bounds);
-    camera_.set_center(sim_.desc().world_bounds.center());
-    camera_.set_view_height(sim_.desc().world_bounds.size().y);
+    camera_.set_center(level.camera.has_center ? level.camera.center
+                                               : sim_.desc().world_bounds.center());
+    camera_.set_view_height(level.camera.view_height > 0.0f
+                                ? level.camera.view_height
+                                : sim_.desc().world_bounds.size().y);
     camera_.clamp_to_bounds();
 
     // A fresh level must not inherit the previous one's sparks, nor a stale
     // economy/ability state from a run that already ended.
     particles_.clear();
+    // Reads current_level_def_, which was assigned above, and applies this
+    // level's schema-2 economy/tower rules on top of the global tuning.
     apply_tuning_config();
     gym_spawns_.clear();
 
@@ -352,6 +386,175 @@ bool App::load_level(const std::string& path) {
     level_loaded_ = true;
     current_level_path_ = path;
     return true;
+}
+
+void App::apply_level_rules(const game::LevelDef& level) {
+    // Economy. 0 / 1.0 mean "use the global", so a level that authors neither
+    // behaves exactly as it did before schema 2 existed.
+    game::EconomyConfig eco = config_.economy;
+    if (level.economy.starting_atp != 0) eco.starting_atp = level.economy.starting_atp;
+    if (level.economy.income_multiplier != 1.0f) {
+        eco.passive_income_per_second *= level.economy.income_multiplier;
+        eco.atp_per_density *= level.economy.income_multiplier;
+    }
+    economy_.configure(eco);
+
+    // Buildable tower types. An empty list means "all", which is a zero mask.
+    u32 mask = 0;
+    for (const std::string& name : level.allowed_towers) {
+        TowerType t{};
+        if (!game::parse_tower_type(name, t)) {
+            IMMUNE_LOG_WARN("level '%s' allows unknown tower '%s'", level.name.c_str(),
+                            name.c_str());
+            continue;
+        }
+        mask |= 1u << static_cast<u32>(t);
+    }
+    towers_.set_allowed_towers(mask);
+}
+
+void App::enter_editor(const std::string& path) {
+    // The bake must use the SAME wall-cost and smoothing the game will apply at
+    // load, or the flow field you edit against is not the one you will play.
+    game::GeometryBakeDesc bd;
+    bd.flow_smoothing_radius = config_.sim.globals.flow_smoothing_radius;
+    bd.flow_wall_cost = config_.sim.globals.flow_wall_cost;
+    bd.flow_wall_falloff = config_.sim.globals.flow_wall_falloff;
+    bd.flow_wall_exponent = config_.sim.globals.flow_wall_exponent;
+    editor_.set_bake_desc(bd);
+
+    if (!path.empty() && platform::file_exists(path)) {
+        if (!editor_.open(path)) {
+            editor_panels_.set_message("Could not open '" + path + "': " + editor_.last_error());
+            editor_.create(game::LevelTemplate::StraightLane, game::TemplateParams{});
+        }
+    } else if (editor_.doc().def().vessels.empty()) {
+        // First entry with no file: a blank document would be a level that
+        // cannot load, so start from a template that is immediately playable.
+        editor_.create(game::LevelTemplate::StraightLane, game::TemplateParams{});
+    } else {
+        editor_.rebake();
+    }
+
+    editor_playtest_ = false;
+    frame_editor_camera();
+    state_.request(GameStateId::Editor);
+}
+
+void App::frame_editor_camera() {
+    // Free navigation, with room to see OUTSIDE the level so the world
+    // rectangle itself is draggable. clamp_to_bounds() would otherwise pin the
+    // view to the level and make its own edge unreachable. Restored to the
+    // level bounds by load_level_def() on Play.
+    const Rect wb = editor_.doc().def().world_bounds;
+    const Vec2 pad = wb.size() * 0.25f;
+    camera_.set_viewport(window_.width(), window_.height());
+    camera_.set_bounds(Rect{wb.min - pad, wb.max + pad});
+    camera_.set_center(wb.center());
+    camera_.set_view_height(wb.size().y * 1.15f);
+    // Through the canvas rather than straight onto the camera, so the framing
+    // compensates for the docked panels covering part of the framebuffer.
+    editor_canvas_.focus_on(wb);
+}
+
+void App::editor_play(i32 from_wave) {
+    // Play the DOCUMENT, not the file: a level that has never been saved, or
+    // that has unsaved edits, is exactly the thing you want to test.
+    if (!load_level_def(editor_.doc().def(), editor_.doc().source_path())) {
+        editor_panels_.set_message("This level could not be instantiated. Check the validation "
+                                   "panel -- a sealed lane will fail here.");
+        return;
+    }
+    editor_play_from_wave_ = from_wave;
+    if (from_wave > 0) {
+        // Skipping ahead is a wave-table edit on the LIVE director only; the
+        // document keeps its full table.
+        std::vector<game::WaveDef> from = editor_.doc().def().waves;
+        if (from_wave < static_cast<i32>(from.size())) {
+            from.erase(from.begin(), from.begin() + from_wave);
+            for (usize i = 0; i < from.size(); ++i) from[i].index = static_cast<u32>(i);
+            waves_.set_waves(from);
+            waves_.start(sim_);
+        }
+    }
+    editor_playtest_ = true;
+    state_.request(GameStateId::InLevel);
+}
+
+void App::editor_stop() {
+    // The sim never got a mutable reference to the document, so the document is
+    // untouched and there is nothing to restore. Deliberately does NOT re-open
+    // the source file: the in-memory document, unsaved edits and all, IS the
+    // thing that was being tested.
+    editor_playtest_ = false;
+    level_loaded_ = false;
+    clock_.set_time_scale(1.0f);
+    frame_editor_camera();
+    editor_.rebake();
+    state_.request(GameStateId::Editor);
+}
+
+void App::build_editor() {
+    editor_.tick();
+
+    std::vector<ui::EditorLevelEntry> entries;
+    entries.reserve(levels_.size());
+    for (const ui::LevelEntry& e : levels_) {
+        entries.push_back(ui::EditorLevelEntry{e.path, e.display_name});
+    }
+
+    const ui::EditorRequest req =
+        editor_panels_.build(editor_, editor_canvas_, camera_, entries, editor_playtest_,
+                             &enemies_, config_.sim.capacities.max_chaff);
+
+    switch (req.action) {
+    case ui::EditorAction::NewLevel:
+        editor_.create(req.template_choice, req.params);
+        enter_editor({});
+        break;
+    case ui::EditorAction::OpenLevel:
+        if (!editor_.open(req.path)) {
+            editor_panels_.set_message("Could not open: " + editor_.last_error());
+        } else {
+            enter_editor(req.path);
+        }
+        break;
+    case ui::EditorAction::Save:
+    case ui::EditorAction::SaveAs:
+    case ui::EditorAction::SaveAnyway: {
+        const bool force = req.action == ui::EditorAction::SaveAnyway;
+        if (!editor_.save(req.path, force)) {
+            editor_panels_.set_message("Save failed: " + editor_.last_error());
+        } else {
+            // The level list is a pure function of what is on disk, so a new
+            // level has to appear in it immediately.
+            discover_levels();
+        }
+        break;
+    }
+    case ui::EditorAction::Revert:
+        if (!editor_.revert()) {
+            editor_panels_.set_message("Revert failed: " + editor_.last_error());
+        }
+        break;
+    case ui::EditorAction::Play:
+        editor_play(req.wave_index);
+        break;
+    case ui::EditorAction::Stop:
+        editor_stop();
+        break;
+    case ui::EditorAction::ExitToMenu:
+        editor_playtest_ = false;
+        level_loaded_ = false;
+        state_.request(GameStateId::MainMenu);
+        break;
+    case ui::EditorAction::FocusIssue:
+        editor_canvas_.focus_on(req.focus);
+        break;
+    case ui::EditorAction::None:
+    default:
+        break;
+    }
 }
 
 void App::shutdown() {
@@ -388,6 +591,26 @@ void App::handle_input() {
     // the frame whose keystrokes are being classified here.
     if (input_.ui_capture_keyboard()) return;
 
+    // F4 from a live level opens the editor on the level being played.
+    // current_level_def_ is already kept alive for the balance bot, so this
+    // costs a state request and nothing else.
+    if (state_.current() == GameStateId::InLevel && !editor_playtest_ &&
+        input_.action_pressed(platform::Action::OpenEditor)) {
+        game::GeometryBakeDesc bd;
+        bd.flow_smoothing_radius = config_.sim.globals.flow_smoothing_radius;
+        bd.flow_wall_cost = config_.sim.globals.flow_wall_cost;
+        bd.flow_wall_falloff = config_.sim.globals.flow_wall_falloff;
+        bd.flow_wall_exponent = config_.sim.globals.flow_wall_exponent;
+        editor_.set_bake_desc(bd);
+        editor_.doc().set_document(current_level_def_, current_level_path_);
+        level_loaded_ = false;
+        editor_playtest_ = false;
+        frame_editor_camera();
+        editor_.rebake();
+        state_.request(GameStateId::Editor);
+        return;
+    }
+
     // Escape backs out one level of the front end. From inside a level it
     // opens the pause menu rather than immediately abandoning the run; the
     // pause menu itself offers resume/restart/main-menu.
@@ -397,7 +620,17 @@ void App::handle_input() {
             state_.request(GameStateId::MainMenu);
             break;
         case GameStateId::InLevel:
-            state_.request(GameStateId::Paused);
+            // A playtest launched from the editor goes BACK to the editor
+            // rather than opening the pause menu -- Stop is the only thing you
+            // ever want out of Escape while testing.
+            if (editor_playtest_) editor_stop();
+            else state_.request(GameStateId::Paused);
+            break;
+        case GameStateId::Editor:
+            // Escape cancels the in-progress tool gesture. It deliberately does
+            // NOT leave the editor: losing an unsaved level to a stray keypress
+            // is not a thing a tool should make possible.
+            editor_canvas_.cancel();
             break;
         case GameStateId::Paused:
             state_.request(GameStateId::InLevel);
@@ -487,6 +720,9 @@ void App::tick_sim() {
     systems.abilities = &abilities_;
     systems.spawns = &gym_spawns_;
     systems.toggles = &gym_toggles_;
+    // Schema 2's survive-N-seconds objective. 0 for every level that authors
+    // none, which is the wave-clear rule.
+    systems.survive_seconds = current_level_def_.win.survive_seconds;
 
     // The bot buys between ticks, in the same place apply_intents() puts a
     // player's clicks -- it has no path into the sim that a player lacks.
@@ -556,6 +792,26 @@ game::GymContext App::make_gym_context() {
         apply_tuning_config();
         return true;
     };
+    // The editor's document, when one is open. Lets `edit ...` drive the same
+    // LevelDoc the panels drive, which is what keeps the GUI from becoming a
+    // second API -- and makes an editor operation reachable from --exec.
+    if (state_.current() == GameStateId::Editor || editor_playtest_) {
+        ctx.doc = &editor_.doc();
+        ctx.doc_changed = [this]() { editor_.invalidate(); };
+        ctx.doc_save = [this](const std::string& path, bool force, std::string& err) {
+            if (editor_.save(path, force)) {
+                discover_levels();
+                return true;
+            }
+            err = editor_.last_error();
+            return false;
+        };
+        ctx.doc_revert = [this](std::string& err) {
+            if (editor_.revert()) return true;
+            err = editor_.last_error();
+            return false;
+        };
+    }
     ctx.config_dump = [this](std::string& err) {
         return game::write_game_config(config_, resolve_config_dir(options_), err);
     };
@@ -624,6 +880,41 @@ void App::render_frame() {
     // Menu states run before any level exists, so every pass below would be
     // reading an uninitialised SimWorld. Draw a bare frame plus the front end
     // and return.
+    // The EDITOR draws the world from its OWN baked geometry, not from sim_.
+    // That is the whole point of bake_geometry(): no SimWorld has to exist for
+    // the real tissue, the real distance field and the real lane hues to be on
+    // screen, and editing therefore never destroys a run.
+    if (state_.current() == GameStateId::Editor) {
+        renderer_.poll_shader_reload();
+        poll_config_reload(static_cast<f32>(clock_.frame_delta()));
+        renderer_.begin_frame(camera_, 0.0f);
+        const EditorBake& b = editor_.baked();
+        if (b.valid && b.mask.width() > 0) {
+            render::TissueDecor decor;
+            decor.flow = &b.flow;
+            if (!b.lanes.owner.empty() && !b.lanes.lane_types.empty()) {
+                decor.lane_owner = b.lanes.owner.data();
+                decor.lane_type = reinterpret_cast<const u8*>(b.lanes.lane_types.data());
+                decor.lane_count = static_cast<u32>(b.lanes.lane_types.size());
+                decor.lane_width = b.lanes.width;
+                decor.lane_height = b.lanes.height;
+            }
+            renderer_.submit_tissue(b.mask, b.sdf, 0.0f, &decor);
+            if (editor_canvas_.views().flow_arrows) renderer_.submit_flow_debug(b.flow);
+        }
+        renderer_.end_frame();
+
+        hud_.begin_frame(input_);
+        // Canvas first (it owns the camera and the background draw list), then
+        // panels, so a click on a panel is already flagged in WantCaptureMouse
+        // by the time the canvas reads it next frame.
+        editor_canvas_.build(editor_, camera_, input_);
+        build_editor();
+        hud_.render();
+        window_.swap();
+        return;
+    }
+
     if (!level_loaded_) {
         renderer_.poll_shader_reload();
         poll_config_reload(static_cast<f32>(kFixedDtSeconds));

@@ -12,7 +12,9 @@
 // the test binary's working directory for manual inspection.
 #include "core/JobSystem.h"
 #include "core/Math.h"
+#include "game/level/Level.h"
 #include "platform/FileIO.h"
+#include "sim/SimWorld.h"
 #include "platform/Window.h"
 #include "render/Camera.h"
 #include "render/Renderer.h"
@@ -129,6 +131,9 @@ TEST_CASE("visual verification: wide view of ~10k agents across all families",
     rd.framebuffer_width = gl.window.width();
     rd.framebuffer_height = gl.window.height();
     rd.max_chaff_instances = 16384;
+    // Opt in: the blob pass ships disabled (RendererDesc::lod_blob_enabled).
+    // These two cases exist to look at it, so they are where it gets turned on.
+    rd.lod_blob_enabled = true;
     Renderer renderer;
     REQUIRE(renderer.init(rd));
 
@@ -169,6 +174,9 @@ TEST_CASE("visual verification: close-up crop across the LOD crossfade band",
     rd.framebuffer_width = gl.window.width();
     rd.framebuffer_height = gl.window.height();
     rd.max_chaff_instances = 16384;
+    // Opt in: the blob pass ships disabled (RendererDesc::lod_blob_enabled).
+    // These two cases exist to look at it, so they are where it gets turned on.
+    rd.lod_blob_enabled = true;
     Renderer renderer;
     REQUIRE(renderer.init(rd));
 
@@ -251,6 +259,83 @@ TEST_CASE("visual verification: tissue substrate renders a vessel band",
     const i32 inside_luma = luma_at(h / 2);
     const i32 outside_luma = luma_at(h / 8);
     CHECK(inside_luma > outside_luma + 30);
+
+    renderer.shutdown();
+}
+
+TEST_CASE("visual verification: an in-lane obstacle renders as vessel wall, not as a prop",
+          "[render][gl][screenshot][obstacles]") {
+    // The claim in-lane obstacles are built on (sim/flowfield/ObstacleRaster.h)
+    // is that an island carved out of the lumen is the SAME MATERIAL as the
+    // lane's outer boundary -- not a decal, not a sprite, not a separate pass.
+    // Nothing in the renderer knows obstacles exist; they reach the screen
+    // purely as SDF, so the only way to check the claim is to render a level
+    // that has one and read the pixels back.
+    HeadlessGl gl(900, 600);
+    if (!gl.ok) { WARN("headless GL unavailable; skipping"); return; }
+
+    game::LevelLoader loader;
+    game::LevelDef def;
+    const std::string level = platform::asset_path("levels/plaque_field.json");
+    REQUIRE(platform::file_exists(level));
+    REQUIRE(loader.load_file(level, def).ok);
+
+    SimWorld world;
+    SimDesc sd;
+    sd.world_bounds = def.world_bounds;
+    world.init(sd, nullptr);
+    REQUIRE(loader.instantiate(def, world).ok);
+
+    RendererDesc rd;
+    rd.framebuffer_width = gl.window.width();
+    rd.framebuffer_height = gl.window.height();
+    Renderer renderer;
+    REQUIRE(renderer.init(rd));
+
+    // Framed on the "plaque" disc: a 14-unit island at (120,120) sitting in a
+    // 76-unit lane. Straight down, so world_to_screen below is a plain scale
+    // and the probes land where the arithmetic says they do.
+    Camera camera;
+    camera.set_viewport(gl.window.width(), gl.window.height());
+    camera.set_center(Vec2{120.0f, 121.0f});
+    camera.set_view_height(120.0f);
+    camera.set_tilt_degrees(0.0f);
+
+    renderer.begin_frame(camera, 0.0f);
+    renderer.submit_tissue(world.tissue(), world.sdf(), 0.0f);
+    renderer.end_frame();
+
+    std::vector<u8> pixels;
+    i32 w = 0, h = 0;
+    REQUIRE(renderer.read_pixels(pixels, w, h));
+    const std::string out = scratch_path("render_verify_obstacle.png");
+    REQUIRE(write_png_rgba(out, pixels.data(), w, h));
+    std::fprintf(stderr, "[screenshot] %s: %dx%d\n", out.c_str(), w, h);
+
+    const auto luma_at_world = [&](Vec2 world_pos) {
+        const Vec2 s = camera.world_to_screen(world_pos);
+        const i32 x = math::clamp(static_cast<i32>(s.x), 0, w - 1);
+        const i32 y = math::clamp(static_cast<i32>(s.y), 0, h - 1);
+        const usize idx = (static_cast<usize>(y) * static_cast<usize>(w) + static_cast<usize>(x)) * 4;
+        return static_cast<i32>(pixels[idx + 0]) + pixels[idx + 1] + pixels[idx + 2];
+    };
+
+    // Three probes, all at comparable distance from a boundary so the wall
+    // shading is compared against wall shading rather than against flat
+    // interstitium: a few units inside the island, the open lumen beside it,
+    // and a few units past the lane's own outer wall.
+    const i32 island = luma_at_world(Vec2{120.0f, 127.0f});
+    const i32 lumen = luma_at_world(Vec2{120.0f, 145.0f});
+    const i32 outer_wall = luma_at_world(Vec2{120.0f, 166.0f});
+    std::fprintf(stderr, "[obstacle] luma island=%d lumen=%d outer_wall=%d\n", island, lumen,
+                 outer_wall);
+
+    // It reads as flesh, not as plasma...
+    CHECK(lumen > island + 30);
+    CHECK(lumen > outer_wall + 30);
+    // ...and specifically as the SAME flesh the lane is carved out of: the two
+    // wall samples sit far closer to each other than either does to the lumen.
+    CHECK(std::abs(island - outer_wall) < (lumen - island) / 2);
 
     renderer.shutdown();
 }

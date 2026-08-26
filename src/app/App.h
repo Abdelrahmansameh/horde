@@ -12,6 +12,7 @@
 #pragma once
 
 #include "app/Cli.h"
+#include "app/EditorMode.h"
 #include "app/GameState.h"
 #include "audio/Audio.h"
 #include "core/Clock.h"
@@ -35,6 +36,8 @@
 #include "ui/GymPanel.h"
 #include "ui/Hud.h"
 #include "ui/Menu.h"
+#include "ui/editor/EditorCanvas.h"
+#include "ui/editor/EditorPanels.h"
 #include "vfx/Particles.h"
 
 #include <memory>
@@ -59,9 +62,30 @@ private:
     void render_frame();
     void enter_state(GameStateId id);
     bool load_level(const std::string& path);
+    /// The half of load_level() from `SimDesc desc;` onward: builds a world
+    /// from a LevelDef already in memory. Split out so the editor can Play the
+    /// document it is editing without a file round-trip -- and so a level that
+    /// has never been saved is still playable.
+    bool load_level_def(const game::LevelDef& level, const std::string& source_path);
+    /// Draws the editor and applies whatever it asked for. Runs inside Hud's
+    /// ImGui frame, like every other window in ui/.
+    void build_editor();
+    /// Enters the editor on `path` (or a blank template when empty).
+    void enter_editor(const std::string& path);
+    /// Points the camera at the whole document with margin, and widens the
+    /// clamp rect so the world rectangle's own edges stay reachable.
+    void frame_editor_camera();
+    /// Instantiates the editor's document and switches to InLevel, remembering
+    /// that Stop should come back here rather than to the main menu.
+    void editor_play(i32 from_wave);
+    void editor_stop();
     /// Reads assets/config (or --config) into config_ and binds it for the gym
     /// console. False if any file is missing or malformed.
     bool load_tuning_config();
+    /// Applies the loaded level's own schema-2 rules (economy overrides,
+    /// allowed tower types) on top of the global tuning. Must run AFTER
+    /// apply_tuning_config(), which overwrites wholesale.
+    void apply_level_rules(const game::LevelDef& level);
     /// Pushes config_ into every system that can accept it at any time.
     /// Called at init, on every level load, and after a hot reload.
     void apply_tuning_config();
@@ -98,6 +122,17 @@ private:
     /// The gym level's control window (game/gym). Opens itself on that level
     /// and is toggleable with ` or F2 anywhere; costs nothing while hidden.
     ui::GymPanel gym_panel_;
+    /// The level editor (docs/LEVEL_EDITOR.md). Present in every interactive
+    /// build; costs one LevelDoc and three empty grids while unused.
+    EditorMode editor_;
+    ui::EditorCanvas editor_canvas_;
+    ui::EditorPanels editor_panels_;
+    /// True while a playtest launched FROM the editor is running, so Escape and
+    /// Stop return to editing rather than to the main menu.
+    bool editor_playtest_ = false;
+    /// Which wave that playtest should start from. Lets you test wave 7 without
+    /// replaying waves 1-6.
+    i32 editor_play_from_wave_ = 0;
     std::vector<ui::LevelEntry> levels_;
     std::string current_level_path_;  ///< Path to the currently loaded level, for restart.
     /// True once a level has actually been loaded into sim_. Guards the render

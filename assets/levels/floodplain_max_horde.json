@@ -1,365 +1,114 @@
 {
-  "ambient_drift": [
-    0.0,
-    0.0
-  ],
+  "schema": 1,
   "name": "floodplain_max_horde",
-  "objectives": [
+  "region": "mucosal",
+  "world": { "min": [0, 0], "max": [266.46, 99.4] },
+  "vessels": [
     {
-      "id": "organ",
-      "integrity": 100,
-      "pos": [
-        217.982,
-        49.731
-      ],
-      "radius": 7.265
-    }
-  ],
-  "placement_zones": [
-    {
-      "concentrated": true,
-      "max": [
-        105.38,
-        78.183
-      ],
-      "min": [
-        81.667,
-        21.278
-      ],
-      "priority": 2.0
-    },
-    {
-      "concentrated": true,
-      "max": [
-        152.792,
-        85.286
-      ],
-      "min": [
-        129.079,
-        21.278
-      ],
-      "priority": 2.0
-    },
-    {
-      "concentrated": true,
-      "max": [
-        200.204,
-        78.183
-      ],
-      "min": [
-        176.491,
-        21.278
-      ],
-      "priority": 2.0
-    },
-    {
-      "concentrated": false,
-      "max": [
-        209.684,
-        84.105
-      ],
-      "min": [
-        65.085,
-        18.915
-      ],
-      "priority": 1.0
+      "id": "flood_main",
+      "vessel_type": "mucosal_fold",
+      "points": [
+        { "p": [46.112, 49.731], "w": 65.341 },
+        { "p": [88.784, 46.172], "w": 73.812 },
+        { "p": [136.196, 53.289], "w": 76.224 },
+        { "p": [183.608, 47.354], "w": 71.386 },
+        { "p": [220.345, 49.731], "w": 53.238 }
+      ]
     }
   ],
   "spawn_points": [
-    {
-      "id": "p_flood",
-      "lane_id": "flood_main",
-      "pos": [
-        47.307,
-        49.731
-      ],
-      "radius": 13.309
-    }
+    { "id": "p_flood", "pos": [47.307, 49.731], "radius": 13.309, "lane_id": "flood_main" }
   ],
-  "region": "mucosal",
-  "schema": 1,
-  "vessels": [
-    {
-      "children": [],
-      "id": "flood_main",
-      "lane_id": "flood_main",
-      "points": [
-        {
-          "p": [
-            46.112,
-            49.731
-          ],
-          "w": 65.341
-        },
-        {
-          "p": [
-            88.784,
-            46.172
-          ],
-          "w": 73.812
-        },
-        {
-          "p": [
-            136.196,
-            53.289
-          ],
-          "w": 76.224
-        },
-        {
-          "p": [
-            183.608,
-            47.354
-          ],
-          "w": 71.386
-        },
-        {
-          "p": [
-            220.345,
-            49.731
-          ],
-          "w": 53.238
-        }
-      ],
-      "vessel_type": "mucosal_fold"
-    }
+  "objectives": [
+    { "id": "organ", "pos": [217.982, 49.731], "radius": 7.265 }
+  ],
+  "placement_zones": [
+    { "min": [81.667, 21.278], "max": [105.38, 78.183], "concentrated": true, "priority": 2 },
+    { "min": [129.079, 21.278], "max": [152.792, 85.286], "concentrated": true, "priority": 2 },
+    { "min": [176.491, 21.278], "max": [200.204, 78.183], "concentrated": true, "priority": 2 },
+    { "min": [65.085, 18.915], "max": [209.684, 84.105] }
   ],
   "waves": [
     {
-      "atp_reward": 90,
       "name": "flood_1",
-      "prep_time": 25.0,
+      "prep_time": 25,
+      "atp_reward": 90,
       "spawns": [
-        {
-          "count": 900,
-          "duration": 6.0,
-          "family": "virus",
-          "spawn_point_id": "p_flood",
-          "start_time": 0.0
-        },
-        {
-          "count": 400,
-          "duration": 6.0,
-          "family": "bacteria",
-          "spawn_point_id": "p_flood",
-          "start_time": 0.5
-        },
-        {
-          "count": 200,
-          "duration": 5.0,
-          "family": "bacteria",
-          "spawn_point_id": "p_flood",
-          "start_time": 1.0
-        }
+        { "family": "virus", "count": 900, "duration": 6, "spawn_point_id": "p_flood" },
+        { "family": "bacteria", "count": 400, "start_time": 0.5, "duration": 6, "spawn_point_id": "p_flood" },
+        { "family": "bacteria", "count": 200, "start_time": 1, "duration": 5, "spawn_point_id": "p_flood" }
       ]
     },
     {
-      "atp_reward": 110,
       "name": "flood_2",
-      "prep_time": 22.0,
+      "prep_time": 22,
+      "atp_reward": 110,
       "spawns": [
-        {
-          "count": 1500,
-          "duration": 6.5,
-          "family": "virus",
-          "spawn_point_id": "p_flood",
-          "start_time": 0.0
-        },
-        {
-          "count": 600,
-          "duration": 6.5,
-          "family": "bacteria",
-          "spawn_point_id": "p_flood",
-          "start_time": 0.5
-        },
-        {
-          "count": 400,
-          "duration": 5.5,
-          "family": "bacteria",
-          "spawn_point_id": "p_flood",
-          "start_time": 1.0
-        }
+        { "family": "virus", "count": 1500, "duration": 6.5, "spawn_point_id": "p_flood" },
+        { "family": "bacteria", "count": 600, "start_time": 0.5, "duration": 6.5, "spawn_point_id": "p_flood" },
+        { "family": "bacteria", "count": 400, "start_time": 1, "duration": 5.5, "spawn_point_id": "p_flood" }
       ]
     },
     {
-      "atp_reward": 130,
       "name": "flood_3",
-      "prep_time": 20.0,
+      "atp_reward": 130,
       "spawns": [
-        {
-          "count": 2100,
-          "duration": 7.0,
-          "family": "virus",
-          "spawn_point_id": "p_flood",
-          "start_time": 0.0
-        },
-        {
-          "count": 900,
-          "duration": 7.0,
-          "family": "bacteria",
-          "spawn_point_id": "p_flood",
-          "start_time": 0.5
-        },
-        {
-          "count": 500,
-          "duration": 6.0,
-          "family": "bacteria",
-          "spawn_point_id": "p_flood",
-          "start_time": 1.0
-        }
+        { "family": "virus", "count": 2100, "duration": 7, "spawn_point_id": "p_flood" },
+        { "family": "bacteria", "count": 900, "start_time": 0.5, "duration": 7, "spawn_point_id": "p_flood" },
+        { "family": "bacteria", "count": 500, "start_time": 1, "duration": 6, "spawn_point_id": "p_flood" }
       ]
     },
     {
-      "atp_reward": 150,
       "name": "flood_4",
-      "prep_time": 18.0,
+      "prep_time": 18,
+      "atp_reward": 150,
       "spawns": [
-        {
-          "count": 3000,
-          "duration": 7.5,
-          "family": "virus",
-          "spawn_point_id": "p_flood",
-          "start_time": 0.0
-        },
-        {
-          "count": 1200,
-          "duration": 7.5,
-          "family": "bacteria",
-          "spawn_point_id": "p_flood",
-          "start_time": 0.5
-        },
-        {
-          "count": 800,
-          "duration": 6.5,
-          "family": "bacteria",
-          "spawn_point_id": "p_flood",
-          "start_time": 1.0
-        }
+        { "family": "virus", "count": 3000, "duration": 7.5, "spawn_point_id": "p_flood" },
+        { "family": "bacteria", "count": 1200, "start_time": 0.5, "duration": 7.5, "spawn_point_id": "p_flood" },
+        { "family": "bacteria", "count": 800, "start_time": 1, "duration": 6.5, "spawn_point_id": "p_flood" }
       ]
     },
     {
+      "name": "flood_5",
+      "prep_time": 16,
       "atp_reward": 175,
       "modifier": "fever",
-      "name": "flood_5",
-      "prep_time": 16.0,
       "spawns": [
-        {
-          "count": 3900,
-          "duration": 8.0,
-          "family": "virus",
-          "spawn_point_id": "p_flood",
-          "start_time": 0.0
-        },
-        {
-          "count": 1600,
-          "duration": 8.0,
-          "family": "bacteria",
-          "spawn_point_id": "p_flood",
-          "start_time": 0.5
-        },
-        {
-          "count": 1000,
-          "duration": 7.0,
-          "family": "bacteria",
-          "spawn_point_id": "p_flood",
-          "start_time": 1.0
-        }
+        { "family": "virus", "count": 3900, "duration": 8, "spawn_point_id": "p_flood" },
+        { "family": "bacteria", "count": 1600, "start_time": 0.5, "duration": 8, "spawn_point_id": "p_flood" },
+        { "family": "bacteria", "count": 1000, "start_time": 1, "duration": 7, "spawn_point_id": "p_flood" }
       ]
     },
     {
-      "atp_reward": 200,
       "name": "flood_6",
-      "prep_time": 14.0,
+      "prep_time": 14,
+      "atp_reward": 200,
       "spawns": [
-        {
-          "count": 4800,
-          "duration": 8.5,
-          "family": "virus",
-          "spawn_point_id": "p_flood",
-          "start_time": 0.0
-        },
-        {
-          "count": 2000,
-          "duration": 8.5,
-          "family": "bacteria",
-          "spawn_point_id": "p_flood",
-          "start_time": 0.5
-        },
-        {
-          "count": 1200,
-          "duration": 7.5,
-          "family": "bacteria",
-          "spawn_point_id": "p_flood",
-          "start_time": 1.0
-        }
+        { "family": "virus", "count": 4800, "duration": 8.5, "spawn_point_id": "p_flood" },
+        { "family": "bacteria", "count": 2000, "start_time": 0.5, "duration": 8.5, "spawn_point_id": "p_flood" },
+        { "family": "bacteria", "count": 1200, "start_time": 1, "duration": 7.5, "spawn_point_id": "p_flood" }
       ]
     },
     {
-      "atp_reward": 230,
       "name": "flood_7",
-      "prep_time": 12.0,
+      "prep_time": 12,
+      "atp_reward": 230,
       "spawns": [
-        {
-          "count": 5400,
-          "duration": 9.0,
-          "family": "virus",
-          "spawn_point_id": "p_flood",
-          "start_time": 0.0
-        },
-        {
-          "count": 2250,
-          "duration": 9.0,
-          "family": "bacteria",
-          "spawn_point_id": "p_flood",
-          "start_time": 0.5
-        },
-        {
-          "count": 1350,
-          "duration": 8.0,
-          "family": "bacteria",
-          "spawn_point_id": "p_flood",
-          "start_time": 1.0
-        }
+        { "family": "virus", "count": 5400, "duration": 9, "spawn_point_id": "p_flood" },
+        { "family": "bacteria", "count": 2250, "start_time": 0.5, "duration": 9, "spawn_point_id": "p_flood" },
+        { "family": "bacteria", "count": 1350, "start_time": 1, "duration": 8, "spawn_point_id": "p_flood" }
       ]
     },
     {
+      "name": "flood_8_full_flood",
+      "prep_time": 12,
       "atp_reward": 300,
       "modifier": "swarm",
-      "name": "flood_8_full_flood",
-      "prep_time": 12.0,
       "spawns": [
-        {
-          "count": 6000,
-          "duration": 9.0,
-          "family": "virus",
-          "spawn_point_id": "p_flood",
-          "start_time": 0.0
-        },
-        {
-          "count": 2500,
-          "duration": 9.0,
-          "family": "bacteria",
-          "spawn_point_id": "p_flood",
-          "start_time": 0.5
-        },
-        {
-          "count": 1500,
-          "duration": 8.0,
-          "family": "bacteria",
-          "spawn_point_id": "p_flood",
-          "start_time": 1.0
-        }
+        { "family": "virus", "count": 6000, "duration": 9, "spawn_point_id": "p_flood" },
+        { "family": "bacteria", "count": 2500, "start_time": 0.5, "duration": 9, "spawn_point_id": "p_flood" },
+        { "family": "bacteria", "count": 1500, "start_time": 1, "duration": 8, "spawn_point_id": "p_flood" }
       ]
     }
-  ],
-  "world": {
-    "cell_size": 0.5,
-    "max": [
-      266.46,
-      99.4
-    ],
-    "min": [
-      0,
-      0
-    ]
-  }
+  ]
 }

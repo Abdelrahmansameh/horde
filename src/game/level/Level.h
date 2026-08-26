@@ -50,6 +50,16 @@
 //       "points": [ {"p":[8,72],"w":6.0}, {"p":[60,70],"w":5.0}, ... ],
 //       "children": ["branch_a"] }
 //   ],
+//   "obstacles": [                             // OPTIONAL; see ObstacleDef
+//     { "id":"plaque", "shape":"disc",    "pos":[60,72], "radius":4.0 },
+//     { "shape":"capsule", "points":[[80,60],[100,66]], "radius":3.0 },
+//     { "shape":"box",     "pos":[120,72], "half_extents":[8,2],
+//                          "rotation":30 },      // DEGREES, CCW
+//     { "shape":"polygon", "points":[[150,60],[164,66],[152,78]],
+//                          "inflate":0.0 },      // optional outward grow
+//     { "shape":"ridge",   "points":[ {"p":[180,60],"w":5},
+//                                     {"p":[200,72],"w":3} ] }
+//   ],
 //   "spawn_points":   [ { "id":"p0", "pos":[8,72], "radius":3.0,
 //                     "lane_id":"main" } ],   // lane_id optional; see
 //                                             // resolve_spawn_point_lane_id()
@@ -96,6 +106,24 @@
 // authorable (it is assigned from array position, so it cannot disagree with
 // the order the director walks).
 //
+// IN-LANE OBSTACLES (optional `obstacles`)
+// A lane used to be exactly the union of its splines' lumens, so the only
+// shaping tool an author had was the centerline and the per-point width: every
+// interesting piece of cover had to be built by threading two vessels around
+// each other. `obstacles` adds the missing subtractive half -- five primitives
+// (disc, capsule, oriented box, polygon, width-varying ridge) carved back out
+// of the mask after rasterization and before the SDF bake.
+// The deliberate design point is that an obstacle is NOT a new kind of thing:
+// downstream, a carved cell is a cell no vessel ever covered. It shades as
+// vessel wall, collides as vessel wall, reroutes the flow field, and is
+// unbuildable, with no code in the renderer, the steering, or TowerSystem that
+// knows the concept exists. sim/flowfield/ObstacleRaster.h carries the full
+// argument; instantiate() owns the ordering.
+// They are fully static: nothing at runtime spawns, moves or destroys one.
+// validate() rejects an obstacle that swallows a spawn point or an objective,
+// and instantiate() fails the load if carving leaves a spawn point unable to
+// reach any objective -- an author can wall a lane off, but not silently.
+//
 // WORKED MULTI-LANE EXAMPLE (see assets/levels/lane_schema_test.json for the
 // full runnable fixture): three lanes -- an artery, a lymph channel, and a
 // nerve-adjacent duct -- each with its own spawn point, converging on one
@@ -130,7 +158,7 @@
 #include <string>
 #include <vector>
 
-namespace immune::sim { class SimWorld; class TissueMask; }
+namespace immune::sim { class SimWorld; class TissueMask; class DistanceField; class FlowField; }
 
 namespace immune::game {
 
@@ -168,6 +196,50 @@ struct Vessel {
     std::vector<std::string> children; ///< Ids of vessels branching off the end.
 };
 
+/// Which primitive an ObstacleDef draws. Parsed from the JSON `shape` string;
+/// unlike VesselType an unrecognized string is a load ERROR rather than a
+/// silent fallback, because a typo'd shape would carve a plausible-looking but
+/// wrong obstacle and the level would ship with it.
+enum class ObstacleShape : u8 {
+    Disc = 0,      ///< `pos` + `radius`.
+    Capsule = 1,   ///< `points` (2) + `radius`: a stadium/thick segment.
+    Box = 2,       ///< `pos` + `half_extents` + `rotation` (authored in degrees).
+    Polygon = 3,   ///< `points` (>= 3), convex or concave, + optional `inflate`.
+    Ridge = 4,     ///< `points` with per-point `w`: a Catmull-Rom solid septum.
+};
+
+/// "disc" | "capsule" | "box" | "polygon" | "ridge".
+const char* obstacle_shape_to_string(ObstacleShape s);
+/// Returns false (leaving `out` untouched) for an unrecognized string.
+bool obstacle_shape_from_string(const std::string& s, ObstacleShape& out);
+
+/// A solid island of tissue standing INSIDE a lane (DESIGN.md §4: lanes are
+/// meant to be shaped, not just wide). Rasterized by carving the TissueMask
+/// after the vessel splines have filled it and before the SDF is baked
+/// (sim/flowfield/ObstacleRaster.h has the full rationale), so an obstacle is
+/// the same material as the lane's outer wall in every system that reads the
+/// mask or the SDF: it shades identically, blocks movement identically, reroutes
+/// the flow field, and refuses towers -- none of which is special-cased for it.
+///
+/// Fully static. Nothing at runtime creates, moves, or destroys one; a tower's
+/// footprint is the only thing that edits the mask after load, and it
+/// snapshots/restores exactly its own cells.
+///
+/// Geometry lives in three shared fields rather than a variant, because the
+/// loader has to validate whichever ones the shape actually uses anyway and a
+/// flat struct keeps LevelDef trivially copyable-ish and diff-friendly. Which
+/// fields a shape reads is documented on ObstacleShape.
+struct ObstacleDef {
+    std::string id;                  ///< Optional; for diagnostics only.
+    ObstacleShape shape = ObstacleShape::Disc;
+    Vec2 position{0.0f, 0.0f};       ///< Disc/Box center.
+    /// Capsule endpoints, Polygon vertices in order, or Ridge control points.
+    std::vector<VesselPoint> points;
+    f32 radius = 0.0f;               ///< Disc/Capsule radius; Polygon outward inflate.
+    Vec2 half_extents{0.0f, 0.0f};   ///< Box only.
+    f32 rotation = 0.0f;             ///< Box only, RADIANS (the JSON authors degrees).
+};
+
 /// One authored route across a lane, for the squad layer (sim/squad/Squads.h).
 ///
 /// OPTIONAL BY DESIGN. A level that authors none still gets squads: at load,
@@ -202,9 +274,19 @@ struct SpawnPoint {
     std::string lane_id;
 };
 
+/// The organ the horde is trying to reach. Its footprint is an axis-aligned
+/// SQUARE, not a disc: an organ reads as a built structure sitting in the
+/// tissue rather than as another round blob among the round agents, and a
+/// square rim also gives the horde a flat face to pile against instead of a
+/// curve that slides them around it.
 struct ObjectivePoint {
     std::string id;
     Vec2 position{0.0f, 0.0f};
+    /// Half-extent of the square footprint, in world units: the footprint is
+    /// `position` +/- this on both axes. Still named "radius" because that is
+    /// the JSON key every authored level already carries, and because it is
+    /// still "how big is the objective" -- only the metric changed (Chebyshev,
+    /// not Euclidean).
     f32 radius = 5.0f;
     f32 integrity = 100.0f;
 };
@@ -221,13 +303,69 @@ struct PlacementZoneTag {
     f32 priority = 1.0f;
 };
 
+/// Per-level economy overrides (schema 2). Global in assets/config/economy.json
+/// otherwise: a tutorial and a floodplain cannot want the same opening bankroll,
+/// and "more starting ATP" is a difficulty lever that is not "more enemies".
+/// A value of 0 / 1.0 means "use the global".
+struct LevelEconomy {
+    u32 starting_atp = 0;         ///< 0 = economy.json's value
+    f32 income_multiplier = 1.0f;
+};
+
+/// Per-level camera framing (schema 2). Without it, framing is "the whole
+/// level", which is wrong for a long capillary: the lane ends up a ribbon three
+/// pixels tall. 0 means "derive it from the world bounds", i.e. today's rule.
+struct LevelCamera {
+    Vec2 center{0.0f, 0.0f};
+    bool has_center = false;
+    f32 view_height = 0.0f;       ///< 0 = whole level
+    f32 min_view_height = 0.0f;   ///< 0 = no limit
+    f32 max_view_height = 0.0f;
+};
+
+/// Alternative win condition (schema 2). 0 keeps today's behaviour: clear the
+/// authored wave table.
+struct LevelWin {
+    f32 survive_seconds = 0.0f;
+};
+
+/// Editor-only annotations (schema 2). The loader parses and preserves these
+/// and NOTHING else reads them.
+///
+/// It exists because the parser drops unknown keys and the writer cannot emit
+/// what the LevelDef never held -- so before this block there was nowhere for a
+/// note or a grid size to live that survived a Save.
+struct LevelEditorState {
+    f32 grid_size = 0.0f;         ///< 0 = the editor's default
+    Vec2 camera_center{0.0f, 0.0f};
+    f32 camera_view_height = 0.0f;
+    std::string notes;
+    bool present = false;         ///< False when the file authored no block
+};
+
 struct LevelDef {
     i32 schema = 0;
     std::string name;
     std::string region;
+    // ---- schema 2 metadata -------------------------------------------------
+    // Level select shows a filename-derived name without these.
+    std::string display_name;
+    std::string description;
+    std::string author;
+    i32 difficulty = 0;                 ///< 0 = unrated
+    std::vector<std::string> tags;
+    /// Empty = every tower is buildable. The biggest missing design lever: a
+    /// level that is ABOUT the Goblet Cell. Names match parse_tower_type().
+    std::vector<std::string> allowed_towers;
+    LevelEconomy economy;
+    LevelCamera camera;
+    LevelWin win;
+    LevelEditorState editor;
     Rect world_bounds{};
     f32 cell_size = 0.5f;
     std::vector<Vessel> vessels;
+    /// Solid islands carved back out of the lumen; see ObstacleDef. Optional.
+    std::vector<ObstacleDef> obstacles;
     std::vector<SpawnPoint> spawn_points;
     std::vector<ObjectivePoint> objectives;
     std::vector<Rect> placement_zones;
@@ -282,6 +420,36 @@ struct LevelLoadResult {
     u32 warnings = 0;
 };
 
+/// The SimDesc fields the geometry bake actually reads, lifted out so
+/// bake_geometry() can run without a SimWorld. Defaults are the "no wall cost,
+/// no smoothing" bake, which is what a caller that only wants the walkable
+/// shape (the level editor's overlay, --level-check) wants; App fills them in
+/// from config so instantiate() behaves exactly as it always has.
+struct GeometryBakeDesc {
+    f32 flow_smoothing_radius = 0.0f;
+    f32 flow_wall_cost = 0.0f;
+    f32 flow_wall_falloff = 0.0f;
+    f32 flow_wall_exponent = 1.0f;
+};
+
+/// Per-stage wall-clock cost of one bake_geometry() call, in milliseconds.
+///
+/// Not profiling garnish: the editor re-bakes on every gesture, so WHICH stage
+/// dominates decides what it can afford to do live and what has to go to a
+/// worker. Measured on the shipped levels, the flow solve is the overwhelming
+/// majority and is strongly topology-dependent rather than cell-count-dependent
+/// -- a switchback costs an order of magnitude more than a straight lane of the
+/// same grid size, because the cost-to-goal sweep has to propagate around every
+/// hairpin. Wall-clock, so never read from sim logic.
+struct GeometryBakeStats {
+    f64 rasterize_ms = 0.0;
+    f64 carve_ms = 0.0;
+    f64 sdf_ms = 0.0;
+    f64 wall_cost_ms = 0.0;
+    f64 flow_ms = 0.0;
+    f64 total_ms = 0.0;
+};
+
 class LevelLoader {
 public:
     /// Parses a level JSON file. Does not touch the sim.
@@ -299,6 +467,27 @@ public:
     /// TissueMask/FlowField (they are one walkable region overall); for
     /// per-lane attribution after the fact, see build_lane_ownership_map().
     LevelLoadResult instantiate(const LevelDef& def, sim::SimWorld& world) const;
+
+    /// The geometry half of instantiate(), against caller-owned buffers:
+    /// rasterize vessels -> carve obstacles -> bake SDF -> stamp wall-proximity
+    /// cost -> bake flow. instantiate() IS this call plus the SimWorld wiring
+    /// (ECS objectives, spawn points, squad paths, chaff goal/bounds).
+    ///
+    /// Split out so a caller that wants only the walkable shape does not have
+    /// to construct and destroy a whole SimWorld to get it -- SimWorld::init()
+    /// is destructive, and re-running it per edit is exactly what an editor
+    /// must not do. Keeping it as the ONE rasterizer is the point: a second
+    /// preview-only bake would be free to drift from what ships.
+    ///
+    /// Does not resize `mask` beyond what def.world_bounds/cell_size imply, and
+    /// does not consult any objective for reachability -- that check needs the
+    /// baked flow field and belongs to the caller (instantiate() and
+    /// validate_level() both run it).
+    /// `stats` is optional; pass one to find out where the time went.
+    LevelLoadResult bake_geometry(const LevelDef& def, const GeometryBakeDesc& desc,
+                                  sim::TissueMask& mask, sim::DistanceField& sdf,
+                                  sim::FlowField& flow,
+                                  GeometryBakeStats* stats = nullptr) const;
 
     /// Resolves the level's squad routes (game/level SquadPathDef ->
     /// sim::SquadPath): resamples every authored path, DERIVES a spread of

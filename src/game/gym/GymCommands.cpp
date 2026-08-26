@@ -2,6 +2,10 @@
 // See GymCommands.h for why this layer exists and what it deliberately is not.
 #include "game/gym/GymCommands.h"
 
+#include "game/editor/LevelDoc.h"
+#include "game/editor/LevelTemplates.h"
+#include "game/editor/LevelValidate.h"
+
 #include "core/Clock.h"
 #include "core/Math.h"
 #include "core/Rng.h"
@@ -120,6 +124,7 @@ const char* placement_result_name(PlacementResult r) {
         case PlacementResult::WouldBlockAllPaths: return "would block every path";
         case PlacementResult::CannotAfford: return "cannot afford";
         case PlacementResult::OutsidePlacementZone: return "outside placement zone";
+        case PlacementResult::TowerNotAllowed: return "tower type not allowed on this level";
     }
     return "unknown";
 }
@@ -342,6 +347,9 @@ const std::vector<GymCommandInfo>& command_table() {
         {"restart", "", "Reload the current level from scratch."},
         {"config", "<get|set|list|reload|dump> [path] [value]",
          "Read or retune assets/config/*.json live. 'list' takes a filter."},
+        {"edit",
+         "<new|list|vessel|point|obstacle|spawn|objective|zone|undo|redo|validate|save|revert>",
+         "Drive the level editor's document (docs/LEVEL_EDITOR.md). Only in the editor."},
     };
     return table;
 }
@@ -1226,6 +1234,242 @@ GymResult cmd_restart(GymContext& ctx) {
     return ctx.restart_level() ? okay("level restarted") : fail("restart failed");
 }
 
+// ---------------------------------------------------------------------------
+// `edit` -- the level editor's document, as text.
+// ---------------------------------------------------------------------------
+
+/// "x,y" in one token. The same spelling parse_at_clause() accepts, kept
+/// separate because the edit commands take bare coordinate pairs in positions
+/// where an "at" keyword would just be noise.
+bool parse_xy(const std::string& raw, Vec2& out, std::string& err) {
+    const usize comma = raw.find(',');
+    if (comma == std::string::npos) {
+        err = "expected x,y but got '" + raw + "'";
+        return false;
+    }
+    f32 x = 0.0f, y = 0.0f;
+    if (!parse_f32(raw.substr(0, comma), x) || !parse_f32(raw.substr(comma + 1), y)) {
+        err = "could not parse coordinate '" + raw + "'";
+        return false;
+    }
+    out = Vec2{x, y};
+    return true;
+}
+
+bool parse_index(const std::string& s, i32& out) {
+    i64 v = 0;
+    if (!parse_i64(s, v) || v < 0) return false;
+    out = static_cast<i32>(v);
+    return true;
+}
+
+/// Point argument: an explicit "x,y", the literal "cursor", or the cursor by
+/// default. Mirrors how every other command that takes a point behaves.
+bool edit_point_arg(GymContext& ctx, const std::vector<std::string>& tok, usize from, Vec2& out,
+                    std::string& err) {
+    if (from < tok.size() && lower(tok[from]) == "at") ++from;
+    if (from >= tok.size() || lower(tok[from]) == "cursor") {
+        if (!ctx.has_cursor) {
+            err = "no cursor in this context; give an explicit x,y";
+            return false;
+        }
+        out = ctx.cursor;
+        return true;
+    }
+    return parse_xy(tok[from], out, err);
+}
+
+GymResult cmd_edit(GymContext& ctx, const std::vector<std::string>& tok) {
+    if (ctx.doc == nullptr) {
+        return fail("no level document open; `edit` works in the level editor (--editor)");
+    }
+    LevelDoc& doc = *ctx.doc;
+    const auto touched = [&ctx]() {
+        if (ctx.doc_changed) ctx.doc_changed();
+    };
+
+    if (tok.size() < 2) return fail("usage: edit <new|list|vessel|point|obstacle|...>");
+    const std::string sub = lower(tok[1]);
+    std::string err;
+
+    if (sub == "list") {
+        const LevelDef& d = doc.def();
+        std::string out = fmt("level '%s' (%s)", d.name.c_str(), d.region.c_str());
+        out += fmt("\n  world  %.0f x %.0f @ cell %.2f", d.world_bounds.size().x,
+                   d.world_bounds.size().y, d.cell_size);
+        for (usize i = 0; i < d.vessels.size(); ++i) {
+            out += fmt("\n  vessel %zu  %s [%s] %zu pts", i, d.vessels[i].id.c_str(),
+                       vessel_lane(d.vessels[i]).c_str(), d.vessels[i].points.size());
+        }
+        for (usize i = 0; i < d.obstacles.size(); ++i) {
+            out += fmt("\n  obstacle %zu  %s (%s)", i, d.obstacles[i].id.c_str(),
+                       obstacle_shape_to_string(d.obstacles[i].shape));
+        }
+        for (usize i = 0; i < d.spawn_points.size(); ++i) {
+            out += fmt("\n  spawn %zu  %s at (%.1f, %.1f)", i, d.spawn_points[i].id.c_str(),
+                       d.spawn_points[i].position.x, d.spawn_points[i].position.y);
+        }
+        for (usize i = 0; i < d.objectives.size(); ++i) {
+            out += fmt("\n  objective %zu  %s at (%.1f, %.1f)", i, d.objectives[i].id.c_str(),
+                       d.objectives[i].position.x, d.objectives[i].position.y);
+        }
+        out += fmt("\n  %zu zones, %zu squad paths, %zu waves", d.placement_zones.size(),
+                   d.squad_paths.size(), d.waves.size());
+        return okay(out);
+    }
+
+    if (sub == "new") {
+        TemplateParams params;
+        LevelTemplate t = LevelTemplate::StraightLane;
+        if (tok.size() > 2) {
+            const std::string want = lower(tok[2]);
+            bool found = false;
+            for (LevelTemplate c : all_level_templates()) {
+                std::string n = level_template_to_string(c);
+                for (char& ch : n) ch = static_cast<char>(::tolower(ch));
+                // Match on the first word, so "fork" and "switchback" work.
+                if (n.rfind(want, 0) != 0) continue;
+                t = c;
+                found = true;
+                break;
+            }
+            if (!found) return fail("unknown template '" + tok[2] + "'; try `edit new fork`");
+        }
+        if (tok.size() > 3) params.name = tok[3];
+        doc.set_document(make_template(t, params));
+        touched();
+        return okay(fmt("new level from template '%s'", level_template_to_string(t)));
+    }
+
+    if (sub == "undo") {
+        if (!doc.undo()) return fail("nothing to undo");
+        touched();
+        return okay("undone");
+    }
+    if (sub == "redo") {
+        if (!doc.redo()) return fail("nothing to redo");
+        touched();
+        return okay("redone");
+    }
+
+    if (sub == "validate") {
+        const std::vector<Issue> issues = validate_level(doc.def());
+        if (issues.empty()) return okay("no issues");
+        std::string out;
+        u32 errors = 0;
+        for (const Issue& i : issues) {
+            if (i.severity == Issue::Severity::Error) ++errors;
+            out += fmt("%s%s: %s", out.empty() ? "" : "\n", severity_to_string(i.severity),
+                       i.message.c_str());
+        }
+        // Errors make this a FAILED command, so `--exec "edit validate"` is a
+        // usable gate in a script rather than something you have to grep.
+        return errors > 0 ? fail(out) : okay(out);
+    }
+
+    if (sub == "save") {
+        if (!ctx.doc_save) return fail("saving is not available in this context");
+        const std::string path = tok.size() > 2 ? tok[2] : std::string{};
+        const bool force = tok.size() > 3 && lower(tok[3]) == "force";
+        if (!ctx.doc_save(path, force, err)) return fail(err);
+        return okay("saved " + (path.empty() ? doc.source_path() : path));
+    }
+    if (sub == "revert") {
+        if (!ctx.doc_revert) return fail("revert is not available in this context");
+        if (!ctx.doc_revert(err)) return fail(err);
+        touched();
+        return okay("reverted");
+    }
+
+    if (sub == "vessel") {
+        if (tok.size() < 3 || lower(tok[2]) != "add") return fail("usage: edit vessel add <x,y> <x,y> [width]");
+        Vec2 a{}, b{};
+        if (tok.size() < 5) return fail("usage: edit vessel add <x,y> <x,y> [width]");
+        if (!parse_xy(tok[3], a, err)) return fail(err);
+        if (!parse_xy(tok[4], b, err)) return fail(err);
+        f32 w = 12.0f;
+        if (tok.size() > 5 && !parse_f32(tok[5], w)) return fail("width must be a number");
+        const i32 idx = doc.add_vessel(a, b, w);
+        touched();
+        return okay(fmt("added vessel %d ('%s')", idx,
+                        doc.def().vessels[static_cast<usize>(idx)].id.c_str()));
+    }
+
+    if (sub == "point") {
+        // edit point add <vessel> at <x,y>   |   edit point <vessel> <i> w <width>
+        if (tok.size() >= 4 && lower(tok[2]) == "add") {
+            i32 v = 0;
+            if (!parse_index(tok[3], v)) return fail("vessel index must be a number");
+            Vec2 at{};
+            if (!edit_point_arg(ctx, tok, 4, at, err)) return fail(err);
+            const i32 k = doc.insert_vessel_point(v, -1, at);
+            if (k < 0) return fail("no such vessel");
+            touched();
+            return okay(fmt("vessel %d now has %zu points", v,
+                            doc.def().vessels[static_cast<usize>(v)].points.size()));
+        }
+        if (tok.size() >= 6 && lower(tok[4]) == "w") {
+            i32 v = 0, k = 0;
+            f32 w = 0.0f;
+            if (!parse_index(tok[2], v) || !parse_index(tok[3], k)) return fail("indices must be numbers");
+            if (!parse_f32(tok[5], w)) return fail("width must be a number");
+            doc.set_vessel_point_width(v, k, w);
+            touched();
+            return okay(fmt("vessel %d point %d width %.2f", v, k, w));
+        }
+        return fail("usage: edit point add <vessel> at <x,y> | edit point <vessel> <i> w <width>");
+    }
+
+    if (sub == "obstacle") {
+        if (tok.size() < 3) return fail("usage: edit obstacle <disc|capsule|box|polygon|ridge> at <x,y> [size]");
+        ObstacleShape shape{};
+        if (!obstacle_shape_from_string(lower(tok[2]), shape)) {
+            return fail("unknown shape '" + tok[2] + "'");
+        }
+        Vec2 at{};
+        usize i = 3;
+        if (!edit_point_arg(ctx, tok, i, at, err)) return fail(err);
+        f32 size = 8.0f;
+        for (usize k = 3; k + 1 < tok.size(); ++k) {
+            if (lower(tok[k]) == "r" || lower(tok[k]) == "size") {
+                if (!parse_f32(tok[k + 1], size)) return fail("size must be a number");
+            }
+        }
+        const i32 idx = doc.add_obstacle(shape, at, size);
+        touched();
+        return okay(fmt("added %s obstacle %d at (%.1f, %.1f)", obstacle_shape_to_string(shape),
+                        idx, at.x, at.y));
+    }
+
+    if (sub == "spawn" || sub == "objective") {
+        usize i = 2;
+        if (i < tok.size() && lower(tok[i]) == "add") ++i;
+        Vec2 at{};
+        if (!edit_point_arg(ctx, tok, i, at, err)) return fail(err);
+        const i32 idx = sub == "spawn" ? doc.add_spawn_point(at) : doc.add_objective(at);
+        touched();
+        return okay(fmt("added %s %d at (%.1f, %.1f)", sub.c_str(), idx, at.x, at.y));
+    }
+
+    if (sub == "zone") {
+        if (tok.size() < 4) return fail("usage: edit zone <x,y> <x,y>");
+        Vec2 a{}, b{};
+        if (!parse_xy(tok[2], a, err)) return fail(err);
+        if (!parse_xy(tok[3], b, err)) return fail(err);
+        const i32 idx = doc.add_zone(Rect{a, b});
+        touched();
+        return okay(fmt("added zone %d", idx));
+    }
+
+    if (sub == "delete" || sub == "erase") {
+        if (!doc.erase_selection()) return fail("nothing selected, or the last of its kind");
+        touched();
+        return okay("deleted");
+    }
+
+    return fail("unknown edit subcommand '" + tok[1] + "'");
+}
+
 } // namespace
 
 // ---------------------------------------------------------------------------
@@ -1407,6 +1651,7 @@ GymResult gym_execute(GymContext& ctx, std::string_view line) {
     if (cmd == "level") return cmd_level(ctx, tok);
     if (cmd == "restart") return cmd_restart(ctx);
     if (cmd == "config") return cmd_config(ctx, tok);
+    if (cmd == "edit") return cmd_edit(ctx, tok);
 
     return fail("unknown command '" + tok[0] + "' — type 'help'");
 }

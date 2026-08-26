@@ -20,6 +20,10 @@
 //     apparent mass is conserved. Without this, a floodplain level would try to
 //     draw 10,000 overlapping sprites into a few hundred pixels.
 //
+//     This pass ships DISABLED -- see RendererDesc::lod_blob_enabled for the
+//     measurements. The occupancy field it reads is still sampled every frame,
+//     because the sprite shadow needs the same crowd signal.
+//
 // The renderer is strictly a *consumer* of sim state. It never mutates sim data
 // and never runs during a sim tick — it reads the post-tick state plus an
 // interpolation alpha.
@@ -70,6 +74,28 @@ struct RendererDesc {
     /// Gunner's "continuous stream" brief; this is the single biggest instance
     /// buffer in the renderer and is expected to run near full at high tiers.
     u32 max_particle_instances = 262144;
+    /// Whether the density-LOD blob pass runs at all. OFF by default.
+    ///
+    /// The pass is a perf LOD, and it was sized for a horde that could stack:
+    /// it begins at 24 agents in a broadphase cell, which a 4-unit cell can
+    /// only reach if the agents in it are inside each other. Since the contact
+    /// pass stopped letting them (sim/chaff/ChaffSystem.cpp), a packed cell
+    /// holds around eight, and the blob engaged only in wall jams.
+    ///
+    /// What it cost while it did engage was resolution. The density texture is
+    /// 320x180 for the WHOLE visible world -- a handful of texels per agent,
+    /// magnified roughly 5x to reach the screen and filtered on the way -- and
+    /// blob.frag draws it as a bare exponential falloff with no silhouette. It
+    /// cannot be sharp; there is nothing in the pass to be sharp with. Drawn
+    /// over the sprites at up to 0.92 alpha, it reads as fog over the crowd.
+    ///
+    /// The sprite path carries the whole horde without it: 10k instances
+    /// measure 0.505ms of submit_chaff, 1.51ms worst over 30 frames
+    /// (tests/test_render_gl.cpp). The trade the LOD was making -- detail for a
+    /// cost we are not paying -- is no longer a trade worth taking.
+    ///
+    /// Everything below stays live and tested; turn this on to get it back.
+    bool lod_blob_enabled = false;
     /// Cell occupancy at which crossfade to the blob representation begins.
     u32 lod_blob_threshold = 24;
     /// Occupancy at which the cell is drawn purely as blob density.

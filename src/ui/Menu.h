@@ -37,6 +37,7 @@ struct LevelEntry {
 enum class MenuAction : u8 {
     None = 0,        ///< Nothing clicked this frame.
     OpenLevelSelect,
+    OpenEditor,      ///< Open the in-game level editor (docs/LEVEL_EDITOR.md).
     StartLevel,      ///< `level_index` names the chosen entry.
     RestartLevel,    ///< Restart the current level.
     Resume,          ///< Close the pause menu and continue the current level.

@@ -129,6 +129,73 @@ TEST_CASE("Renderer draws a 10k-agent chaff field and reads back non-background 
     renderer.shutdown();
 }
 
+TEST_CASE("the blob pass draws nothing at all when it is disabled",
+         "[render][gl][lod]") {
+    // The shipped configuration. A scene dense enough to cross the threshold
+    // must still come out as pure instances: no blob draw call, no mass
+    // diverted, no agent dimmed. The crossfade conserves mass, so a
+    // half-applied disable would not LOSE agents -- it would quietly fade them,
+    // which is the failure that hides in a screenshot and shows up here.
+    HeadlessGl gl(640, 360);
+    if (!gl.ok) {
+        WARN("headless GL context unavailable in this environment; skipping");
+        return;
+    }
+
+    const Rect bounds{Vec2{0.0f, 0.0f}, Vec2{256.0f, 144.0f}};
+
+    ChaffBuffers chaff;
+    chaff.reserve(10000);
+    for (u32 i = 0; i < 10000; ++i) {
+        ChaffSpawnParams p;
+        p.family = static_cast<PathogenFamily>(i % kFamilyCount);
+        // A tenth of a unit apart: far past lod_blob_full for any cell size
+        // this game uses, so the crossfade would take over completely if it
+        // were running.
+        const f32 fx = static_cast<f32>(i % 100);
+        const f32 fy = static_cast<f32>(i / 100);
+        p.position = Vec2{120.0f + fx * 0.1f, 62.0f + fy * 0.1f};
+        p.density = 1.0f;
+        REQUIRE(chaff.spawn(p).valid());
+    }
+
+    SpatialHash hash;
+    SpatialHashDesc hd;
+    hd.bounds = bounds;
+    hd.cell_size = 3.0f;
+    hash.configure(hd);
+    JobSystem jobs(0u);
+    hash.rebuild(chaff.pos_x.data(), chaff.pos_y.data(), chaff.count(), &jobs);
+    REQUIRE(hash.max_cell_occupancy() > 48);   // the scene really is that dense
+
+    RendererDesc rd;
+    rd.framebuffer_width = gl.window.width();
+    rd.framebuffer_height = gl.window.height();
+    rd.max_chaff_instances = 16384;
+    REQUIRE(rd.lod_blob_enabled == false);   // the default is what is on trial
+
+    Renderer renderer;
+    REQUIRE(renderer.init(rd));
+
+    Camera camera;
+    camera.set_viewport(gl.window.width(), gl.window.height());
+    camera.set_bounds(bounds);
+    camera.set_center(bounds.center());
+    camera.set_view_height(bounds.size().y);
+    camera.clamp_to_bounds();
+
+    renderer.begin_frame(camera, 0.0f);
+    renderer.submit_chaff(chaff, hash);
+    renderer.end_frame();
+
+    const FrameStats& stats = renderer.stats();
+    CHECK(stats.chaff_agents_in_blobs == 0);
+    CHECK(stats.chaff_instances_drawn == 10000u);
+    CHECK(stats.draw_calls <= kFamilyCount);   // no blob draw among them
+
+    renderer.shutdown();
+}
+
 TEST_CASE("Renderer submit_chaff stays within the Wave-1 render_submit budget at 10k",
          "[render][gl][perf]") {
     HeadlessGl gl(640, 360);

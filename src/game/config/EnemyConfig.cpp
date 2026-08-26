@@ -57,6 +57,7 @@ constexpr Field kChaffFields[] = {
     IMMUNE_CONFIG_FIELD(FamilyChaffParams, wall_splash, FieldKind::F32, "Blocked speed redirected along the wall, 0..1"),
     IMMUNE_CONFIG_FIELD(FamilyChaffParams, contact_spacing, FieldKind::F32, "Min centre spacing as a multiple of radius"),
     IMMUNE_CONFIG_FIELD(FamilyChaffParams, contact_stiffness, FieldKind::F32, "Overlap corrected per tick, 0..1"),
+    IMMUNE_CONFIG_FIELD(FamilyChaffParams, crowd_relief, FieldKind::F32, "Over-packed spread, radii per tick"),
     IMMUNE_CONFIG_FIELD(FamilyChaffParams, drift_bias, FieldKind::F32, "How much ambient drift overrides flow"),
     IMMUNE_CONFIG_FIELD(FamilyChaffParams, replication_rate, FieldKind::F32, "Expected replications per agent per second"),
 };

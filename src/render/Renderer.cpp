@@ -1074,8 +1074,45 @@ void Renderer::submit_tissue(const sim::TissueMask& mask, const sim::DistanceFie
             // renormalising each pass so a convergence cannot cancel the field
             // to nothing. This also dissolves the 8-way staircase, which is
             // worth having on its own.
-            constexpr i32 kSmoothPasses = 12;
-            for (i32 pass = 0; pass < kSmoothPasses; ++pass) {
+            //
+            // Twelve adjacent 3-taps is a Gaussian of sigma ~2.4 texels, and
+            // that is the wrong order of magnitude for what is actually wrong
+            // with this field. The 8-connected gradient does not produce
+            // per-texel noise; it produces BROAD regions that all agree on one
+            // of eight compass directions, meeting along a sharp crease. A
+            // 2-texel blur turns that crease into a 2-texel ramp, which the LIC
+            // still renders as a visible fold running across the lane. The
+            // defect is tens of texels wide, so the filter has to be too.
+            //
+            // Reaching sigma ~10 with adjacent taps costs ~200 sweeps. A-trous
+            // gets there in twelve by doubling the tap spacing (the same trick
+            // the agreement estimate below uses, and for the same reason): the
+            // strides ascend so every strided pass reads an already-smoothed
+            // field, then descend again so the last passes fill in the detail
+            // the wide ones stepped over.
+            //
+            // The one hazard a strided tap has and an adjacent one does not is
+            // that it can step clean OVER a vessel wall and average a lane with
+            // its neighbour flowing the other way. `imp.flow_valid` alone does
+            // not catch that -- both endpoints are perfectly valid lane cells,
+            // it is the wall in between that matters -- so a strided tap also
+            // has to check that the cells it skipped are in-lane. Walls are ~3
+            // texels thick at this resolution, so this rejects every jump that
+            // leaves the vessel while costing only a handful of array reads.
+            const i32 kSmoothStrides[] = {1, 1, 2, 2, 4, 4, 8, 8, 4, 2, 1, 1};
+            const auto path_clear = [&](i32 x, i32 y, i32 dx, i32 dy, i32 stride) {
+                for (i32 step = 1; step < stride; ++step) {
+                    const i32 mx = x + dx * step;
+                    const i32 my = y + dy * step;
+                    if (mx < 0 || my < 0 || mx >= fw || my >= fh) return false;
+                    if (imp.flow_valid[static_cast<usize>(my) * static_cast<usize>(fw) +
+                                       static_cast<usize>(mx)] == 0) {
+                        return false;
+                    }
+                }
+                return true;
+            };
+            for (const i32 stride : kSmoothStrides) {
                 for (i32 axis = 0; axis < 2; ++axis) {
                     const i32 sx = (axis == 0) ? 1 : 0;
                     const i32 sy = (axis == 0) ? 0 : 1;
@@ -1086,13 +1123,16 @@ void Renderer::submit_tissue(const sim::TissueMask& mask, const sim::DistanceFie
                             f32 ax = 0.0f, ay = 0.0f, ac = 0.0f, ak = 0.0f, wsum = 0.0f;
                             if (imp.flow_valid[texel] != 0) {
                                 for (i32 k = -1; k <= 1; ++k) {
-                                    const i32 nx = x + k * sx;
-                                    const i32 ny = y + k * sy;
+                                    const i32 nx = x + k * sx * stride;
+                                    const i32 ny = y + k * sy * stride;
                                     if (nx < 0 || ny < 0 || nx >= fw || ny >= fh) continue;
                                     const usize nt = static_cast<usize>(ny) *
                                                      static_cast<usize>(fw) +
                                                      static_cast<usize>(nx);
                                     if (imp.flow_valid[nt] == 0) continue;
+                                    if (k != 0 && !path_clear(x, y, k * sx, k * sy, stride)) {
+                                        continue;
+                                    }
                                     const f32 kw = (k == 0) ? 2.0f : 1.0f;
                                     ax += imp.flow_scratch[nt * 4 + 0] * kw;
                                     ay += imp.flow_scratch[nt * 4 + 1] * kw;
@@ -1308,6 +1348,7 @@ void Renderer::submit_chaff(const sim::ChaffBuffers& chaff, const sim::SpatialHa
     occ.occupancy = hash.occupancy();
 
     ChaffBatchParams params;
+    params.lod_blob_enabled = desc_.lod_blob_enabled;
     params.lod_blob_threshold = desc_.lod_blob_threshold;
     params.lod_blob_full = desc_.lod_blob_full;
     params.per_family_capacity = per_family_cap;
@@ -1317,8 +1358,11 @@ void Renderer::submit_chaff(const sim::ChaffBuffers& chaff, const sim::SpatialHa
     imp.density_grid.set_extent(imp.visible_bounds);
     imp.density_grid.clear();
 
+    // Null density grid when the pass is off: the batcher then skips the splat
+    // rather than filling a texture nobody is going to sample.
     const ChaffBatchResult result =
-        build_chaff_batches(chaff, occ, params, region_base, &imp.density_grid);
+        build_chaff_batches(chaff, occ, params, region_base,
+                            desc_.lod_blob_enabled ? &imp.density_grid : nullptr);
 
     if (result.instances_dropped > 0) {
         IMMUNE_LOG_WARN("chaff render: dropped %u instances (a family exceeded "
@@ -1326,7 +1370,11 @@ void Renderer::submit_chaff(const sim::ChaffBuffers& chaff, const sim::SpatialHa
                         result.instances_dropped, per_family_cap);
     }
 
-    imp.density_tex.upload(imp.density_grid.data(), GL_RGBA, GL_FLOAT);
+    // 320x180 RGBA32F is ~900 KB across the bus every frame; not worth paying
+    // for a pass that is not going to draw.
+    if (desc_.lod_blob_enabled) {
+        imp.density_tex.upload(imp.density_grid.data(), GL_RGBA, GL_FLOAT);
+    }
 
     const ShaderProgram chaff_prog = imp.shaders.get("chaff");
     if (chaff_prog.valid() && result.instances_total > 0) {
@@ -1348,7 +1396,7 @@ void Renderer::submit_chaff(const sim::ChaffBuffers& chaff, const sim::SpatialHa
     // Density-LOD blob pass: one fullscreen-ish draw, skipped entirely when
     // nothing crossed into the crossfade band this frame.
     const ShaderProgram blob_prog = imp.shaders.get("blob");
-    if (blob_prog.valid() && result.blob_mass > 0.0f) {
+    if (desc_.lod_blob_enabled && blob_prog.valid() && result.blob_mass > 0.0f) {
         glUseProgram(blob_prog.gl_id);
         glUniformMatrix4fv(0, 1, GL_FALSE, glm::value_ptr(imp.view_projection));
         const Rect vis = imp.visible_bounds;

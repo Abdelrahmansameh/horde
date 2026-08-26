@@ -47,6 +47,11 @@ const uint FLAG_HIDDEN  = 1u << 3;
 // Family id packed into bits 8..15 by ChaffBatcher (see build_chaff_instances).
 const uint CHAFF_FAMILY_SHIFT = 8u;
 const uint CHAFF_FAMILY_MASK  = 0xFFu;
+// Local crowding, 0..255 over [0, lod_blob_threshold], packed into bits 16..23
+// by the same batcher. See its comment for what it is for; see the shadow block
+// below for what this stage does with it.
+const uint CHAFF_CROWD_SHIFT = 16u;
+const uint CHAFF_CROWD_MASK  = 0xFFu;
 // Mirrors PathogenFamily's declaration order in core/Types.h.
 const uint FAM_VIRUS    = 0u;
 const uint FAM_BACTERIA = 1u;
@@ -156,6 +161,21 @@ void main() {
     float body_alpha = 1.0 - smoothstep(-0.06 * rim_scale, 0.0, body_d);
     body_alpha = max(body_alpha, flagellum);
 
+    // How much of this sprite is being drawn at all. The LOD crossfade hands it
+    // down in the tint alpha: an agent inside the blob band is drawn at partial
+    // sprite alpha and deposits the complementary fraction of its mass into the
+    // density field, and the two are supposed to sum to one agent.
+    //
+    // EVERYTHING the sprite puts on screen has to obey it, shadow included.
+    // While the shadow ignored it, a crowd crossing into the band faded its
+    // bodies out from under shadows that stayed at full strength -- a cell's
+    // worth of agents reduced to a pile of near-black discs, with a hard edge
+    // where the neighbouring broadphase cell had a different occupancy. Those
+    // were the dark squares: not a blob artifact, the sprite pass fading out
+    // the wrong half of itself.
+    float sprite_fade = v_tint.a;
+    if ((v_flags & FLAG_HIDDEN) != 0u) sprite_fade *= 0.35;
+
     // Drop shadow. Weighted much harder than it used to be, because the
     // substrate is no longer a dark low-saturation floor that every agent
     // automatically out-values. Against a vivid red lumen, a family's hue can
@@ -165,8 +185,17 @@ void main() {
     // bright rim below gives EVERY family its own local contrast regardless of
     // what it is sitting on, which is exactly how the medical-illustration
     // reference reads magenta virions against red plasma.
+    // Retired toward the interior of a crowd, though. The shadow earns its
+    // keep against the LANE -- it is what separates a virion from red plasma of
+    // the same luminance -- and an agent deep in a horde has no lane under it,
+    // only other agents. There its shadow is just 0.46 of black over a
+    // neighbour's body, and forty of those composite to a hole. Keeping it at
+    // the rim and dropping it inside is also what a medical illustrator does:
+    // the mass gets ONE contact shadow, around the outside.
+    float crowd = float((v_flags >> CHAFF_CROWD_SHIFT) & CHAFF_CROWD_MASK) * (1.0 / 255.0);
     float shadow_d = length(v_local - v_shadow_offset) - 0.52;
-    float shadow_alpha = (1.0 - smoothstep(-0.18, 0.02, shadow_d)) * 0.46;
+    float shadow_alpha = (1.0 - smoothstep(-0.18, 0.02, shadow_d)) * 0.46 *
+                         mix(1.0, 0.18, crowd) * sprite_fade;
 
     if (body_alpha <= 0.0 && shadow_alpha <= 0.0) discard;
 
@@ -199,8 +228,7 @@ void main() {
     if ((v_flags & FLAG_MARKED) != 0u) rgb = mix(rgb, vec3(1.0), 0.25);
     if ((v_flags & FLAG_SLOWED) != 0u) rgb = mix(rgb, vec3(0.55, 0.75, 1.0), 0.35);
 
-    float body_a = body_alpha * v_tint.a;
-    if ((v_flags & FLAG_HIDDEN) != 0u) body_a *= 0.35;
+    float body_a = body_alpha * sprite_fade;
 
     // Standard "body over shadow" compositing so the whole sprite + shadow
     // resolves to one straight-alpha output for the destination blend.
