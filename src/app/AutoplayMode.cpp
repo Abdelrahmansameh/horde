@@ -85,6 +85,7 @@ bool setup(Run& run, const Options& opt, const HeadlessConfig& tuning, std::stri
     desc.max_swarmers = tuning.cfg.sim.capacities.max_swarmers;
     desc.max_fluid_particles = tuning.cfg.sim.capacities.max_fluid_particles;
     desc.max_combat_events = tuning.cfg.sim.capacities.max_combat_events;
+    desc.max_chaff_death_events = tuning.cfg.sim.capacities.max_chaff_death_events;
     desc.fluid_tuning = tuning.cfg.sim.fluid;
     desc.spatial_cell_size = tuning.cfg.sim.globals.spatial_cell_size;
     desc.flow_rebake_budget_ms = tuning.cfg.sim.globals.flow_rebake_budget_ms;

@@ -346,25 +346,34 @@ f32 FlowField::eikonal(const TissueMask& mask, i32 x, i32 y, bool exclude_dirty)
     return 0.5f * (a + b + std::sqrt(math::max(2.0f * f * f - diff * diff, 0.0f)));
 }
 
-/// Stamps the per-cell goal flag from `goal_cells` plus `goal_radius`. The
-/// seeded region is the SQUARE of half-extent `goal_radius` around each goal
-/// cell -- see FlowFieldBakeDesc::goal_radius for why it is not a disc.
+/// Stamps the per-cell goal flag from `desc_.goals`: each goal's cell, plus
+/// every walkable cell inside that goal's oriented rectangle (see FlowGoal).
 void FlowField::mark_goals(const TissueMask& mask) {
     const usize n = static_cast<usize>(width_) * static_cast<usize>(height_);
     goal_mark_.assign(n, 0u);
-    const f32 r = math::max(desc_.goal_radius, 0.0f);
-    const i32 span = static_cast<i32>(std::floor(r / math::max(cell_size_, 1e-6f)));
-    for (const IVec2& g : desc_.goal_cells) {
-        for (i32 dy = -span; dy <= span; ++dy) {
-            for (i32 dx = -span; dx <= span; ++dx) {
-                const i32 x = g.x + dx;
-                const i32 y = g.y + dy;
+    const f32 inv_cell = 1.0f / math::max(cell_size_, 1e-6f);
+    for (const FlowGoal& g : desc_.goals) {
+        const f32 hx = math::max(g.half_extents.x, 0.0f);
+        const f32 hy = math::max(g.half_extents.y, 0.0f);
+        const f32 c = std::cos(-g.rotation);
+        const f32 s = std::sin(-g.rotation);
+        // Scan the rotated rectangle's AABB, then reject per cell in the goal's
+        // own frame. Both spans use both extents because a turned rectangle is
+        // wider than either of them on each world axis.
+        const f32 ext_x = std::fabs(hx * c) + std::fabs(hy * s);
+        const f32 ext_y = std::fabs(hx * s) + std::fabs(hy * c);
+        const i32 span_x = static_cast<i32>(std::floor(ext_x * inv_cell));
+        const i32 span_y = static_cast<i32>(std::floor(ext_y * inv_cell));
+        for (i32 dy = -span_y; dy <= span_y; ++dy) {
+            for (i32 dx = -span_x; dx <= span_x; ++dx) {
+                const i32 x = g.cell.x + dx;
+                const i32 y = g.cell.y + dy;
                 if (!mask.walkable(x, y)) continue;
-                // The centre cell is a goal even when goal_radius is 0.
+                // The centre cell is a goal even with no extents at all.
                 if (dx != 0 || dy != 0) {
-                    const Vec2 d = mask.cell_to_world(x, y) - mask.cell_to_world(g.x, g.y);
-                    // Chebyshev: inside the square footprint, not the disc.
-                    if (math::max(std::fabs(d.x), std::fabs(d.y)) > r) continue;
+                    const Vec2 d = mask.cell_to_world(x, y) - mask.cell_to_world(g.cell.x, g.cell.y);
+                    const Vec2 local{d.x * c - d.y * s, d.x * s + d.y * c};
+                    if (std::fabs(local.x) > hx || std::fabs(local.y) > hy) continue;
                 }
                 goal_mark_[mask.index(x, y)] = 1u;
             }
@@ -620,7 +629,7 @@ void FlowField::bake(const TissueMask& mask, const FlowFieldBakeDesc& desc) {
     dir_touch_min_ = IVec2{0, 0};
     dir_touch_max_ = IVec2{width_ - 1, height_ - 1};
 
-    // Every cell inside goal_radius is a sink, not just the authored centre.
+    // Every cell inside a goal's footprint is a sink, not just its centre.
     mark_goals(mask);
     for (usize i = 0; i < n; ++i) {
         if (goal_mark_[i] == 0u) continue;

@@ -1723,6 +1723,13 @@ void TowerSystem::register_systems(sim::SimWorld& world) {
     ensure_default_stats(*this);
     sim::EcsWorld& ecs = world.ecs();
 
+    // Binding to a world means binding to THAT world's entities. App keeps one
+    // TowerSystem across every level, so without this the placed-tower list
+    // accumulates ids from levels that no longer exist -- ids the new world
+    // hands straight back out to its own entities, which is enough to make
+    // placement report Overlapping on empty tissue.
+    towers_.clear();
+
     ecs.add_system(sim::SystemPhase::PreUpdate, "tower_cooldowns", 20, &system_tower_cooldowns);
 
     // Sort keys are the canonical roster order (core/Types.h). Fixed order is a

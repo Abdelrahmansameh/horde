@@ -226,6 +226,34 @@ TEST_CASE("the editor draws every starter template", "[editor][ui][gl]") {
     }
 }
 
+TEST_CASE("a rotated objective draws as a turned rectangle with its grip",
+          "[editor][ui][gl][objective]") {
+    // The objective's footprint is an oriented rectangle, and the canvas is the
+    // only place a human ever sees that shape. Capture one that is neither
+    // square nor axis-aligned, selected, so the rotation grip is drawn too.
+    Harness h;
+    if (!h.ok) {
+        WARN("no GL context available; skipping");
+        return;
+    }
+    h.editor.create(game::LevelTemplate::StraightLane, game::TemplateParams{});
+    h.frame_camera();
+
+    game::LevelDef& d = h.editor.doc().mutable_def();
+    REQUIRE(!d.objectives.empty());
+    // Mid-lane rather than at the template's far end, so the whole footprint
+    // and its grip are inside the capture.
+    d.objectives[0].position = d.world_bounds.center();
+    d.objectives[0].half_extents = Vec2{26.0f, 9.0f};
+    d.objectives[0].rotation = 0.6f;   // radians; deliberately not a right angle
+    h.editor.doc().select(game::ElementRef{game::ElementKind::Objective, 0, -1});
+    h.editor.invalidate();
+
+    for (i32 f = 0; f < 4; ++f) h.draw();
+    CHECK(h.editor.error_count() == 0);
+    h.capture("editor_objective_rect.png");
+}
+
 TEST_CASE("the editor survives a full edit session", "[editor][ui][gl]") {
     // Drives the operations a real session performs, interleaved with frames,
     // so a crash from a stale selection index after a delete shows up here.

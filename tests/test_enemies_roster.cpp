@@ -150,7 +150,7 @@ TEST_CASE("apply_to_tuning's replication_rate stays bounded at chaff10k bench sc
     // this from its objective (game/level/Level.cpp); this synthetic scenario
     // has none, so disable it explicitly (radius <= 0 turns goal consumption
     // off per ChaffSystem::update).
-    world.chaff_system().set_goal(Vec2{0.0f, 0.0f}, 0.0f);
+    world.chaff_system().set_goal(Vec2{0.0f, 0.0f}, Vec2{0.0f, 0.0f});
 
     Rng& rng = world.rng();
     const Rect b = desc.world_bounds;

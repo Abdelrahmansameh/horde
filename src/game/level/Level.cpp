@@ -236,7 +236,23 @@ ObjectivePoint parse_objective(const json& j, usize index) {
     o.id = j.at("id").get<std::string>();
     if (!j.contains("pos")) throw std::runtime_error(ctx + " ('" + o.id + "'): missing 'pos'");
     o.position = parse_vec2(j.at("pos"), "objectives[].pos");
-    o.radius = j.value("radius", 5.0f);
+    // Two spellings of the same footprint. "half_extents" is what the editor
+    // writes and what a rectangle actually needs; "radius" is what every level
+    // authored before objectives had a shape carries, and it means the square
+    // that value used to describe. Reading both is one line and keeps those
+    // files loading unedited.
+    if (j.contains("half_extents")) {
+        o.half_extents = parse_vec2(j.at("half_extents"), "objectives[].half_extents");
+    } else {
+        const f32 r = j.value("radius", 5.0f);
+        o.half_extents = Vec2{r, r};
+    }
+    if (o.half_extents.x <= 0.0f || o.half_extents.y <= 0.0f) {
+        throw std::runtime_error(ctx + " ('" + o.id + "'): needs positive extents");
+    }
+    // Degrees in the file, radians in the struct -- same contract as an
+    // obstacle box's 'rotation'.
+    o.rotation = j.value("rotation", 0.0f) * (math::kPi / 180.0f);
     o.integrity = j.value("integrity", 100.0f);
     return o;
 }
@@ -800,16 +816,14 @@ LevelLoadResult LevelLoader::bake_geometry(const LevelDef& def, const GeometryBa
 
     sim::FlowFieldBakeDesc flow_desc;
     flow_desc.smoothing_radius = desc.flow_smoothing_radius;
-    flow_desc.goal_cells.reserve(def.objectives.size());
+    flow_desc.goals.reserve(def.objectives.size());
     for (const ObjectivePoint& o : def.objectives) {
-        flow_desc.goal_cells.push_back(mask.world_to_cell(o.position));
-        // The whole objective square is a sink, because ChaffSystem despawns
+        // The whole objective rectangle is a sink, because ChaffSystem despawns
         // an agent the moment it enters the footprint -- the rim IS the goal. A
         // single-cell sink instead aims every agent at the exact centre from
         // across the level, which is what made a wide vessel read as a funnel.
-        // Multi-objective levels take the largest radius: the field is one
-        // solve, and undershooting would reinstate the funnel on that objective.
-        flow_desc.goal_radius = math::max(flow_desc.goal_radius, o.radius);
+        flow_desc.goals.push_back(
+            sim::FlowGoal{mask.world_to_cell(o.position), o.half_extents, o.rotation});
     }
     flow.bake(mask, flow_desc);
     st.flow_ms = stage.elapsed_ms();
@@ -861,13 +875,14 @@ LevelLoadResult LevelLoader::instantiate(const LevelDef& def, sim::SimWorld& wor
     for (const ObjectivePoint& o : def.objectives) {
         const entt::entity e = world.ecs().registry().create();
         world.ecs().registry().emplace<sim::comp::Objective>(
-            e, sim::comp::Objective{o.integrity, o.integrity, o.radius});
+            e, sim::comp::Objective{o.integrity, o.integrity, o.half_extents, o.rotation});
         world.ecs().registry().emplace<sim::comp::Transform>(
             e, sim::comp::Transform{o.position, 0.0f, 1.0f});
     }
 
     if (!def.objectives.empty()) {
-        world.chaff_system().set_goal(def.objectives[0].position, def.objectives[0].radius);
+        const ObjectivePoint& primary = def.objectives[0];
+        world.chaff_system().set_goal(primary.position, primary.half_extents, primary.rotation);
     }
     world.chaff_system().set_world_bounds(def.world_bounds);
 
@@ -1220,7 +1235,8 @@ LevelDef LevelLoader::default_test_level() {
     };
     d.vessels.push_back(v);
     d.spawn_points.push_back(SpawnPoint{"p0", Vec2{8.0f, 72.0f}, 4.0f, "main"});
-    d.objectives.push_back(ObjectivePoint{"organ", Vec2{248.0f, 72.0f}, 5.0f, 100.0f});
+    d.objectives.push_back(
+        ObjectivePoint{"organ", Vec2{248.0f, 72.0f}, Vec2{5.0f, 5.0f}, 0.0f, 100.0f});
     d.placement_zones.push_back(Rect{Vec2{16.0f, 40.0f}, Vec2{240.0f, 110.0f}});
     d.placement_zone_tags.push_back(PlacementZoneTag{});
     d.waves = default_test_waves();

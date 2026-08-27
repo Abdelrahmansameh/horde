@@ -50,6 +50,8 @@
 // then the big ring. Nothing in the update loop knows about it.
 #include "vfx/Particles.h"
 
+#include "vfx/DeathVfx.h"
+
 #include "core/Clock.h"
 #include "core/JobSystem.h"
 #include "core/Math.h"
@@ -1388,6 +1390,109 @@ void ParticleSystem::emit_for_event(const sim::CombatEvent& event) {
             m.lifetime = pcg_range(rs, 0.18f, 0.34f);
             m.drag = 5.0f;
             m.spin = pcg_signed(rs) * 1.2f;
+            push(m);
+        }
+        break;
+    }
+
+    // -----------------------------------------------------------------------
+    // ChaffDeath — one rank-and-file pathogen died.
+    //
+    // THE ONE CASE IN THIS FILE WHOSE LOOK IS NOT THE KILLER'S. Every other
+    // event above is a tower's signature and spends `pal` on it. This one
+    // ignores `pal` entirely and reads the per-family table in vfx/DeathVfx.h,
+    // which assets/config/enemies.json authors, so a player can tell what just
+    // popped without knowing what shot it — and so the numbers below can be
+    // retuned from a file rather than from this switch.
+    //
+    // It also has to survive being raised hundreds of times on a single tick: a
+    // wave breaking is exactly when this fires most. Hence single-digit shipped
+    // counts, alpha-blended debris (an additive version washes the lane out
+    // when a whole wave dies at once), and a hard per-tick cap on the sim side
+    // (SimDesc::max_chaff_death_events) rather than a cap invented here.
+    // -----------------------------------------------------------------------
+    case sim::CombatEventType::ChaffDeath: {
+        const FamilyDeathVfx& look = family_death_vfx(event.target_family);
+        if (!look.enabled) break;
+
+        // Sizes in the table are multiples of the agent's own body radius, so
+        // this one number carries the whole burst's scale.
+        const f32 r = math::max(event.radius, 0.05f) * math::max(look.scale, 0.0f);
+        // `magnitude` is the agent's SPEED for this event type, deliberately
+        // read raw rather than through the clamped `mag` above: a death at a
+        // sprint should spray forward, and 4.0 is walking pace here.
+        const Vec2 carried = dir * (event.magnitude * look.inherit_velocity);
+
+        if (look.core_life > 0.0f && look.core_size > 0.0f) {
+            ParticleSpawnParams s;
+            s.kind = ParticleKind::Spark;
+            s.blend = BlendMode::Additive;
+            s.position = event.origin;
+            s.velocity = carried;
+            s.color = mix4(look.color, Vec4{1.0f, 1.0f, 1.0f, look.color.a},
+                           math::saturate(look.core_white));
+            s.size = r * look.core_size;
+            s.lifetime = look.core_life;
+            s.drag = 9.0f;
+            push(s);
+        }
+
+        if (look.ring_life > 0.0f && look.ring_size > 0.0f) {
+            ParticleSpawnParams ring;
+            ring.kind = ParticleKind::Ring;
+            ring.blend = BlendMode::Additive;
+            ring.position = event.origin;
+            ring.color = Vec4{look.color.r, look.color.g, look.color.b, look.ring_alpha};
+            ring.size = r * look.ring_size;   // Ring stores the FINAL radius
+            ring.lifetime = look.ring_life;
+            push(ring);
+        }
+
+        // The body coming apart. `style` picks only the SHAPE — a Shard for a
+        // capsid that cracks, a fat Tracer glob for a wall that bursts — while
+        // `bit_scatter` picks how ordered the spray is, from perfectly even
+        // radial spokes (a shell failing all at once) to a uniform splatter.
+        // Keeping those two separate is what lets a family be dialled between
+        // "popped" and "spilled" without changing its style.
+        const bool angular = look.style == DeathStyle::Burst;
+        const f32 scatter = math::saturate(look.bit_scatter);
+        for (u32 k = 0; k < look.bit_count; ++k) {
+            const f32 spoke =
+                math::kTwoPi * static_cast<f32>(k) / static_cast<f32>(look.bit_count);
+            const f32 a = spoke + pcg_signed(rs) * math::kPi * scatter;
+            const Vec2 radial{std::cos(a), std::sin(a)};
+
+            ParticleSpawnParams b;
+            b.kind = angular ? ParticleKind::Shard : ParticleKind::Tracer;
+            b.blend = BlendMode::AlphaBlend;
+            // Started off the centre rather than at it, so the burst reads as a
+            // surface failing rather than as everything erupting from a point.
+            b.position = event.origin + radial * (r * 0.4f);
+            b.velocity = carried + radial * pcg_range(rs, look.bit_speed_min, look.bit_speed_max);
+            b.color = look.color;
+            b.size = r * pcg_range(rs, look.bit_size_min, look.bit_size_max);
+            b.lifetime = pcg_range(rs, look.bit_life_min, look.bit_life_max);
+            b.drag = look.bit_drag;
+            b.buoyancy = look.bit_buoyancy;
+            b.rotation = a;
+            b.spin = pcg_signed(rs) * look.bit_spin;
+            push(b);
+        }
+
+        // What is left of the agent, hanging. Always alpha-blended (see above).
+        for (u32 k = 0; k < look.bloom_count; ++k) {
+            const f32 a = pcg_range(rs, 0.0f, math::kTwoPi);
+            ParticleSpawnParams m;
+            m.kind = ParticleKind::Mist;
+            m.blend = BlendMode::AlphaBlend;
+            m.position = event.origin;
+            m.velocity = carried * 0.5f + Vec2{std::cos(a), std::sin(a)} * look.bloom_speed;
+            m.color = Vec4{look.color.r, look.color.g, look.color.b, look.bloom_alpha};
+            m.size = r * look.bloom_size;
+            m.lifetime = look.bloom_life;
+            m.drag = 3.5f;
+            m.buoyancy = look.bloom_rise;
+            m.spin = pcg_signed(rs) * 1.5f;
             push(m);
         }
         break;

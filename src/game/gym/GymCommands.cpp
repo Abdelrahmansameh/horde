@@ -156,6 +156,7 @@ const CombatEventName kCombatEventNames[] = {
     {"shatter", sim::CombatEventType::Shatter},
     {"slash", sim::CombatEventType::BladeSlash},
     {"splash", sim::CombatEventType::FluidSplash},
+    {"death", sim::CombatEventType::ChaffDeath},
 };
 
 // ---------------------------------------------------------------------------

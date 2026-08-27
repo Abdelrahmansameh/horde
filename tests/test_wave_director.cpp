@@ -166,6 +166,47 @@ TEST_CASE("request_early_start() skips the remaining prep countdown", "[wave][li
     REQUIRE(waves.status().phase == WavePhase::Spawning);
 }
 
+TEST_CASE("an unpinned wave entry cycles squads through every authored spawn point",
+          "[wave][spawn][squads]") {
+    SimWorld world = make_world_with_spawn_point();
+    world.set_spawn_points({
+        SpawnPointRuntime{"left", Vec2{20.0f, 50.0f}, 0.0f, "main"},
+        SpawnPointRuntime{"right", Vec2{100.0f, 50.0f}, 0.0f, "main"},
+    });
+    SquadPath path;
+    path.id = "main_path";
+    path.lane_id = "main";
+    path.points = {Vec2{0.0f, 50.0f}, Vec2{160.0f, 50.0f}};
+    path.rebuild_arc();
+    world.squads().set_paths({path});
+    SquadTuning tuning = world.squads().tuning();
+    tuning.spawn_spacing = 0.0f;
+    world.squads().set_tuning(tuning);
+
+    WaveDef w;
+    w.prep_time = 0.0f;
+    SpawnEntry e;
+    e.count = 4;
+    e.duration = 0.1f;
+    e.squad_size = 1;
+    // Empty is intentional: this is the authored "cycle all" mode.
+    w.spawns.push_back(e);
+
+    WaveDirector waves;
+    waves.set_waves({w});
+    waves.start(world);
+    Rng rng;
+    rng.reseed(3);
+    waves.tick(world, rng, 0.01f); // Prep -> Spawning.
+    waves.tick(world, rng, 0.1f);  // Release all four one-agent squads.
+
+    REQUIRE(world.chaff().count() == 4);
+    REQUIRE(world.chaff().pos_x[0] == 20.0f);
+    REQUIRE(world.chaff().pos_x[1] == 100.0f);
+    REQUIRE(world.chaff().pos_x[2] == 20.0f);
+    REQUIRE(world.chaff().pos_x[3] == 100.0f);
+}
+
 TEST_CASE("take_pending_atp_reward() accrues WaveDef::atp_reward when a wave finishes clearing, "
           "and drains to zero",
           "[wave][economy]") {

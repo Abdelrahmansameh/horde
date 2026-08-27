@@ -42,7 +42,8 @@ LevelDef fixture() {
     d.vessels.push_back(v);
 
     d.spawn_points.push_back(SpawnPoint{"p0", Vec2{12.0f, 50.0f}, 5.0f, ""});
-    d.objectives.push_back(ObjectivePoint{"organ", Vec2{188.0f, 50.0f}, 5.0f, 100.0f});
+    d.objectives.push_back(
+        ObjectivePoint{"organ", Vec2{188.0f, 50.0f}, Vec2{5.0f, 5.0f}, 0.0f, 100.0f});
 
     WaveDef w;
     w.name = "w1";
@@ -250,7 +251,7 @@ TEST_CASE("renaming a lane rewrites every reference", "[level][edit]") {
 }
 
 TEST_CASE("deleting a spawn point clears the waves that named it", "[level][edit]") {
-    // Empty spawn_point_id is the documented "any spawn point", so clearing is
+    // Empty spawn_point_id is the documented "cycle all spawn points", so clearing is
     // the one rewrite that keeps the level loadable.
     LevelDoc doc = make_doc();
     doc.add_spawn_point(Vec2{30.0f, 50.0f});

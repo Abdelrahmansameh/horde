@@ -363,9 +363,12 @@ inline ChaffBatchResult build_chaff_batches(const sim::ChaffBuffers& chaff,
 
         inst.x = p.x;
         inst.y = p.y;
-        // Density shrinks the silhouette as an agent dissolves in a damage
-        // field — DESIGN.md §7's chaff VFX tier, with no per-unit animation.
-        inst.scale = vis.silhouette * (0.62f + 0.38f * math::saturate(d));
+        // Constant silhouette: damage does NOT shrink the sprite. A wounded
+        // agent used to render smaller (the density term), which read as
+        // "further away" rather than "hurt" and made a damaged horde look
+        // thinner than it actually was. Damage feedback belongs to the tint
+        // and the dissolve VFX, not to the size.
+        inst.scale = vis.silhouette;
         inst.rotation = std::atan2(vy[i], vx[i]);
         Vec4 tint = fam_color[f];
         tint.a = split.instance_alpha;

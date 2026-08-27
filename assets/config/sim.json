@@ -1,6 +1,7 @@
 {
   "capacities": {
     "max_chaff": 16384,
+    "max_chaff_death_events": 512,
     "max_combat_events": 8192,
     "max_damage_fields": 512,
     "max_fluid_particles": 8192,

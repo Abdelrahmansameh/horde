@@ -25,6 +25,7 @@
 #include "game/towers/TowerSystem.h"
 #include "sim/fluid/Fluid.h"
 #include "sim/squad/Squads.h"
+#include "vfx/DeathVfx.h"
 
 #include <string>
 #include <vector>
@@ -206,6 +207,12 @@ struct FamilyConfig {
     FamilyVisualParams visual{};
     FamilyBehaviorParams behavior{};
     FamilyChaffParams chaff{};
+    /// The burst this family throws when it dies. Reused verbatim from vfx/
+    /// rather than mirrored here, for the same reason SimConfig reuses
+    /// sim::FluidTuning: a mirror is a second place for the numbers to live,
+    /// and the two would eventually disagree about what the game actually
+    /// draws. See vfx/DeathVfx.h for what each knob does.
+    vfx::FamilyDeathVfx death_vfx{};
 };
 
 /// Shared melee shape every elite starts from.
@@ -259,6 +266,9 @@ struct SimCapacities {
     u32 max_swarmers = 24576;
     u32 max_fluid_particles = 8192;
     u32 max_combat_events = 8192;
+    /// Chaff death bursts raised per tick, out of the budget above. See
+    /// sim::SimDesc::max_chaff_death_events for why deaths get their own cap.
+    u32 max_chaff_death_events = 512;
 };
 
 struct SimGlobals {

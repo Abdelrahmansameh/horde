@@ -477,11 +477,18 @@ void EditorPanels::draw_inspector(app::EditorMode& editor) {
         }
         if (ImGui::DragFloat2("pos", &o.position.x, 0.25f)) changed = true;
         gesture_from_item(doc, "move objective");
-        if (ImGui::DragFloat("half-size", &o.radius, 0.1f, 0.1f, 200.0f)) changed = true;
-        if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("Half-extent of the square footprint (JSON key: radius)");
+        if (ImGui::DragFloat2("half extents", &o.half_extents.x, 0.1f, 0.1f, 500.0f)) {
+            changed = true;
         }
         gesture_from_item(doc, "resize objective");
+        // DEGREES here and in the file, radians in the struct -- same contract
+        // as an obstacle box, for the same reason.
+        f32 obj_deg = o.rotation * (180.0f / math::kPi);
+        if (ImGui::DragFloat("rotation", &obj_deg, 1.0f, -360.0f, 360.0f, "%.1f deg")) {
+            o.rotation = obj_deg * (math::kPi / 180.0f);
+            changed = true;
+        }
+        gesture_from_item(doc, "rotate objective");
         if (ImGui::DragFloat("integrity", &o.integrity, 1.0f, 1.0f, 10000.0f)) changed = true;
         gesture_from_item(doc, "set integrity");
         break;
@@ -966,9 +973,9 @@ EditorRequest EditorPanels::draw_waves(app::EditorMode& editor, const game::Enem
                 ImGui::TableNextColumn();
                 ImGui::SetNextItemWidth(-1);
                 if (ImGui::BeginCombo("##sp",
-                                      e.spawn_point_id.empty() ? "(any)"
+                                      e.spawn_point_id.empty() ? "(cycle all)"
                                                                : e.spawn_point_id.c_str())) {
-                    if (ImGui::Selectable("(any)", e.spawn_point_id.empty())) {
+                    if (ImGui::Selectable("(cycle all)", e.spawn_point_id.empty())) {
                         doc.begin_gesture("set spawn point");
                         e.spawn_point_id.clear();
                         doc.end_gesture();
@@ -1234,7 +1241,28 @@ EditorRequest EditorPanels::draw_dialogs(app::EditorMode& editor,
             names.push_back(game::level_template_to_string(t));
         }
         ImGui::Combo("shape", &new_template_, names.data(), static_cast<int>(names.size()));
-        ImGui::DragFloat2("world size", &new_params_.world_size.x, 4.0f, 64.0f, 4000.0f, "%.0f");
+        const Vec2 prev_size = new_params_.world_size;
+        if (ImGui::DragFloat2("world size", &new_params_.world_size.x, 4.0f, 64.0f, 4000.0f,
+                              "%.0f") &&
+            new_lock_aspect_ && new_aspect_ > 0.0f) {
+            // Whichever component the user dragged drives the other one.
+            if (new_params_.world_size.x != prev_size.x) {
+                new_params_.world_size.y =
+                    math::clamp(new_params_.world_size.x / new_aspect_, 64.0f, 4000.0f);
+            } else if (new_params_.world_size.y != prev_size.y) {
+                new_params_.world_size.x =
+                    math::clamp(new_params_.world_size.y * new_aspect_, 64.0f, 4000.0f);
+            }
+        }
+        ImGui::SameLine();
+        if (ImGui::SmallButton(new_lock_aspect_ ? "[L]" : "[ ]")) {
+            new_lock_aspect_ = !new_lock_aspect_;
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Lock aspect ratio while scaling");
+        // Track the ratio while unlocked so engaging the lock keeps what is on screen.
+        if (!new_lock_aspect_ && new_params_.world_size.y > 0.0f) {
+            new_aspect_ = new_params_.world_size.x / new_params_.world_size.y;
+        }
         ImGui::DragFloat("cell size", &new_params_.cell_size, 0.05f, 0.1f, 8.0f, "%.2f");
         ImGui::DragFloat("lane width", &new_params_.lane_width, 1.0f, 4.0f, 400.0f, "%.0f");
         int wc = static_cast<int>(new_params_.wave_count);

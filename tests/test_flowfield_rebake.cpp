@@ -44,7 +44,7 @@ TissueMask make_scene() {
 
 FlowFieldBakeDesc make_desc(i32 margin) {
     FlowFieldBakeDesc desc;
-    desc.goal_cells = {IVec2{kW - 1, kH / 2}};
+    desc.goals = {sim::FlowGoal{IVec2{kW - 1, kH / 2}}};
     desc.rebake_margin_cells = margin;
     return desc;
 }
@@ -198,7 +198,7 @@ TEST_CASE("incremental rebake equals a full rebake with direction smoothing on",
     TissueMask mask = make_scene();
     FlowFieldBakeDesc desc = make_desc(/*margin=*/4);
     desc.smoothing_radius = 5.0f; // cell_size is 1.0, so five iterations
-    desc.goal_radius = 3.0f;
+    desc.goals[0].half_extents = Vec2{3.0f, 3.0f};
 
     FlowField incremental;
     incremental.bake(mask, desc);

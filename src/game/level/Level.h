@@ -63,7 +63,10 @@
 //   "spawn_points":   [ { "id":"p0", "pos":[8,72], "radius":3.0,
 //                     "lane_id":"main" } ],   // lane_id optional; see
 //                                             // resolve_spawn_point_lane_id()
-//   "objectives":[ { "id":"organ", "pos":[248,72], "radius":5.0, "integrity":100 } ],
+//   "objectives":[ { "id":"organ", "pos":[248,72],   // oriented rectangle:
+//                     "half_extents":[8,5], "rotation":30,   // degrees
+//                     "integrity":100 } ],                   // legacy: "radius":5
+//                                                            // = a square 5x5
 //   "placement_zones": [
 //     { "min":[20,50], "max":[200,100], "concentrated": false, "priority": 1.0 }
 //   ],
@@ -144,7 +147,8 @@
 //     { "id": "p_lymph",  "pos": [8,72],  "radius": 5, "lane_id": "lymph_main" },
 //     { "id": "p_nerve",  "pos": [8,124], "radius": 5, "lane_id": "nerve_main" }
 //   ],
-//   "objectives": [ { "id": "organ", "pos": [140,72], "radius": 8, "integrity": 100 } ]
+//   "objectives": [ { "id": "organ", "pos": [140,72], "half_extents": [8,8],
+//                     "integrity": 100 } ]
 // }
 // All three lanes' final control point coincides at (140,72) with the same
 // width -- a deliberate physical overlap, so this file also doubles as the
@@ -155,6 +159,7 @@
 #include "game/wave/WaveDirector.h"   // WaveDef, for optional authored waves.
 #include "sim/squad/Squads.h"         // SquadPath, produced by build_squad_paths().
 
+#include <cmath>
 #include <string>
 #include <vector>
 
@@ -274,21 +279,37 @@ struct SpawnPoint {
     std::string lane_id;
 };
 
-/// The organ the horde is trying to reach. Its footprint is an axis-aligned
-/// SQUARE, not a disc: an organ reads as a built structure sitting in the
-/// tissue rather than as another round blob among the round agents, and a
-/// square rim also gives the horde a flat face to pile against instead of a
-/// curve that slides them around it.
+/// The organ the horde is trying to reach. Its footprint is an oriented
+/// RECTANGLE, not a disc: an organ reads as a built structure sitting in the
+/// tissue rather than as another round blob among the round agents, a flat
+/// face gives the horde something to pile against instead of a curve that
+/// slides them around it, and a rectangle can be sized and turned to sit along
+/// whatever vessel it terminates.
+///
+/// Geometry matches ObstacleDef::Box exactly -- centre, half-extents, rotation
+/// in radians authored as degrees -- so every rotated-rectangle test in the
+/// codebase (picking, rasterizing, despawning) reads the same three fields the
+/// same way.
 struct ObjectivePoint {
     std::string id;
     Vec2 position{0.0f, 0.0f};
-    /// Half-extent of the square footprint, in world units: the footprint is
-    /// `position` +/- this on both axes. Still named "radius" because that is
-    /// the JSON key every authored level already carries, and because it is
-    /// still "how big is the objective" -- only the metric changed (Chebyshev,
-    /// not Euclidean).
-    f32 radius = 5.0f;
+    /// Half-size along the objective's OWN axes, before rotation. The footprint
+    /// is `position` +/- these in the rotated frame.
+    Vec2 half_extents{5.0f, 5.0f};
+    /// RADIANS, CCW (the JSON authors degrees, like ObstacleDef::rotation).
+    f32 rotation = 0.0f;
     f32 integrity = 100.0f;
+
+    /// Point-in-footprint test, in world space. The one place the rectangle's
+    /// meaning is defined; everything that needs it (loader, editor picking,
+    /// validation) calls this rather than re-deriving the transform.
+    bool contains(Vec2 p) const {
+        const f32 c = std::cos(-rotation);
+        const f32 s = std::sin(-rotation);
+        const Vec2 d = p - position;
+        const Vec2 local{d.x * c - d.y * s, d.x * s + d.y * c};
+        return std::fabs(local.x) <= half_extents.x && std::fabs(local.y) <= half_extents.y;
+    }
 };
 
 /// Per-placement-zone authoring hint for DESIGN.md §4.3/§4.7: a "concentrated"

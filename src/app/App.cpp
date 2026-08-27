@@ -144,8 +144,12 @@ void App::build_menus() {
     switch (state_.current()) {
     case GameStateId::MainMenu:     r = menu_.build_main_menu(w, h); break;
     case GameStateId::LevelSelect:  r = menu_.build_level_select(levels_, w, h); break;
-    case GameStateId::LevelFailed:  r = menu_.build_level_failed_screen(w, h); break;
-    case GameStateId::LevelComplete: r = menu_.build_level_complete_screen(w, h); break;
+    case GameStateId::LevelFailed:
+        r = menu_.build_level_failed_screen(w, h, editor_playtest_);
+        break;
+    case GameStateId::LevelComplete:
+        r = menu_.build_level_complete_screen(w, h, editor_playtest_);
+        break;
     case GameStateId::Paused:        r = menu_.build_pause_menu(w, h); break;
     // The editor draws its own chrome (ui/editor/EditorPanels); a front-end
     // screen on top of it would be a second, competing menu bar.
@@ -162,6 +166,9 @@ void App::build_menus() {
         break;
     case ui::MenuAction::Resume:
         state_.request(GameStateId::InLevel);
+        break;
+    case ui::MenuAction::BackToEditor:
+        editor_stop();
         break;
     case ui::MenuAction::Back:
         // Leaving a live/paused run from the pause menu abandons it, same as
@@ -188,6 +195,15 @@ void App::build_menus() {
         }
         break;
     case ui::MenuAction::RestartLevel:
+        // A playtest restarts the editor's DOCUMENT, from the same wave it was
+        // launched at. Going through load_level() here would re-read the file
+        // instead -- throwing away every unsaved edit, and, for a level that
+        // has never been saved at all, silently starting the built-in test
+        // level because there is no path to read.
+        if (editor_playtest_) {
+            if (!editor_play(editor_play_from_wave_)) editor_stop();
+            break;
+        }
         if (load_level(current_level_path_)) {
             state_.request(GameStateId::InLevel);
         } else {
@@ -287,6 +303,7 @@ bool App::load_level(const std::string& path) {
 bool App::load_level_def(const game::LevelDef& level, const std::string& source_path) {
     game::LevelLoader loader;
     const std::string& path = source_path;
+    last_level_load_error_.clear();
 
     sim::SimDesc desc;
     desc.seed = options_.seed;
@@ -300,6 +317,7 @@ bool App::load_level_def(const game::LevelDef& level, const std::string& source_
     desc.max_swarmers = config_.sim.capacities.max_swarmers;
     desc.max_fluid_particles = config_.sim.capacities.max_fluid_particles;
     desc.max_combat_events = config_.sim.capacities.max_combat_events;
+    desc.max_chaff_death_events = config_.sim.capacities.max_chaff_death_events;
     desc.fluid_tuning = config_.sim.fluid;
     desc.squad_tuning = config_.sim.squads;
     desc.spatial_cell_size = config_.sim.globals.spatial_cell_size;
@@ -323,6 +341,7 @@ bool App::load_level_def(const game::LevelDef& level, const std::string& source_
 
     const auto res = loader.instantiate(level, sim_);
     if (!res.ok) {
+        last_level_load_error_ = res.error;
         IMMUNE_LOG_ERROR("level instantiation failed: %s", res.error.c_str());
         return false;
     }
@@ -377,6 +396,21 @@ bool App::load_level_def(const game::LevelDef& level, const std::string& source_
     // level's schema-2 economy/tower rules on top of the global tuning.
     apply_tuning_config();
     gym_spawns_.clear();
+
+    // Everything else a run accumulates, cleared HERE because this function is
+    // the single funnel every level start goes through -- the level list, the
+    // pause/failed screens' Restart, editor Play, the gym `level` command, and
+    // --level on the command line. A level always begins from the same state,
+    // whatever the run before it did.
+    //
+    //   outcome:      the previous run's win/loss must not be the new run's.
+    //   time scale:   a restart at 4x (or paused at 0x) is a restart of the
+    //                 level, not of the level at 4x.
+    //   build cursor: a tower armed on the cursor in the old world would be
+    //                 held over the new one.
+    state_.set_outcome(LevelOutcome::InProgress);
+    clock_.set_time_scale(1.0f);
+    hud_.clear_build_cursor();
 
     // The gym level is the one that exists to be driven from the panel, so it
     // brings the panel up with it; every other level leaves it as the player
@@ -457,13 +491,17 @@ void App::frame_editor_camera() {
     editor_canvas_.focus_on(wb);
 }
 
-void App::editor_play(i32 from_wave) {
+bool App::editor_play(i32 from_wave) {
     // Play the DOCUMENT, not the file: a level that has never been saved, or
     // that has unsaved edits, is exactly the thing you want to test.
     if (!load_level_def(editor_.doc().def(), editor_.doc().source_path())) {
-        editor_panels_.set_message("This level could not be instantiated. Check the validation "
-                                   "panel -- a sealed lane will fail here.");
-        return;
+        const std::string reason = last_level_load_error_.empty()
+                                       ? "The level could not be instantiated."
+                                       : last_level_load_error_;
+        editor_panels_.set_message(
+            "Warning: Play failed.\n\n" + reason +
+            "\n\nFix the level and try Play again.");
+        return false;
     }
     editor_play_from_wave_ = from_wave;
     if (from_wave > 0) {
@@ -478,7 +516,11 @@ void App::editor_play(i32 from_wave) {
         }
     }
     editor_playtest_ = true;
+    // The outcome of the run that just ended (a restart from the results screen
+    // re-enters through here) was already cleared by load_level_def, along with
+    // the rest of the per-run state.
     state_.request(GameStateId::InLevel);
+    return true;
 }
 
 void App::editor_stop() {
@@ -637,6 +679,12 @@ void App::handle_input() {
             break;
         case GameStateId::LevelComplete:
         case GameStateId::LevelFailed:
+            // Same rule as Escape from a live playtest: back to the document,
+            // never out to the front end.
+            if (editor_playtest_) {
+                editor_stop();
+                break;
+            }
             state_.set_outcome(LevelOutcome::Aborted);
             state_.request(GameStateId::MainMenu);
             break;

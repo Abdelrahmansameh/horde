@@ -244,8 +244,15 @@ void system_named_combat(SystemContext& ctx) {
         for (auto obj_entity : objectives) {
             comp::Objective& obj = objectives.get<comp::Objective>(obj_entity);
             const comp::Transform& obj_t = objectives.get<comp::Transform>(obj_entity);
-            const f32 dist = math::length(obj_t.position - ev.point);
-            if (dist > ev.radius + obj.radius) continue;
+            // Attack disc vs the objective's oriented rectangle: measure to the
+            // nearest point ON the footprint, in the footprint's own frame.
+            const f32 c = std::cos(-obj.rotation);
+            const f32 sn = std::sin(-obj.rotation);
+            const Vec2 d = ev.point - obj_t.position;
+            const Vec2 local{d.x * c - d.y * sn, d.x * sn + d.y * c};
+            const f32 qx = math::max(std::fabs(local.x) - obj.half_extents.x, 0.0f);
+            const f32 qy = math::max(std::fabs(local.y) - obj.half_extents.y, 0.0f);
+            if (qx * qx + qy * qy > ev.radius * ev.radius) continue;
             obj.integrity = math::max(0.0f, obj.integrity - ev.damage);
         }
     }

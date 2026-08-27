@@ -270,7 +270,8 @@ TEST_CASE("a resolved attack damages an Objective within its radius", "[sim][ecs
     // resolves. The agent drifts a little from local steering before it
     // telegraphs, so a tight radius would make this test flaky rather than
     // meaningful.
-    registry.emplace<comp::Objective>(objective, comp::Objective{100.0f, 100.0f, 20.0f});
+    registry.emplace<comp::Objective>(objective,
+                                      comp::Objective{100.0f, 100.0f, Vec2{20.0f, 20.0f}, 0.0f});
 
     bool attacked = false;
     // ability_cooldown (180 ticks) + windup (48 ticks) + margin.

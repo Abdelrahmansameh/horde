@@ -89,7 +89,8 @@ LevelDef make_template(LevelTemplate t, const TemplateParams& params) {
                                         {Vec2{margin, y}, Vec2{w * 0.5f, y}, Vec2{w - margin, y}},
                                         lane));
         d.spawn_points.push_back(SpawnPoint{"p0", Vec2{margin, y}, half * 0.7f, "main"});
-        d.objectives.push_back(ObjectivePoint{"organ", Vec2{w - margin, y}, half * 0.4f, 100.0f});
+        d.objectives.push_back(ObjectivePoint{"organ", Vec2{w - margin, y},
+                                              Vec2{half * 0.4f, half * 0.4f}, 0.0f, 100.0f});
         add_zone(d, Vec2{margin, y}, Vec2{w - margin, y}, half + 20.0f, false);
         break;
     }
@@ -111,9 +112,11 @@ LevelDef make_template(LevelTemplate t, const TemplateParams& params) {
         d.vessels[0].children = {"branch_a", "branch_b"};
         d.spawn_points.push_back(SpawnPoint{"p0", Vec2{margin, y}, half * 0.7f, "main"});
         d.objectives.push_back(
-            ObjectivePoint{"organ_a", Vec2{w - margin, y - h * 0.18f}, half * 0.35f, 100.0f});
+            ObjectivePoint{"organ_a", Vec2{w - margin, y - h * 0.18f},
+                           Vec2{half * 0.35f, half * 0.35f}, 0.0f, 100.0f});
         d.objectives.push_back(
-            ObjectivePoint{"organ_b", Vec2{w - margin, y + h * 0.18f}, half * 0.35f, 100.0f});
+            ObjectivePoint{"organ_b", Vec2{w - margin, y + h * 0.18f},
+                           Vec2{half * 0.35f, half * 0.35f}, 0.0f, 100.0f});
         add_zone(d, Vec2{split, y}, Vec2{split, y}, half + 30.0f, true, 1.5f);
         add_zone(d, Vec2{margin, y}, Vec2{w - margin, y}, half + 24.0f, false);
         break;
@@ -130,7 +133,8 @@ LevelDef make_template(LevelTemplate t, const TemplateParams& params) {
              Vec2{margin, bot}, Vec2{w - margin, bot}},
             lane));
         d.spawn_points.push_back(SpawnPoint{"p0", Vec2{margin, top}, half * 0.7f, "main"});
-        d.objectives.push_back(ObjectivePoint{"organ", Vec2{w - margin, bot}, half * 0.4f, 100.0f});
+        d.objectives.push_back(ObjectivePoint{"organ", Vec2{w - margin, bot},
+                                              Vec2{half * 0.4f, half * 0.4f}, 0.0f, 100.0f});
         add_zone(d, Vec2{w - margin, top}, Vec2{w - margin, mid}, half + 26.0f, true, 1.6f);
         add_zone(d, Vec2{margin, mid}, Vec2{margin, bot}, half + 26.0f, true, 1.6f);
         add_zone(d, Vec2{margin, top}, Vec2{w - margin, bot}, half + 10.0f, false);
@@ -150,7 +154,8 @@ LevelDef make_template(LevelTemplate t, const TemplateParams& params) {
         d.spawn_points.push_back(SpawnPoint{"p_upper", Vec2{margin, margin}, half * 0.7f, "upper"});
         d.spawn_points.push_back(
             SpawnPoint{"p_lower", Vec2{margin, h - margin}, half * 0.7f, "lower"});
-        d.objectives.push_back(ObjectivePoint{"organ", Vec2{goal_x, goal_y}, half * 0.5f, 100.0f});
+        d.objectives.push_back(ObjectivePoint{"organ", Vec2{goal_x, goal_y},
+                                              Vec2{half * 0.5f, half * 0.5f}, 0.0f, 100.0f});
         add_zone(d, Vec2{goal_x, goal_y}, Vec2{goal_x, goal_y}, half + 40.0f, true, 1.8f);
         add_zone(d, Vec2{margin, margin}, Vec2{goal_x, h - margin}, 8.0f, false);
         break;
@@ -178,7 +183,8 @@ LevelDef make_template(LevelTemplate t, const TemplateParams& params) {
             d.spawn_points.push_back(
                 SpawnPoint{std::string("p_") + l.id, Vec2{margin, l.y}, narrow * 0.4f, l.id});
         }
-        d.objectives.push_back(ObjectivePoint{"organ", Vec2{goal_x, goal_y}, narrow * 0.5f, 100.0f});
+        d.objectives.push_back(ObjectivePoint{"organ", Vec2{goal_x, goal_y},
+                                              Vec2{narrow * 0.5f, narrow * 0.5f}, 0.0f, 100.0f});
         add_zone(d, Vec2{goal_x, goal_y}, Vec2{goal_x, goal_y}, narrow + 40.0f, true, 1.8f);
         add_zone(d, Vec2{margin, margin}, Vec2{goal_x, h - margin}, 8.0f, false);
         break;

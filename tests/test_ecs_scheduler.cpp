@@ -101,3 +101,50 @@ TEST_CASE("sim snapshot reflects the chaff store", "[sim]") {
     REQUIRE(s.chaff_by_family[static_cast<u32>(PathogenFamily::Bacteria)] == 10);
     REQUIRE(s.tick == 0);
 }
+
+// ---------------------------------------------------------------------------
+// Starting a level is a full reset (App re-uses one SimWorld for every level)
+// ---------------------------------------------------------------------------
+
+TEST_CASE("init() drops the previous level's systems", "[sim][ecs]") {
+    SimWorld world;
+    SimDesc desc;
+    desc.max_chaff = 64;
+    world.init(desc, nullptr);
+
+    int runs = 0;
+    world.ecs().add_system(SystemPhase::Combat, "counter", 0,
+                           [&](SystemContext&) { ++runs; });
+    world.tick(nullptr);
+    REQUIRE(runs == 1);
+
+    // Starting another level. Whoever registered that system re-registers it
+    // after init(); until they do, it must not run at all -- and when they do,
+    // it must run once per tick, not twice.
+    world.init(desc, nullptr);
+    world.tick(nullptr);
+    REQUIRE(runs == 1);
+
+    world.ecs().add_system(SystemPhase::Combat, "counter", 0,
+                           [&](SystemContext&) { ++runs; });
+    world.tick(nullptr);
+    REQUIRE(runs == 2);
+}
+
+TEST_CASE("init() drops the previous level's registry context", "[sim][ecs]") {
+    struct InstallGuard { bool installed = false; };
+
+    SimWorld world;
+    SimDesc desc;
+    desc.max_chaff = 64;
+    world.init(desc, nullptr);
+
+    // The pattern EnemyRoster/NamedAgents use to install once per world. A
+    // guard that survived init() would leave the new level with no named-agent
+    // systems at all, since init() has just dropped the ones it installed.
+    world.ecs().registry().ctx().emplace<InstallGuard>().installed = true;
+    REQUIRE(world.ecs().registry().ctx().emplace<InstallGuard>().installed);
+
+    world.init(desc, nullptr);
+    REQUIRE(!world.ecs().registry().ctx().emplace<InstallGuard>().installed);
+}

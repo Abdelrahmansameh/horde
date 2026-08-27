@@ -23,6 +23,7 @@
 #include "sim/ecs/NamedAgents.h"
 #include "sim/flowfield/FlowField.h"
 #include "sim/spatial/SpatialHash.h"
+#include "vfx/DeathVfx.h"
 
 #include <entt/entity/registry.hpp>
 
@@ -58,8 +59,9 @@ SpeedProfile speed_profile(SpeedTier tier) {
 // ---------------------------------------------------------------------------
 // Per-world elite registration state, cached in the ECS registry's context so
 // spawn_elite()/register_systems() are idempotent no matter how many times
-// App.cpp calls them across level reloads (SimWorld::init() clears entities
-// but not systems or context vars — see sim/SimWorld.cpp). Mirrors the
+// they are called against the same world. Per-WORLD, not per-run: SimWorld::init()
+// resets the registry context along with the systems (see sim/SimWorld.cpp), so a
+// new level re-installs from scratch, which is the point. Mirrors the
 // PlaceholderEliteState pattern in sim/ecs/NamedAgents.cpp.
 // ---------------------------------------------------------------------------
 
@@ -264,6 +266,10 @@ void apply_enemy_config(EnemyRoster& roster, const EnemyConfig& cfg) {
         const FamilyVisualParams& v = cfg.families[i].visual;
         render::set_family_visual(family, render::FamilyVisual{v.silhouette, v.tempo, v.wobble});
         render::set_family_color(family, v.color);
+        // Same push-down, one layer further out: vfx/ cannot see game/ either,
+        // and the death burst is authored per family alongside the look it
+        // comes out of. See vfx/DeathVfx.h.
+        vfx::set_family_death_vfx(family, cfg.families[i].death_vfx);
     }
 
     roster.load_defaults();

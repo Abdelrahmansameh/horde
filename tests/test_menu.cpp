@@ -155,3 +155,28 @@ TEST_CASE("menus report no action when nothing is clicked", "[ui][menu]") {
     REQUIRE(main_result.action == ui::MenuAction::None);
     REQUIRE(select_result.action == ui::MenuAction::None);
 }
+
+TEST_CASE("the results screens draw in both play and playtest mode", "[ui][menu]") {
+    // A playtest swaps the way out (Back to Editor, not Menu) and gives the
+    // complete screen a Restart it does not have in normal play. Both variants
+    // have to draw: an editor run that ends on an empty panel is a dead end.
+    HeadlessUi ui;
+    if (!ui.ok) {
+        WARN("headless GL/ImGui unavailable; skipping");
+        return;
+    }
+    ui::Menu menu;
+    for (bool playtest : {false, true}) {
+        CAPTURE(playtest);
+        ui::MenuResult failed, complete;
+        const f32 coverage = ui.draw_one_frame([&] {
+            failed = menu.build_level_failed_screen(1280, 720, playtest);
+            complete = menu.build_level_complete_screen(1280, 720, playtest);
+        });
+        CAPTURE(coverage);
+        REQUIRE(coverage > 0.02f);
+        // Nothing was clicked, so neither screen may ask for a transition.
+        REQUIRE(failed.action == ui::MenuAction::None);
+        REQUIRE(complete.action == ui::MenuAction::None);
+    }
+}

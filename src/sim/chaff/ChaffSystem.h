@@ -64,6 +64,7 @@
 #include "core/Types.h"
 #include "sim/squad/Squads.h"
 
+#include <cmath>
 #include <vector>
 
 namespace immune { class JobSystem; class Rng; }
@@ -166,6 +167,13 @@ struct ChaffFamilyParams {
     /// old 0.7 was under-relaxation -- it left 30% of every overlap standing
     /// each tick, which compounds through a jam that is being re-compressed by
     /// the flow field every tick and never actually converges.
+    ///
+    /// "A lone pair" is load-bearing in that sentence: an agent overlapping n
+    /// neighbours at once takes the AVERAGE of the n corrections, not their
+    /// sum, so 1.0 stays the exactly-resolving value at any density instead of
+    /// becoming an n-fold over-relaxation that oscillates. That averaging is
+    /// what makes this number mean the same thing in a jam as it does for two
+    /// agents alone -- see NeighbourSample::contact_push in ChaffSystem.cpp.
     f32 contact_stiffness = 1.0f;
 
     /// Positional relief for an over-packed agent, as a multiple of `radius`
@@ -196,8 +204,16 @@ struct ChaffFamilyParams {
     /// able to open up faster than it can walk. It is still bounded by the same
     /// per-tick displacement cap that keeps the crowd from stepping over a lane
     /// wall, and that cap is what makes the returns above ~0.7 shallow (a
-    /// 400-agent clump settles at mean radius 10.4 at 0.7 against 10.8 at 1.2,
-    /// measured in tests/test_chaff_system.cpp).
+    /// 400-agent clump settles at mean radius 10.0 at 0.7, measured in
+    /// tests/test_chaff_system.cpp).
+    ///
+    /// That ceiling is what an agent on the crowd's FACE gets. Deeper in, the
+    /// figure scales down with how one-sided the neighbourhood is, so a fully
+    /// enclosed agent -- one with no free space to move into -- relieves at
+    /// essentially zero however packed it is. Without that, the term spent its
+    /// whole budget every tick on a direction that was pure sampling noise, and
+    /// the interior of a jam boiled. See the crowd-relief block in
+    /// ChaffSystem.cpp.
     f32 crowd_relief = 0.7f;
 };
 
@@ -301,11 +317,21 @@ public:
     void set_world_bounds(const Rect& bounds) { bounds_ = bounds; }
     const Rect& world_bounds() const { return bounds_; }
 
-    /// Half-extent of the SQUARE around the objective inside which chaff is
-    /// consumed and scores damage against organ integrity. The objective's
-    /// footprint is axis-aligned and square (game::ObjectivePoint), so the
-    /// despawn test is Chebyshev, not Euclidean; 0 disables it entirely.
-    void set_goal(Vec2 goal, f32 radius) { goal_ = goal; goal_radius_ = radius; }
+    /// The objective's footprint: chaff inside it is consumed and scores damage
+    /// against organ integrity. An oriented rectangle, matching
+    /// game::ObjectivePoint exactly -- `half_extents` are along the objective's
+    /// own axes and `rotation` is in RADIANS. A zero or negative extent on
+    /// either axis disables goal despawn entirely.
+    ///
+    /// The trig is resolved here rather than per agent per tick: this is called
+    /// once at load, the despawn test runs over every agent every tick.
+    void set_goal(Vec2 goal, Vec2 half_extents, f32 rotation = 0.0f) {
+        goal_ = goal;
+        goal_half_ = half_extents;
+        goal_rotation_ = rotation;
+        goal_cos_ = std::cos(-rotation);
+        goal_sin_ = std::sin(-rotation);
+    }
 
 private:
     // ---- Per-tick scratch (Wave 1B). Sized to buffers.capacity() on first use
@@ -340,6 +366,13 @@ private:
     /// a pair independently arrive at the same, opposite correction, so the pair
     /// separates without either one writing to the other's slot -- which is what
     /// keeps this parallel-safe and scheduling-independent.
+    ///
+    /// Being Jacobi is also why the value stored here is the MEAN of an agent's
+    /// overlap corrections rather than their sum: every projection is computed
+    /// against the same pre-tick snapshot, as if it were the only one, so
+    /// applying n of them together overshoots n-fold and oscillates. The
+    /// averaging is where that is done and why -- NeighbourSample::contact_push
+    /// in ChaffSystem.cpp carries the argument and the measurements.
     std::vector<f32> contact_push_x_;
     std::vector<f32> contact_push_y_;
     /// Per-agent effective max speed for this tick (family base, kSlowed-scaled),
@@ -364,7 +397,11 @@ private:
     ChaffTuning tuning_{};
     Rect bounds_{};
     Vec2 goal_{0.0f, 0.0f};
-    f32 goal_radius_ = 2.0f;   ///< Square half-extent; see set_goal().
+    Vec2 goal_half_{2.0f, 2.0f};   ///< Rectangle half-extents; see set_goal().
+    f32 goal_rotation_ = 0.0f;     ///< Radians, as handed to set_goal().
+    /// cos/sin of -goal_rotation_, precomputed by set_goal().
+    f32 goal_cos_ = 1.0f;
+    f32 goal_sin_ = 0.0f;
 };
 
 } // namespace immune::sim

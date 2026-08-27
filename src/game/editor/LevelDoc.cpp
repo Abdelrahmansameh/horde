@@ -307,11 +307,10 @@ ElementRef LevelDoc::hit_test(Vec2 world, f32 pick_radius) const {
     }
     for (usize i = 0; i < def_.objectives.size(); ++i) {
         const ObjectivePoint& o = def_.objectives[i];
-        // Square footprint (ObjectivePoint), so the hit test is Chebyshev --
-        // otherwise the drawn corners would not be clickable.
-        const f32 rr = math::max(o.radius, pick_radius);
-        const Vec2 d = o.position - world;
-        if (math::max(std::fabs(d.x), std::fabs(d.y)) <= rr) {
+        // The footprint itself, so the drawn corners are clickable; plus the
+        // usual pick slack around the centre, so a tiny objective is still
+        // grabbable at any zoom.
+        if (o.contains(world) || math::length_sq(o.position - world) <= pick_radius * pick_radius) {
             best = ElementRef{ElementKind::Objective, static_cast<i32>(i), -1};
         }
     }
@@ -476,7 +475,13 @@ bool LevelDoc::element_bounds(ElementRef r, Rect& out) const {
     if (r.kind == ElementKind::SpawnPoint && r.index >= 0) {
         pad = def_.spawn_points[static_cast<usize>(r.index)].radius;
     } else if (r.kind == ElementKind::Objective && r.index >= 0) {
-        pad = def_.objectives[static_cast<usize>(r.index)].radius;
+        // A rotated rectangle's world AABB: half-extents projected onto both
+        // axes. Square and conservative, which is all a framing box needs.
+        const ObjectivePoint& o = def_.objectives[static_cast<usize>(r.index)];
+        const f32 c = std::fabs(std::cos(o.rotation));
+        const f32 sn = std::fabs(std::sin(o.rotation));
+        pad = math::max(o.half_extents.x * c + o.half_extents.y * sn,
+                        o.half_extents.x * sn + o.half_extents.y * c);
     }
     out = Rect{p - Vec2{pad, pad}, p + Vec2{pad, pad}};
     return true;
@@ -784,7 +789,7 @@ i32 LevelDoc::add_objective(Vec2 at) {
     ObjectivePoint o;
     o.id = unique_id(ElementKind::Objective, "objective");
     o.position = at;
-    o.radius = 6.0f;
+    o.half_extents = Vec2{6.0f, 6.0f};
     def_.objectives.push_back(std::move(o));
     return static_cast<i32>(def_.objectives.size()) - 1;
 }
@@ -920,7 +925,7 @@ bool LevelDoc::erase(ElementRef r) {
         const std::string gone = def_.spawn_points[static_cast<usize>(r.index)].id;
         def_.spawn_points.erase(def_.spawn_points.begin() + r.index);
         // Wave entries that named it would become dangling references. Clearing
-        // the field falls back to "any spawn point", which is the documented
+        // the field cycles through every spawn point, which is the documented
         // meaning of an empty spawn_point_id and keeps the level loadable.
         for (WaveDef& w : def_.waves) {
             for (SpawnEntry& e : w.spawns) {

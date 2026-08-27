@@ -23,7 +23,9 @@ struct SpawnEntry {
     u32 count = 0;
     f32 start_time = 0.0f;    ///< Seconds after wave start.
     f32 duration = 1.0f;      ///< Spread the count evenly over this window.
-    std::string spawn_point_id;    ///< Empty = any/first spawn point.
+    /// Empty = cycle across every authored spawn point. A non-empty id pins
+    /// the entry to that one point.
+    std::string spawn_point_id;
 
     // ---- schema 2 -----------------------------------------------------------
     /// Squad size for THIS entry; 0 uses the global sim.squads.target_squad_size.
@@ -117,8 +119,17 @@ private:
         u16 squad = 0xFFFFu;   ///< sim::kNoSquad; kept as a literal so this
                                ///< header does not need the sim include.
         u32 filled = 0;
+        /// Runtime spawn-point index where the active squad was opened. It
+        /// remains fixed until that squad closes; agents are born at this
+        /// authored point, then follow their selected path. The next squad
+        /// takes the entry's next round-robin point.
+        u32 spawn_point_index = 0;
     };
     std::vector<SquadCursor> squad_cursor_;
+    /// Per-entry cursor for SpawnEntry::spawn_point_id == "". This belongs to
+    /// the wave director rather than SimWorld so each entry has a predictable,
+    /// independent rotation through all author-placed spawn points.
+    std::vector<u32> spawn_point_cursor_;
     /// Seconds spent in the current wave's Clearing phase, so a few
     /// unreachable/leaked stragglers can never stall the sequence forever.
     f32 clearing_elapsed_ = 0.0f;

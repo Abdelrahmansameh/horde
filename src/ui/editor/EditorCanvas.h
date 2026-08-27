@@ -142,6 +142,10 @@ private:
     Vec2 drag_start_world_{0.0f, 0.0f};
     Vec2 drag_last_world_{0.0f, 0.0f};
     game::ElementRef drag_ref_;
+    /// Select-tool drag that turns the grabbed element instead of moving it:
+    /// set when the press landed on a rotation grip. The grip is drawn only for
+    /// the selected element, so this can never start from a stale selection.
+    bool rotating_ = false;
 
     /// Marquee rectangle in world space while the Select tool is band-boxing.
     bool marquee_ = false;

@@ -154,7 +154,7 @@ MenuResult Menu::build_level_select(const std::vector<LevelEntry>& levels,
     return result;
 }
 
-MenuResult Menu::build_level_failed_screen(i32 screen_width, i32 screen_height) {
+MenuResult Menu::build_level_failed_screen(i32 screen_width, i32 screen_height, bool playtest) {
     MenuResult result;
     center_next_window(screen_width, screen_height, 480.0f, 280.0f);
     if (ImGui::Begin("##level_failed", nullptr, kPanelFlags)) {
@@ -175,13 +175,17 @@ MenuResult Menu::build_level_failed_screen(i32 screen_width, i32 screen_height) 
 
         ImGui::Dummy(ImVec2(0.0f, 8.0f));
         center_next_item(button.x);
-        if (ImGui::Button("Menu", button)) result.action = MenuAction::Back;
+        if (playtest) {
+            if (ImGui::Button("Back to Editor", button)) result.action = MenuAction::BackToEditor;
+        } else if (ImGui::Button("Menu", button)) {
+            result.action = MenuAction::Back;
+        }
     }
     ImGui::End();
     return result;
 }
 
-MenuResult Menu::build_level_complete_screen(i32 screen_width, i32 screen_height) {
+MenuResult Menu::build_level_complete_screen(i32 screen_width, i32 screen_height, bool playtest) {
     MenuResult result;
     center_next_window(screen_width, screen_height, 480.0f, 280.0f);
     if (ImGui::Begin("##level_complete", nullptr, kPanelFlags)) {
@@ -197,8 +201,18 @@ MenuResult Menu::build_level_complete_screen(i32 screen_width, i32 screen_height
         ImGui::Dummy(ImVec2(0.0f, 24.0f));
         const ImVec2 button{180.0f, 42.0f};
 
+        if (playtest) {
+            center_next_item(button.x);
+            if (ImGui::Button("Restart", button)) result.action = MenuAction::RestartLevel;
+            ImGui::Dummy(ImVec2(0.0f, 8.0f));
+        }
+
         center_next_item(button.x);
-        if (ImGui::Button("Menu", button)) result.action = MenuAction::Back;
+        if (playtest) {
+            if (ImGui::Button("Back to Editor", button)) result.action = MenuAction::BackToEditor;
+        } else if (ImGui::Button("Menu", button)) {
+            result.action = MenuAction::Back;
+        }
     }
     ImGui::End();
     return result;

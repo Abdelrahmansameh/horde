@@ -91,10 +91,36 @@ private:
     std::vector<f32> distance_;
 };
 
+/// One "arrived" region: a goal cell plus the world-space rectangle around it
+/// that also counts as arrived and is therefore seeded at cost 0.
+///
+/// WHY A REGION. Chaff despawns the moment it enters the objective's footprint,
+/// so the rim *is* the goal — but a one-cell sink makes the field aim every
+/// agent at the exact centre from halfway across the level, which reads as the
+/// organ sucking the horde into a point instead of the horde arriving at it.
+/// Seeding the whole footprint removes the singularity and, with it, most of
+/// the long-range lateral pull inside a wide vessel.
+///
+/// WHY THE SHAPE IS THE CALLER'S. The seeded region has to be the same shape as
+/// whatever test actually consumes agents (ChaffSystem's, for the game), or the
+/// field aims at a region that is not the one that despawns them — corners that
+/// are either a sink nothing despawns in or a despawn area the field steers
+/// around. The objective's footprint is an oriented rectangle
+/// (game::ObjectivePoint), so this is one too. Zero half-extents keep the
+/// historical single-cell sink, which is what the non-game callers want.
+struct FlowGoal {
+    IVec2 cell{0, 0};
+    /// World-space half-size along the goal's own axes, before rotation.
+    Vec2 half_extents{0.0f, 0.0f};
+    f32 rotation = 0.0f;   ///< RADIANS, CCW.
+};
+
 struct FlowFieldBakeDesc {
-    /// Goal cells (objective/organ). Multi-goal is supported: the sweep is
+    /// Goal regions (objective/organ). Multi-goal is supported: the sweep is
     /// seeded with every goal at cost 0, so agents head for the nearest one.
-    std::vector<IVec2> goal_cells;
+    /// Each carries its own footprint, so two objectives of different size or
+    /// orientation stay themselves rather than collapsing to a shared shape.
+    std::vector<FlowGoal> goals;
     /// Extra cells added to the dirty margin on every incremental rebake.
     i32 rebake_margin_cells = 16;
     /// Whether travel may cut across a cell diagonally. Named for the metric it
@@ -103,25 +129,6 @@ struct FlowFieldBakeDesc {
     /// axes (true -> a round, isotropic distance) or must take them one at a
     /// time (false -> a Manhattan field whose contours are diamonds).
     bool allow_diagonals = true;
-
-    /// World-space half-extent of the SQUARE around every goal cell that also
-    /// counts as "arrived", seeded at cost 0. Zero keeps the historical
-    /// single-cell sink.
-    ///
-    /// WHY A REGION. Chaff despawns the moment it enters the objective's
-    /// footprint, so the rim *is* the goal — but a one-cell sink makes the
-    /// field aim every agent at the exact centre from halfway across the level,
-    /// which reads as the organ sucking the horde into a point instead of the
-    /// horde arriving at it. Seeding the whole footprint removes the
-    /// singularity and, with it, most of the long-range lateral pull inside a
-    /// wide vessel.
-    ///
-    /// WHY A SQUARE. The seeded region has to be the shape the despawn test in
-    /// ChaffSystem uses, or the field aims at a region that is not the one that
-    /// consumes agents — the corners would be either a sink nothing despawns
-    /// in or a despawn area the field steers around. The objective's footprint
-    /// is a square (game::ObjectivePoint), so this is one too.
-    f32 goal_radius = 0.0f;
 
     /// World-space radius of the direction-field smoothing pass (0 = off).
     ///

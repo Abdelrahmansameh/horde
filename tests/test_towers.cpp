@@ -69,8 +69,9 @@ Vec2 kRoomCenterRight{47.0f, 10.0f};
 Vec2 kCorridorCenter{30.0f, 10.5f};   // centre of the 5-cell corridor (y 8..13)
 Vec2 kGoal{55.0f, 10.0f};
 
-SimWorld make_world() {
-    SimWorld world;
+/// Initialises `world` with the scene above. Split from make_world() so a test
+/// can start a second "level" in the SAME SimWorld, which is what App does.
+void build_scene(SimWorld& world) {
     SimDesc desc;
     desc.seed = 12345;
     desc.max_chaff = 4096;
@@ -106,8 +107,13 @@ SimWorld make_world() {
 
     world.sdf().bake(mask);
     FlowFieldBakeDesc fdesc;
-    fdesc.goal_cells = {mask.world_to_cell(kGoal)};
+    fdesc.goals = {sim::FlowGoal{mask.world_to_cell(kGoal)}};
     world.flow().bake(mask, fdesc);
+}
+
+SimWorld make_world() {
+    SimWorld world;
+    build_scene(world);
     return world;
 }
 
@@ -1458,7 +1464,7 @@ TEST_CASE("a full roster of towers against a 10k horde stays inside the ecs_tick
         for (i32 x = 4; x < 252; ++x) mask.set_walkable(x, y, true);
     world.sdf().bake(mask);
     FlowFieldBakeDesc fdesc;
-    fdesc.goal_cells = {mask.world_to_cell(Vec2{250.0f, 72.0f})};
+    fdesc.goals = {sim::FlowGoal{mask.world_to_cell(Vec2{250.0f, 72.0f})}};
     world.flow().bake(mask, fdesc);
 
     // 200 named agents too: strike_named() calls find_target() on every firing
@@ -1597,7 +1603,7 @@ SimWorld make_showcase_world(u64 seed) {
         for (i32 x = 3; x < static_cast<i32>(kShowW) - 3; ++x) mask.set_walkable(x, y, true);
     world.sdf().bake(mask);
     FlowFieldBakeDesc fdesc;
-    fdesc.goal_cells = {mask.world_to_cell(Vec2{kShowW - 5.0f, kShowH * 0.5f})};
+    fdesc.goals = {sim::FlowGoal{mask.world_to_cell(Vec2{kShowW - 5.0f, kShowH * 0.5f})}};
     world.flow().bake(mask, fdesc);
     return world;
 }
@@ -1872,4 +1878,62 @@ TEST_CASE("VISUAL: a maxed GUNNER reads as a continuous stream of rounds",
 
     REQUIRE(stats.projectile_instances_drawn == static_cast<u32>(live_rounds));
     renderer.shutdown();
+}
+
+// ---------------------------------------------------------------------------
+// Level starts are fresh: App keeps ONE TowerSystem for the whole session and
+// re-binds it to a new SimWorld on every level load.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("register_systems() drops the previous level's placed towers",
+          "[towers][placement]") {
+    SimWorld world = make_world();
+    TowerSystem ts;
+    ts.register_systems(world);
+    REQUIRE(ts.place(world, TowerType::Macrophage, kRoomCenterLeft).valid());
+    REQUIRE(ts.place(world, TowerType::Macrophage, kRoomCenterRight).valid());
+    REQUIRE(ts.placed_towers().size() == 2);
+
+    // Next level, same TowerSystem. Those two ids belong to a world that no
+    // longer exists; carrying them over leaves the new level reporting towers
+    // that were never built, and hands them to the HUD and the balance bot.
+    SimWorld next = make_world();
+    ts.register_systems(next);
+    REQUIRE(ts.placed_towers().empty());
+
+    REQUIRE(ts.place(next, TowerType::Macrophage, kRoomCenterLeft).valid());
+    REQUIRE(ts.placed_towers().size() == 1);
+}
+
+TEST_CASE("the second level of a session does the same damage as the first",
+          "[towers][combat]") {
+    // The player-visible symptom of a world that carried its systems across a
+    // level load: App re-registers the tower systems on every load, so level 2
+    // ran two copies of tower_gunner and friends, level 3 ran three, and how
+    // hard a tower hit depended on how many levels you had started this
+    // session.
+    SimWorld world = make_world();
+    TowerSystem ts;
+
+    auto play_a_level = [&ts](SimWorld& w) {
+        ts.register_systems(w);
+        REQUIRE(ts.place(w, TowerType::Macrophage, kRoomCenterLeft).valid());
+        // Deliberately more horde than the tower can chew through in the window
+        // below: a cluster that dies either way measures nothing, since "wiped
+        // out" and "wiped out twice as fast" leave the same final density.
+        spawn_chaff_cluster(w, kRoomCenterLeft + Vec2{4.0f, 0.0f}, 500, 40.0f);
+        const f32 before = w.chaff().total_density();
+        for (int i = 0; i < 400; ++i) step_combat(w);
+        REQUIRE(w.chaff().total_density() > 0.0f);
+        return before - w.chaff().total_density();
+    };
+
+    const f32 first = play_a_level(world);
+    REQUIRE(first > 0.0f);
+
+    // Next level, same App: one SimWorld re-initialised, the same TowerSystem
+    // re-bound to it. Identical scene, identical seed, so identical damage.
+    build_scene(world);
+    const f32 second = play_a_level(world);
+    REQUIRE(second == Catch::Approx(first));
 }

@@ -4,6 +4,60 @@
 #include "core/Math.h"
 
 namespace immune::sim {
+namespace {
+
+/// Raises one ChaffDeath event per agent this tick's damage actually killed.
+///
+/// WHY DENSITY IS THE DISCRIMINATOR. Compaction is the only pass that sees
+/// every retirement, and by then it cannot tell them apart — a leaked agent and
+/// a killed one both arrive carrying nothing but kPendingKill. But only ONE of
+/// the two ways that bit gets set also zeroes density:
+/// ChaffBuffers::apply_density_loss(). Pass C's goal/out-of-bounds despawns
+/// call kill() directly and leave density standing, and every damage source in
+/// the sim skips an agent that is already flagged (see the kPendingKill early-
+/// outs in DamageField.cpp, Projectiles.cpp, Swarmers.cpp and Fluid.cpp), so a
+/// leaked agent can never have its density zeroed afterwards either. That makes
+/// `pending kill AND density <= 0` exactly "the player killed this" — which is
+/// the distinction that matters here, because an agent that walked into the
+/// organ should not be rewarded with a death pop.
+///
+/// PURE OUTPUT. Reads sim state, writes only the sink. Detaching the sink or
+/// dropping every event cannot move state_hash() by a bit, which is the
+/// standing contract for this channel (sim/CombatEvents.h).
+void raise_chaff_deaths(const ChaffBuffers& chaff, const ChaffTuning& tuning, usize budget,
+                        CombatEventSink& events) {
+    usize raised = 0;
+    const usize n = chaff.count();
+    for (usize i = 0; i < n && raised < budget; ++i) {
+        if ((chaff.flags[i] & chaff_flags::kPendingKill) == 0) continue;
+        if (chaff.density[i] > 0.0f) continue;
+
+        const u32 f = chaff.family[i];
+        const Vec2 velocity{chaff.vel_x[i], chaff.vel_y[i]};
+        const f32 speed = math::length(velocity);
+
+        CombatEvent e;
+        e.type = CombatEventType::ChaffDeath;
+        e.origin = Vec2{chaff.pos_x[i], chaff.pos_y[i]};
+        e.direction = speed > math::kEpsilon ? velocity / speed : Vec2{1.0f, 0.0f};
+        e.magnitude = speed;
+        // The agent's own body radius, so the burst is sized by what died
+        // rather than by a constant the art has to keep matched to silhouettes.
+        e.radius = f < kFamilyCount ? tuning.family[f].radius : 0.5f;
+        e.target_family =
+            f < kFamilyCount ? static_cast<PathogenFamily>(f) : PathogenFamily::Count;
+        e.source = TowerType::Count;   // see CombatEventType::ChaffDeath
+        events.push(e);
+        ++raised;
+    }
+    // Over budget, this keeps the first `budget` deaths in slot order and drops
+    // the rest. Slot order is not spatial — compact()'s swap-remove shuffles it
+    // continuously — so the survivors are scattered across the kill zone rather
+    // than clustered at one end of it, which is the only property that matters
+    // when the alternative is showing none of them.
+}
+
+} // namespace
 
 void SimWorld::init(const SimDesc& desc, JobSystem* jobs) {
     desc_ = desc;
@@ -19,6 +73,10 @@ void SimWorld::init(const SimDesc& desc, JobSystem* jobs) {
     }
     objective_integrity_ = 100.0f;
     spawn_points_.clear();
+    // Overwritten wholesale by LevelLoader::instantiate(), but cleared here too
+    // so a load that fails partway cannot leave the previous level's buildable
+    // area standing over the new one's geometry.
+    placement_zones_.clear();
     last_damage_stats_ = DamageStats{};
 
     chaff_.reserve(desc.max_chaff);
@@ -57,7 +115,12 @@ void SimWorld::init(const SimDesc& desc, JobSystem* jobs) {
     combat_events_.reserve(desc.max_combat_events);
     damage_.clear_all();
 
-    ecs_.clear_entities();
+    // Systems and context variables go too, not just entities: init() is "this
+    // world is now a different level", and a re-used world that kept its
+    // systems would run a second copy of every one its caller re-registers.
+    // Callers register their per-level systems after init(), which is the order
+    // every call site already uses.
+    ecs_.reset();
 }
 
 void SimWorld::tick(Profiler* profiler) {
@@ -160,6 +223,14 @@ void SimWorld::tick(Profiler* profiler) {
     last_damage_stats_.density_removed +=
         projectile_stats.density_removed + swarmer_stats.density_removed +
         fluid_stats.density_removed;
+
+    // 4f. Death VFX events. This is the LAST thing before compaction and it has
+    // to be: every damage source for the tick has now decided who is dying, and
+    // the next statement swap-removes them, taking the positions the burst has
+    // to be drawn at with it. Purely cosmetic and purely an output — see
+    // raise_chaff_deaths() above.
+    raise_chaff_deaths(chaff_, chaff_system_.tuning(), desc_.max_chaff_death_events,
+                       combat_events_);
 
     // 5. Compaction / kill accounting.
     // Compaction sees every retirement; the leak/out-of-bounds tallies above

@@ -92,11 +92,14 @@ struct Marked {
     EntityId source{};
 };
 
-/// The objective structure whose integrity is the lose condition.
+/// The objective structure whose integrity is the lose condition. Its footprint
+/// is an oriented rectangle; see game::ObjectivePoint, which is what fills this
+/// in at load and where the shape's rationale lives.
 struct Objective {
     f32 integrity = 100.0f;
     f32 max_integrity = 100.0f;
-    f32 radius = 3.0f;
+    Vec2 half_extents{3.0f, 3.0f};
+    f32 rotation = 0.0f;   ///< RADIANS, CCW.
 };
 
 /// Short-lived spawned unit (Neutrophil micro-units, antibody projectiles).

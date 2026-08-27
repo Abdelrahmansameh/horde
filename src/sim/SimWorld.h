@@ -22,6 +22,8 @@
 //   3. ECS systems                 [prof: ecs_tick]
 //   4. damage fields apply
 //   4b. projectiles, swarmers, fluid
+//   4f. chaff death events (must be after every damage source and before
+//       compaction — the only window where a dead agent still has a position)
 //   5. chaff compact + despawn accounting
 //   6. flow-field incremental rebake pump (budgeted)
 //   7. tick counter advance
@@ -74,6 +76,17 @@ struct SimDesc {
     /// the VFX layer never starves during a heavy volley; overflow is counted,
     /// not silent.
     usize max_combat_events = 8192;
+    /// Cap on CombatEventType::ChaffDeath events raised in ONE tick.
+    ///
+    /// Chaff deaths are the only combat event whose rate is set by how badly
+    /// the player is winning rather than by how many towers are firing: a wave
+    /// breaking against a finished defence retires hundreds of agents on a
+    /// single tick. Uncapped, one such tick fills the whole shared sink and
+    /// every muzzle flash and impact for that frame is dropped instead —
+    /// the screen goes quiet exactly when it should be loudest. Capping trades
+    /// some of the pops (which are individually indistinguishable in a crowd
+    /// that size) for keeping everything else.
+    usize max_chaff_death_events = 512;
     Rect world_bounds{Vec2{0.0f, 0.0f}, Vec2{256.0f, 144.0f}};
     f32 spatial_cell_size = 4.0f;
     /// Milliseconds per frame the flow field may spend on incremental rebakes.

@@ -69,7 +69,26 @@ enum class CombatEventType : u8 {
     /// from live sim state by the fluid render pass. These events only feed the
     /// fine droplet spray that a particle-based surface cannot resolve.
     FluidSplash = 10,
-    Count = 11,
+    /// A chaff agent was killed by the player. `origin` = where it died,
+    /// `direction` = the heading it died on, `magnitude` = its SPEED at death
+    /// (world units/sec, unclamped), `radius` = its family's body radius, and
+    /// `target_family` = which family — that last one is the whole point, since
+    /// the VFX layer draws this from the per-family table in vfx/DeathVfx.h.
+    ///
+    /// `source` is always TowerType::Count. Not an oversight: this is raised at
+    /// compaction, which is the only place that sees every death but knows
+    /// nothing about what caused any of them — aggregate damage means a chaff
+    /// agent has no "last hit" to attribute (sim/damage/DamageField.h). It is
+    /// also the right answer visually. A death burst is the ENEMY's identity,
+    /// not the killer's, so a player can tell what popped without knowing what
+    /// shot it.
+    ///
+    /// Raised at most SimDesc::max_chaff_death_events times a tick, for the
+    /// same reason FluidSplash is capped: a wave clearing kills hundreds of
+    /// agents on one tick, and letting that flood the shared sink would starve
+    /// every tower's own effect at exactly the moment the screen is busiest.
+    ChaffDeath = 11,
+    Count = 12,
 };
 
 /// One instantaneous combat happening. Trivially copyable, kept small and flat

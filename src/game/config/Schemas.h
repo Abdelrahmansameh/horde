@@ -61,6 +61,13 @@ inline constexpr config::EnumEntry kSpeedTierEnum[] = {
     {nullptr, 0},
 };
 
+/// vfx::DeathStyle — which shape a family's body comes apart into when it dies.
+inline constexpr config::EnumEntry kDeathStyleEnum[] = {
+    {"burst", static_cast<i64>(vfx::DeathStyle::Burst)},
+    {"lyse", static_cast<i64>(vfx::DeathStyle::Lyse)},
+    {nullptr, 0},
+};
+
 inline constexpr config::EnumEntry kThreatTierEnum[] = {
     {"chaff", static_cast<i64>(ThreatTier::Chaff)},
     {"elite", static_cast<i64>(ThreatTier::Elite)},

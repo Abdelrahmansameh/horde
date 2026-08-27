@@ -20,6 +20,7 @@ IMMUNE_CONFIG_SCHEMA_ASSERT(SpeedProfileParams);
 IMMUNE_CONFIG_SCHEMA_ASSERT(FamilyVisualParams);
 IMMUNE_CONFIG_SCHEMA_ASSERT(FamilyBehaviorParams);
 IMMUNE_CONFIG_SCHEMA_ASSERT(FamilyChaffParams);
+IMMUNE_CONFIG_SCHEMA_ASSERT(vfx::FamilyDeathVfx);
 IMMUNE_CONFIG_SCHEMA_ASSERT(BaseAttackParams);
 IMMUNE_CONFIG_SCHEMA_ASSERT(EliteStatsParams);
 
@@ -63,6 +64,41 @@ constexpr Field kChaffFields[] = {
 };
 constexpr Schema kChaffSchema{"family_chaff", kChaffFields};
 
+// The per-family death burst (vfx/DeathVfx.h). Sizes here are MULTIPLES OF THE
+// AGENT'S BODY RADIUS, speeds are absolute world units/sec — see the header for
+// why that split, and for what each knob buys.
+constexpr Field kDeathVfxFields[] = {
+    IMMUNE_CONFIG_FIELD(vfx::FamilyDeathVfx, enabled, FieldKind::Bool, "False draws no death burst at all for this family"),
+    IMMUNE_CONFIG_ENUM_FIELD(vfx::FamilyDeathVfx, style, FieldKind::EnumU8, "Debris shape: 'burst' throws shards, 'lyse' throws globules", kDeathStyleEnum),
+    IMMUNE_CONFIG_FIELD(vfx::FamilyDeathVfx, color, FieldKind::Vec4, "RGBA; defaults to visual.color so the burst matches the body"),
+    IMMUNE_CONFIG_FIELD(vfx::FamilyDeathVfx, scale, FieldKind::F32, "Master multiplier over every size in the burst"),
+    IMMUNE_CONFIG_FIELD(vfx::FamilyDeathVfx, core_size, FieldKind::F32, "Core flash radius, x agent radius; 0 omits it"),
+    IMMUNE_CONFIG_FIELD(vfx::FamilyDeathVfx, core_life, FieldKind::F32, "Core flash lifetime, seconds"),
+    IMMUNE_CONFIG_FIELD(vfx::FamilyDeathVfx, core_white, FieldKind::F32, "How far the flash is pushed toward white, 0..1"),
+    IMMUNE_CONFIG_FIELD(vfx::FamilyDeathVfx, ring_size, FieldKind::F32, "Shock ring FINAL radius, x agent radius"),
+    IMMUNE_CONFIG_FIELD(vfx::FamilyDeathVfx, ring_life, FieldKind::F32, "Shock ring lifetime, seconds; 0 omits it"),
+    IMMUNE_CONFIG_FIELD(vfx::FamilyDeathVfx, ring_alpha, FieldKind::F32, "Shock ring opacity"),
+    IMMUNE_CONFIG_FIELD(vfx::FamilyDeathVfx, bit_count, FieldKind::U32, "Debris pieces thrown"),
+    IMMUNE_CONFIG_FIELD(vfx::FamilyDeathVfx, bit_size_min, FieldKind::F32, "x agent radius"),
+    IMMUNE_CONFIG_FIELD(vfx::FamilyDeathVfx, bit_size_max, FieldKind::F32, "x agent radius"),
+    IMMUNE_CONFIG_FIELD(vfx::FamilyDeathVfx, bit_speed_min, FieldKind::F32, "World units/sec"),
+    IMMUNE_CONFIG_FIELD(vfx::FamilyDeathVfx, bit_speed_max, FieldKind::F32, "World units/sec"),
+    IMMUNE_CONFIG_FIELD(vfx::FamilyDeathVfx, bit_life_min, FieldKind::F32, "Seconds"),
+    IMMUNE_CONFIG_FIELD(vfx::FamilyDeathVfx, bit_life_max, FieldKind::F32, "Seconds"),
+    IMMUNE_CONFIG_FIELD(vfx::FamilyDeathVfx, bit_drag, FieldKind::F32, "Per-second velocity damping on the debris"),
+    IMMUNE_CONFIG_FIELD(vfx::FamilyDeathVfx, bit_buoyancy, FieldKind::F32, "+Y accel; negative makes debris fall"),
+    IMMUNE_CONFIG_FIELD(vfx::FamilyDeathVfx, bit_spin, FieldKind::F32, "Max |radians/sec|, signed per piece"),
+    IMMUNE_CONFIG_FIELD(vfx::FamilyDeathVfx, bit_scatter, FieldKind::F32, "0 = even radial spokes, 1 = uniform splatter"),
+    IMMUNE_CONFIG_FIELD(vfx::FamilyDeathVfx, bloom_count, FieldKind::U32, "Soft mist puffs left hanging"),
+    IMMUNE_CONFIG_FIELD(vfx::FamilyDeathVfx, bloom_size, FieldKind::F32, "x agent radius"),
+    IMMUNE_CONFIG_FIELD(vfx::FamilyDeathVfx, bloom_life, FieldKind::F32, "Seconds"),
+    IMMUNE_CONFIG_FIELD(vfx::FamilyDeathVfx, bloom_alpha, FieldKind::F32, "Mist opacity; keep low, a whole wave dies at once"),
+    IMMUNE_CONFIG_FIELD(vfx::FamilyDeathVfx, bloom_speed, FieldKind::F32, "World units/sec, radially outward"),
+    IMMUNE_CONFIG_FIELD(vfx::FamilyDeathVfx, bloom_rise, FieldKind::F32, "+Y accel; positive drifts the mist up"),
+    IMMUNE_CONFIG_FIELD(vfx::FamilyDeathVfx, inherit_velocity, FieldKind::F32, "Fraction of the agent's velocity the burst carries"),
+};
+constexpr Schema kDeathVfxSchema{"family_death_vfx", kDeathVfxFields};
+
 constexpr Field kBaseAttackFields[] = {
     IMMUNE_CONFIG_FIELD(BaseAttackParams, active, FieldKind::F32, "Seconds the strike is live"),
     IMMUNE_CONFIG_FIELD(BaseAttackParams, recovery, FieldKind::F32, "Seconds of recovery after a strike"),
@@ -103,7 +139,8 @@ const char* speed_tier_key(SpeedTier t) {
     return "normal";
 }
 
-constexpr std::string_view kFamilyEntryKeys[] = {"speed_tier", "visual", "behavior", "chaff"};
+constexpr std::string_view kFamilyEntryKeys[] = {"speed_tier", "visual", "behavior", "chaff",
+                                                 "death_vfx"};
 constexpr std::string_view kEliteEntryKeys[] = {"id", "name", "family", "tier", "stats"};
 
 } // namespace
@@ -159,6 +196,11 @@ void parse_enemies(const Json& doc, EnemyConfig& out, config::Ctx& ctx) {
                 config::Ctx::Scope c(ctx, "chaff");
                 config::parse_struct(config::require_object(entry, "chaff", ctx), kChaffSchema,
                                      &fc.chaff, ctx);
+            }
+            {
+                config::Ctx::Scope d(ctx, "death_vfx");
+                config::parse_struct(config::require_object(entry, "death_vfx", ctx),
+                                     kDeathVfxSchema, &fc.death_vfx, ctx);
             }
         }
     }
@@ -222,6 +264,9 @@ Json dump_enemies(const EnemyConfig& cfg) {
         Json chaff = Json::object();
         config::dump_struct(chaff, kChaffSchema, &fc.chaff);
         entry["chaff"] = std::move(chaff);
+        Json death_vfx = Json::object();
+        config::dump_struct(death_vfx, kDeathVfxSchema, &fc.death_vfx);
+        entry["death_vfx"] = std::move(death_vfx);
         families[family_key(static_cast<PathogenFamily>(i))] = std::move(entry);
     }
     doc["families"] = std::move(families);
@@ -259,6 +304,7 @@ void bind_enemies(config::Registry& registry, EnemyConfig& cfg) {
         registry.bind(base + "visual", kVisualSchema, &cfg.families[i].visual);
         registry.bind(base + "behavior", kBehaviorSchema, &cfg.families[i].behavior);
         registry.bind(base + "chaff", kChaffSchema, &cfg.families[i].chaff);
+        registry.bind(base + "death_vfx", kDeathVfxSchema, &cfg.families[i].death_vfx);
     }
     registry.bind("enemies.base_attack", kBaseAttackSchema, &cfg.base_attack);
     for (EliteConfig& ec : cfg.elites) {

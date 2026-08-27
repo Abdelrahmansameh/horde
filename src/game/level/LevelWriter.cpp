@@ -225,7 +225,10 @@ std::string objective(const ObjectivePoint& o) {
     Fields f;
     f.add("id", str(o.id));
     f.add("pos", vec2(o.position));
-    f.add_if(o.radius != 5.0f, "radius", num(o.radius));
+    // Always written, never as the legacy "radius": a rectangle cannot round-
+    // trip through one number, and the loader still reads old files either way.
+    f.add("half_extents", vec2(o.half_extents));
+    f.add_if(o.rotation != 0.0f, "rotation", num(o.rotation * (180.0f / math::kPi)));
     f.add_if(o.integrity != 100.0f, "integrity", num(o.integrity));
     return f.inline_object();
 }
@@ -556,7 +559,14 @@ bool level_equal(const LevelDef& a, const LevelDef& b, f32 eps) {
         const ObjectivePoint& x = a.objectives[i];
         const ObjectivePoint& y = b.objectives[i];
         if (x.id != y.id) return false;
-        if (!near_eq(x.position, y.position, eps) || !near_eq(x.radius, y.radius, eps)) return false;
+        if (!near_eq(x.position, y.position, eps)) return false;
+        if (!near_eq(x.half_extents, y.half_extents, eps)) return false;
+        // Compared in degrees, the unit the file carries: two rotations that
+        // serialize to the same text must compare equal, or the dirty flag
+        // never clears.
+        if (!near_eq(x.rotation * (180.0f / math::kPi), y.rotation * (180.0f / math::kPi), eps)) {
+            return false;
+        }
         if (!near_eq(x.integrity, y.integrity, eps)) return false;
     }
 

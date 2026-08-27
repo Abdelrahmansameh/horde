@@ -44,6 +44,7 @@ constexpr Field kCapacityFields[] = {
     IMMUNE_CONFIG_FIELD(SimCapacities, max_swarmers, FieldKind::U32, "Live Cytotoxic T granules"),
     IMMUNE_CONFIG_FIELD(SimCapacities, max_fluid_particles, FieldKind::U32, "Live Goblet Cell mucus particles"),
     IMMUNE_CONFIG_FIELD(SimCapacities, max_combat_events, FieldKind::U32, "Per-tick VFX event capacity"),
+    IMMUNE_CONFIG_FIELD(SimCapacities, max_chaff_death_events, FieldKind::U32, "Chaff death bursts raised per tick, out of the budget above"),
 };
 constexpr Schema kCapacitySchema{"sim_capacities", kCapacityFields};
 
@@ -480,6 +481,15 @@ GameConfig default_game_config() {
                                            render::family_color(family)};
             fc.behavior = FamilyBehaviorParams{def.base_density, def.replicates};
 
+            // The death burst, read out of vfx/'s own table the same way the
+            // silhouette is read out of render/'s. `color` is then overwritten
+            // from the family colour: the two tables ship the same values, but
+            // only one of them can be the source, and the body's colour is
+            // obviously it. That makes "the death matches the enemy" a property
+            // of the generator rather than of somebody remembering.
+            fc.death_vfx = vfx::family_death_vfx(family);
+            fc.death_vfx.color = render::family_color(family);
+
             // The two size derivations come from the live enemy config so the
             // bootstrap cannot disagree with what apply_to_tuning() actually
             // applies; everything else is read back off the derived params.
@@ -530,7 +540,8 @@ GameConfig default_game_config() {
         cfg.sim.capacities = SimCapacities{
             static_cast<u32>(desc.max_chaff),           static_cast<u32>(desc.max_damage_fields),
             static_cast<u32>(desc.max_projectiles),     static_cast<u32>(desc.max_swarmers),
-            static_cast<u32>(desc.max_fluid_particles), static_cast<u32>(desc.max_combat_events)};
+            static_cast<u32>(desc.max_fluid_particles), static_cast<u32>(desc.max_combat_events),
+            static_cast<u32>(desc.max_chaff_death_events)};
         cfg.sim.globals.spatial_cell_size = desc.spatial_cell_size;
         cfg.sim.globals.flow_rebake_budget_ms = desc.flow_rebake_budget_ms;
         cfg.sim.globals.flow_rebake_margin_cells = 16u;

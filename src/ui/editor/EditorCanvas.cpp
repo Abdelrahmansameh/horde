@@ -35,6 +35,48 @@ Rect expand(const Rect& r, f32 by) {
     return Rect{r.min - Vec2{by, by}, r.max + Vec2{by, by}};
 }
 
+/// How far out along the local +x axis the rotation grip sits, as a multiple of
+/// that axis's half-extent.
+constexpr f32 kGripReach = 1.6f;
+
+/// The rotation grip of the elements that have one -- an objective, or a box
+/// obstacle -- as centre + grip point, or false for everything else. ONE
+/// function, called by both the drawing and the drag, so the handle can never
+/// be drawn somewhere the press does not look for it.
+bool rotation_grip(const game::LevelDef& d, const ElementRef& r, Vec2& center, Vec2& grip) {
+    if (r.index < 0) return false;
+    const usize i = static_cast<usize>(r.index);
+    if (r.kind == ElementKind::Objective && i < d.objectives.size()) {
+        const game::ObjectivePoint& o = d.objectives[i];
+        center = o.position;
+        grip = center + Vec2{std::cos(o.rotation), std::sin(o.rotation)} *
+                            (o.half_extents.x * kGripReach);
+        return true;
+    }
+    if (r.kind == ElementKind::Obstacle && i < d.obstacles.size() &&
+        d.obstacles[i].shape == game::ObstacleShape::Box) {
+        const game::ObstacleDef& o = d.obstacles[i];
+        center = o.position;
+        grip = center + Vec2{std::cos(o.rotation), std::sin(o.rotation)} *
+                            (o.half_extents.x * kGripReach);
+        return true;
+    }
+    return false;
+}
+
+/// Writes a rotation back to whichever element the grip belongs to. Same two
+/// kinds as rotation_grip(); anything else is a no-op.
+void set_element_rotation(LevelDoc& doc, const ElementRef& r, f32 radians) {
+    game::LevelDef& d = doc.mutable_def();
+    if (r.index < 0) return;
+    const usize i = static_cast<usize>(r.index);
+    if (r.kind == ElementKind::Objective && i < d.objectives.size()) {
+        d.objectives[i].rotation = radians;
+    } else if (r.kind == ElementKind::Obstacle && i < d.obstacles.size()) {
+        d.obstacles[i].rotation = radians;
+    }
+}
+
 } // namespace
 
 const char* tool_name(EditorTool t) {
@@ -307,7 +349,19 @@ void EditorCanvas::handle_tool(app::EditorMode& editor, render::Camera& camera,
 
     switch (tool_) {
     case EditorTool::Select: {
-        if (lmb_down) {
+        // A press on the selected element's rotation grip turns it instead of
+        // starting a move -- checked before hit_test, since the grip sits
+        // outside the element and would otherwise pick whatever is under it.
+        Vec2 grip_center{}, grip_point{};
+        const bool grip_hit = lmb_down && rotation_grip(doc.def(), doc.primary(), grip_center,
+                                                        grip_point) &&
+                              math::length_sq(grip_point - raw) <= pick * pick;
+        if (grip_hit) {
+            dragging_ = true;
+            rotating_ = true;
+            drag_moved_ = false;
+            drag_ref_ = doc.primary();
+        } else if (lmb_down) {
             const ElementRef hit = doc.hit_test(world, pick);
             if (!hit.valid()) {
                 marquee_ = true;
@@ -331,6 +385,25 @@ void EditorCanvas::handle_tool(app::EditorMode& editor, render::Camera& camera,
             drag_ref_ = doc.primary();
             drag_start_world_ = world;
             drag_last_world_ = world;
+        } else if (dragging_ && rotating_ && lmb_held) {
+            Vec2 c{}, unused{};
+            if (rotation_grip(doc.def(), drag_ref_, c, unused)) {
+                const Vec2 d = raw - c;
+                if (math::length_sq(d) > 1e-6f) {
+                    if (!drag_moved_) {
+                        doc.begin_gesture("rotate");
+                        drag_moved_ = true;
+                    }
+                    f32 ang = std::atan2(d.y, d.x);
+                    // Snapping is angular here, on the same toggle (and the
+                    // same Alt escape hatch) that snaps positions to the grid.
+                    if (snap_ && !alt) {
+                        constexpr f32 kStep = math::kPi / 12.0f;   // 15 degrees
+                        ang = std::round(ang / kStep) * kStep;
+                    }
+                    set_element_rotation(doc, drag_ref_, ang);
+                }
+            }
         } else if (dragging_ && lmb_held) {
             const Vec2 delta = world - drag_last_world_;
             if (math::length_sq(delta) > 1e-8f) {
@@ -359,6 +432,7 @@ void EditorCanvas::handle_tool(app::EditorMode& editor, render::Camera& camera,
             }
             dragging_ = false;
             drag_moved_ = false;
+            rotating_ = false;
         }
         break;
     }
@@ -853,13 +927,25 @@ void EditorCanvas::draw_gizmos(app::EditorMode& editor, const render::Camera& ca
             const bool sel =
                 doc.is_selected(ElementRef{ElementKind::Objective, static_cast<i32>(i), -1});
             const u32 col = sel ? gizmo_color::selection() : gizmo_color::objective();
-            // A square, not a ring: the objective's footprint IS a square
-            // (game::ObjectivePoint), and `radius` is its half-extent.
-            const Rect box{o.position - Vec2{o.radius, o.radius},
-                           o.position + Vec2{o.radius, o.radius}};
-            g.rect_filled(box, IM_COL32(255, 120, 190, 40));
-            g.rect(box, col, sel ? 2.5f : 1.8f);
+            // A turned quad, not a ring: the objective's footprint IS an
+            // oriented rectangle (game::ObjectivePoint). Same corner
+            // construction as a box obstacle, so the two read alike.
+            const f32 c = std::cos(o.rotation);
+            const f32 sn = std::sin(o.rotation);
+            const Vec2 ax{o.half_extents.x * c, o.half_extents.x * sn};
+            const Vec2 ay{-o.half_extents.y * sn, o.half_extents.y * c};
+            const std::vector<Vec2> quad = {o.position - ax - ay, o.position + ax - ay,
+                                            o.position + ax + ay, o.position - ax + ay};
+            g.convex_fill(quad, IM_COL32(255, 120, 190, 40));
+            g.polyline(quad, col, sel ? 2.5f : 1.8f, true);
             g.handle(o.position, col, sel);
+            if (sel) {
+                // Rotation grip, out along the local +x. Draggable: see
+                // rotation_grip() and the Select tool.
+                const Vec2 grip = o.position + ax * kGripReach;
+                g.line(o.position, grip, col, 1.2f);
+                g.handle(grip, col, true, 5.0f);
+            }
             if (views_.labels) g.label(o.position, o.id, col);
         }
     }

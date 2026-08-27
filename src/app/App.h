@@ -76,8 +76,10 @@ private:
     /// clamp rect so the world rectangle's own edges stay reachable.
     void frame_editor_camera();
     /// Instantiates the editor's document and switches to InLevel, remembering
-    /// that Stop should come back here rather than to the main menu.
-    void editor_play(i32 from_wave);
+    /// that Stop should come back here rather than to the main menu. False if
+    /// the document could not be instantiated, in which case nothing changed
+    /// and the caller is still in whatever state it was in.
+    bool editor_play(i32 from_wave);
     void editor_stop();
     /// Reads assets/config (or --config) into config_ and binds it for the gym
     /// console. False if any file is missing or malformed.
@@ -135,6 +137,9 @@ private:
     i32 editor_play_from_wave_ = 0;
     std::vector<ui::LevelEntry> levels_;
     std::string current_level_path_;  ///< Path to the currently loaded level, for restart.
+    /// The most recent level-instantiation failure, retained so editor Play can
+    /// show the exact reason in its warning popup instead of only logging it.
+    std::string last_level_load_error_;
     /// True once a level has actually been loaded into sim_. Guards the render
     /// path: the menu states run before any world exists, so the game passes
     /// must not be submitted against an uninitialised SimWorld.

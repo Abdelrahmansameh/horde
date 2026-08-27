@@ -35,6 +35,14 @@ void EcsWorld::clear_systems() {
 
 void EcsWorld::clear_entities() { registry_.clear(); }
 
+void EcsWorld::reset() {
+    // Assignment rather than clear(): entt::registry::clear() destroys entities
+    // and components but leaves the context variables alone, and those are
+    // exactly where the per-world "already installed" guards live.
+    registry_ = entt::registry{};
+    clear_systems();
+}
+
 EntityId EcsWorld::to_id(entt::entity e) const {
     if (e == entt::null) return EntityId{};
     return EntityId{static_cast<u32>(entt::to_integral(e)) + 1u};

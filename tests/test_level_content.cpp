@@ -90,7 +90,9 @@ TEST_CASE("instantiate spawns one comp::Objective entity per level objective",
             const sim::comp::Objective& obj = view.get<const sim::comp::Objective>(e);
             REQUIRE(obj.integrity == o.integrity);
             REQUIRE(obj.max_integrity == o.integrity);
-            REQUIRE(obj.radius == o.radius);
+            REQUIRE(obj.half_extents.x == o.half_extents.x);
+            REQUIRE(obj.half_extents.y == o.half_extents.y);
+            REQUIRE(obj.rotation == o.rotation);
             REQUIRE(t.rotation == 0.0f);
             REQUIRE(t.scale == 1.0f);
             found = true;

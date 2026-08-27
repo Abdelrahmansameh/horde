@@ -44,7 +44,7 @@ TEST_CASE("straight corridor: field points end to end and cost grows with distan
         for (i32 x = 0; x < 30; ++x) m.set_walkable(x, y, true);
 
     FlowFieldBakeDesc desc;
-    desc.goal_cells = {IVec2{29, 1}};
+    desc.goals = {sim::FlowGoal{IVec2{29, 1}}};
     FlowField field;
     field.bake(m, desc);
 
@@ -104,7 +104,7 @@ TEST_CASE("bifurcation: trunk heads into the fork and each arm heads to its own 
     TissueMask m = make_bifurcation();
 
     FlowFieldBakeDesc desc;
-    desc.goal_cells = {IVec2{24, 1}, IVec2{24, 21}};
+    desc.goals = {sim::FlowGoal{IVec2{24, 1}}, sim::FlowGoal{IVec2{24, 21}}};
     FlowField field;
     field.bake(m, desc);
 
@@ -150,7 +150,7 @@ TEST_CASE("dead-end pocket: unreachable, sample() is zero, cost is infinite",
         for (i32 x = 4; x <= 6; ++x) m.set_walkable(x, y, true);
 
     FlowFieldBakeDesc desc;
-    desc.goal_cells = {IVec2{11, 0}};
+    desc.goals = {sim::FlowGoal{IVec2{11, 0}}};
     FlowField field;
     field.bake(m, desc);
 
@@ -190,7 +190,7 @@ TEST_CASE("blocking the main lane forces a reroute through the bypass",
           "[flowfield][topology][reroute]") {
     TissueMask m = make_ladder();
     FlowFieldBakeDesc desc;
-    desc.goal_cells = {IVec2{19, 4}};
+    desc.goals = {sim::FlowGoal{IVec2{19, 4}}};
 
     FlowField before;
     before.bake(m, desc);

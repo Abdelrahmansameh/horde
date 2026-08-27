@@ -98,7 +98,7 @@ target_link_libraries(immune_render PUBLIC immune_core immune_platform immune_si
 
 # Cosmetic particle layer. Deliberately NOT part of immune_sim: it has its own
 # RNG, runs on the render clock, and must never contribute to state_hash().
-add_library(immune_vfx STATIC src/vfx/Particles.cpp)
+add_library(immune_vfx STATIC src/vfx/DeathVfx.cpp src/vfx/Particles.cpp)
 target_link_libraries(immune_vfx PUBLIC immune_core immune_sim)
 
 add_library(immune_game STATIC

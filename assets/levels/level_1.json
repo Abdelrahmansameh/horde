@@ -1,0 +1,92 @@
+{
+  "schema": 1,
+  "name": "level_1",
+  "region": "capillary",
+  "world": { "min": [0, 0], "max": [205.385, 162] },
+  "vessels": [
+    {
+      "id": "main",
+      "points": [
+        { "p": [4, 126], "w": 23 },
+        { "p": [86, 126], "w": 23 },
+        { "p": [162, 126], "w": 23 }
+      ]
+    },
+    {
+      "id": "vessel",
+      "points": [
+        { "p": [162, 126], "w": 23 },
+        { "p": [161, 5], "w": 23 }
+      ]
+    }
+  ],
+  "spawn_points": [
+    { "id": "p0", "pos": [0, 126], "radius": 14.5, "lane_id": "main" }
+  ],
+  "objectives": [
+    { "id": "organ", "pos": [161.385, 7], "half_extents": [13.7, 2.4] }
+  ],
+  "placement_zones": [
+    { "min": [18, 6], "max": [186.385, 153] },
+    { "min": [160, 85], "max": [162, 126] }
+  ],
+  "squad_paths": [
+    { "id": "path", "points": [[4, 126], [162, 126], [161, 5]] },
+    { "id": "path_2", "points": [[4, 126], [0, 126]] }
+  ],
+  "waves": [
+    {
+      "name": "wave_1",
+      "prep_time": 8,
+      "atp_reward": 50,
+      "spawns": [
+        { "family": "virus", "count": 145, "duration": 4 }
+      ]
+    },
+    {
+      "name": "wave_2",
+      "prep_time": 7.2,
+      "atp_reward": 64,
+      "spawns": [
+        { "family": "virus", "count": 240, "duration": 4 },
+        { "family": "bacteria", "count": 1, "start_time": 2, "duration": 4 }
+      ]
+    },
+    {
+      "name": "wave_3",
+      "prep_time": 6.4,
+      "atp_reward": 78,
+      "spawns": [
+        { "family": "virus", "count": 335, "duration": 4 },
+        { "family": "bacteria", "count": 62, "start_time": 2, "duration": 4 }
+      ]
+    },
+    {
+      "name": "wave_4",
+      "prep_time": 5.6,
+      "atp_reward": 92,
+      "spawns": [
+        { "family": "virus", "count": 430, "duration": 4 },
+        { "family": "bacteria", "count": 125, "start_time": 2, "duration": 4 }
+      ]
+    },
+    {
+      "name": "wave_5",
+      "prep_time": 4.8,
+      "atp_reward": 106,
+      "spawns": [
+        { "family": "virus", "count": 525, "duration": 4 },
+        { "family": "bacteria", "count": 187, "start_time": 2, "duration": 4 }
+      ]
+    },
+    {
+      "name": "wave_6",
+      "prep_time": 4,
+      "atp_reward": 120,
+      "spawns": [
+        { "family": "virus", "count": 620, "duration": 4 },
+        { "family": "bacteria", "count": 250, "start_time": 2, "duration": 4 }
+      ]
+    }
+  ]
+}

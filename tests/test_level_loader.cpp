@@ -1,5 +1,6 @@
 // Tests for game/level/Level.cpp: JSON parsing, validation, and
 // instantiate()'s TissueMask/DistanceField/FlowField wiring. Owner: Wave 2D.
+#include "core/Math.h"
 #include "game/level/Level.h"
 #include "platform/FileIO.h"
 #include "sim/SimWorld.h"
@@ -39,6 +40,16 @@ const char* kValidLevel = R"JSON({
       "spawns": [ { "family": "virus", "count": 20, "start_time": 0.0, "duration": 2.0 } ] }
   ]
 })JSON";
+
+/// kValidLevel with its one objective's field list swapped for `fields`, so a
+/// footprint test only has to spell the part it is about.
+std::string level_with_objective(const std::string& fields) {
+    std::string s = kValidLevel;
+    const std::string old = R"({ "id": "organ", "pos": [60, 16], "radius": 4.0, "integrity": 100 })";
+    const std::string::size_type at = s.find(old);
+    if (at == std::string::npos) return s;
+    return s.replace(at, old.size(), fields);
+}
 
 sim::SimWorld make_world(const LevelDef& def) {
     sim::SimWorld world;
@@ -87,6 +98,10 @@ TEST_CASE("load_string parses a valid level into a matching LevelDef", "[level][
     REQUIRE(def.objectives[0].id == "organ");
     REQUIRE(def.objectives[0].position.x == 60.0f);
     REQUIRE(def.objectives[0].integrity == 100.0f);
+    // Legacy "radius": the square that value used to describe.
+    REQUIRE(def.objectives[0].half_extents.x == 4.0f);
+    REQUIRE(def.objectives[0].half_extents.y == 4.0f);
+    REQUIRE(def.objectives[0].rotation == 0.0f);
 
     REQUIRE(def.placement_zones.size() == 1);
     REQUIRE(def.placement_zones[0].min.x == 10.0f);
@@ -98,6 +113,42 @@ TEST_CASE("load_string parses a valid level into a matching LevelDef", "[level][
     // A round trip through validate() should also accept it.
     const LevelLoadResult vres = loader.validate(def);
     REQUIRE(vres.ok);
+}
+
+TEST_CASE("an objective authors an oriented rectangle", "[level][loader][objective]") {
+    LevelLoader loader;
+    LevelDef def;
+
+    SECTION("half_extents + rotation, degrees in the file and radians in the struct") {
+        const LevelLoadResult res = loader.load_string(
+            level_with_objective(
+                R"({ "id": "organ", "pos": [60, 16], "half_extents": [6, 2], "rotation": 90 })"),
+            def);
+        REQUIRE(res.ok);
+        REQUIRE(def.objectives[0].half_extents.x == 6.0f);
+        REQUIRE(def.objectives[0].half_extents.y == 2.0f);
+        REQUIRE(def.objectives[0].rotation == Catch::Approx(math::kPi * 0.5f));
+        // A quarter turn puts the long axis on +y: the point-in-footprint test
+        // is what every other system asks, so it is what is pinned here.
+        REQUIRE(def.objectives[0].contains(Vec2{60.0f, 21.0f}));
+        REQUIRE_FALSE(def.objectives[0].contains(Vec2{65.0f, 16.0f}));
+    }
+    SECTION("half_extents wins over a radius authored alongside it") {
+        const LevelLoadResult res = loader.load_string(
+            level_with_objective(
+                R"({ "id": "organ", "pos": [60, 16], "radius": 4.0, "half_extents": [6, 2] })"),
+            def);
+        REQUIRE(res.ok);
+        REQUIRE(def.objectives[0].half_extents.x == 6.0f);
+        REQUIRE(def.objectives[0].half_extents.y == 2.0f);
+    }
+    SECTION("a non-positive extent is rejected, not silently clamped") {
+        const LevelLoadResult res = loader.load_string(
+            level_with_objective(R"({ "id": "organ", "pos": [60, 16], "half_extents": [6, 0] })"),
+            def);
+        REQUIRE_FALSE(res.ok);
+        REQUIRE(res.error.find("extents") != std::string::npos);
+    }
 }
 
 TEST_CASE("load_file reads and parses assets/levels/capillary_test.json", "[level][loader]") {

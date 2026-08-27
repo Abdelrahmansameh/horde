@@ -42,7 +42,8 @@ LevelDef base_level() {
     d.vessels.push_back(v);
 
     d.spawn_points.push_back(SpawnPoint{"p0", Vec2{8.0f, 16.0f}, 3.0f, ""});
-    d.objectives.push_back(ObjectivePoint{"organ", Vec2{56.0f, 16.0f}, 4.0f, 100.0f});
+    d.objectives.push_back(
+        ObjectivePoint{"organ", Vec2{56.0f, 16.0f}, Vec2{4.0f, 4.0f}, 0.0f, 100.0f});
 
     WaveDef w;
     w.name = "w1";

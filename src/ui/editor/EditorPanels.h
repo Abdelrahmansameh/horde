@@ -103,6 +103,10 @@ private:
     // New-level dialog state.
     i32 new_template_ = 0;
     game::TemplateParams new_params_;
+    /// When set, dragging one world-size component scales the other to keep
+    /// `new_aspect_` (width / height, captured when the lock was engaged).
+    bool new_lock_aspect_ = false;
+    f32 new_aspect_ = 1.0f;
 
     // Wave ramp dialog state.
     game::WaveRampParams ramp_;

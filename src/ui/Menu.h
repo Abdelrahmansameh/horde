@@ -40,6 +40,7 @@ enum class MenuAction : u8 {
     OpenEditor,      ///< Open the in-game level editor (docs/LEVEL_EDITOR.md).
     StartLevel,      ///< `level_index` names the chosen entry.
     RestartLevel,    ///< Restart the current level.
+    BackToEditor,    ///< Leave a playtest and return to the level editor.
     Resume,          ///< Close the pause menu and continue the current level.
     Back,
     Quit,
@@ -64,10 +65,18 @@ public:
                                   i32 screen_width, i32 screen_height);
 
     /// Draws the level failed screen with restart and back buttons.
-    MenuResult build_level_failed_screen(i32 screen_width, i32 screen_height);
+    ///
+    /// `playtest` marks a run launched from the level editor: the way out is
+    /// back to the document being tested, not to the main menu, and the level
+    /// on offer to restart is that same document.
+    MenuResult build_level_failed_screen(i32 screen_width, i32 screen_height,
+                                         bool playtest = false);
 
-    /// Draws the level complete screen with continue and back buttons.
-    MenuResult build_level_complete_screen(i32 screen_width, i32 screen_height);
+    /// Draws the level complete screen with continue and back buttons. A
+    /// playtest also gets Restart here: the run ending is not a reason to have
+    /// to walk back through the editor to test the same waves again.
+    MenuResult build_level_complete_screen(i32 screen_width, i32 screen_height,
+                                           bool playtest = false);
 
     /// Draws the in-level pause menu: resume, restart, or return to the main
     /// menu. Drawn as an overlay over a frozen (but still rendered) game frame.

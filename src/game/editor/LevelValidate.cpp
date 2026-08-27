@@ -280,7 +280,7 @@ std::vector<Issue> validate_level(const LevelDef& def, const BakedGeometry& bake
         const ObjectivePoint& o = def.objectives[i];
         const ElementRef ref{ElementKind::Objective, static_cast<i32>(i), -1};
         if (o.id.empty()) rep.error_at("objective " + std::to_string(i) + " has no id", ref, o.position);
-        if (o.radius <= 0.0f) {
+        if (o.half_extents.x <= 0.0f || o.half_extents.y <= 0.0f) {
             rep.error_at("objective '" + o.id + "' has non-positive radius", ref, o.position);
         }
         if (o.integrity <= 0.0f) {

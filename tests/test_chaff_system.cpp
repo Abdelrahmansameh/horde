@@ -21,6 +21,7 @@
 
 #include <cmath>
 #include <cstdio>
+#include <vector>
 
 using namespace immune;
 using namespace immune::sim;
@@ -46,7 +47,7 @@ FlowField make_radial_flow(Rect bounds, Vec2 goal_world, f32 cell = 1.0f) {
 
     FlowField flow;
     FlowFieldBakeDesc desc;
-    desc.goal_cells = {mask.world_to_cell(goal_world)};
+    desc.goals = {sim::FlowGoal{mask.world_to_cell(goal_world)}};
     flow.bake(mask, desc);
     return flow;
 }
@@ -98,7 +99,7 @@ TEST_CASE("flow acceleration steers an agent toward the goal", "[sim][chaff][mov
     sys.set_tuning(flat_tuning(/*accel*/ 20.0f, /*max_speed*/ 8.0f, /*sep_radius*/ 0.0f,
                                /*sep_strength*/ 0.0f, /*jitter*/ 0.0f));
     sys.set_world_bounds(bounds);
-    sys.set_goal(goal, 0.0f);   // disabled: radius 0 never triggers despawn here
+    sys.set_goal(goal, Vec2{0.0f, 0.0f});   // disabled: radius 0 never triggers despawn here
 
     Rng rng(1);
     for (int i = 0; i < 30; ++i) {
@@ -130,7 +131,7 @@ TEST_CASE("kDrifting agents ignore the flow field and follow ambient drift",
     tuning.ambient_drift = Vec2{0.0f, -5.0f};   // straight down
     sys.set_tuning(tuning);
     sys.set_world_bounds(bounds);
-    sys.set_goal(goal, 0.0f);
+    sys.set_goal(goal, Vec2{0.0f, 0.0f});
 
     Rng rng(2);
     for (int i = 0; i < 20; ++i) {
@@ -166,7 +167,7 @@ TEST_CASE("kSlowed lowers the effective max speed", "[sim][chaff][movement][flag
     // isolating the kSlowed multiplier as the only remaining difference.
     sys.set_tuning(flat_tuning(/*accel*/ 10000.0f, /*max_speed*/ 10.0f, 0.0f, 0.0f, 0.0f));
     sys.set_world_bounds(bounds);
-    sys.set_goal(Vec2{190.0f, 100.0f}, 0.0f);
+    sys.set_goal(Vec2{190.0f, 100.0f}, Vec2{0.0f, 0.0f});
 
     Rng rng(4);
     rebuild(hash, buffers);
@@ -199,7 +200,7 @@ TEST_CASE("kHidden agents do not move", "[sim][chaff][movement][flags]") {
     ChaffSystem sys;
     sys.set_tuning(flat_tuning(20.0f, 8.0f, 1.0f, 8.0f, 1.0f));
     sys.set_world_bounds(bounds);
-    sys.set_goal(Vec2{45.0f, 25.0f}, 0.0f);
+    sys.set_goal(Vec2{45.0f, 25.0f}, Vec2{0.0f, 0.0f});
 
     Rng rng(5);
     for (int i = 0; i < 10; ++i) {
@@ -234,7 +235,7 @@ TEST_CASE("replication respects the per-tick global cap", "[sim][chaff][replicat
     tuning.max_replications_per_tick = 3;
     sys.set_tuning(tuning);
     sys.set_world_bounds(bounds);
-    sys.set_goal(Vec2{25.0f, 25.0f}, 0.0f);
+    sys.set_goal(Vec2{25.0f, 25.0f}, Vec2{0.0f, 0.0f});
 
     Rng rng(6);
     rebuild(hash, buffers);
@@ -260,7 +261,7 @@ TEST_CASE("agents leaving the world bounds are flagged for despawn", "[sim][chaf
     ChaffSystem sys;
     sys.set_tuning(flat_tuning(0.0f, 100.0f, 0.0f, 0.0f, 0.0f));
     sys.set_world_bounds(bounds);
-    sys.set_goal(Vec2{10.0f, 10.0f}, 0.0f);   // disabled
+    sys.set_goal(Vec2{10.0f, 10.0f}, Vec2{0.0f, 0.0f});   // disabled
 
     Rng rng(7);
     rebuild(hash, buffers);
@@ -288,7 +289,7 @@ TEST_CASE("agents reaching the goal are flagged for despawn", "[sim][chaff][desp
     ChaffSystem sys;
     sys.set_tuning(flat_tuning(0.0f, 5.0f, 0.0f, 0.0f, 0.0f));
     sys.set_world_bounds(bounds);
-    sys.set_goal(goal, 1.0f);
+    sys.set_goal(goal, Vec2{1.0f, 1.0f});
 
     Rng rng(8);
     rebuild(hash, buffers);
@@ -296,6 +297,59 @@ TEST_CASE("agents reaching the goal are flagged for despawn", "[sim][chaff][desp
 
     REQUIRE(stats.despawned_at_goal == 1);
     REQUIRE((buffers.flags[0] & chaff_flags::kPendingKill) != 0);
+}
+
+TEST_CASE("the goal footprint is a rectangle that turns with its rotation",
+          "[sim][chaff][despawn]") {
+    // The organ is an oriented rectangle (game::ObjectivePoint), and this
+    // despawn test is what gives that shape teeth. A long, thin, turned goal is
+    // the case that separates it from every rounder approximation: a point off
+    // the long axis is INSIDE the unrotated rectangle and OUTSIDE the turned
+    // one, so a stale axis-aligned test passes the first two assertions and
+    // fails the third.
+    const Rect bounds{Vec2{0.0f, 0.0f}, Vec2{50.0f, 50.0f}};
+    const Vec2 goal{25.0f, 25.0f};
+    const Vec2 half{8.0f, 1.0f};
+    FlowField flow = make_radial_flow(bounds, goal);
+    DistanceField sdf;
+
+    // Spawns one agent at `at`, ticks once, and reports whether the goal ate it.
+    auto consumed = [&](Vec2 at, f32 rotation) {
+        SpatialHash hash = make_hash(bounds);
+        ChaffBuffers buffers;
+        buffers.reserve(4);
+        ChaffSpawnParams p;
+        p.position = at;
+        buffers.spawn(p);
+
+        ChaffSystem sys;
+        sys.set_tuning(flat_tuning(0.0f, 0.0f, 0.0f, 0.0f, 0.0f));   // nothing moves
+        sys.set_world_bounds(bounds);
+        sys.set_goal(goal, half, rotation);
+
+        Rng rng(8);
+        rebuild(hash, buffers);
+        return sys.update(buffers, flow, sdf, TissueMask{}, hash, no_squads(), rng, kFixedDt,
+                          nullptr)
+                   .despawned_at_goal == 1;
+    };
+
+    const f32 quarter = math::kPi * 0.5f;
+
+    SECTION("unrotated, the long axis is x") {
+        REQUIRE(consumed(Vec2{25.0f + 7.0f, 25.0f}, 0.0f));
+        REQUIRE_FALSE(consumed(Vec2{25.0f, 25.0f + 7.0f}, 0.0f));
+    }
+    SECTION("a quarter turn swaps which axis is long") {
+        REQUIRE(consumed(Vec2{25.0f, 25.0f + 7.0f}, quarter));
+        REQUIRE_FALSE(consumed(Vec2{25.0f + 7.0f, 25.0f}, quarter));
+    }
+    SECTION("the corners of the turned rectangle are inside it") {
+        // Just inside the far corner of a 45-degree turn: on the long axis at
+        // 45 degrees, which no axis-aligned box of these extents contains.
+        const f32 d = 7.5f / std::sqrt(2.0f);
+        REQUIRE(consumed(goal + Vec2{d, d}, math::kPi * 0.25f));
+    }
 }
 
 TEST_CASE("same seed reproduces identical results across repeated serial runs",
@@ -321,7 +375,7 @@ TEST_CASE("same seed reproduces identical results across repeated serial runs",
         tuning.max_replications_per_tick = 16;
         sys.set_tuning(tuning);
         sys.set_world_bounds(bounds);
-        sys.set_goal(Vec2{70.0f, 30.0f}, 2.0f);
+        sys.set_goal(Vec2{70.0f, 30.0f}, Vec2{2.0f, 2.0f});
 
         JobSystem jobs(0);   // explicitly serial — see JobSystem.h
         Rng rng(4242);
@@ -381,7 +435,7 @@ TEST_CASE("below the parallel_for grain, serial and multi-worker results match e
         tuning.max_replications_per_tick = 8;
         sys.set_tuning(tuning);
         sys.set_world_bounds(bounds);
-        sys.set_goal(Vec2{70.0f, 30.0f}, 2.0f);
+        sys.set_goal(Vec2{70.0f, 30.0f}, Vec2{2.0f, 2.0f});
 
         Rng rng(555);
         for (int t = 0; t < 40; ++t) {
@@ -461,7 +515,7 @@ TEST_CASE("a dense pack stops overlapping instead of stacking",
     ChaffSystem sys;
     sys.set_tuning(tuning);
     sys.set_world_bounds(bounds);
-    sys.set_goal(Vec2{55.0f, 30.0f}, 0.0f);   // no goal despawn
+    sys.set_goal(Vec2{55.0f, 30.0f}, Vec2{0.0f, 0.0f});   // no goal despawn
 
     Rng rng(7);
     for (int t = 0; t < 240; ++t) {
@@ -516,7 +570,7 @@ TEST_CASE("an over-packed clump spends the free space around it",
         ChaffSystem sys;
         sys.set_tuning(tuning);
         sys.set_world_bounds(bounds);
-        sys.set_goal(Vec2{190.0f, 60.0f}, 0.0f);
+        sys.set_goal(Vec2{190.0f, 60.0f}, Vec2{0.0f, 0.0f});
         Rng rng(7);
         for (int t = 0; t < ticks; ++t) {
             rebuild(hash, buffers);
@@ -636,7 +690,7 @@ TEST_CASE("a crowd of distant neighbours cannot starve the contact pass",
     ChaffSystem sys;
     sys.set_tuning(tuning);
     sys.set_world_bounds(bounds);
-    sys.set_goal(Vec2{55.0f, 30.0f}, 0.0f);
+    sys.set_goal(Vec2{55.0f, 30.0f}, Vec2{0.0f, 0.0f});
 
     Rng rng(11);
     rebuild(hash, buffers);
@@ -747,7 +801,7 @@ TEST_CASE("a crushing crowd cannot be squeezed out through a lane wall",
 
     FlowField flow;
     FlowFieldBakeDesc fd;
-    fd.goal_cells = {mask.world_to_cell(Vec2{116.0f, mid_y})};
+    fd.goals = {sim::FlowGoal{mask.world_to_cell(Vec2{116.0f, mid_y})}};
     flow.bake(mask, fd);
 
     SpatialHash hash = make_hash(bounds);
@@ -763,7 +817,7 @@ TEST_CASE("a crushing crowd cannot be squeezed out through a lane wall",
     }
     sys.set_tuning(t);
     sys.set_world_bounds(bounds);
-    sys.set_goal(Vec2{116.0f, mid_y}, 0.0f);
+    sys.set_goal(Vec2{116.0f, mid_y}, Vec2{0.0f, 0.0f});
 
     ChaffBuffers buffers;
     buffers.reserve(4000);
@@ -835,7 +889,7 @@ TEST_CASE("a crowd cannot be pushed through a tower footprint", "[sim][chaff][wa
 
     FlowField flow;
     FlowFieldBakeDesc fd;
-    fd.goal_cells = {mask.world_to_cell(Vec2{76.0f, mid_y})};
+    fd.goals = {sim::FlowGoal{mask.world_to_cell(Vec2{76.0f, mid_y})}};
     flow.bake(mask, fd);
 
     SpatialHash hash = make_hash(bounds);
@@ -851,7 +905,7 @@ TEST_CASE("a crowd cannot be pushed through a tower footprint", "[sim][chaff][wa
     }
     sys.set_tuning(t);
     sys.set_world_bounds(bounds);
-    sys.set_goal(Vec2{76.0f, mid_y}, 0.0f);
+    sys.set_goal(Vec2{76.0f, mid_y}, Vec2{0.0f, 0.0f});
 
     ChaffBuffers buffers;
     buffers.reserve(3000);
@@ -877,4 +931,216 @@ TEST_CASE("a crowd cannot be pushed through a tower footprint", "[sim][chaff][wa
     INFO("worst agents inside the tower footprint: " << worst_in_tower << " of "
                                                      << buffers.count());
     REQUIRE(worst_in_tower == 0);
+}
+
+TEST_CASE("a jammed crowd moves smoothly instead of shimmering",
+          "[sim][chaff][movement][crowd]") {
+    // The bug this pins: past a certain density the horde stopped LOOKING like
+    // it was moving and started vibrating -- individual agents flicking back
+    // and forth several times a second while the mass as a whole drifted along
+    // the flow field. It was worst on viruses because a virus's silhouette is
+    // small enough that ordinary crowding already puts it over the threshold.
+    //
+    // Two separate terms were pinned at their per-tick displacement cap in a
+    // direction that was sampling noise: a summed (rather than averaged) Jacobi
+    // contact solve over-relaxing by the number of overlaps, and a crowd-relief
+    // gradient renormalized to full length no matter how thoroughly the
+    // neighbourhood cancelled it. See NeighbourSample::contact_push and the
+    // crowd-relief block in ChaffSystem.cpp.
+    //
+    // Asserted as a measurement of the motion itself, because "erratic" is
+    // otherwise a vibe: how far an agent turns from tick to tick, and how often
+    // it outright reverses. A crowd riding a smooth flow field should do
+    // neither, however tightly it is packed -- packing is what CONTACT is for,
+    // and the two are not supposed to trade against each other.
+    const Rect bounds{Vec2{0.0f, 0.0f}, Vec2{240.0f, 120.0f}};
+    FlowField flow = make_radial_flow(bounds, Vec2{230.0f, 60.0f});
+    DistanceField sdf;   // unbaked: open ground, isolate agent-agent behaviour
+    SpatialHash hash = make_hash(bounds, 4.0f);
+
+    // Virus-shaped: the family this was reported on. radius 0.765 gives a
+    // contact distance of 1.53, so the 1.2-unit seeding below is genuinely
+    // over-packed rather than merely touching.
+    ChaffTuning tuning = flat_tuning(/*accel*/ 63.0f, /*max_speed*/ 16.875f,
+                                     /*sep_radius*/ 1.836f, /*sep_strength*/ 6.9f,
+                                     /*jitter*/ 0.45f);
+    for (u32 f = 0; f < kFamilyCount; ++f) tuning.family[f].radius = 0.765f;
+
+    ChaffBuffers buffers;
+    buffers.reserve(2048);
+    Rng seed_rng(90210);
+    for (f32 y = 48.0f; y <= 72.0f; y += 1.2f * 0.866f) {
+        for (f32 x = 20.0f; x < 60.0f; x += 1.2f) {
+            ChaffSpawnParams p;
+            p.position = Vec2{x, y} + seed_rng.unit_disc() * 0.06f;
+            buffers.spawn(p);
+        }
+    }
+    REQUIRE(buffers.count() > 600);
+
+    ChaffSystem sys;
+    sys.set_tuning(tuning);
+    sys.set_world_bounds(bounds);
+    sys.set_goal(Vec2{230.0f, 60.0f}, Vec2{0.0f, 0.0f});   // no goal despawn
+
+    Rng rng(7);
+    auto tick = [&]() {
+        rebuild(hash, buffers);
+        sys.update(buffers, flow, sdf, TissueMask{}, hash, no_squads(), rng, kFixedDt,
+                   nullptr);
+        buffers.compact();
+    };
+    for (int t = 0; t < 60; ++t) tick();   // settle out of the seeding lattice
+
+    const usize count = buffers.count();
+    std::vector<Vec2> prev(count), last_step(count, Vec2{0.0f, 0.0f});
+    for (usize i = 0; i < count; ++i) prev[i] = Vec2{buffers.pos_x[i], buffers.pos_y[i]};
+
+    f64 turn_sum = 0.0, reversals = 0.0, samples = 0.0, step_sum = 0.0;
+    for (int t = 0; t < 180; ++t) {
+        tick();
+        REQUIRE(buffers.count() == count);   // no replication: index mapping holds
+        for (usize i = 0; i < count; ++i) {
+            const Vec2 p{buffers.pos_x[i], buffers.pos_y[i]};
+            const Vec2 step = p - prev[i];
+            const f32 len = math::length(step);
+            const f32 plen = math::length(last_step[i]);
+            step_sum += len;
+            if (len > 1e-5f && plen > 1e-5f) {
+                const f32 dot = math::clamp(
+                    (step.x * last_step[i].x + step.y * last_step[i].y) / (len * plen),
+                    -1.0f, 1.0f);
+                turn_sum += std::acos(dot);
+                if (dot < 0.0f) reversals += 1.0;
+                samples += 1.0;
+            }
+            last_step[i] = step;
+            prev[i] = p;
+        }
+    }
+    REQUIRE(samples > 0.0);
+
+    const f64 mean_turn_deg = (turn_sum / samples) * 57.29578;
+    const f64 reversal_frac = reversals / samples;
+    const f64 mean_step = step_sum / samples;
+    const f64 speed_budget = static_cast<f64>(tuning.family[0].max_speed * kFixedDt);
+    std::fprintf(stderr,
+                 "[crowd smoothness] %zu agents packed to 1.2 (contact 1.53): "
+                 "turn %.2f deg/tick, reversals %.3f, step %.4f (max_speed*dt %.4f)\n",
+                 count, mean_turn_deg, reversal_frac, mean_step, speed_budget);
+
+    // Measured 0.7 deg/tick after the fix; the same scenario before it sat at
+    // 104, i.e. the average agent faced a different way every tick. The bound
+    // sits far above
+    // the measurement and far below the bug on purpose: this asks "is the crowd
+    // vibrating", not "did the tuning move", so it should survive feel passes
+    // and still fail loudly if either term goes back to spending its whole
+    // budget on noise.
+    INFO("mean per-tick heading change, degrees: " << mean_turn_deg);
+    REQUIRE(mean_turn_deg < 20.0);
+
+    // Measured 0.000 after, 0.64 before. An agent carried along a smooth field
+    // essentially never reverses; anything above a few percent is a solver
+    // oscillating at one cycle per tick, which is exactly what reads as jitter.
+    INFO("fraction of ticks reversing direction: " << reversal_frac);
+    REQUIRE(reversal_frac < 0.05);
+
+    // And the crowd must not TRAVEL further than it can walk. Contact and relief
+    // are displacements that deliberately bypass max_speed, so an oscillating
+    // solver shows up here as distance no amount of speed pays for: 1.85x the
+    // budget before, 1.006x after.
+    INFO("mean per-tick distance vs max_speed*dt: " << mean_step / speed_budget);
+    REQUIRE(mean_step < speed_budget * 1.25);
+}
+
+TEST_CASE("a daughter is born beside its parent, not inside it",
+          "[sim][chaff][replication][crowd]") {
+    // Replication used to place the daughter at the parent's exact position.
+    // Two agents at zero distance are invisible to the contact solver -- there
+    // is no separating direction, so gather_neighbours' epsilon test drops the
+    // pair and neither pushes off the other -- so they stayed welded until
+    // jitter broke the tie, and then resolved a full contact-distance overlap
+    // in one step. On a breeding horde that is a continuous sparkle of agents
+    // popping apart, and it is the part of the jitter report that was specific
+    // to viruses.
+    const Rect bounds{Vec2{0.0f, 0.0f}, Vec2{120.0f, 120.0f}};
+    FlowField flow = make_radial_flow(bounds, Vec2{110.0f, 60.0f});
+    DistanceField sdf;
+    SpatialHash hash = make_hash(bounds, 4.0f);
+
+    ChaffTuning tuning = flat_tuning(/*accel*/ 24.0f, /*max_speed*/ 6.0f,
+                                     /*sep_radius*/ 1.2f, /*sep_strength*/ 8.0f,
+                                     /*jitter*/ 0.0f, /*replication_rate*/ 4.0f);
+    const f32 contact_radius =
+        tuning.family[0].radius * tuning.family[0].contact_spacing;
+
+    ChaffBuffers buffers;
+    buffers.reserve(2048);
+    ChaffSpawnParams seed;
+    seed.position = Vec2{30.0f, 60.0f};
+    buffers.spawn(seed);
+
+    ChaffSystem sys;
+    sys.set_tuning(tuning);
+    sys.set_world_bounds(bounds);
+    sys.set_goal(Vec2{110.0f, 60.0f}, Vec2{0.0f, 0.0f});
+
+    Rng rng(31337);
+    u32 coincident = 0;
+    u32 births = 0;
+    for (int t = 0; t < 120; ++t) {
+        const usize before = buffers.count();
+        rebuild(hash, buffers);
+        sys.update(buffers, flow, sdf, TissueMask{}, hash, no_squads(), rng, kFixedDt,
+                   nullptr);
+        births += static_cast<u32>(buffers.count() - before);
+        // Checked BEFORE the next tick's contact pass gets a chance to unpick
+        // anything: the point is that a daughter is clean the instant it exists.
+        //
+        // The bar is the gather's own epsilon (kSeparationEpsSq, 1e-8): inside
+        // it a pair has no separating direction and gets skipped outright, which
+        // is the degenerate state being tested for. A merely very-close pair is
+        // not that -- the solver sees it and takes it apart -- so the test must
+        // not conflate the two, or it starts failing on ordinary crowding.
+        for (usize i = 0; i < buffers.count(); ++i) {
+            for (usize j = i + 1; j < buffers.count(); ++j) {
+                const f32 dx = buffers.pos_x[i] - buffers.pos_x[j];
+                const f32 dy = buffers.pos_y[i] - buffers.pos_y[j];
+                if (dx * dx + dy * dy < 1e-8f) ++coincident;
+            }
+        }
+        buffers.compact();
+    }
+
+    INFO(births << " daughters over 120 ticks, " << coincident
+                << " coincident pairs seen");
+    REQUIRE(births > 20);        // replication really did run
+    REQUIRE(coincident == 0);    // and never stacked two bodies on one point
+
+    // And the offset is HALF the contact distance, measured on a birth in
+    // isolation so the number is the spawn's and not the crowd's: a daughter
+    // starts overlapping its parent by the other half at most, which is a
+    // shallow overlap the contact pass takes in one ordinary step rather than a
+    // full-depth one arriving all at once.
+    ChaffBuffers solo;
+    solo.reserve(8);
+    solo.spawn(seed);
+    SpatialHash solo_hash = make_hash(bounds, 4.0f);
+    Rng solo_rng(4242);
+    usize solo_births = 0;
+    for (int t = 0; t < 60 && solo.count() < 2; ++t) {
+        rebuild(solo_hash, solo);
+        sys.update(solo, flow, sdf, TissueMask{}, solo_hash, no_squads(), solo_rng,
+                   kFixedDt, nullptr);
+        solo_births = solo.count() - 1;
+        solo.compact();
+    }
+    REQUIRE(solo_births >= 1);
+    const f32 dx = solo.pos_x[0] - solo.pos_x[1];
+    const f32 dy = solo.pos_y[0] - solo.pos_y[1];
+    const f32 birth_gap = std::sqrt(dx * dx + dy * dy);
+    INFO("parent-daughter gap at birth: " << birth_gap << " vs contact "
+                                          << contact_radius);
+    REQUIRE(birth_gap > contact_radius * 0.4f);
+    REQUIRE(birth_gap < contact_radius * 0.75f);
 }

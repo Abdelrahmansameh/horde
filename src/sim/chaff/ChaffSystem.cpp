@@ -65,10 +65,8 @@ struct NeighbourSample {
     Vec2 separation{0.0f, 0.0f};   ///< Mean normalized push-away, weighted by closeness.
     /// Which way the crowd ISN'T, over the whole alignment neighbourhood:
     /// every neighbour's unit push-away summed, weighted 1 at zero distance
-    /// down to 0 at alignment_radius. Not averaged -- dividing by the count
-    /// would discard the "how many of them agree" signal, which is the entire
-    /// difference between an interior (everything cancels, near zero) and a
-    /// face with open space in front of it (nothing cancels, large).
+    /// down to 0 at alignment_radius. Raw here; `crowd_weight` below is its
+    /// divisor and the comment there is where the reasoning lives.
     ///
     /// Deliberately NOT the separation sum, which was the first thing tried
     /// here. Separation lives between contact spacing and separation_radius --
@@ -78,12 +76,52 @@ struct NeighbourSample {
     /// over the longest range already being scanned or it cannot see the space
     /// it is supposed to spend.
     Vec2 crowd_gradient{0.0f, 0.0f};
+    /// The same weights, summed WITHOUT their directions.
+    ///
+    /// `crowd_gradient / crowd_weight` is a genuine mean push-away direction
+    /// whose LENGTH is how much the neighbourhood agrees: ~1 when every
+    /// neighbour is on one side (a face with open space in front of it), ~0
+    /// when they surround the agent evenly (a jam interior with nowhere to go).
+    /// That ratio is the honest form of the "how many of them agree" signal the
+    /// raw sum was reaching for, and the reason the raw sum could not deliver
+    /// it is that cancellation is not exact: over n neighbours the leftover
+    /// grows like sqrt(n), so an enclosed agent's residual GROWS with density
+    /// and then gets rescaled to full length by any normalize-and-clamp on top.
+    /// Read as a sum, "surrounded" and "free on one side" become the same
+    /// number, and the direction separating them is noise.
+    f32 crowd_weight = 0.0f;
     Vec2 avg_velocity{0.0f, 0.0f}; ///< Mean neighbour velocity, for alignment.
-    /// SUMMED (not averaged) positional correction that resolves actual
-    /// interpenetration. Summed on purpose: this is a geometric constraint, not
-    /// a preference, so being crowded by ten agents must push ten times as hard
-    /// as being crowded by one. Averaging it -- which is right for `separation`,
-    /// a steering preference -- is precisely what let dense crowds overlap.
+    /// Positional correction that resolves actual interpenetration, AVERAGED
+    /// over the neighbours that are actually overlapping this agent.
+    ///
+    /// WHY AVERAGED, WHEN THE OBVIOUS ANSWER IS "SUM THEM" (this used to sum)
+    /// Each overlapping pair is a constraint, and the correction stored here is
+    /// the projection that satisfies ONE of them: move half the overlap, and
+    /// the neighbour independently moves the other half. That is exact for a
+    /// lone pair. Applying n such projections at once is not: they are solved
+    /// simultaneously against the SAME pre-tick snapshot, so each one is
+    /// computed as if it were the only correction being made, and summing them
+    /// applies roughly n times the displacement the configuration actually
+    /// needs. This is the standard failure mode of a Jacobi constraint solve,
+    /// and the standard fix is the same one used here -- average the
+    /// projections per particle (Macklin et al., "Unified Particle Physics for
+    /// Real-Time Applications", §3, which averages exactly this way and then
+    /// re-adds a bounded over-relaxation on top).
+    ///
+    /// It matters at precisely the density it was supposed to help at. Below
+    /// contact packing an agent has one or two overlaps and sum == average.
+    /// Past it n grows, the solve over-relaxes by that factor, and it does not
+    /// settle -- it overshoots, reverses, and overshoots the other way, at one
+    /// full cycle per tick. Measured on 1,100 agents packed to 1.2 units
+    /// (contact distance 1.53): mean heading change per tick 104 degrees, 64%
+    /// of ticks reversing direction outright, per-tick travel 1.85x what
+    /// max_speed allows -- a visible 60 Hz shimmer, worst on viruses because a
+    /// virus is small enough for ordinary crowding to put it there.
+    ///
+    /// And the overshoot did not even buy tighter packing: with the pass ON,
+    /// the same crowd's worst overlap measured 0.63 units against 0.40 with it
+    /// disabled entirely. A diverging solver is worse than no solver.
+    /// Averaging converges instead: same jam, 0.32, at 1.1 degrees per tick.
     Vec2 contact_push{0.0f, 0.0f};
     u32 crowd = 0;                 ///< Neighbours inside alignment_radius; drives pressure.
     bool has_alignment = false;
@@ -162,7 +200,9 @@ NeighbourSample gather_neighbours(const SpatialHash& hash,
     Vec2 vel{0.0f, 0.0f};
     Vec2 contact{0.0f, 0.0f};
     Vec2 gradient{0.0f, 0.0f};
+    f32 gradient_weight = 0.0f;
     u32 sep_count = 0;
+    u32 contact_count = 0;
     u32 align_count = 0;
     u32 foreign_crowd = 0;
     u32 sampled = 0;
@@ -231,6 +271,7 @@ NeighbourSample gather_neighbours(const SpatialHash& hash,
                 const f32 correction = (contact_radius - d) * 0.5f * contact_stiffness;
                 contact.x += nx * correction;
                 contact.y += ny * correction;
+                ++contact_count;
             }
             if (!in_crowd) continue;
             if (d2 < my_sep_r2) {
@@ -259,14 +300,22 @@ NeighbourSample gather_neighbours(const SpatialHash& hash,
                 const f32 aw = 1.0f - d * inv_align;
                 gradient.x += nx * aw;
                 gradient.y += ny * aw;
+                gradient_weight += aw;
                 if (foreign) ++foreign_crowd;
             }
         }
     }
 
 done:
-    out.contact_push = contact;
+    // Averaged, not summed -- see NeighbourSample::contact_push for the whole
+    // argument. One contact divides by one, so a lone overlapping pair still
+    // resolves in exactly the single step it always did.
+    if (contact_count > 0) {
+        const f32 inv = 1.0f / static_cast<f32>(contact_count);
+        out.contact_push = Vec2{contact.x * inv, contact.y * inv};
+    }
     out.crowd_gradient = gradient;
+    out.crowd_weight = gradient_weight;
     if (sep_count > 0) {
         // Plain mean over the neighbours that contributed, exactly as before
         // squads existed. The foreign multiplier rides INSIDE each term rather
@@ -720,35 +769,60 @@ ChaffUpdateStats ChaffSystem::update(ChaffBuffers& buffers, const FlowField& flo
             // It is the SAME "packed" the pressure multiplier below reads,
             // deliberately: one notion of crowded, two responses to it.
             //
-            // The gradient is clamped to unit length before scaling: one
-            // neighbour's worth of uncancelled push already means "there is
-            // space that way", and past that the direction stops sharpening,
-            // only the count grows. Without the clamp the deepest part of a jam
-            // would relieve hardest, which is backwards -- it is the part with
-            // nowhere to go.
+            // The gradient is divided by its own WEIGHT, not clamped to unit
+            // length, and the difference is the whole behaviour of this term at
+            // high density.
+            //
+            // What relief needs from the neighbourhood is two separate facts:
+            // which way the open space is, and whether there IS any. Dividing
+            // by the summed weight answers both at once -- the result is a mean
+            // push-away whose length falls to nothing as the neighbours close
+            // in around the agent from every side. Normalizing to unit length
+            // and clamping (what this did) answers only the first, and then
+            // asserts the second: an enclosed agent's gradient is a residual of
+            // near-cancelling terms, so it is both large enough to survive any
+            // clamp and pointing in a direction that is essentially noise, and
+            // rescaling it to full length hands that noise the term's entire
+            // per-tick displacement budget. That is the deepest part of a jam
+            // relieving hardest -- the case the clamp was written to prevent,
+            // arriving through the clamp.
+            //
+            // Measured on 1,100 agents packed to 1.2 units: with contact
+            // averaged but relief still clamped, an agent still changed heading
+            // 21 degrees per tick and reversed outright on 6% of ticks; the
+            // same run with relief disabled entirely sat at 0.7 degrees and
+            // zero. Weighting closes that gap without giving up the expansion,
+            // because a crowd's OUTER face -- the only place with space to
+            // spend -- is exactly where the mean stays long.
             Vec2 relief{0.0f, 0.0f};
             const f32 fits = math::max(fp.pressure_threshold, 1.0f);
             const f32 step = relief_step[f < kFamilyCount ? f : 0];
-            if (step > 0.0f && static_cast<f32>(nb.crowd) > fits) {
+            if (step > 0.0f && static_cast<f32>(nb.crowd) > fits &&
+                nb.crowd_weight > kSeparationEpsSq) {
                 const f32 over =
                     math::saturate((static_cast<f32>(nb.crowd) - fits) / fits);
-                const f32 g2 = math::length_sq(nb.crowd_gradient);
-                if (g2 > kSeparationEpsSq) {
-                    const f32 g = std::sqrt(g2);
-                    relief = nb.crowd_gradient * (step * over / math::max(g, 1.0f));
-                }
+                relief = nb.crowd_gradient * (step * over / nb.crowd_weight);
             }
 
-            // CAPPED. contact_push is a SUM over every overlapping neighbour
-            // (up to max_neighbors_sampled), and pass B applies it as raw
-            // displacement that deliberately bypasses max_speed. Both are right
-            // on their own, but together they mean a deeply packed agent can be
+            // CAPPED. Pass B applies these as raw displacement that
+            // deliberately bypasses max_speed, so a deeply packed agent can be
             // translated a long way in a single tick -- and a translation big
             // enough to step over a wall defeats every wall test there is,
             // because nothing samples the space in between. Bounding one tick's
             // un-overlapping to the agent's own radius keeps it a relaxation
             // rather than a teleport; the jam simply takes a few more ticks to
             // resolve, which is what it looks like anyway.
+            //
+            // The cap is a SAFETY rail and not the thing that keeps this term
+            // well-behaved, which is worth stating because it used to be asked
+            // to be both. Back when contact_push summed its corrections and
+            // relief renormalized its gradient, a jammed agent hit this cap
+            // every single tick, so the cap -- not the physics -- set the
+            // magnitude, and all that was left to vary was a direction made of
+            // sampling noise. Something clamped at full magnitude in a
+            // meaningless direction is the definition of jitter. Both terms now
+            // fall off on their own as the neighbourhood closes in, and in a
+            // settled jam this cap is no longer reached at all.
             //
             // Relief is capped together with contact rather than beside it:
             // the cap exists because of how far an agent moves in a tick, and
@@ -862,16 +936,18 @@ ChaffUpdateStats ChaffSystem::update(ChaffBuffers& buffers, const FlowField& flo
     // ---- Pass C: despawn + replication resolve (serial, deterministic) -----
     u32 despawned_goal = 0;
     u32 despawned_bounds = 0;
-    const bool has_goal = goal_radius_ > 0.0f;
+    const bool has_goal = goal_half_.x > 0.0f && goal_half_.y > 0.0f;
     for (usize i = 0; i < count; ++i) {
         bool killed = false;
         if (has_goal) {
-            // Chebyshev, not Euclidean: the objective's footprint is a square
-            // of half-extent goal_radius_ (game::ObjectivePoint), and this test
-            // is what actually defines "reached the organ".
-            const f32 dx = std::fabs(px[i] - goal_.x);
-            const f32 dy = std::fabs(py[i] - goal_.y);
-            if (math::max(dx, dy) <= goal_radius_) {
+            // Point-in-oriented-rectangle: the objective's footprint is a
+            // rotatable rectangle (game::ObjectivePoint), and this test is what
+            // actually defines "reached the organ". cos/sin came from set_goal.
+            const f32 dx = px[i] - goal_.x;
+            const f32 dy = py[i] - goal_.y;
+            const f32 lx = dx * goal_cos_ - dy * goal_sin_;
+            const f32 ly = dx * goal_sin_ + dy * goal_cos_;
+            if (std::fabs(lx) <= goal_half_.x && std::fabs(ly) <= goal_half_.y) {
                 buffers.kill(i);
                 ++despawned_goal;
                 const u32 f = fam[i];
@@ -905,7 +981,34 @@ ChaffUpdateStats ChaffSystem::update(ChaffBuffers& buffers, const FlowField& flo
         const u32 f = fam[i];
         const ChaffFamilyParams& fp = tuning.family[f < kFamilyCount ? f : 0];
         ChaffSpawnParams sp;
-        sp.position = Vec2{px[i], py[i]};
+        // Placed BESIDE the parent, at half its contact distance, in a
+        // direction drawn per daughter.
+        //
+        // Spawning on the parent's exact position (what this did) is the one
+        // input the contact solver cannot act on: two agents at zero distance
+        // have no separating direction, so gather_neighbours' epsilon test
+        // discards the pair outright and neither one pushes off the other.
+        // They stay welded together -- drawn as one sprite, counted twice by
+        // everyone around them -- until jitter happens to break the tie, and
+        // then they resolve a full contact-distance overlap at once and visibly
+        // pop apart. Every replication is one of these, so a breeding horde
+        // sparkles with them continuously; it is the artifact that reads as
+        // "the viruses in particular are jittery".
+        //
+        // Half the contact distance is the useful offset: far enough that the
+        // pair has a direction and a shallow, one-step overlap, close enough
+        // that a daughter is unmistakably born out of its parent. This is the
+        // same reasoning spawn_burst() applies to a whole wave with its
+        // phyllotaxis packing -- an agent should be clean the instant it
+        // appears, rather than handed to the contact pass as a knot to unpick.
+        //
+        // Drawn from the sim generator rather than a per-range fork because
+        // this resolve pass is serial and runs in index order, so the draws
+        // happen in the same sequence on any thread count.
+        const f32 birth_angle = rng.range_f(0.0f, math::kTwoPi);
+        const f32 birth_offset = fp.radius * fp.contact_spacing * 0.5f;
+        sp.position = Vec2{px[i], py[i]} +
+                      Vec2{std::cos(birth_angle), std::sin(birth_angle)} * birth_offset;
         sp.velocity = Vec2{vx[i], vy[i]};
         sp.family = static_cast<PathogenFamily>(f);
         sp.density = fp.base_density > 0.0f ? fp.base_density : 1.0f;
@@ -984,6 +1087,21 @@ u32 ChaffSystem::spawn_burst(ChaffBuffers& buffers, PathogenFamily family, Vec2 
     // exactly the overlap this is here to remove.
     const f32 phase = rng.range_f(0.0f, math::kTwoPi);
 
+    // Centre the finished formation on the authored marker. The phyllotaxis
+    // formula deliberately starts its first point away from zero, which is
+    // great for packing but used to make even a one-agent squad appear beside
+    // the marker. Translating the entire pattern by its centroid preserves
+    // every pairwise spacing while making the squad's actual spawn location
+    // exactly `spawn_pos`.
+    Vec2 centroid_offset{};
+    for (u32 i = 0; i < count; ++i) {
+        const f32 t = (static_cast<f32>(i) + 0.5f) / static_cast<f32>(count);
+        const f32 r = radius * std::sqrt(t);
+        const f32 a = phase + static_cast<f32>(i) * kGoldenAngle;
+        centroid_offset += Vec2{std::cos(a), std::sin(a)} * r;
+    }
+    centroid_offset = centroid_offset / static_cast<f32>(count);
+
     u32 spawned = 0;
     for (u32 i = 0; i < count; ++i) {
         if (buffers.full()) break;
@@ -991,7 +1109,7 @@ u32 ChaffSystem::spawn_burst(ChaffBuffers& buffers, PathogenFamily family, Vec2 
         const f32 r = radius * std::sqrt(t);
         const f32 a = phase + static_cast<f32>(i) * kGoldenAngle;
         ChaffSpawnParams p;
-        p.position = spawn_pos + Vec2{std::cos(a), std::sin(a)} * r;
+        p.position = spawn_pos + Vec2{std::cos(a), std::sin(a)} * r - centroid_offset;
         p.family = family;
         p.density = fp.base_density > 0.0f ? fp.base_density : 1.0f;
         p.squad_id = squad_id;

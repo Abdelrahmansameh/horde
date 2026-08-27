@@ -67,6 +67,17 @@ public:
     /// Destroys every entity but keeps registered systems.
     void clear_entities();
 
+    /// Full teardown: entities, context variables, AND registered systems.
+    ///
+    /// This is what "start a level fresh" means at the ECS layer. clear_entities()
+    /// alone is not enough for a re-used world: the systems vector and the
+    /// registry's context variables both survive it, so a second level load
+    /// registers a second copy of every per-level system (tower combat, named
+    /// agents) on top of the first, and each one then runs twice per tick.
+    /// SimWorld::init() calls this; callers re-register their systems after it,
+    /// exactly as they do on the first load.
+    void reset();
+
     /// Converts between the opaque EntityId used across module boundaries and
     /// EnTT's handle type, so no other module needs to include EnTT.
     EntityId to_id(entt::entity e) const;

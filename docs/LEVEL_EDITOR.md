@@ -139,12 +139,12 @@ part you can actually see rather than behind the outliner.
 
 | Key | Tool | Behaviour |
 |---|---|---|
-| `V` | Select | Click, Shift+click add, marquee, drag to move, Alt+drag duplicate |
+| `V` | Select | Click, Shift+click add, marquee, drag to move, Alt+drag duplicate, drag the rotation grip to turn an objective or box obstacle (15 deg steps while snap is on; Alt suspends) |
 | `P` | Pen | Click to append control points; click an endpoint to extend it; Enter/right-click finishes |
 | `W` | Width | Drag off a point sets its width; Shift smooths neighbours, Ctrl sets the whole vessel |
 | `B` | Obstacle | `1`–`5` pick the shape. Disc/box/capsule drag to size; polygon and ridge click vertices then Enter |
 | `S` | Spawn point | Click; snaps to the nearest lane centerline (Alt suspends) |
-| `O` | Objective | Click; snaps to the centerline |
+| `O` | Objective | Click; snaps to the centerline. The footprint is an oriented rectangle -- `half extents` + `rotation` in the inspector, or the canvas grip |
 | `Z` | Zone | Drag a rect; 8 corner handles |
 | `Q` | Squad path | Polyline; Enter finishes |
 
@@ -214,6 +214,7 @@ actually needs — so a level using no v2 field stays a v1 file.
 | `win.survive_seconds` | Alternative to clearing the table; measured off the sim tick counter so it replays identically | `game::step_level` |
 | `SpawnEntry.squad_size` | 900 as 15×60 vs 6×150 are different arrivals; this was a global | `WaveDirector::tick` |
 | `SpawnEntry.squad_paths[]` | Commit an entry to the outer paths only — a flank | `SquadRegistry::next_path_for_lane_filtered` |
+| Empty `SpawnEntry.spawn_point_id` | Cycle each squad through every authored spawn point, in marker order; squads are born at the marker itself, then follow their path. Select an id to pin an entry to one marker | `WaveDirector::tick` |
 | `editor` block | The parser drops unknown keys, so no annotation survived a Save | editor only |
 
 **`allowed_towers` is enforced in `TowerSystem::validate()`, not by hiding HUD
@@ -243,6 +244,13 @@ is unaffected; measured against all 14 shipped levels the only difference is
 **Play from wave N** trims the live director's table without touching the
 document. **Shift+F5** or **Esc** returns to editing with the document untouched;
 the sim never gets a mutable reference to it.
+
+A playtest that runs to an end — cleared, or objective destroyed — gets its own
+results screen: **Restart** replays the same document from the same wave, and
+**Back to Editor** (also **Esc**) returns to editing. Neither one goes to the
+front end, and Restart deliberately does not re-read the file: for an unsaved
+document there is no path to re-read, which used to drop the editor into the
+built-in test level.
 
 ---
 

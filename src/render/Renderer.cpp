@@ -233,6 +233,33 @@ constexpr f32 kFieldBurstFadeWindow = 0.10f;
 // See assets/shaders/tissue.frag for what the shader does with them.
 // ---------------------------------------------------------------------------
 
+/// GLOBAL KILL SWITCH for the flow field's influence on how a LANE LOOKS.
+///
+/// The tissue pass reads the baked flow field for two things: the direction the
+/// plasma striations smear along, and `to_goal`, the along-vessel coordinate the
+/// systolic banding rides. Both are properties of where the OBJECTIVE is, so a
+/// lane visibly announces the route through it -- the striations bend into the
+/// bends the field takes, and where the field converges (a junction, the
+/// objective's rim) the lane reads as funnelling toward a point.
+///
+/// Set this to false and the pass behaves exactly as if the level had no
+/// objective at all: the flow texture is never built or bound, `u_have_flow`
+/// goes to 0, and tissue.frag falls back to its no-guidance path -- a fixed +x
+/// smear at reduced weight, uniform banding phase, zero coherence. That is not
+/// an approximation of the objective-less look, it IS it: a level with no
+/// objectives bakes a field with no reachable cells, whose every texel would be
+/// dropped by the validity test below and end up at the same fallback.
+///
+/// Deliberately compile-time and deliberately the ONLY place this is decided --
+/// every caller of submit_tissue (game, editor, autoplay, --screenshot) goes
+/// through here, so flipping this one line turns it off everywhere. It also
+/// skips the per-rebake CPU texture rebuild entirely, so "off" costs nothing.
+///
+/// NOT affected: the flow-arrow debug overlay (submit_flow_debug, toggled by
+/// the debug HUD / editor view options) and, of course, the field the chaff
+/// actually steers on -- this is purely how the vessel is painted.
+constexpr bool kTissueFlowVisuals = false;
+
 /// Resolution cap for the flow texture. The flow field itself is as fine as the
 /// level's tissue grid (0.5 world units — a 260x160 level is 520x320 cells),
 /// which is far more than a visual needs: the plasma striations want a *smooth*
@@ -900,9 +927,14 @@ void Renderer::submit_tissue(const sim::TissueMask& mask, const sim::DistanceFie
     // are a rounding error by comparison, and the GPU's own bilinear filter
     // plus the noise the result drives hide the difference completely.
     bool have_flow = false;
-    if (decor != nullptr && decor->flow != nullptr && decor->flow->width() > 0 &&
-        decor->flow->height() > 0) {
-        const sim::FlowField& flow = *decor->flow;
+    // Resolved into a pointer rather than tested inline so the switch reads as
+    // "there is no field to draw from", which is exactly the state an
+    // objective-less level would put this pass in -- and so MSVC does not see a
+    // constant condition when the switch is off.
+    const sim::FlowField* flow_src =
+        (kTissueFlowVisuals && decor != nullptr) ? decor->flow : nullptr;
+    if (flow_src != nullptr && flow_src->width() > 0 && flow_src->height() > 0) {
+        const sim::FlowField& flow = *flow_src;
         const i32 src_w = flow.width();
         const i32 src_h = flow.height();
         const i32 fw = math::min(src_w, kFlowTexMax);

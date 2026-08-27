@@ -65,7 +65,7 @@ FlowField make_flow(Rect bounds, Vec2 goal, f32 cell = 1.0f,
     }
     FlowField flow;
     FlowFieldBakeDesc desc;
-    desc.goal_cells = {mask.world_to_cell(goal)};
+    desc.goals = {sim::FlowGoal{mask.world_to_cell(goal)}};
     flow.bake(mask, desc);
     return flow;
 }
@@ -354,7 +354,7 @@ void run_two_squads(TwoSquadRun& r, bool grouping, u32 ticks, u32 per_squad = 40
     ChaffSystem sys;
     sys.set_tuning(flat_tuning());
     sys.set_world_bounds(bounds);
-    sys.set_goal(Vec2{115.0f, 30.0f}, 0.0f);   // radius 0: never despawns here
+    sys.set_goal(Vec2{115.0f, 30.0f}, Vec2{0.0f, 0.0f});   // radius 0: never despawns here
 
     SquadTuning t;
     t.enabled = grouping;
@@ -443,7 +443,7 @@ TEST_CASE("agents with no squad are unaffected by the squad layer",
     ChaffSystem sys;
     sys.set_tuning(flat_tuning());
     sys.set_world_bounds(bounds);
-    sys.set_goal(Vec2{115.0f, 30.0f}, 0.0f);
+    sys.set_goal(Vec2{115.0f, 30.0f}, Vec2{0.0f, 0.0f});
 
     auto run = [&](bool with_paths) {
         SpatialHash hash = make_hash(bounds);
@@ -485,7 +485,7 @@ TEST_CASE("squad movement is reproducible and thread-count independent",
         ChaffSystem sys;
         sys.set_tuning(flat_tuning());
         sys.set_world_bounds(bounds);
-        sys.set_goal(Vec2{115.0f, 30.0f}, 0.0f);
+        sys.set_goal(Vec2{115.0f, 30.0f}, Vec2{0.0f, 0.0f});
 
         SquadRegistry reg;
         reg.set_tuning(SquadTuning{});
@@ -649,7 +649,7 @@ TEST_CASE("10k agents in squads stay inside the chaff movement budget",
     ChaffSystem sys;
     sys.set_tuning(flat_tuning());
     sys.set_world_bounds(bounds);
-    sys.set_goal(Vec2{250.0f, 72.0f}, 0.0f);
+    sys.set_goal(Vec2{250.0f, 72.0f}, Vec2{0.0f, 0.0f});
 
     SquadRegistry reg;
     reg.set_tuning(SquadTuning{});
@@ -721,7 +721,7 @@ TEST_CASE("a replicated agent joins its parent's squad", "[sim][squad][replicati
     for (u32 f = 0; f < kFamilyCount; ++f) t.family[f].replication_rate = 4.0f;   // brisk
     sys.set_tuning(t);
     sys.set_world_bounds(bounds);
-    sys.set_goal(Vec2{115.0f, 30.0f}, 0.0f);
+    sys.set_goal(Vec2{115.0f, 30.0f}, Vec2{0.0f, 0.0f});
 
     SquadRegistry reg;
     {
@@ -804,7 +804,7 @@ TEST_CASE("a squad stops absorbing daughters at max_squad_size",
     for (u32 f = 0; f < kFamilyCount; ++f) t.family[f].replication_rate = 4.0f;
     sys.set_tuning(t);
     sys.set_world_bounds(bounds);
-    sys.set_goal(Vec2{115.0f, 30.0f}, 0.0f);
+    sys.set_goal(Vec2{115.0f, 30.0f}, Vec2{0.0f, 0.0f});
 
     SquadRegistry reg;
     SquadTuning st;
@@ -885,7 +885,7 @@ TEST_CASE("replication spreads across squads rather than compounding in one",
     }
     sys.set_tuning(t);
     sys.set_world_bounds(bounds);
-    sys.set_goal(Vec2{115.0f, 30.0f}, 0.0f);
+    sys.set_goal(Vec2{115.0f, 30.0f}, Vec2{0.0f, 0.0f});
 
     SquadRegistry reg;
     {
