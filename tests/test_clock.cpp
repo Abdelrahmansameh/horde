@@ -53,6 +53,23 @@ TEST_CASE("reset clears the accumulator and tick counter", "[core][clock]") {
     REQUIRE(!clock.consume_tick());
 }
 
+TEST_CASE("drop_accumulated discards banked time but keeps the tick count", "[core][clock]") {
+    FixedClock clock;
+    clock.advance_manual(1.0);
+    while (clock.consume_tick()) {}
+    const Tick before = clock.tick();
+    // Thirty seconds of frames nobody stepped the sim through -- a results
+    // screen, say. Without the drop, the next consumer would run 1800 ticks.
+    for (int i = 0; i < 1800; ++i) clock.advance_manual(1.0 / 60.0);
+    clock.drop_accumulated();
+    REQUIRE(!clock.consume_tick());
+    REQUIRE(clock.tick() == before);
+    REQUIRE(clock.alpha() == 0.0f);
+    // And it is a drop, not a stop: time accumulated afterwards still ticks.
+    clock.advance_manual(1.0 / 60.0);
+    REQUIRE(clock.consume_tick());
+}
+
 TEST_CASE("scoped timer records a non-negative duration", "[core][clock]") {
     f64 ms = -1.0;
     {

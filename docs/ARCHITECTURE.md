@@ -263,19 +263,27 @@ not as a bug.
 `sample()` returns `(0,0)` outside the field or in an unreachable pocket. Callers
 must treat zero as **"no guidance"**, not as "standing still is fine".
 
+**Towers are not obstacles.** `TowerSystem::place`/`sell` never touch the
+`TissueMask` or the `FlowField`. The horde walks straight through a tower's
+footprint; `footprint_radius` only spaces towers apart and sizes the sprite, and
+the renderer emits towers last in the entity pass so they draw over whatever is
+standing in them. The only runtime mask edits are the Fibrin Clot (an active
+ability) and scripted collapses.
+
 **Walls: the mask and the SDF disagree, deliberately.** `resolve_wall_contact`
 does the ordinary wall response off the `DistanceField`, but the SDF is *not*
-re-baked when a tower is built — tower placement validation reads it for "is
-there clearance here", so folding towers into it would make every tower block
-its own neighbours and kill tower clustering. `sim::block_rect` therefore
-updates only the `TissueMask` (and the flow field re-bakes to route around the
-tower). The consequence is that the SDF-based response cannot see towers at all,
-and a dense enough crowd pressed them straight through one — measured, 72 of
-1,200 agents inside a footprint at once. `contain_to_tissue` closes that by
-testing the **mask**, which is the walkability authority and is always current:
-the previous position was walkable, so bisection along the step finds the last
-walkable point, with no normal or penetration depth needed (neither is reliable
-inside solid ground anyway). The same net covers ordinary tissue walls.
+re-baked when a clot is dropped — tower placement validation reads it for "is
+there clearance here", so folding runtime blocks into it would make every clot
+unbuildable ground for its lifetime. A runtime block therefore updates only the
+`TissueMask` (and the flow field re-bakes to route around it). The consequence
+is that the SDF-based response cannot see such blocks at all, and a dense
+enough crowd pressed them straight through one — measured, back when towers
+were still obstacles, at 72 of 1,200 agents inside a footprint at once.
+`contain_to_tissue` closes that by testing the **mask**, which is the
+walkability authority and is always current: the previous position was
+walkable, so bisection along the step finds the last walkable point, with no
+normal or penetration depth needed (neither is reliable inside solid ground
+anyway). The same net covers ordinary tissue walls.
 
 ### 4.5 `sim/damage` — aggregate damage
 
@@ -493,11 +501,11 @@ hold body and attack together:
   six are amoeboid blobs; the Interferon is deliberately the hard-edged crystal,
   the Goblet Cell the only vessel-shaped one, and the NK Cell the only rotor.
   Each also carries a *directional* feature aligned to local +x — the
-  Macrophage's maw, the Cytotoxic T's electrode, the Goblet Cell's open apical
-  mouth — which `entity.vert` has already rotated onto the aim.
+  Macrophage's maw, the Cytotoxic T's flattened synapse face, the Goblet Cell's
+  open apical mouth — which `entity.vert` has already rotated onto the aim.
 - **Tier is spent on something countable.** `EntityInstance::shape_param` carries
   the raw tier, and each body turns it into phagosomes / crystal reach /
-  microvilli / mucin granules / blades, so an upgrade shows in the silhouette
+  lytic granules / mucin granules / blades, so an upgrade shows in the silhouette
   rather than only in the stat panel.
 
 The one field shape two towers share is Circle, split by lifetime: persistent is

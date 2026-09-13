@@ -108,6 +108,22 @@ struct Ephemeral {
     EntityId spawner{};
 };
 
+/// A temporary obstacle carved out of the tissue mask at runtime -- the Fibrin
+/// Clot active ability (game/abilities). An oriented bar: `half_extents.x`
+/// runs along the entity's Transform::rotation, `half_extents.y` across it.
+///
+/// Geometry and clock only, so the renderer can draw it at the right aspect
+/// and fade it as it dissolves, and TowerSystem::validate can refuse to build
+/// on top of one (a tower footprint that snapshotted the clot's blocked cells
+/// would keep them blocked forever once the clot restored them). The tissue
+/// cells it displaced live in a private component owned by the ability
+/// system, the same split a tower's footprint snapshot makes.
+struct Barrier {
+    Vec2 half_extents{7.0f, 1.5f};
+    f32 remaining = 0.0f;   ///< Seconds until it dissolves.
+    f32 duration = 0.0f;    ///< What `remaining` started at.
+};
+
 /// Renderable tag: the ECS render pass draws entities carrying this.
 struct Sprite {
     Vec4 tint{1.0f, 1.0f, 1.0f, 1.0f};

@@ -17,6 +17,7 @@
 #include "sim/SimWorld.h"
 #include "sim/chaff/ChaffBuffers.h"
 #include "sim/chaff/ChaffSystem.h"
+#include "sim/chaff/HitFlash.h"
 #include "sim/damage/DamageField.h"
 #include "sim/ecs/AiStateMachine.h"
 #include "sim/ecs/EcsWorld.h"
@@ -270,6 +271,11 @@ void apply_enemy_config(EnemyRoster& roster, const EnemyConfig& cfg) {
         // and the death burst is authored per family alongside the look it
         // comes out of. See vfx/DeathVfx.h.
         vfx::set_family_death_vfx(family, cfg.families[i].death_vfx);
+        // And once more, one layer DOWN rather than up: the hit flash is
+        // per-agent state, so its table lives at the bottom of sim/ where both
+        // the damage path that writes it and the batcher that draws it can
+        // reach it. See sim/chaff/HitFlash.h.
+        sim::set_family_hit_flash(family, cfg.families[i].hit_flash);
     }
 
     roster.load_defaults();

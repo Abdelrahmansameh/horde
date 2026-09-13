@@ -52,9 +52,25 @@ const uint CHAFF_FAMILY_MASK  = 0xFFu;
 // below for what this stage does with it.
 const uint CHAFF_CROWD_SHIFT = 16u;
 const uint CHAFF_CROWD_MASK  = 0xFFu;
+// Hit flash, 0..255, packed into the last free byte (24..31) by the same
+// batcher. See sim/chaff/HitFlash.h for what it is; see the flash block at the
+// bottom of main() for what this stage does with it.
+const uint CHAFF_FLASH_SHIFT = 24u;
+const uint CHAFF_FLASH_MASK  = 0xFFu;
 // Mirrors PathogenFamily's declaration order in core/Types.h.
 const uint FAM_VIRUS    = 0u;
 const uint FAM_BACTERIA = 1u;
+const uint FAM_COUNT    = 2u;   // == immune::kFamilyCount
+
+// What each family flares toward when it is hit, authored per family in
+// enemies.json and uploaded once per frame by Renderer::submit_chaff.
+//
+// A UNIFORM RATHER THAN A PER-INSTANCE ATTRIBUTE, on purpose: the colour is a
+// property of the FAMILY, and there are two of those against ten thousand
+// instances. Sending it per agent would push the same three bytes up the bus
+// five thousand times each and force a frozen 32-byte instance layout wider to
+// do it. Locations 0 and 1 belong to chaff.vert's view-projection and time.
+layout(location = 2) uniform vec4 u_hit_flash_color[FAM_COUNT];
 
 // ---------------------------------------------------------------------------
 // VIRUS — an icosahedral capsid ringed with receptor spikes.
@@ -227,6 +243,25 @@ void main() {
 
     if ((v_flags & FLAG_MARKED) != 0u) rgb = mix(rgb, vec3(1.0), 0.25);
     if ((v_flags & FLAG_SLOWED) != 0u) rgb = mix(rgb, vec3(0.55, 0.75, 1.0), 0.35);
+
+    // ---- Hit flash ---------------------------------------------------------
+    // LAST, so it wins over both debuff tints above and over all of the
+    // interior shading. That ordering is the whole point of doing this here
+    // instead of pre-mixing the flash into v_tint on the CPU: a tint mix goes
+    // in at the TOP of this function and then gets multiplied by the 1.30/0.62
+    // depth ramp and re-tinted by the rim, so a "white" agent would come out
+    // as a shaded grey-ish one whose brightness depended on which pixel of it
+    // you looked at. A hit is an event, not a material property -- it is
+    // allowed to flatten the body it lands on.
+    //
+    // Deliberately NOT touching alpha. The flash says "this was hit", and an
+    // agent that also became more opaque while it said so would fight the LOD
+    // crossfade, which owns alpha and needs it to keep meaning exactly one
+    // thing (render/ChaffBatcher.h's crossfade contract).
+    float hit_flash = float((v_flags >> CHAFF_FLASH_SHIFT) & CHAFF_FLASH_MASK) * (1.0 / 255.0);
+    if (hit_flash > 0.0) {
+        rgb = mix(rgb, u_hit_flash_color[min(family, FAM_COUNT - 1u)].rgb, hit_flash);
+    }
 
     float body_a = body_alpha * sprite_fade;
 

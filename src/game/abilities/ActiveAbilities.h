@@ -18,6 +18,14 @@
 // through a damage field, since "buff every tower" has no damage-field
 // equivalent; it does so by reading/writing the already-public comp::Tower
 // component, the same access pattern the renderer and HUD already use.
+//
+// Fibrin Clot (added after the three above) is the one ability with a
+// footprint: it carves a fixed-size bar out of the tissue mask for a few
+// seconds, the way a tower's footprint does permanently, so the horde has to
+// squeeze past it and towers on either side get a longer look. Still no
+// placement decision beyond the point -- the bar's size is fixed and it
+// orients itself across the local flow -- and still an emergency tool: the
+// clot that buys ten seconds at a chokepoint does nothing on an empty lane.
 #pragma once
 
 #include "core/Types.h"
@@ -30,7 +38,8 @@ enum class AbilityId : u8 {
     ComplementCascadeBurst = 0,
     HistamineFlare = 1,
     FeverResponse = 2,
-    Count = 3,
+    FibrinClot = 3,
+    Count = 4,
 };
 
 inline constexpr u32 kAbilityCount = static_cast<u32>(AbilityId::Count);
@@ -51,6 +60,11 @@ struct AbilityDef {
     /// sustained rate multiplier, chosen deliberately to avoid needing to
     /// track-and-revert a temporary buff across ticks (see .cpp rationale).
     f32 fever_cooldown_relief = 3.0f;
+    /// Clot only: half the bar's length (along the lane's cross-section) and
+    /// half its thickness, in world units. `field_duration` doubles as how
+    /// long the clot stands before it dissolves.
+    f32 barrier_half_length = 7.0f;
+    f32 barrier_half_width = 1.5f;
 };
 
 /// Player-facing snapshot for the HUD ability bar.
@@ -74,9 +88,18 @@ public:
     bool ready(AbilityId id) const;
     AbilityStatus status(AbilityId id) const;
 
+    /// Installs the sim-side systems this module owns (the clot's dissolve
+    /// clock, which restores the tissue it carved) into `world`. Call once per
+    /// level alongside TowerSystem::register_systems; a world that never gets
+    /// this still accepts every cast, its clots just never dissolve.
+    void register_systems(sim::SimWorld& world);
+
     /// Casts the ability if ready; no-ops (returns false) otherwise. Complement
-    /// Cascade Burst and Histamine Flare use `target_point` (world space);
-    /// Fever Response ignores it.
+    /// Cascade Burst, Histamine Flare and Fibrin Clot use `target_point` (world
+    /// space); Fever Response ignores it. Fibrin Clot additionally refuses
+    /// (returns false, cooldown untouched) a point off the tissue or one where
+    /// the bar would wall the lane off completely -- see .cpp for why a
+    /// temporary full block is not allowed either.
     bool cast(sim::SimWorld& world, AbilityId id, Vec2 target_point);
 
     const AbilityDef& def(AbilityId id) const { return defs_[static_cast<u32>(id)]; }

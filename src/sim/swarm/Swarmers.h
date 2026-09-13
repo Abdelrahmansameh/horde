@@ -3,7 +3,7 @@
 //
 // WHAT A SWARMER IS
 // One lytic granule released by a Cytotoxic T cell. It flies out of the cell's
-// synapse electrode, picks a pathogen, latches onto it, and drains it until
+// synapse face, picks a pathogen, latches onto it, and drains it until
 // either the host dies — at which point the swarmer detaches and finds another
 // — or the swarmer's own lifetime runs out. The tower keeps releasing more the
 // whole time, so what the player reads is not a beam or a blast but a small
@@ -81,7 +81,7 @@ inline constexpr u8 kAttached    = 1u << 2; ///< Currently latched onto its targ
 struct SwarmerSpawnParams {
     Vec2 position{0.0f, 0.0f};
     /// Initial launch velocity. Steering takes over from the first tick; this
-    /// only decides which way the granule leaves the electrode.
+    /// only decides which way the granule leaves the synapse.
     Vec2 velocity{0.0f, 0.0f};
     /// Density drained per SECOND while attached. Unlike a projectile's
     /// one-shot `damage`, a swarmer is a damage-over-time source.

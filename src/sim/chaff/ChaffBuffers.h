@@ -39,10 +39,24 @@
 // spawn(), clear(), and -- the easy one to miss -- the swap-remove in compact(),
 // where an agent must carry its squad membership to its new slot for the same
 // reason it carries its generation.
+//
+// HIT FLASH (amendment; see sim/chaff/HitFlash.h)
+// `hit_flash` is a tenth stream, and the only PURELY COSMETIC one. It exists
+// because "this agent was hit a moment ago" is state that has to survive the
+// frames it takes to fade, and an agent's own slot is the only place that state
+// can live -- the renderer cannot hold it, because compact() reshuffles indices
+// under it every tick.
+//
+// It obeys every rule the other nine do (parallel, reserved once, carried
+// through the swap-remove) and exactly one they do not: NOTHING IN THE SIM
+// READS IT. Damage writes it, the movement kernel decays it, and it is absent
+// from SimWorld::state_hash(). That is what keeps a cosmetic stream from
+// becoming a gameplay input by accident.
 #pragma once
 
 #include "core/Types.h"
-#include "sim/squad/Squads.h"   // kNoSquad, the default for the squad_id stream
+#include "sim/chaff/HitFlash.h"  // the per-family table apply_density_loss reads
+#include "sim/squad/Squads.h"    // kNoSquad, the default for the squad_id stream
 
 #include <vector>
 
@@ -125,6 +139,19 @@ public:
     /// randomly.
     std::vector<u16> squad_id;
 
+    /// How brightly this agent is still flashing from the last damage it took,
+    /// 1 at the instant of the hit and decaying linearly to 0 over the family's
+    /// HitFlashParams::duration. See the HIT FLASH note in this file's header.
+    ///
+    /// A FULL f32 rather than a u8 of the flags byte, even though the renderer
+    /// quantizes it to 8 bits on the way to the GPU. The stream is decayed by
+    /// `dt / duration` every tick, and at a 0.12 s duration that is a step of
+    /// about 1/7 -- quantizing the STORED value would round that step and make
+    /// the fade land on a different number of frames depending on where in the
+    /// ramp an agent happened to start. Four bytes an agent is 64 KB at
+    /// capacity, and the decay pass is the only thing that streams it.
+    std::vector<f32> hit_flash;
+
     /// Reserves every stream to `max_agents`. Call once at level load.
     void reserve(usize max_agents);
 
@@ -142,6 +169,15 @@ public:
 
     /// Subtracts from density and flags kPendingKill when it reaches zero.
     /// This is the ONLY way chaff takes damage; there is no per-unit hit path.
+    ///
+    /// Being the only one is also why the hit flash is raised HERE rather than
+    /// in each of the four callers (DamageField, Projectiles, Swarmers, Fluid).
+    /// A feedback effect that some damage sources trigger and others silently
+    /// do not is worse than none at all -- the player learns to distrust it --
+    /// and a choke point that is already documented as the only path is the one
+    /// place that cannot be forgotten by whatever the fifth damage source turns
+    /// out to be. Costs one table read and a handful of float ops per damaged
+    /// agent, and nothing at all for a family with `enabled = false`.
     void apply_density_loss(usize index, f32 amount);
 
     /// Swap-removes every kPendingKill agent. Invalidates all raw indices and

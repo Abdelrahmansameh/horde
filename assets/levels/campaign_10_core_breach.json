@@ -1,0 +1,191 @@
+{
+  "schema": 2,
+  "name": "campaign_10_core_breach",
+  "display_name": "Core Breach",
+  "description": "Breaches on both flanks and the organ exposed in the middle of an open cavern.",
+  "difficulty": 10,
+  "tags": ["campaign"],
+  "region": "organ_chamber",
+  "world": { "min": [0, 0], "max": [960, 640], "cell_size": 1.5 },
+  "camera": { "view_height": 640 },
+  "vessels": [
+    {
+      "id": "in_w",
+      "points": [
+        { "p": [-12, 320], "w": 90 },
+        { "p": [40, 320], "w": 90 },
+        { "p": [90, 320], "w": 90 }
+      ]
+    },
+    {
+      "id": "in_e",
+      "points": [
+        { "p": [972, 320], "w": 90 },
+        { "p": [920, 320], "w": 90 },
+        { "p": [870, 320], "w": 90 }
+      ]
+    },
+    {
+      "id": "field_0",
+      "lane_id": "in_w",
+      "points": [
+        { "p": [80, 100], "w": 170 },
+        { "p": [480, 100], "w": 170 },
+        { "p": [880, 100], "w": 170 }
+      ]
+    },
+    {
+      "id": "field_1",
+      "lane_id": "in_w",
+      "points": [
+        { "p": [80, 240], "w": 170 },
+        { "p": [480, 240], "w": 170 },
+        { "p": [880, 240], "w": 170 }
+      ]
+    },
+    {
+      "id": "field_2",
+      "lane_id": "in_w",
+      "points": [
+        { "p": [80, 380], "w": 170 },
+        { "p": [480, 380], "w": 170 },
+        { "p": [880, 380], "w": 170 }
+      ]
+    },
+    {
+      "id": "field_3",
+      "lane_id": "in_w",
+      "points": [
+        { "p": [80, 520], "w": 170 },
+        { "p": [480, 520], "w": 170 },
+        { "p": [880, 520], "w": 170 }
+      ]
+    }
+  ],
+  "obstacles": [
+    { "id": "nw", "shape": "polygon", "points": [[150, 560], [260, 530], [300, 460], [200, 440], [140, 470]], "inflate": 44 },
+    { "id": "sw", "shape": "polygon", "points": [[120, 220], [250, 190], [270, 110], [180, 80], [130, 130]], "inflate": 42 },
+    { "id": "w_core", "shape": "polygon", "points": [[350, 300], [390, 330]], "inflate": 38 },
+    { "id": "n", "shape": "polygon", "points": [[430, 600], [560, 580], [560, 500], [470, 520]], "inflate": 42 },
+    { "id": "s", "shape": "polygon", "points": [[410, 60], [540, 50], [560, 140], [460, 130]], "inflate": 40 },
+    { "id": "e_core", "shape": "polygon", "points": [[585, 290], [620, 330]], "inflate": 40 },
+    { "id": "ne", "shape": "polygon", "points": [[700, 560], [830, 540], [860, 450], [760, 450]], "inflate": 44 },
+    { "id": "se", "shape": "polygon", "points": [[700, 80], [830, 90], [860, 200], [760, 170]], "inflate": 42 },
+    { "id": "pebble_1", "shape": "disc", "pos": [300, 600], "radius": 25 },
+    { "id": "pebble_2", "shape": "disc", "pos": [660, 40], "radius": 22 },
+    { "id": "pebble_3", "shape": "disc", "pos": [330, 200], "radius": 22 },
+    { "id": "pebble_4", "shape": "disc", "pos": [620, 440], "radius": 20 }
+  ],
+  "spawn_points": [
+    { "id": "p_w", "pos": [-12, 320], "radius": 34, "lane_id": "in_w" },
+    { "id": "p_e", "pos": [972, 320], "radius": 34, "lane_id": "in_e" }
+  ],
+  "objectives": [
+    { "id": "organ", "pos": [480, 320], "half_extents": [28, 28] }
+  ],
+  "placement_zones": [
+    { "min": [0, 0], "max": [960, 640] },
+    { "min": [380, 220], "max": [580, 420], "concentrated": true, "priority": 3 },
+    { "min": [150, 250], "max": [350, 400], "concentrated": true, "priority": 1.5 },
+    { "min": [610, 250], "max": [810, 400], "concentrated": true, "priority": 1.5 }
+  ],
+  "waves": [
+    {
+      "name": "campaign_10_core_breach_wave_1",
+      "prep_time": 8,
+      "atp_reward": 50,
+      "spawns": [
+        { "family": "virus", "count": 390, "duration": 4 }
+      ]
+    },
+    {
+      "name": "campaign_10_core_breach_wave_2",
+      "prep_time": 7.56,
+      "atp_reward": 104,
+      "spawns": [
+        { "family": "virus", "count": 721, "duration": 4 },
+        { "family": "bacteria", "count": 200, "start_time": 1, "duration": 3.5 }
+      ]
+    },
+    {
+      "name": "campaign_10_core_breach_wave_3",
+      "prep_time": 7.11,
+      "atp_reward": 158,
+      "spawns": [
+        { "family": "virus", "count": 1053, "duration": 4 },
+        { "family": "bacteria", "count": 340, "start_time": 1, "duration": 3.5 }
+      ]
+    },
+    {
+      "name": "campaign_10_core_breach_wave_4",
+      "prep_time": 6.67,
+      "atp_reward": 212,
+      "spawns": [
+        { "family": "virus", "count": 1384, "duration": 4 },
+        { "family": "bacteria", "count": 480, "start_time": 1, "duration": 3.5 }
+      ]
+    },
+    {
+      "name": "campaign_10_core_breach_wave_5",
+      "prep_time": 6.22,
+      "atp_reward": 266,
+      "spawns": [
+        { "family": "virus", "count": 1716, "duration": 4 },
+        { "family": "bacteria", "count": 619, "start_time": 1, "duration": 3.5 },
+        { "family": "bacteria", "count": 120, "start_time": 0.5, "duration": 5.5 }
+      ]
+    },
+    {
+      "name": "campaign_10_core_breach_wave_6",
+      "prep_time": 5.78,
+      "atp_reward": 320,
+      "spawns": [
+        { "family": "virus", "count": 2047, "duration": 4 },
+        { "family": "bacteria", "count": 760, "start_time": 1, "duration": 3.5 },
+        { "family": "bacteria", "count": 180, "start_time": 0.5, "duration": 5.5 }
+      ]
+    },
+    {
+      "name": "campaign_10_core_breach_wave_7",
+      "prep_time": 5.33,
+      "atp_reward": 374,
+      "spawns": [
+        { "family": "virus", "count": 2379, "duration": 4 },
+        { "family": "bacteria", "count": 900, "start_time": 1, "duration": 3.5 },
+        { "family": "bacteria", "count": 240, "start_time": 0.5, "duration": 5.5 }
+      ]
+    },
+    {
+      "name": "campaign_10_core_breach_wave_8",
+      "prep_time": 4.89,
+      "atp_reward": 428,
+      "modifier": "fever",
+      "spawns": [
+        { "family": "virus", "count": 2710, "duration": 4 },
+        { "family": "bacteria", "count": 1039, "start_time": 1, "duration": 3.5 },
+        { "family": "bacteria", "count": 300, "start_time": 0.5, "duration": 5.5 }
+      ]
+    },
+    {
+      "name": "campaign_10_core_breach_wave_9",
+      "prep_time": 4.44,
+      "atp_reward": 482,
+      "spawns": [
+        { "family": "virus", "count": 3042, "duration": 4 },
+        { "family": "bacteria", "count": 1180, "start_time": 1, "duration": 3.5 },
+        { "family": "bacteria", "count": 360, "start_time": 0.5, "duration": 5.5 }
+      ]
+    },
+    {
+      "name": "campaign_10_core_breach_wave_10",
+      "prep_time": 4,
+      "atp_reward": 536,
+      "modifier": "swarm",
+      "spawns": [
+        { "family": "virus", "count": 3373, "duration": 4 },
+        { "family": "bacteria", "count": 1320, "start_time": 1, "duration": 3.5 },
+        { "family": "bacteria", "count": 420, "start_time": 0.5, "duration": 5.5 }
+      ]
+    }
+  ]
+}

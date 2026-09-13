@@ -1,0 +1,145 @@
+{
+  "schema": 2,
+  "name": "campaign_04_twin_channels",
+  "display_name": "Twin Channels",
+  "description": "Two vessels run side by side, pinched at different points, before merging at the organ.",
+  "difficulty": 4,
+  "tags": ["campaign"],
+  "region": "capillary",
+  "world": { "min": [0, 0], "max": [535.92, 277.2], "cell_size": 0.75 },
+  "camera": { "view_height": 301.5 },
+  "vessels": [
+    {
+      "id": "lane_a",
+      "points": [
+        { "p": [-7.92, 198], "w": 85.8 },
+        { "p": [52.8, 198], "w": 85.8 },
+        { "p": [85.8, 198], "w": 85.8 },
+        { "p": [115.5, 198], "w": 48.84 },
+        { "p": [135.3, 198], "w": 48.84 },
+        { "p": [165, 198], "w": 85.8 },
+        { "p": [264, 198], "w": 85.8 },
+        { "p": [303.6, 198], "w": 85.8 },
+        { "p": [333.3, 198], "w": 48.84 },
+        { "p": [353.1, 198], "w": 48.84 },
+        { "p": [382.8, 198], "w": 85.8 },
+        { "p": [448.8, 198], "w": 85.8 },
+        { "p": [505.56, 198], "w": 72.6 }
+      ]
+    },
+    {
+      "id": "lane_b",
+      "points": [
+        { "p": [-7.92, 79.2], "w": 85.8 },
+        { "p": [85.8, 79.2], "w": 85.8 },
+        { "p": [118.8, 79.2], "w": 85.8 },
+        { "p": [148.5, 79.2], "w": 48.84 },
+        { "p": [168.3, 79.2], "w": 48.84 },
+        { "p": [198, 79.2], "w": 85.8 },
+        { "p": [297, 79.2], "w": 85.8 },
+        { "p": [389.4, 79.2], "w": 85.8 },
+        { "p": [419.1, 79.2], "w": 48.84 },
+        { "p": [438.9, 79.2], "w": 48.84 },
+        { "p": [468.6, 79.2], "w": 85.8 },
+        { "p": [488.4, 79.2], "w": 85.8 },
+        { "p": [505.56, 79.2], "w": 72.6 }
+      ]
+    },
+    {
+      "id": "merge",
+      "lane_id": "lane_a",
+      "points": [
+        { "p": [505.56, 66], "w": 60.72 },
+        { "p": [505.56, 138.6], "w": 60.72 },
+        { "p": [505.56, 211.2], "w": 60.72 }
+      ]
+    }
+  ],
+  "obstacles": [
+    { "id": "dia_a", "shape": "box", "pos": [264, 198], "half_extents": [13.2, 13.2], "rotation": 45 },
+    { "id": "dia_b1", "shape": "box", "pos": [92.4, 79.2], "half_extents": [13.2, 13.2], "rotation": 45 },
+    { "id": "dia_b2", "shape": "box", "pos": [310.2, 79.2], "half_extents": [13.2, 13.2], "rotation": 45 }
+  ],
+  "spawn_points": [
+    { "id": "p_a", "pos": [-7.92, 198], "radius": 21.12, "lane_id": "lane_a" },
+    { "id": "p_b", "pos": [-7.92, 79.2], "radius": 21.12, "lane_id": "lane_b" }
+  ],
+  "objectives": [
+    { "id": "organ", "pos": [512.16, 138.6], "half_extents": [6.6, 29.04] }
+  ],
+  "placement_zones": [
+    { "min": [0, 0], "max": [535.92, 277.2] },
+    { "min": [99, 158.4], "max": [158.4, 237.6], "concentrated": true, "priority": 2 },
+    { "min": [316.8, 158.4], "max": [369.6, 237.6], "concentrated": true, "priority": 2 },
+    { "min": [132, 39.6], "max": [184.8, 118.8], "concentrated": true, "priority": 2 },
+    { "min": [402.6, 39.6], "max": [455.4, 118.8], "concentrated": true, "priority": 2 },
+    { "min": [455.4, 39.6], "max": [535.92, 237.6], "concentrated": true, "priority": 2.5 }
+  ],
+  "waves": [
+    {
+      "name": "campaign_04_twin_channels_wave_1",
+      "prep_time": 8,
+      "atp_reward": 50,
+      "spawns": [
+        { "family": "virus", "count": 222, "duration": 4 }
+      ]
+    },
+    {
+      "name": "campaign_04_twin_channels_wave_2",
+      "prep_time": 7.33,
+      "atp_reward": 80,
+      "spawns": [
+        { "family": "virus", "count": 410, "duration": 4 },
+        { "family": "bacteria", "count": 104, "start_time": 1, "duration": 3.5 }
+      ]
+    },
+    {
+      "name": "campaign_04_twin_channels_wave_3",
+      "prep_time": 6.67,
+      "atp_reward": 110,
+      "spawns": [
+        { "family": "virus", "count": 599, "duration": 4 },
+        { "family": "bacteria", "count": 176, "start_time": 1, "duration": 3.5 }
+      ]
+    },
+    {
+      "name": "campaign_04_twin_channels_wave_4",
+      "prep_time": 6,
+      "atp_reward": 140,
+      "spawns": [
+        { "family": "virus", "count": 788, "duration": 4 },
+        { "family": "bacteria", "count": 249, "start_time": 1, "duration": 3.5 }
+      ]
+    },
+    {
+      "name": "campaign_04_twin_channels_wave_5",
+      "prep_time": 5.33,
+      "atp_reward": 170,
+      "spawns": [
+        { "family": "virus", "count": 976, "duration": 4 },
+        { "family": "bacteria", "count": 322, "start_time": 1, "duration": 3.5 },
+        { "family": "bacteria", "count": 62, "start_time": 0.5, "duration": 5.5 }
+      ]
+    },
+    {
+      "name": "campaign_04_twin_channels_wave_6",
+      "prep_time": 4.67,
+      "atp_reward": 200,
+      "spawns": [
+        { "family": "virus", "count": 1165, "duration": 4 },
+        { "family": "bacteria", "count": 395, "start_time": 1, "duration": 3.5 },
+        { "family": "bacteria", "count": 93, "start_time": 0.5, "duration": 5.5 }
+      ]
+    },
+    {
+      "name": "campaign_04_twin_channels_wave_7",
+      "prep_time": 4,
+      "atp_reward": 230,
+      "spawns": [
+        { "family": "virus", "count": 1354, "duration": 4 },
+        { "family": "bacteria", "count": 468, "start_time": 1, "duration": 3.5 },
+        { "family": "bacteria", "count": 124, "start_time": 0.5, "duration": 5.5 }
+      ]
+    }
+  ]
+}

@@ -60,12 +60,11 @@ constexpr Field kStatsFields[] = {
     IMMUNE_CONFIG_FIELD(TowerStats, fire_interval, FieldKind::F32, "Seconds between shots"),
     IMMUNE_CONFIG_FIELD(TowerStats, damage, FieldKind::F32, "Per-shot damage to named agents"),
     IMMUNE_CONFIG_FIELD(TowerStats, kill_rate, FieldKind::F32, "Chaff density removed per second in-field"),
-    IMMUNE_CONFIG_FIELD(TowerStats, footprint_radius, FieldKind::F32, "Tissue blocked; drives the flow rebake rect"),
+    IMMUNE_CONFIG_FIELD(TowerStats, footprint_radius, FieldKind::F32, "Body radius: tower spacing and sprite size; not an obstacle"),
     IMMUNE_CONFIG_FIELD(TowerStats, build_cost, FieldKind::U32, "ATP to place"),
     IMMUNE_CONFIG_FIELD(TowerStats, upgrade_cost, FieldKind::U32, "ATP to reach the next tier; 0 at max tier"),
     IMMUNE_CONFIG_FIELD(TowerStats, ability_cooldown, FieldKind::F32, "Seconds; 0 means no active ability"),
     IMMUNE_CONFIG_FIELD(TowerStats, family_mask, FieldKind::U8, "Bitmask of affectable pathogen families; 255 = all"),
-    IMMUNE_CONFIG_FIELD(TowerStats, blocks_flow, FieldKind::Bool, "False for support cells agents flow past"),
 };
 constexpr Schema kStatsSchema{"tower_stats", kStatsFields};
 
@@ -73,6 +72,10 @@ constexpr Field kGunnerFields[] = {
     IMMUNE_CONFIG_FIELD(GunnerParams, round_speed, FieldKind::F32, "Muzzle velocity, units/sec"),
     IMMUNE_CONFIG_FIELD(GunnerParams, hit_radius, FieldKind::F32, "Projectile hit radius"),
     IMMUNE_CONFIG_FIELD(GunnerParams, spread, FieldKind::F32, "Muzzle spread half-angle, radians"),
+    IMMUNE_CONFIG_FIELD(GunnerParams, muzzle_arc_radians, FieldKind::F32,
+                        "Half-angle of the arc the spawn point slides along, radians"),
+    IMMUNE_CONFIG_FIELD(GunnerParams, muzzle_radial_jitter, FieldKind::F32,
+                        "Random in/out spawn offset along the standoff, world units"),
 };
 constexpr Schema kGunnerSchema{"gunner", kGunnerFields};
 
@@ -135,7 +138,6 @@ constexpr Schema kNetSchema{"net_ability", kNetFields};
 constexpr Field kGlobalsFields[] = {
     IMMUNE_CONFIG_FIELD(TowerGlobals, refund_fraction, FieldKind::F32, "Filled from economy.json; kept here for addressing"),
     IMMUNE_CONFIG_FIELD(TowerGlobals, shape_base, FieldKind::U32, "Base of the tower shape-id space"),
-    IMMUNE_CONFIG_FIELD(TowerGlobals, block_check_pad_cells, FieldKind::F32, "Half-width in cells of the path-block search window"),
 };
 constexpr Schema kGlobalsSchema{"tower_globals", kGlobalsFields};
 

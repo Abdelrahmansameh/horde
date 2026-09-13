@@ -63,6 +63,61 @@ std::vector<WaveDef> two_wave_table() {
 }
 } // namespace
 
+TEST_CASE("a spawn point outside the world bounds still puts a horde on the board",
+          "[wave][spawn][bounds]") {
+    // Off-map spawning: the lane runs off the left edge and the horde walks in
+    // from off-screen. Everything the agents touch -- the tissue mask, the
+    // spatial hash, the out-of-bounds retirement test -- has to reach out
+    // there, or the burst is retired on the tick it spawns and the wave stalls
+    // forever waiting for a horde that never survives a frame.
+    LevelDef level = LevelLoader::default_test_level();
+    level.vessels[0].points[0].position = Vec2{-30.0f, 72.0f};
+    level.spawn_points[0].position = Vec2{-20.0f, 72.0f};
+
+    SimWorld world;
+    SimDesc desc;
+    desc.seed = 999;
+    desc.max_chaff = 8192;
+    desc.world_bounds = level.world_bounds;
+    desc.sim_bounds = level_sim_bounds(level);
+    world.init(desc, nullptr);
+    LevelLoader loader;
+    REQUIRE(loader.instantiate(level, world).ok);
+
+    // The play rect is untouched -- the camera still frames the level, not the
+    // approach corridor.
+    REQUIRE(world.desc().world_bounds.min.x == level.world_bounds.min.x);
+    REQUIRE(world.chaff_system().world_bounds().min.x < -20.0f);
+
+    WaveDirector waves;
+    waves.set_waves(two_wave_table());
+    waves.start(world);
+
+    Rng tick_rng; tick_rng.reseed(123);
+    const f32 dt = 1.0f / 60.0f;
+    bool reached_spawning = false;
+    for (int i = 0; i < 600 && !reached_spawning; ++i) {
+        waves.tick(world, tick_rng, dt);
+        if (waves.status().phase == WavePhase::Spawning) reached_spawning = true;
+    }
+    REQUIRE(reached_spawning);
+
+    for (int i = 0; i < 60; ++i) waves.tick(world, tick_rng, dt);
+    REQUIRE(world.chaff().count() > 0);
+
+    // Spawned off-map, and still alive after the ticks that would have retired
+    // them under a play-rect despawn test.
+    bool any_off_map = false;
+    for (usize i = 0; i < world.chaff().count(); ++i) {
+        if (world.chaff().pos_x[i] < level.world_bounds.min.x) any_off_map = true;
+    }
+    REQUIRE(any_off_map);
+
+    const usize before = world.chaff().count();
+    for (int i = 0; i < 60; ++i) world.tick();
+    REQUIRE(world.chaff().count() >= before / 2);
+}
+
 TEST_CASE("start() with an empty table reports all_waves_complete immediately",
           "[wave][lifecycle]") {
     SimWorld world = make_world_with_spawn_point();

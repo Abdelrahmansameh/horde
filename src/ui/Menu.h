@@ -29,9 +29,10 @@ namespace immune::ui {
 /// app/ (which owns level loading); Menu only displays what it is handed.
 struct LevelEntry {
     std::string path;         ///< Full path, passed straight back to the loader.
-    std::string display_name; ///< LevelDef::name, or the filename as a fallback.
+    std::string display_name; ///< LevelDef::display_name, else name, else the filename.
     std::string region;       ///< LevelDef::region, for grouping and subtitle.
     u32 lane_count = 0;       ///< Distinct vessel lane ids; 0 when unknown.
+    i32 difficulty = 0;       ///< LevelDef::difficulty (1-10); 0 = unrated, not shown.
 };
 
 enum class MenuAction : u8 {

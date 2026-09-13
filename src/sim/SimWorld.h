@@ -87,7 +87,19 @@ struct SimDesc {
     /// some of the pops (which are individually indistinguishable in a crowd
     /// that size) for keeping everything else.
     usize max_chaff_death_events = 512;
+    /// The PLAY area: what the camera clamps to and what the level is framed
+    /// by. Nothing in the tick culls against it -- see sim_bounds.
     Rect world_bounds{Vec2{0.0f, 0.0f}, Vec2{256.0f, 144.0f}};
+    /// The rect the simulation actually covers: the spatial hash, the fluid
+    /// grid, and every out-of-bounds retirement test (chaff, projectiles,
+    /// swarmers) use THIS. Levels are allowed to put a spawn point outside the
+    /// play area so the horde walks in from off-screen, and everything that
+    /// touches those agents has to reach that far (game::level_sim_bounds()).
+    ///
+    /// Empty means "same as world_bounds", which is what a caller that has no
+    /// level -- a test, the gym, headless -- wants; init() resolves it once so
+    /// the tick never has to ask which of the two it meant.
+    Rect sim_bounds{};
     f32 spatial_cell_size = 4.0f;
     /// Milliseconds per frame the flow field may spend on incremental rebakes.
     f64 flow_rebake_budget_ms = 0.5;

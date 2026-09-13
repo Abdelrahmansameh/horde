@@ -120,8 +120,14 @@ void App::discover_levels() {
         }
         ui::LevelEntry e;
         e.path = path;
-        e.display_name = def.name.empty() ? path : def.name;
+        // The schema-2 display_name is the human title ("First Bend"); the
+        // v1 `name` is the file stem. Either still resolves in the gym's
+        // `level <name>` command, which also matches the stem.
+        e.display_name = !def.display_name.empty() ? def.display_name
+                         : def.name.empty()        ? path
+                                                   : def.name;
         e.region = def.region.empty() ? std::string("unknown") : def.region;
+        e.difficulty = def.difficulty;
         // Distinct lane ids, not vessel count: a lane can be authored as
         // several chained vessel segments, and the player cares how many ways
         // in there are, not how the spline was cut up.
@@ -308,6 +314,9 @@ bool App::load_level_def(const game::LevelDef& level, const std::string& source_
     sim::SimDesc desc;
     desc.seed = options_.seed;
     desc.world_bounds = level.world_bounds;
+    // Grown to cover any spawn point the level puts outside the play area,
+    // so the horde that walks in from off-screen is on the grid.
+    desc.sim_bounds = game::level_sim_bounds(level);
     // Capacities and the spatial grid are fixed at init() and cannot change
     // without rebuilding the world, which is exactly why they are read here
     // rather than applied by a hot reload.
@@ -357,6 +366,7 @@ bool App::load_level_def(const game::LevelDef& level, const std::string& source_
 
     towers_.register_systems(sim_);
     enemies_.register_systems(sim_);
+    abilities_.register_systems(sim_);
     // The level owns its pressure curve outright (Level.h, AUTHORED WAVES);
     // the loader guarantees the table is non-empty, so there is nothing to
     // fall back to and no choice to make here.
@@ -408,7 +418,14 @@ bool App::load_level_def(const game::LevelDef& level, const std::string& source_
     //                 level, not of the level at 4x.
     //   build cursor: a tower armed on the cursor in the old world would be
     //                 held over the new one.
+    //   clock:        reset, not just rescaled. Whatever the accumulator held
+    //                 when the load began (see run()) would otherwise be the
+    //                 new level's first frame, and the load's own wall time
+    //                 would be the frame delta after that -- a level that
+    //                 opens with a burst of catch-up ticks is not a level
+    //                 that starts at tick 0.
     state_.set_outcome(LevelOutcome::InProgress);
+    clock_.reset();
     clock_.set_time_scale(1.0f);
     hud_.clear_build_cursor();
 
@@ -480,7 +497,10 @@ void App::frame_editor_camera() {
     // rectangle itself is draggable. clamp_to_bounds() would otherwise pin the
     // view to the level and make its own edge unreachable. Restored to the
     // level bounds by load_level_def() on Play.
-    const Rect wb = editor_.doc().def().world_bounds;
+    // Framed on the SIM rect, not the play rect: a level that spawns from
+    // off-map has geometry outside world_bounds, and a camera clamped to the
+    // play area could not be dragged over to it.
+    const Rect wb = game::level_sim_bounds(editor_.doc().def());
     const Vec2 pad = wb.size() * 0.25f;
     camera_.set_viewport(window_.width(), window_.height());
     camera_.set_bounds(Rect{wb.min - pad, wb.max + pad});
@@ -986,6 +1006,12 @@ void App::render_frame() {
     // once-per-frame contract asks for.
     const auto& events = sim_.combat_events().events();
     particles_.emit_for_events(events.data(), events.size());
+    // The same span, for the same reason, one layer over: the renderer keeps
+    // drawing each killed agent's BODY flashing white for a few frames after
+    // the sim retired it. Chaff dies inside the tick it is first damaged, so
+    // this is the only place a hit ever becomes visible on the enemy itself.
+    // See Renderer::submit_chaff_deaths.
+    renderer_.submit_chaff_deaths(events.data(), events.size());
     sim_.combat_events().clear();
     particles_.update(static_cast<f32>(clock_.frame_delta()), jobs_.get());
 
@@ -1081,6 +1107,15 @@ int App::run() {
 
         if (state_.sim_running()) {
             while (clock_.consume_tick()) tick_sim();
+        } else {
+            // Stopped means stopped. begin_frame() accumulates in EVERY state,
+            // and only consume_tick() drains it, so without this a pause menu,
+            // a results screen or the level list banks 60 ticks a second for as
+            // long as it is open -- and the first InLevel frame afterwards
+            // simulates the whole backlog in one go. That was the multi-second
+            // hitch on Restart, and the reason a resumed pause fast-forwarded
+            // through the time it was up.
+            clock_.drop_accumulated();
         }
 
         camera_.set_viewport(window_.width(), window_.height());

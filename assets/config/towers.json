@@ -1,6 +1,5 @@
 {
   "globals": {
-    "block_check_pad_cells": 14.0,
     "refund_fraction": 0.7,
     "shape_base": 16
   },
@@ -40,12 +39,11 @@
           },
           "stats": {
             "ability_cooldown": 0.0,
-            "blocks_flow": true,
             "build_cost": 130,
             "damage": 30.0,
             "family_mask": 255,
             "fire_interval": 0.9,
-            "footprint_radius": 1.6,
+            "footprint_radius": 3.2,
             "kill_rate": 60.0,
             "range": 7.0,
             "upgrade_cost": 84
@@ -63,12 +61,11 @@
           },
           "stats": {
             "ability_cooldown": 0.0,
-            "blocks_flow": true,
             "build_cost": 130,
             "damage": 62.0,
             "family_mask": 255,
             "fire_interval": 0.75,
-            "footprint_radius": 1.6,
+            "footprint_radius": 3.2,
             "kill_rate": 135.0,
             "range": 7.75,
             "upgrade_cost": 70
@@ -86,12 +83,11 @@
           },
           "stats": {
             "ability_cooldown": 0.0,
-            "blocks_flow": true,
             "build_cost": 130,
             "damage": 120.0,
             "family_mask": 255,
             "fire_interval": 0.6,
-            "footprint_radius": 1.6,
+            "footprint_radius": 3.2,
             "kill_rate": 210.0,
             "range": 8.5,
             "upgrade_cost": 0
@@ -114,12 +110,11 @@
           },
           "stats": {
             "ability_cooldown": 0.0,
-            "blocks_flow": true,
             "build_cost": 160,
             "damage": 6.0,
             "family_mask": 255,
             "fire_interval": 0.95,
-            "footprint_radius": 1.4,
+            "footprint_radius": 2.8,
             "kill_rate": 14.0,
             "range": 16.0,
             "upgrade_cost": 104
@@ -137,12 +132,11 @@
           },
           "stats": {
             "ability_cooldown": 0.0,
-            "blocks_flow": true,
             "build_cost": 160,
             "damage": 13.0,
             "family_mask": 255,
             "fire_interval": 0.88,
-            "footprint_radius": 1.4,
+            "footprint_radius": 2.8,
             "kill_rate": 34.0,
             "range": 18.0,
             "upgrade_cost": 88
@@ -160,12 +154,11 @@
           },
           "stats": {
             "ability_cooldown": 0.0,
-            "blocks_flow": true,
             "build_cost": 160,
             "damage": 26.0,
             "family_mask": 255,
             "fire_interval": 0.8,
-            "footprint_radius": 1.4,
+            "footprint_radius": 2.8,
             "kill_rate": 62.0,
             "range": 20.0,
             "upgrade_cost": 0
@@ -185,12 +178,11 @@
           },
           "stats": {
             "ability_cooldown": 0.0,
-            "blocks_flow": true,
             "build_cost": 110,
             "damage": 3.0,
             "family_mask": 255,
             "fire_interval": 0.55,
-            "footprint_radius": 2.4,
+            "footprint_radius": 4.8,
             "kill_rate": 2.0,
             "range": 24.0,
             "upgrade_cost": 70
@@ -205,12 +197,11 @@
           },
           "stats": {
             "ability_cooldown": 0.0,
-            "blocks_flow": true,
             "build_cost": 110,
             "damage": 7.0,
             "family_mask": 255,
             "fire_interval": 0.5,
-            "footprint_radius": 2.4,
+            "footprint_radius": 4.8,
             "kill_rate": 5.4,
             "range": 27.0,
             "upgrade_cost": 60
@@ -225,12 +216,11 @@
           },
           "stats": {
             "ability_cooldown": 0.0,
-            "blocks_flow": true,
             "build_cost": 110,
             "damage": 14.0,
             "family_mask": 255,
             "fire_interval": 0.45,
-            "footprint_radius": 2.4,
+            "footprint_radius": 4.8,
             "kill_rate": 10.5,
             "range": 30.0,
             "upgrade_cost": 0
@@ -250,12 +240,11 @@
           },
           "stats": {
             "ability_cooldown": 0.0,
-            "blocks_flow": true,
             "build_cost": 150,
             "damage": 45.0,
             "family_mask": 255,
             "fire_interval": 2.6,
-            "footprint_radius": 2.0,
+            "footprint_radius": 4.0,
             "kill_rate": 62.0,
             "range": 14.0,
             "upgrade_cost": 95
@@ -270,12 +259,11 @@
           },
           "stats": {
             "ability_cooldown": 0.0,
-            "blocks_flow": true,
             "build_cost": 150,
             "damage": 95.0,
             "family_mask": 255,
             "fire_interval": 2.3,
-            "footprint_radius": 2.0,
+            "footprint_radius": 4.0,
             "kill_rate": 145.0,
             "range": 15.5,
             "upgrade_cost": 80
@@ -290,12 +278,11 @@
           },
           "stats": {
             "ability_cooldown": 0.0,
-            "blocks_flow": true,
             "build_cost": 150,
             "damage": 175.0,
             "family_mask": 255,
             "fire_interval": 2.0,
-            "footprint_radius": 2.0,
+            "footprint_radius": 4.0,
             "kill_rate": 240.0,
             "range": 17.0,
             "upgrade_cost": 0
@@ -309,17 +296,18 @@
         {
           "mechanics": {
             "hit_radius": 0.45,
+            "muzzle_arc_radians": 0.45,
+            "muzzle_radial_jitter": 0.45,
             "round_speed": 45.0,
-            "spread": 0.045
+            "spread": 0.11
           },
           "stats": {
             "ability_cooldown": 6.0,
-            "blocks_flow": true,
             "build_cost": 70,
-            "damage": 1.4,
+            "damage": 1.9,
             "family_mask": 255,
             "fire_interval": 0.045,
-            "footprint_radius": 1.4,
+            "footprint_radius": 2.8,
             "kill_rate": 0.0,
             "range": 18.0,
             "upgrade_cost": 45
@@ -328,17 +316,18 @@
         {
           "mechanics": {
             "hit_radius": 0.45,
+            "muzzle_arc_radians": 0.35,
+            "muzzle_radial_jitter": 0.38,
             "round_speed": 52.0,
-            "spread": 0.045
+            "spread": 0.085
           },
           "stats": {
             "ability_cooldown": 5.0,
-            "blocks_flow": true,
             "build_cost": 70,
-            "damage": 2.2,
+            "damage": 3.0,
             "family_mask": 255,
             "fire_interval": 0.0275,
-            "footprint_radius": 1.4,
+            "footprint_radius": 2.8,
             "kill_rate": 0.0,
             "range": 20.0,
             "upgrade_cost": 38
@@ -347,17 +336,18 @@
         {
           "mechanics": {
             "hit_radius": 0.45,
+            "muzzle_arc_radians": 0.26,
+            "muzzle_radial_jitter": 0.3,
             "round_speed": 60.0,
-            "spread": 0.045
+            "spread": 0.06
           },
           "stats": {
             "ability_cooldown": 4.0,
-            "blocks_flow": true,
             "build_cost": 70,
-            "damage": 2.4,
+            "damage": 3.3,
             "family_mask": 255,
             "fire_interval": 0.015,
-            "footprint_radius": 1.4,
+            "footprint_radius": 2.8,
             "kill_rate": 0.0,
             "range": 22.0,
             "upgrade_cost": 0
@@ -376,12 +366,11 @@
           },
           "stats": {
             "ability_cooldown": 0.0,
-            "blocks_flow": true,
             "build_cost": 90,
             "damage": 5.0,
             "family_mask": 255,
             "fire_interval": 0.18,
-            "footprint_radius": 1.6,
+            "footprint_radius": 3.2,
             "kill_rate": 8.0,
             "range": 16.0,
             "upgrade_cost": 58
@@ -395,12 +384,11 @@
           },
           "stats": {
             "ability_cooldown": 0.0,
-            "blocks_flow": true,
             "build_cost": 90,
             "damage": 10.0,
             "family_mask": 255,
             "fire_interval": 0.14,
-            "footprint_radius": 1.6,
+            "footprint_radius": 3.2,
             "kill_rate": 21.0,
             "range": 18.0,
             "upgrade_cost": 49
@@ -414,12 +402,11 @@
           },
           "stats": {
             "ability_cooldown": 0.0,
-            "blocks_flow": true,
             "build_cost": 90,
             "damage": 20.0,
             "family_mask": 255,
             "fire_interval": 0.1,
-            "footprint_radius": 1.6,
+            "footprint_radius": 3.2,
             "kill_rate": 41.0,
             "range": 20.0,
             "upgrade_cost": 0

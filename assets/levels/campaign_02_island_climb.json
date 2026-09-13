@@ -1,0 +1,119 @@
+{
+  "schema": 2,
+  "name": "campaign_02_island_climb",
+  "display_name": "Island Climb",
+  "description": "A diagonal climb around a long island. The lane splits and rejoins; so must your defence.",
+  "difficulty": 2,
+  "tags": ["campaign"],
+  "region": "capillary",
+  "world": { "min": [0, 0], "max": [197.4, 193.2] },
+  "camera": { "view_height": 193.2 },
+  "vessels": [
+    {
+      "id": "inlet",
+      "points": [
+        { "p": [-5.04, 29.4], "w": 29.4 },
+        { "p": [33.6, 29.4], "w": 29.4 },
+        { "p": [63, 30.24], "w": 29.4 },
+        { "p": [80.64, 40.32], "w": 29.4 }
+      ]
+    },
+    {
+      "id": "climb",
+      "lane_id": "inlet",
+      "points": [
+        { "p": [80.64, 40.32], "w": 30.24 },
+        { "p": [94.92, 63], "w": 69.3 },
+        { "p": [113.4, 100.8], "w": 69.3 },
+        { "p": [128.52, 132.72], "w": 47.04 },
+        { "p": [139.44, 147.84], "w": 33.6 }
+      ]
+    },
+    {
+      "id": "outlet",
+      "lane_id": "inlet",
+      "points": [
+        { "p": [139.44, 147.84], "w": 33.6 },
+        { "p": [168, 147.84], "w": 33.6 },
+        { "p": [196.56, 147.84], "w": 33.6 }
+      ]
+    },
+    {
+      "id": "shelf",
+      "lane_id": "inlet",
+      "points": [
+        { "p": [139.44, 147.84], "w": 32.76 },
+        { "p": [110.04, 152.04], "w": 32.76 },
+        { "p": [78.12, 153.72], "w": 32.76 }
+      ]
+    }
+  ],
+  "obstacles": [
+    { "id": "island", "shape": "capsule", "points": [[90.72, 61.32], [122.64, 116.76]], "radius": 10.08 }
+  ],
+  "spawn_points": [
+    { "id": "p0", "pos": [-5.04, 29.4], "radius": 11.76, "lane_id": "inlet" }
+  ],
+  "objectives": [
+    { "id": "organ", "pos": [187.32, 147.84], "half_extents": [4.2, 14.28] }
+  ],
+  "placement_zones": [
+    { "min": [0, 0], "max": [197.4, 193.2] },
+    { "min": [63, 37.8], "max": [142.8, 138.6], "concentrated": true, "priority": 2.5 },
+    { "min": [75.6, 126], "max": [197.4, 172.2], "concentrated": true, "priority": 2 }
+  ],
+  "waves": [
+    {
+      "name": "campaign_02_island_climb_wave_1",
+      "prep_time": 8,
+      "atp_reward": 50,
+      "spawns": [
+        { "family": "virus", "count": 166, "duration": 4 }
+      ]
+    },
+    {
+      "name": "campaign_02_island_climb_wave_2",
+      "prep_time": 7.2,
+      "atp_reward": 72,
+      "spawns": [
+        { "family": "virus", "count": 307, "duration": 4 }
+      ]
+    },
+    {
+      "name": "campaign_02_island_climb_wave_3",
+      "prep_time": 6.4,
+      "atp_reward": 94,
+      "spawns": [
+        { "family": "virus", "count": 448, "duration": 4 },
+        { "family": "bacteria", "count": 72, "start_time": 1, "duration": 3.5 }
+      ]
+    },
+    {
+      "name": "campaign_02_island_climb_wave_4",
+      "prep_time": 5.6,
+      "atp_reward": 116,
+      "spawns": [
+        { "family": "virus", "count": 589, "duration": 4 },
+        { "family": "bacteria", "count": 122, "start_time": 1, "duration": 3.5 }
+      ]
+    },
+    {
+      "name": "campaign_02_island_climb_wave_5",
+      "prep_time": 4.8,
+      "atp_reward": 138,
+      "spawns": [
+        { "family": "virus", "count": 730, "duration": 4 },
+        { "family": "bacteria", "count": 172, "start_time": 1, "duration": 3.5 }
+      ]
+    },
+    {
+      "name": "campaign_02_island_climb_wave_6",
+      "prep_time": 4,
+      "atp_reward": 160,
+      "spawns": [
+        { "family": "virus", "count": 871, "duration": 4 },
+        { "family": "bacteria", "count": 223, "start_time": 1, "duration": 3.5 }
+      ]
+    }
+  ]
+}

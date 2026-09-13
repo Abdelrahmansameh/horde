@@ -1,5 +1,7 @@
 {
   "complement_cascade_burst": {
+    "barrier_half_length": 7.0,
+    "barrier_half_width": 1.5,
     "cooldown_seconds": 90.0,
     "fever_cooldown_relief": 3.0,
     "field_duration": 1.5,
@@ -7,13 +9,26 @@
     "radius": 6.0
   },
   "fever_response": {
+    "barrier_half_length": 7.0,
+    "barrier_half_width": 1.5,
     "cooldown_seconds": 60.0,
     "fever_cooldown_relief": 3.0,
     "field_duration": 1.5,
     "kill_rate": 40.0,
     "radius": 20.0
   },
+  "fibrin_clot": {
+    "barrier_half_length": 7.0,
+    "barrier_half_width": 1.5,
+    "cooldown_seconds": 75.0,
+    "fever_cooldown_relief": 3.0,
+    "field_duration": 8.0,
+    "kill_rate": 0.0,
+    "radius": 0.0
+  },
   "histamine_flare": {
+    "barrier_half_length": 7.0,
+    "barrier_half_width": 1.5,
     "cooldown_seconds": 45.0,
     "fever_cooldown_relief": 3.0,
     "field_duration": 1.5,

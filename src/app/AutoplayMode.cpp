@@ -80,6 +80,7 @@ bool setup(Run& run, const Options& opt, const HeadlessConfig& tuning, std::stri
     // the cap rather than the wave table.
     desc.max_chaff = 32768;
     desc.world_bounds = run.level.world_bounds;
+    desc.sim_bounds = game::level_sim_bounds(run.level);
     desc.max_damage_fields = tuning.cfg.sim.capacities.max_damage_fields;
     desc.max_projectiles = tuning.cfg.sim.capacities.max_projectiles;
     desc.max_swarmers = tuning.cfg.sim.capacities.max_swarmers;

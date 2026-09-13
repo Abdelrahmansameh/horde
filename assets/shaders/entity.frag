@@ -10,6 +10,8 @@
 //       ActiveTelegraph::progress in [0,1], not a phase angle)
 //   4 = elite death burst (Wave 4G overlay; v_anim_phase repurposed as a
 //       burst-fade progress in [0,1])
+//   5 = fibrin clot bar (game/abilities Fibrin Clot; v_shape_param is the
+//       bar's aspect, half_length / half_width, and v_tint.a its dissolve)
 // Tower shape ids start at 16 (kTowerShapeBase in TowerSystem.cpp) and run in
 // TowerType declaration order, so id == 16 + TowerType:
 //   16 = GUNNER (Neutrophil)   17 = MORTAR (Macrophage)
@@ -24,8 +26,8 @@ in float v_anim_phase;
 /// Extra per-shape parameter (EntityInstance::shape_param); meaning is defined
 /// by v_shape_id, 0 for shapes that don't declare one. Every tower body (16-21)
 /// reads it as the tower's TIER, 1-3, and spends it on a countable feature —
-/// phagosomes, crystal reach, microvilli, antibodies, blades — so an upgrade
-/// is legible from the silhouette instead of only from the stat panel.
+/// phagosomes, crystal reach, lytic granules, mucin granules, blades — so an
+/// upgrade is legible from the silhouette instead of only from the stat panel.
 in float v_shape_param;
 /// Instance world rotation; see entity.vert. Used to hold a feature still while
 /// the quad spins.
@@ -492,75 +494,159 @@ float sdf_interferon(vec2 p, float phase, float tier, out float crystal_d,
 // ---------------------------------------------------------------------------
 // TESLA — Cytotoxic T.
 //
-// A cytotoxic T cell is genuinely small and almost entirely nucleus: a huge
-// dense core, a rind of cytoplasm, and a fuzz of microvilli. That anatomy
-// happens to already be a tesla coil, so the shape needs no invention — spiked
-// ball, hot core, arcs crawling over the surface.
+// A KILLER CELL CAUGHT MID-KILL. The body this replaces was a spiked ball with
+// a long electrode down its nose: it read as the tesla coil the internal role
+// is named after rather than as immune tissue, which made it the one tower in
+// the roster that did not look like it belonged next to the Neutrophil and the
+// Macrophage. This is the same organism drawn from its real anatomy instead.
 //
-// The piece of real cell biology doing gameplay work here is GRANULE
-// POLARISATION: before a T cell kills, it drags its lytic granules to the face
-// touching the target (the immunological synapse). So the granules cluster at
-// local +x behind a single long electrode spike, and since local +x is the aim,
-// the cell visibly loads its payload toward whatever it is about to discharge
-// into. Same directional-read job the Macrophage's maw does, different organ.
+// The silhouette is POLARISED, and that is the whole design. A cytotoxic T cell
+// about to kill is not round: it flattens its leading face against the target
+// into an immunological synapse, sweeps its lytic granules up against that
+// face, and drags the rest of itself — nucleus included — into a trailing tail
+// called the uropod. So this body is a dart:
+//
+//   * a BROAD, SHALLOWLY CONCAVE front face at local +x (which entity.vert has
+//     already rotated onto the aim), with its two lamellipodial corners curling
+//     forward past it — the synapse, pressed flat against what it is killing;
+//   * a compact soma behind that, holding a big reniform nucleus notched around
+//     the payload rather than sitting centred in the cell;
+//   * a tapering UROPOD trailing off local -x with a couple of knobs on it,
+//     swaying slowly as the cell crawls.
+//
+// Nothing else on the field is asymmetric front-to-back like that. The
+// Neutrophil and the Macrophage are radial lumps, the Interferon is a crystal,
+// the NK Cell is a rotor, and the Goblet Cell — the only other directional
+// body — is a narrow stalk swelling into a round cup, i.e. widest at the BACK
+// of its mass with a bore drilled through the front. This one is widest at the
+// FRONT and comes to a point at the back, so the two never resolve to the same
+// blob at forty pixels.
+//
+// The discharge language survives the redesign, because the attack still reads
+// as a violet chain: instead of arcs crawling over a spiked ball, the crackle
+// is confined to the synapse face and a few short filaments lance off it down
+// the aim. Same "which way am I pointing" job the electrode did, played by the
+// organ that actually does the killing.
 // ---------------------------------------------------------------------------
+
+/// The carve that flattens the front. Every feature of the synapse is a
+/// function of this one circle, so main()'s shading can rebuild the identical
+/// distance and hug the exact edge the carve produced.
+const vec2  kCtlCleftC = vec2(0.720, 0.0);
+const float kCtlCleftR = 0.530;
+
+/// Signed distance to the synapse face, negative inside the cell. The ripple
+/// micro-ruffles that membrane without disturbing the rest of the body.
+float ctl_cleft(vec2 p, float phase) {
+    float ripple = 0.008 * sin(p.y * 34.0 + phase * 1.3);
+    return length(p - kCtlCleftC) - (kCtlCleftR + ripple);
+}
+
 float sdf_cytotoxic(vec2 p, float phase, float tier, out float nucleus_d,
-                    out float granule_d, out float arc_glow, out float tip_glow) {
-    float wx = fbm(p * 6.0 + vec2(phase * 0.10, 0.0)) - 0.5;
-    float wy = fbm(p * 6.0 + vec2(4.4, -phase * 0.09)) - 0.5;
-    float body = length(p + vec2(wx, wy) * 0.035) - 0.235;
+                    out float granule_d, out float synapse_glow, out float lance,
+                    out float speckle) {
+    // Gentle warp only. The dart IS the read here; a Neutrophil-strength wobble
+    // chews the flat face and the tail point back into a lumpy oval.
+    float wx = fbm(p * 5.2 + vec2(phase * 0.10, 0.0)) - 0.5;
+    float wy = fbm(p * 5.2 + vec2(4.4, -phase * 0.09)) - 0.5;
+    vec2 wp = p + vec2(wx, wy) * 0.030;
 
-    // Microvilli, folded the way the crystal's arms are. Count is 9 + 2*tier,
-    // and the fuse radius is TINY (0.022) on purpose: a generous smin rounds
-    // them into bumps, and a ball of blunt bumps is just a lumpy ball.
-    float sector = 6.28318530 / (9.0 + 2.0 * tier);
-    float ang = atan(p.y, p.x);
-    float kk = mod(ang + sector * 0.5, sector) - sector * 0.5;
-    vec2 fq = vec2(cos(kk), sin(kk)) * length(p);
-    float t = clamp((fq.x - 0.185) / 0.150, 0.0, 1.0);
-    float villi = max(abs(fq.y) - 0.030 * (1.0 - t), max(0.185 - fq.x, fq.x - 0.335));
-    body = smin(body, villi, 0.022);
+    // Soma: the mass of the cell, sitting just behind centre.
+    float body = length(wp - vec2(-0.030, 0.0)) - 0.225;
 
-    // The synapse electrode: one long spike along local +x, thicker than a
-    // microvillus and reaching past them, so the discharge axis is unambiguous.
-    // It has to out-reach the microvilli by a clear margin AND be visibly
-    // thicker at the root, or it just reads as one villus that came out long.
-    float et = clamp((p.x - 0.200) / 0.320, 0.0, 1.0);
-    float electrode = max(abs(p.y) - 0.055 * (1.0 - 0.80 * et),
-                          max(0.200 - p.x, p.x - 0.520));
-    body = smin(body, electrode, 0.030);
-    tip_glow = 1.0 - smoothstep(0.0, 0.080, length(p - vec2(0.500, 0.0)));
+    // Lamellipod: a wide, shallow plate spanning the front. Squashed 2.6:1 on
+    // x, so it adds width without adding reach — the cell gets a face, not a
+    // nose.
+    body = smin(body, length((wp - vec2(0.105, 0.0)) * vec2(2.60, 0.86)) - 0.300, 0.115);
 
-    // Nucleus at 0.158 against a 0.235 body: two thirds of the radius, about
-    // right for a lymphocyte, and it leaves only a rind of cytoplasm.
-    // 0.135 against a 0.235 body, pushed back off centre. It was 0.158 and
-    // centred, which left a rind too thin for the granules to read in at all —
-    // an accurate lymphocyte nucleus that hid the tower's whole payload tell.
-    nucleus_d = length(p - vec2(-0.058, 0.012)) - 0.135;
-
-    // Lytic granules, polarised toward the synapse.
-    granule_d = 1e9;
-    for (int k = 0; k < 4; ++k) {
-        float fk = float(k);
-        float ga = -0.55 + 0.37 * fk + 0.10 * sin(phase * 0.9 + fk);
-        // Pushed forward of the nucleus, not overlapping it: a granule drawn
-        // on top of the core is just a lighter patch of nucleus.
-        vec2 c = vec2(0.165, 0.0) + vec2(cos(ga), sin(ga)) * 0.050;
-        granule_d = min(granule_d,
-                        length(p - c) - (0.024 + 0.010 * fract(sin(fk * 45.1) * 43758.5453)));
+    // The two corners of that face, curled forward. They are what stop the
+    // front reading as an oval with its end chopped off: with them the leading
+    // edge is a crescent that visibly WRAPS whatever it is touching.
+    for (int k = 0; k < 2; ++k) {
+        float side = (k == 0) ? 1.0 : -1.0;
+        float y = side * (0.278 + 0.012 * sin(phase * 0.5 + side));
+        body = smin(body, length(wp - vec2(0.150, y)) - 0.072, 0.090);
     }
 
-    // Surface crackle. A high power on |sin| turns a smooth wave into a few
-    // narrow bright filaments; the fbm term inside the phase stops them being
-    // evenly spaced, which is the difference between lightning and a grating.
-    float r = length(p);
-    float band = 1.0 - smoothstep(0.0, 0.055, abs(r - 0.262));
-    arc_glow = band * pow(abs(sin(ang * 4.0 + phase * 2.6 + fbm(p * 7.0) * 5.0)), 7.0);
+    // Uropod. Two capsules of falling radius rather than one long taper, so the
+    // tail has a knee in it and reads as dragged rather than as a cone glued
+    // on. It sways: this is the only part of the body that moves much, and a
+    // tail sweeping behind a held-still face is what makes the cell look like
+    // it is leaning into the kill.
+    float sway = 0.045 * sin(phase * 0.55);
+    vec2 t0 = vec2(-0.150, 0.0);
+    vec2 t1 = vec2(-0.295, 0.020 + sway);
+    vec2 t2 = vec2(-0.475, 0.060 + sway * 2.0);
+    float tail = sdf_segment(wp, t0, t1, 0.092);
+    tail = smin(tail, sdf_segment(wp, t1, t2, 0.038), 0.055);
+    // Knobs on the tail. The uropod is the one part of a crawling T cell still
+    // covered in microvilli, and two bumps sell that for one smin() each.
+    tail = smin(tail, length(wp - mix(t1, t2, 0.45) - vec2(0.0, -0.055)) - 0.030, 0.040);
+    tail = smin(tail, length(wp - mix(t1, t2, 0.85) - vec2(0.010, 0.048)) - 0.024, 0.035);
+    body = smin(body, tail, 0.075);
 
-    // ...plus a discharge running out along the electrode to the tip.
-    float lead = 1.0 - smoothstep(0.0, 0.030, abs(p.y - 0.035 * sin(p.x * 26.0 + phase * 7.0)));
-    arc_glow = max(arc_glow, lead * smoothstep(0.20, 0.28, p.x)
-                                  * (1.0 - smoothstep(0.40, 0.47, p.x)) * 0.9);
+    // Flatten the face LAST, so the carve cuts the lamellipod and both corners
+    // together and leaves one continuous concave edge instead of scalloping
+    // each lobe separately. Tight k on purpose: this membrane is pressed
+    // against something, and a soft lip there looks like it is melting.
+    body = smax(body, -ctl_cleft(p, phase), 0.035);
+
+    // Reniform nucleus, pushed into the back half and notched on its forward
+    // side so it curls AROUND the payload. A centred round core read as a
+    // bullseye and flattened the polarity the rest of the shape is built on.
+    vec2 nc = vec2(-0.088, -0.006);
+    nucleus_d = length((p - nc) * vec2(1.12, 0.94)) - 0.152;
+    nucleus_d = smax(nucleus_d, -(length(p - nc - vec2(0.150, 0.0)) - 0.108), 0.048);
+
+    // Lytic granules, docked at the synapse in a line across the face. Count is
+    // 2 + tier, so 3..5 — this shape's countable upgrade tell. It used to be
+    // the microvillus count (9 + 2*tier), which nobody could count.
+    float n = 2.0 + tier;
+    granule_d = 1e9;
+    for (int k = 0; k < 5; ++k) {
+        if (float(k) >= n) break;
+        float fk = float(k);
+        // Spread ACROSS the face, not around a circle: these are queued at a
+        // wall, and a ring of them just reads as a second nucleus.
+        float t = (n <= 1.0) ? 0.5 : fk / (n - 1.0);
+        float y = mix(-0.150, 0.150, t) + 0.014 * sin(phase * 0.7 + fk * 2.3);
+        // Bowed forward with |y|, following the concave membrane they are
+        // docked against, so the row sits a constant depth behind the face.
+        float x = 0.126 + 0.30 * y * y + 0.010 * sin(phase * 0.9 + fk);
+        granule_d = min(granule_d,
+                        length(p - vec2(x, y)) - (0.026 + 0.008 * fract(sin(fk * 45.1) * 43758.5453)));
+    }
+
+    // The synapse itself: a hot band hugging the inside of the face, broken
+    // into filaments by the same high-power-|sin| trick the old surface arcs
+    // used, so it crackles instead of glowing like a bulb. Confined to the
+    // face — carried past the corners it would just outline the whole cell.
+    float cleft = ctl_cleft(p, phase);
+    // Band the crackle to the flat part of the face. `cleft` is a distance to a
+    // CIRCLE, so its contours keep wrapping round past the corners and into the
+    // lamellipod, where they painted stray filaments across the middle of the
+    // cell; the taper has to close before the corners begin (they sit at
+    // |y| ~ 0.28), not at the full half-width of the body.
+    float across = 1.0 - smoothstep(0.100, 0.255, abs(p.y));
+    float band = (1.0 - smoothstep(0.0, 0.038, abs(cleft))) * across;
+    float fil = 0.55 + 0.45 * pow(abs(sin(p.y * 16.0 + phase * 2.4 + fbm(p * 7.0) * 5.0)), 6.0);
+    // ...and hold it INSIDE the membrane — this is charge in the cell, not a
+    // halo around it — in the narrow strip between the edge and the docked
+    // granules. Wider than that and the granules simply cover it: they sit
+    // 0.038 off the face, which is the whole clearance this has to live in.
+    synapse_glow = band * fil * (0.84 + 0.16 * sin(phase * 1.7))
+                 * (1.0 - smoothstep(-0.034, -0.002, body));
+
+    // ...plus short filaments lancing off that face down the aim. These live
+    // OUTSIDE the membrane and main() lets them draw proud of the silhouette,
+    // because a discharge that stops dead at the edge reads as paint. Gated on
+    // `body` for the same reason the band above is: without it the annulus
+    // around the carve circle also lights up the two corner lobes from within.
+    float reach = smoothstep(0.0, 0.020, cleft) * (1.0 - smoothstep(0.020, 0.135, cleft));
+    float strand = pow(abs(sin(p.y * 21.0 + phase * 3.1)), 8.0);
+    lance = reach * across * strand * smoothstep(-0.004, 0.020, body);
+
+    speckle = smoothstep(0.60, 0.82, fbm(p * 15.0 + vec2(phase * 0.05, 0.0)));
     return body;
 }
 
@@ -659,6 +745,54 @@ float sdf_goblet(vec2 p, float phase, float tier, out float nucleus_d,
 // room for an offset blob. Direction matches the chaff pass's shadow drift and
 // tissue.frag's key light, so everything on screen is lit from the same place.
 // ---------------------------------------------------------------------------
+// FIBRIN CLOT -- the Fibrin Clot active ability's temporary barrier.
+//
+// A real clot is a mesh of fibrin strands with platelets caught in it, and
+// that is what sells this as biology rather than as a wall: a rounded bar
+// (the mask the sim actually carved, see game/abilities) whose long edges are
+// frayed by noise into loose strands, with a row of dark platelet bodies
+// tangled through it. The quad is square and the bar sits along its x axis,
+// so the aspect squashes the box to the thickness the sim blocked.
+//
+// `dissolve` is 1 - v_tint.a: as the clot's clock runs down the renderer
+// fades it, and the bar thins here in lockstep so the horde is seen to get
+// its lane back at the moment the mask hands it back.
+// ---------------------------------------------------------------------------
+float sdf_clot(vec2 p, float aspect, float phase, float dissolve, out float platelet_d,
+               out float strand) {
+    vec2 he = vec2(0.5, 0.5 / max(aspect, 1.0));
+    // Fray the long edges: a slow writhe along the bar, sharper across it.
+    float w = fbm(vec2(p.x * 6.0 + phase * 0.05, p.y * 12.0 + 3.7)) - 0.5;
+    vec2 wp = vec2(p.x, p.y + w * he.y * 0.55);
+    float r = he.y * 0.85;
+    vec2 q = abs(wp) - (he - vec2(r));
+    float box = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r;
+    // Thins to nothing as it dissolves, edge-first, so the ends fall apart
+    // before the middle.
+    float thin = dissolve * he.y * (0.9 + 0.6 * abs(p.x) / he.x);
+    float body = box + thin;
+
+    // Platelets: a row of fused dark ovals along the bar, jittered so it
+    // reads as a tangle and not as beads on a string.
+    platelet_d = 1e9;
+    for (int k = 0; k < 7; ++k) {
+        float fk = float(k);
+        float u = (fk - 3.0) / 3.4;
+        float jx = (fract(sin(fk * 12.9898) * 43758.5453) - 0.5) * 0.06;
+        float jy = (fract(sin(fk * 78.233) * 43758.5453) - 0.5) * he.y * 0.9;
+        vec2 c = vec2(u * he.x + jx, jy);
+        float rad = he.y * (0.34 + 0.16 * fract(sin(fk * 39.4) * 43758.5453));
+        vec2 d = p - c;
+        d.y *= 1.35;
+        platelet_d = smin(platelet_d, length(d) - rad, he.y * 0.3);
+    }
+    platelet_d += dissolve * he.y * 0.8;
+
+    // Strand texture: fine fibres running roughly along the bar.
+    strand = smoothstep(0.35, 0.65, vnoise(vec2(p.x * 22.0, p.y * 90.0 + phase * 0.02)));
+    return body;
+}
+
 const vec2 kEntityShadowDir = vec2(0.085, -0.070);
 
 float entity_shadow(vec2 p, float radius) {
@@ -721,6 +855,42 @@ void main() {
         a = clamp(a + spark * (1.0 - smoothstep(r * 0.5, r, dist)) * (1.0 - t) * 0.6, 0.0, 1.0);
         if (a <= 0.0) discard;
         o_color = vec4(v_tint.rgb, a * v_tint.a);
+        return;
+    } else if (v_shape_id == 5u) {
+        // FIBRIN CLOT. See sdf_clot above.
+        float dissolve = 1.0 - clamp(v_tint.a, 0.0, 1.0);
+        float platelet_d, strand;
+        float body_d = sdf_clot(v_local, v_shape_param, v_anim_phase, dissolve, platelet_d, strand);
+
+        float a = 1.0 - smoothstep(-0.020, 0.008, body_d);
+        // Shadow is a bar too, not a disc: the same rounded box, un-frayed,
+        // offset the way entity_shadow offsets its disc.
+        float he_y = 0.5 / max(v_shape_param, 1.0);
+        vec2 hp = v_local - kEntityShadowDir;
+        float rr = he_y * 0.85;
+        vec2 hq = abs(hp) - (vec2(0.5, he_y) - vec2(rr));
+        float sd = length(max(hq, 0.0)) + min(max(hq.x, hq.y), 0.0) - rr;
+        float sh = (1.0 - smoothstep(-0.10, 0.03, sd)) * 0.42 * (1.0 - dissolve);
+        if (a <= 0.0 && sh <= 0.0) discard;
+
+        float depth = clamp(-body_d / max(he_y, 1e-3), 0.0, 1.0);
+        // Pale straw fibrin, warming toward the tint in the interior, with
+        // fibre streaks a touch lighter.
+        vec3 fibrin = mix(vec3(1.00, 0.97, 0.88), v_tint.rgb, depth * 0.85);
+        fibrin = mix(fibrin, vec3(1.00, 0.99, 0.94), strand * 0.35 * depth);
+        // Platelets: dusky plum bodies with a wet rim.
+        float plt = 1.0 - smoothstep(-0.008, 0.010, platelet_d);
+        float plt_rim = 1.0 - smoothstep(0.0, 0.016, abs(platelet_d));
+        vec3 rgb = mix(fibrin, vec3(0.55, 0.30, 0.36), plt * 0.85);
+        rgb = mix(rgb, vec3(0.82, 0.58, 0.60), plt_rim * 0.50);
+        float rim = 1.0 - smoothstep(0.0, 0.030, abs(body_d));
+        rgb = mix(rgb, vec3(1.0, 0.98, 0.90), rim * 0.55);
+
+        // Alpha is spent on thinning above, not on translucency: a clot the
+        // horde cannot cross should never look see-through, so the body is
+        // drawn opaque right up to the strands that remain.
+        o_color = over_shadow(rgb, a, sh);
+        if (o_color.a <= 0.001) discard;
         return;
     } else if (v_shape_id == 16u) {
         // GUNNER (Neutrophil). Tower shape ids start at 16; see
@@ -893,50 +1063,79 @@ void main() {
         o_color = vec4((lit.rgb * lit.a + kCryoHue * vap_a * (1.0 - lit.a)) / out_a, out_a);
         return;
     } else if (v_shape_id == 19u) {
-        // TESLA (Cytotoxic T).
-        float nucleus_d, granule_d, arc_glow, tip_glow;
+        // TESLA (Cytotoxic T). THE PURPLE TOWER, and it has to be purple all
+        // the way down. The other cells sit on a near-white cytoplasm and let a
+        // tint do the identifying; this body is the smallest and busiest of the
+        // six, and at that size a pale one hands its hue back to its own
+        // detail. So the interior runs to a deep saturated violet and the tint
+        // goes in harder than anywhere else in this file except the Macrophage.
+        float nucleus_d, granule_d, synapse_glow, lance, speckle;
         float body_d = sdf_cytotoxic(v_local, v_anim_phase, v_shape_param,
-                                     nucleus_d, granule_d, arc_glow, tip_glow);
+                                     nucleus_d, granule_d, synapse_glow, lance, speckle);
 
-        float a = 1.0 - smoothstep(-0.018, 0.007, body_d);
+        float a = 1.0 - smoothstep(-0.020, 0.008, body_d);
         float sh = entity_shadow(v_local, 0.29);
-        float spark = max(arc_glow, tip_glow);
+        float spark = max(synapse_glow, lance);
         if (a <= 0.0 && sh <= 0.0 && spark <= 0.005) discard;
-        // Arcs are allowed to draw slightly proud of the membrane — an arc that
-        // stops dead at the silhouette reads as a painted-on texture.
-        a = max(a, spark * 0.85);
+        // The lancing filaments are allowed to draw proud of the membrane; see
+        // sdf_cytotoxic. The synapse band is not — it lives inside the cell.
+        a = max(a, lance * 0.80);
 
-        float depth = clamp(-body_d * 6.0, 0.0, 1.0);
+        // Shallower ramp than the 6.0 this used to run at. This body is thin —
+        // a flat plate and a tail — so almost none of it is far enough inside
+        // the membrane to reach the saturated end of a steep ramp, and the
+        // whole cell came out the pale lilac the surface colour alone gives.
+        float depth = clamp(-body_d * 4.2, 0.0, 1.0);
+        // Identity hue, shared verbatim with palette_for() in vfx/Particles.cpp
+        // and with the Chain field tint in Renderer.cpp: the body, the granules
+        // it sheds and its discharge all have to be the same violet.
         const vec3 kTeslaHue = vec3(0.76, 0.66, 1.00);
 
-        vec3 cytoplasm = mix(vec3(0.93, 0.90, 1.00), vec3(0.50, 0.42, 0.82), depth);
-        cytoplasm = mix(cytoplasm, kTeslaHue, 0.42);
+        // Mixed toward that hue only lightly. kTeslaHue is itself a PALE violet
+        // — it has to be, it doubles as a particle colour on a dark red field —
+        // so leaning on it the way the Macrophage leans on its amber washes the
+        // body out instead of saturating it. The purple comes from the gradient
+        // here; the hue mix only pulls it onto the roster's exact violet.
+        vec3 cytoplasm = mix(vec3(0.62, 0.47, 0.95), vec3(0.24, 0.11, 0.54), depth);
+        cytoplasm = mix(cytoplasm, kTeslaHue, 0.18);
+        // Cytoplasmic speckle, suppressed over the nucleus so the two never
+        // fight for the same pixels — same treatment the Macrophage gives its
+        // granulation.
+        float in_cyto = smoothstep(0.0, 0.045, nucleus_d);
+        vec3 rgb = mix(cytoplasm, vec3(0.82, 0.74, 1.00), speckle * in_cyto * 0.30);
 
         float nuc = 1.0 - smoothstep(-0.012, 0.012, nucleus_d);
-        // Chromatin mottling. This nucleus covers two thirds of the body, and
-        // one flat colour over that much area reads as a hole punched through
-        // the sprite rather than as an organelle inside it.
+        // Chromatin mottling. This nucleus fills most of the back half, and one
+        // flat colour over that much area reads as a hole punched through the
+        // sprite rather than as an organelle inside it.
         float chromatin = fbm(v_local * 14.0 + vec2(v_anim_phase * 0.03, 0.0));
-        vec3 rgb = mix(cytoplasm, mix(vec3(0.24, 0.16, 0.44), vec3(0.46, 0.35, 0.70), chromatin),
-                       nuc * 0.90);
+        rgb = mix(rgb, mix(vec3(0.15, 0.08, 0.33), vec3(0.34, 0.23, 0.57), chromatin), nuc * 0.92);
         // Nuclear envelope, so the core sits INSIDE the cell instead of on it.
         rgb = mix(rgb, vec3(0.74, 0.64, 0.96),
                   (1.0 - smoothstep(0.0, 0.018, abs(nucleus_d))) * 0.55);
 
         // Granules get a hot white core, not just a pale tint — they are the
-        // payload, and they have to out-read the cytoplasm they sit in.
+        // payload, they are the tier readout, and they have to out-read the
+        // cytoplasm they are docked in.
         float gran = 1.0 - smoothstep(-0.006, 0.008, granule_d);
-        rgb = mix(rgb, vec3(0.90, 0.80, 1.00), gran * 0.95);
-        rgb = mix(rgb, vec3(1.0), (1.0 - smoothstep(-0.014, -0.004, granule_d)) * 0.75);
+        rgb = mix(rgb, vec3(0.86, 0.74, 1.00), gran * 0.95);
+        rgb = mix(rgb, vec3(1.0), (1.0 - smoothstep(-0.014, -0.004, granule_d)) * 0.45);
 
-        float rim = 1.0 - smoothstep(0.0, 0.035, abs(body_d));
-        rgb = mix(rgb, vec3(0.98, 0.95, 1.00), rim * 0.62);
+        // Narrower and dimmer membrane rim than the blobby towers get. Theirs
+        // is a wide body with a thin bright edge; this one is small enough that
+        // a 0.035 band of near-white was a third of its area, and it took the
+        // purple back off the cell the gradient had just put on.
+        float rim = 1.0 - smoothstep(0.0, 0.024, abs(body_d));
+        rgb = mix(rgb, vec3(0.93, 0.88, 1.00), rim * 0.50);
 
-        // LAST. These are discharges — the brightest thing on the cell — and
-        // painting them before the membrane rim meant the rim wrote white over
-        // the crackle and erased it.
-        rgb = mix(rgb, vec3(0.88, 0.82, 1.00), clamp(arc_glow, 0.0, 1.0) * 0.95);
-        rgb = mix(rgb, vec3(1.00, 0.98, 1.00), tip_glow * 0.95);
+        // LAST. The synapse is the brightest thing on the cell, and painting it
+        // before the membrane rim let the rim write white over the crackle and
+        // erase it.
+        // Kept VIOLET rather than white: it sits right next to the rim and the
+        // granule speculars, and three white features stacked in the same
+        // twenty pixels just read as one blown-out smear.
+        rgb = mix(rgb, vec3(0.93, 0.87, 1.00), clamp(synapse_glow, 0.0, 1.0) * 0.85);
+        rgb = mix(rgb, vec3(1.00, 0.98, 1.00), clamp(lance, 0.0, 1.0) * 0.95);
 
         o_color = over_shadow(rgb, a * v_tint.a, sh);
         if (o_color.a <= 0.001) discard;

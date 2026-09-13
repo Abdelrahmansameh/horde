@@ -25,7 +25,9 @@
 #include "core/Types.h"
 #include "render/Renderer.h"
 #include "sim/chaff/ChaffBuffers.h"
+#include "sim/chaff/HitFlash.h"
 
+#include <cmath>
 #include <vector>
 
 namespace immune::render {
@@ -263,6 +265,12 @@ struct ChaffBatchResult {
     u32 agents_in_blobs = 0;   ///< Agents contributing any blob mass.
     u32 agents_culled = 0;
     u32 instances_dropped = 0; ///< Overflowed a family's capacity.
+    /// Instances emitted that will VISIBLY flash -- i.e. whose packed flash
+    /// byte is non-zero, not merely whose stored ramp is. Not used by the
+    /// renderer; it exists so a test can assert that a damaged agent actually
+    /// reaches the GPU lit up, which is the one link in the chain that no
+    /// sim-side or shader-side assertion can cover.
+    u32 agents_flashing = 0;
     f32 instance_mass = 0.0f;  ///< Sum of instance_alpha * density.
     f32 blob_mass = 0.0f;      ///< Sum of blob_weight * density.
     /// instance_mass + blob_mass. Invariant across the whole crossfade band:
@@ -295,6 +303,7 @@ inline ChaffBatchResult build_chaff_batches(const sim::ChaffBuffers& chaff,
     const u8* flg = chaff.flags.data();
     const f32* den = chaff.density.data();
     const u32* gen = chaff.generation.data();
+    const f32* flash = chaff.hit_flash.data();
 
     // Per-family cursors into the fixed-stride destination regions.
     u32 cursor[kFamilyCount];
@@ -303,6 +312,7 @@ inline ChaffBatchResult build_chaff_batches(const sim::ChaffBuffers& chaff,
     // Family constants hoisted out of the loop: six table lookups, not 10,000.
     Vec4 fam_color[kFamilyCount];
     FamilyVisual fam_vis[kFamilyCount];
+    sim::HitFlashParams fam_flash[kFamilyCount];
     // Reciprocal of the occupancy at which this family's sprites cover a
     // broadphase cell: cell area over the area of one silhouette disc. A virus
     // (1.53 across) fills a 4-unit cell at ~8.7 agents, a bacterium (2.25) at
@@ -313,6 +323,7 @@ inline ChaffBatchResult build_chaff_batches(const sim::ChaffBuffers& chaff,
     for (u32 f = 0; f < kFamilyCount; ++f) {
         fam_color[f] = family_color(static_cast<PathogenFamily>(f));
         fam_vis[f] = family_visual(static_cast<PathogenFamily>(f));
+        fam_flash[f] = sim::family_hit_flash(static_cast<PathogenFamily>(f));
         const f32 s = math::max(fam_vis[f].silhouette, 0.01f);
         const f32 disc = 0.25f * math::kPi * s * s;
         inv_crowd_full[f] = disc / math::max(cell_area, disc);
@@ -361,6 +372,24 @@ inline ChaffBatchResult build_chaff_batches(const sim::ChaffBuffers& chaff,
         const u32 h = (gen[i] * 2654435761u) ^ static_cast<u32>(i * 40503u);
         const f32 offset = static_cast<f32>(h & 0xFFFFu) * (math::kTwoPi / 65536.0f);
 
+        // How white this agent is right now, 0..1. The sim stores a linear ramp
+        // (sim/chaff/HitFlash.h) and ALL of the shaping happens here, once per
+        // frame, so retuning the curve or the strength re-renders agents that
+        // are already mid-flash instead of only the next ones to be hit.
+        //
+        // The pow() is why this sits behind a `> 0` test rather than being
+        // written branch-free like the rest of the loop: in any normal frame a
+        // low single-digit percentage of the horde is inside a fade window, and
+        // paying a transcendental for the other ninety-odd percent to multiply
+        // by zero is the wrong trade at ten thousand agents.
+        const sim::HitFlashParams& flash_params = fam_flash[f];
+        f32 flash_k = 0.0f;
+        if (flash_params.enabled && flash[i] > 0.0f) {
+            const f32 ramp = math::saturate(flash[i]);
+            flash_k = math::saturate(flash_params.strength *
+                                     std::pow(ramp, flash_params.curve));
+        }
+
         inst.x = p.x;
         inst.y = p.y;
         // Constant silhouette: damage does NOT shrink the sprite. A wounded
@@ -368,7 +397,11 @@ inline ChaffBatchResult build_chaff_batches(const sim::ChaffBuffers& chaff,
         // "further away" rather than "hurt" and made a damaged horde look
         // thinner than it actually was. Damage feedback belongs to the tint
         // and the dissolve VFX, not to the size.
-        inst.scale = vis.silhouette;
+        //
+        // The hit punch is the one exception and it is off by default -- see
+        // HitFlashParams::scale_punch, which carries the argument for why a
+        // transient puff does not violate the rule the paragraph above states.
+        inst.scale = vis.silhouette * (1.0f + flash_params.scale_punch * flash_k);
         inst.rotation = std::atan2(vy[i], vx[i]);
         Vec4 tint = fam_color[f];
         tint.a = split.instance_alpha;
@@ -394,8 +427,8 @@ inline ChaffBatchResult build_chaff_batches(const sim::ChaffBuffers& chaff,
         //
         // Fed from the SMOOTH occupancy, so it fades across the crowd instead
         // of switching per broadphase cell. Bits 0..7 are chaff_flags, 8..15 the
-        // family id; the top byte is still free. Mirrored by CHAFF_CROWD_SHIFT
-        // in chaff.frag.
+        // family id, 16..23 this, and 24..31 the hit flash below. Mirrored by
+        // CHAFF_CROWD_SHIFT in chaff.frag.
         // Scaled against how many of THIS family's sprites cover a cell, not
         // against lod_blob_threshold. The question a shadow is asking is "is
         // there lane under me or another body?", which is a question about
@@ -404,7 +437,24 @@ inline ChaffBatchResult build_chaff_batches(const sim::ChaffBuffers& chaff,
         // to borrow its scale from is even enabled.
         const f32 crowd_norm = math::saturate(local_occ * inv_crowd_full[f]);
         const u32 crowd_bits = static_cast<u32>(crowd_norm * 255.0f + 0.5f) << 16;
-        inst.flags = static_cast<u32>(flg[i]) | (f << 8) | crowd_bits;
+        // The hit flash claims the last free byte of the instance's flags word,
+        // bits 24..31, rather than widening a 32-byte layout that chaff.vert
+        // mirrors attribute for attribute. Eight bits is plenty: this is a mix
+        // weight on a sprite that covers under a dozen pixels, and the value it
+        // quantizes is already fading past it at ~1/7 per tick.
+        //
+        // What does NOT ride here is the flash COLOUR, which is per-family and
+        // would cost three more bytes an agent to say the same thing ten
+        // thousand times. It goes up as u_hit_flash_color[] instead, indexed in
+        // the fragment stage by the family id already in bits 8..15.
+        // Mirrored by CHAFF_FLASH_SHIFT in chaff.frag.
+        const u32 flash_bits = static_cast<u32>(flash_k * 255.0f + 0.5f) << 24;
+        // Counted off the PACKED byte, not off flash_k, so the tally means
+        // "instances that will visibly flash" rather than "instances carrying a
+        // float that rounds to nothing". The tail of a fade spends a tick or
+        // two below half a quantization step, and those are not flashes.
+        if (flash_bits != 0u) ++out.agents_flashing;
+        inst.flags = static_cast<u32>(flg[i]) | (f << 8) | crowd_bits | flash_bits;
         inst.anim_phase = offset + params.time * vis.tempo * math::kTwoPi;
         inst.pad = vis.wobble;
     }

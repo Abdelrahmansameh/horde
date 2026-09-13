@@ -66,6 +66,23 @@
         "scale": 1.2,
         "style": "burst"
       },
+      "hit_flash": {
+        "color": [
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "curve": 1.8,
+        "death_linger": 0.09,
+        "duration": 0.12,
+        "enabled": true,
+        "gain": 1.0,
+        "min_fraction": 0.02,
+        "retrigger": "highest",
+        "scale_punch": 0.0,
+        "strength": 0.9
+      },
       "speed_tier": "normal",
       "visual": {
         "color": [
@@ -75,8 +92,8 @@
           1.0
         ],
         "silhouette": 2.25,
-        "tempo": 1.5,
-        "wobble": 0.3
+        "tempo": 0,
+        "wobble":0
       }
     },
     "virus": {
@@ -136,6 +153,23 @@
         "scale": 1.2,
         "style": "burst"
       },
+      "hit_flash": {
+        "color": [
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "curve": 1.8,
+        "death_linger": 0.09,
+        "duration": 0.12,
+        "enabled": true,
+        "gain": 1.0,
+        "min_fraction": 0.02,
+        "retrigger": "highest",
+        "scale_punch": 0.0,
+        "strength": 0.9
+      },
       "speed_tier": "fast",
       "visual": {
         "color": [
@@ -145,8 +179,8 @@
           1.0
         ],
         "silhouette": 1.53,
-        "tempo": 3.4,
-        "wobble": 0.55
+        "tempo": 0,
+        "wobble": 0
       }
     }
   },

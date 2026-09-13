@@ -136,6 +136,10 @@ MenuResult Menu::build_level_select(const std::vector<LevelEntry>& levels,
                 } else {
                     ImGui::TextDisabled("  %s", e.region.c_str());
                 }
+                if (e.difficulty > 0) {
+                    ImGui::SameLine();
+                    ImGui::TextDisabled("- difficulty %d/10", e.difficulty);
+                }
                 ImGui::PopID();
             }
             ImGui::EndChild();

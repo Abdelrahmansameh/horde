@@ -28,6 +28,7 @@ u32 zone() { return IM_COL32(150, 160, 255, 170); }
 u32 zone_concentrated() { return IM_COL32(200, 170, 255, 210); }
 u32 squad_path() { return IM_COL32(255, 235, 140, 190); }
 u32 world_bounds() { return IM_COL32(200, 200, 210, 120); }
+u32 camera_frame() { return IM_COL32(90, 230, 220, 200); }
 u32 grid() { return IM_COL32(255, 255, 255, 26); }
 u32 error() { return IM_COL32(255, 80, 80, 255); }
 u32 warning() { return IM_COL32(255, 190, 60, 255); }

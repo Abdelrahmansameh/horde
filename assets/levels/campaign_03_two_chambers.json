@@ -1,0 +1,143 @@
+{
+  "schema": 2,
+  "name": "campaign_03_two_chambers",
+  "display_name": "Two Chambers",
+  "description": "A long S-route through two open chambers, each with islands to build around.",
+  "difficulty": 3,
+  "tags": ["campaign"],
+  "region": "lymphatic",
+  "world": { "min": [0, 0], "max": [481.4, 249.4], "cell_size": 0.75 },
+  "camera": { "view_height": 270.8 },
+  "vessels": [
+    {
+      "id": "inlet",
+      "points": [
+        { "p": [-6.96, 215.76], "w": 47.56 },
+        { "p": [69.6, 215.76], "w": 47.56 },
+        { "p": [139.2, 215.76], "w": 47.56 },
+        { "p": [184.44, 206.48], "w": 47.56 }
+      ]
+    },
+    {
+      "id": "west_chamber",
+      "lane_id": "inlet",
+      "points": [
+        { "p": [174, 186.76], "w": 110.2 },
+        { "p": [168.2, 127.6], "w": 121.8 },
+        { "p": [168.2, 63.8], "w": 121.8 },
+        { "p": [180.96, 40.6], "w": 63.8 }
+      ]
+    },
+    {
+      "id": "floor",
+      "lane_id": "inlet",
+      "points": [
+        { "p": [180.96, 41.76], "w": 49.88 },
+        { "p": [261, 40.6], "w": 49.88 },
+        { "p": [348, 40.6], "w": 49.88 },
+        { "p": [400.2, 48.72], "w": 49.88 },
+        { "p": [418.76, 77.72], "w": 49.88 }
+      ]
+    },
+    {
+      "id": "east_chamber",
+      "lane_id": "inlet",
+      "points": [
+        { "p": [418.76, 77.72], "w": 63.8 },
+        { "p": [408.32, 129.92], "w": 121.8 },
+        { "p": [401.36, 174], "w": 116 },
+        { "p": [385.12, 200.68], "w": 63.8 }
+      ]
+    },
+    {
+      "id": "outlet",
+      "lane_id": "inlet",
+      "points": [
+        { "p": [385.12, 200.68], "w": 47.56 },
+        { "p": [429.2, 200.68], "w": 47.56 },
+        { "p": [480.24, 200.68], "w": 47.56 }
+      ]
+    }
+  ],
+  "obstacles": [
+    { "id": "west_block", "shape": "box", "pos": [165.3, 105.56], "half_extents": [13.92, 12.76], "rotation": 10 },
+    { "id": "west_bar", "shape": "capsule", "points": [[113.68, 155.44], [171.68, 157.76]], "radius": 6.96 },
+    { "id": "east_L", "shape": "polygon", "points": [[382.8, 98.6], [409.48, 98.6], [409.48, 134.56], [438.48, 134.56], [438.48, 156.6], [382.8, 156.6]], "inflate": 1.16 }
+  ],
+  "spawn_points": [
+    { "id": "p0", "pos": [-6.96, 215.76], "radius": 18.56, "lane_id": "inlet" }
+  ],
+  "objectives": [
+    { "id": "organ", "pos": [467.48, 200.68], "half_extents": [5.8, 20.88] }
+  ],
+  "placement_zones": [
+    { "min": [0, 0], "max": [481.4, 249.4] },
+    { "min": [116, 34.8], "max": [232, 232], "concentrated": true, "priority": 2.5 },
+    { "min": [348, 34.8], "max": [464, 232], "concentrated": true, "priority": 2.5 },
+    { "min": [162.4, 11.6], "max": [417.6, 69.6], "concentrated": true, "priority": 1.5 }
+  ],
+  "waves": [
+    {
+      "name": "campaign_03_two_chambers_wave_1",
+      "prep_time": 8,
+      "atp_reward": 50,
+      "spawns": [
+        { "family": "virus", "count": 194, "duration": 4 }
+      ]
+    },
+    {
+      "name": "campaign_03_two_chambers_wave_2",
+      "prep_time": 7.33,
+      "atp_reward": 76,
+      "spawns": [
+        { "family": "virus", "count": 358, "duration": 4 },
+        { "family": "bacteria", "count": 88, "start_time": 1, "duration": 3.5 }
+      ]
+    },
+    {
+      "name": "campaign_03_two_chambers_wave_3",
+      "prep_time": 6.67,
+      "atp_reward": 102,
+      "spawns": [
+        { "family": "virus", "count": 523, "duration": 4 },
+        { "family": "bacteria", "count": 149, "start_time": 1, "duration": 3.5 }
+      ]
+    },
+    {
+      "name": "campaign_03_two_chambers_wave_4",
+      "prep_time": 6,
+      "atp_reward": 128,
+      "spawns": [
+        { "family": "virus", "count": 688, "duration": 4 },
+        { "family": "bacteria", "count": 211, "start_time": 1, "duration": 3.5 }
+      ]
+    },
+    {
+      "name": "campaign_03_two_chambers_wave_5",
+      "prep_time": 5.33,
+      "atp_reward": 154,
+      "spawns": [
+        { "family": "virus", "count": 853, "duration": 4 },
+        { "family": "bacteria", "count": 272, "start_time": 1, "duration": 3.5 }
+      ]
+    },
+    {
+      "name": "campaign_03_two_chambers_wave_6",
+      "prep_time": 4.67,
+      "atp_reward": 180,
+      "spawns": [
+        { "family": "virus", "count": 1018, "duration": 4 },
+        { "family": "bacteria", "count": 334, "start_time": 1, "duration": 3.5 }
+      ]
+    },
+    {
+      "name": "campaign_03_two_chambers_wave_7",
+      "prep_time": 4,
+      "atp_reward": 206,
+      "spawns": [
+        { "family": "virus", "count": 1183, "duration": 4 },
+        { "family": "bacteria", "count": 396, "start_time": 1, "duration": 3.5 }
+      ]
+    }
+  ]
+}

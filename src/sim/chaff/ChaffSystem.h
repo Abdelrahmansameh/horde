@@ -281,15 +281,16 @@ public:
     /// grouping do not need to build one.
     ///
     /// `mask` is the walkability authority, and is passed SEPARATELY from `sdf`
-    /// because the two disagree by design. sim::block_rect() marks a new
-    /// tower's footprint non-walkable in the mask and the flow field is re-baked
+    /// because the two disagree by design. A runtime block (the Fibrin Clot)
+    /// marks its cells non-walkable in the mask and the flow field is re-baked
     /// to route around it, but the DistanceField is deliberately never re-baked:
     /// tower placement validation reads it for "is there clearance here", so
-    /// folding towers into it would make every tower block its own neighbours.
-    /// The consequence is that the SDF-based wall response cannot see towers at
-    /// all, and a dense enough crowd pushes agents straight through one. The
-    /// mask is what closes that. A default-constructed (empty) mask is safe to
-    /// pass and simply skips the check.
+    /// folding runtime blocks into it would make every clot unbuildable ground.
+    /// The consequence is that the SDF-based wall response cannot see such
+    /// blocks at all, and a dense enough crowd pushes agents straight through
+    /// one. The mask is what closes that. A default-constructed (empty) mask is
+    /// safe to pass and simply skips the check. (Towers are NOT obstacles and
+    /// never touch the mask; the horde walks through them.)
     ChaffUpdateStats update(ChaffBuffers& buffers,
                             const FlowField& flow,
                             const DistanceField& sdf,

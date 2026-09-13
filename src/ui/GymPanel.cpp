@@ -264,7 +264,7 @@ void GymPanel::draw_defense_tab(game::GymContext& ctx) {
         ImGui::TextColored(kColorErr, "no ability system in this context");
     } else {
         static const char* const kCastArg[game::kAbilityCount] = {"complement", "histamine",
-                                                                  "fever"};
+                                                                  "fever", "clot"};
         for (u32 i = 0; i < game::kAbilityCount; ++i) {
             const game::AbilityId id = static_cast<game::AbilityId>(i);
             const game::AbilityStatus st = ctx.abilities->status(id);

@@ -185,9 +185,10 @@ inline void rasterize_vessels(TissueMask& mask, const std::vector<VesselSpline>&
     for (const VesselSpline& s : splines) rasterize_vessel(mask, s);
 }
 
-/// Carves a solid axis-aligned world rectangle out of the mask (tower footprint,
-/// NET drop, scripted collapse). Returns the affected world rect, ready to hand
-/// straight to FlowField::mark_dirty.
+/// Carves a solid axis-aligned world rectangle out of the mask (scripted
+/// collapse; the Fibrin Clot's rotated bar goes through ObstacleRaster.h
+/// instead). Returns the affected world rect, ready to hand straight to
+/// FlowField::mark_dirty. Towers do NOT use this -- they are not obstacles.
 inline Rect block_rect(TissueMask& mask, const Rect& r) {
     const IVec2 c0 = mask.world_to_cell(r.min);
     const IVec2 c1 = mask.world_to_cell(r.max);

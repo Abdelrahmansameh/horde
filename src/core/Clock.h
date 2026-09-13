@@ -71,6 +71,14 @@ public:
     /// Fraction [0,1) of the way into the next tick — the render interpolation factor.
     f32 alpha() const { return static_cast<f32>(accumulator_); }
 
+    /// Throws away unconsumed time without touching the frame delta or the
+    /// tick counter. Call it on every frame the sim is NOT stepped: the
+    /// accumulator is only ever drained by consume_tick(), so a frame that
+    /// accumulates without consuming banks its ticks, and whoever consumes
+    /// next pays for all of them at once. max_frame_seconds() bounds a single
+    /// frame, not a run of them -- a minute on a menu is 3600 banked ticks.
+    void drop_accumulated() { accumulator_ = 0.0; }
+
     /// Number of ticks consumed since construction.
     Tick tick() const { return tick_; }
 

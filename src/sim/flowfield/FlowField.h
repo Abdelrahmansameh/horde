@@ -12,13 +12,15 @@
 //   1. TissueMask   — rasterized from level splines: which cells are walkable,
 //                     plus a per-cell width/cost multiplier.
 //   2. SDF          — distance from each walkable cell to the nearest wall.
-//                     Drives vessel-hugging steering and valid tower placement.
+//                     Drives vessel-hugging steering and valid tower placement
+//                     (clearance only -- towers never block the mask).
 //   3. FlowField    — cost-to-goal via a Dijkstra/eikonal sweep, then the
 //                     negative gradient, normalized, per cell.
 //
 // INCREMENTAL REBAKE (the load-bearing requirement)
-// Placing a tower blocks part of a lane and must reroute the horde *visibly and
-// immediately* — but a full-level bake is far too slow to do inside a frame.
+// A runtime block (a Fibrin Clot dropped mid-lane, a scripted collapse) must
+// reroute the horde *visibly and immediately* — but a full-level bake is far
+// too slow to do inside a frame.
 // `rebake_region` re-runs the sweep over a dirty rectangle plus a margin,
 // seeded from the *existing* cost values on the region boundary. Correct as long
 // as the true shortest path from any changed cell leaves and re-enters the
@@ -156,8 +158,8 @@ public:
     /// Full bake from scratch. Level load only — too slow for a frame.
     void bake(const TissueMask& mask, const FlowFieldBakeDesc& desc);
 
-    /// Marks a world-space rectangle dirty after a mask edit (tower placed or
-    /// sold, NET dropped). Cheap: only records the rect.
+    /// Marks a world-space rectangle dirty after a mask edit (clot dropped or
+    /// dissolved, scripted collapse). Cheap: only records the rect.
     void mark_dirty(const Rect& world_region);
 
     /// Immediately re-solves every pending dirty region. Correctness-first path,
@@ -183,8 +185,8 @@ public:
     /// wave director for lane threat estimates and by UI threat overlays.
     f32 sample_cost(Vec2 world_pos) const;
 
-    /// True if a path to any goal exists from this point. Tower placement uses
-    /// this to reject a placement that would fully wall off a lane.
+    /// True if a path to any goal exists from this point. Level validation
+    /// and LaneConnectivity.h (the Fibrin Clot's seal check) use it.
     bool reachable(Vec2 world_pos) const;
 
     /// Nearest-cell direction lookup — no interpolation, cheapest possible.

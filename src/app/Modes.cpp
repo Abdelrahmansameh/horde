@@ -22,13 +22,16 @@
 #include "render/Camera.h"
 #include "render/Renderer.h"
 #include "render/Screenshot.h"
+#include "sim/CombatEvents.h"
 #include "sim/SimWorld.h"
 #include "sim/ecs/NamedAgents.h"
 
 #include <nlohmann/json.hpp>
 
+#include <algorithm>
 #include <cstdio>
 #include <memory>
+#include <utility>
 
 namespace immune::app {
 namespace {
@@ -66,6 +69,7 @@ bool build_world(sim::SimWorld& world, const Options& opt, usize max_chaff,
     desc.seed = opt.seed;
     desc.max_chaff = max_chaff;
     desc.world_bounds = level.world_bounds;
+    desc.sim_bounds = game::level_sim_bounds(level);
     // Cell size ~= 2x the default separation radius, per SpatialHashDesc.
     desc.spatial_cell_size = 4.0f;
     // Without this, chaff runs on all-default ChaffFamilyParams: no viral
@@ -526,6 +530,7 @@ int run_sim_test(const Options& opt) {
     economy.configure(tuning.cfg.economy);
     game::ActiveAbilitySystem abilities;
     abilities.load_defaults();
+    abilities.register_systems(world);
 
     game::GymSpawnQueue gym_spawns;
     // Default OFF headlessly: a script asserting that integrity depletes must
@@ -766,6 +771,7 @@ int run_screenshot(const Options& opt) {
         exec_economy.configure(load_headless_config(opt).cfg.economy);
         game::ActiveAbilitySystem exec_abilities;
         exec_abilities.load_defaults();
+        exec_abilities.register_systems(world);
         game::WaveDirector exec_waves;
 
         game::GymContext gym;
@@ -796,12 +802,36 @@ int run_screenshot(const Options& opt) {
     // real play looks like.
     vfx::ParticleSystem particles;
     particles.init(vfx::ParticleSystem::kDefaultCapacity, opt.seed ^ 0xA5A5'5A5AULL);
+
+    // Deaths from the last handful of ticks, kept so the renderer's death-flash
+    // pass has something to draw when the frame is finally taken.
+    //
+    // Interactive play hands the renderer each frame's events as it drains them
+    // (App::render_frame). This mode cannot: it runs the WHOLE sim before a GL
+    // context exists, so by the time a renderer is alive every death has been
+    // drained and cleared. Without this, --screenshot is the one place the
+    // effect is invisible -- which would make the project's own verification
+    // tool unable to see the thing it exists to verify.
+    //
+    // Half a second of window, comfortably over any sane death_linger, and
+    // pruned every tick so a long run does not accumulate a wave's worth.
+    constexpr u64 kDeathFlashWindowTicks = 30;
+    std::vector<std::pair<sim::CombatEvent, u64>> recent_deaths;
     for (u64 i = 0; i < opt.ticks; ++i) {
         gym_spawns.tick(world);
         world.tick(nullptr);
         gym_toggles.apply(world);
         const auto& evts = world.combat_events().events();
         particles.emit_for_events(evts.data(), evts.size());
+        for (const sim::CombatEvent& e : evts) {
+            if (e.type == sim::CombatEventType::ChaffDeath) recent_deaths.emplace_back(e, i);
+        }
+        recent_deaths.erase(
+            std::remove_if(recent_deaths.begin(), recent_deaths.end(),
+                           [i](const std::pair<sim::CombatEvent, u64>& d) {
+                               return i - d.second > kDeathFlashWindowTicks;
+                           }),
+            recent_deaths.end());
         world.combat_events().clear();
         particles.update(kFixedDt, nullptr);
     }
@@ -832,6 +862,13 @@ int run_screenshot(const Options& opt) {
 
     std::vector<vfx::ParticleInstance> pinst;
     pinst.reserve(vfx::ParticleSystem::kDefaultCapacity);
+
+    // Re-play the last few ticks' deaths at the age they actually have, so the
+    // captured frame shows the same white bodies a player would have seen.
+    for (const auto& [event, tick] : recent_deaths) {
+        const f32 age = static_cast<f32>(opt.ticks - 1 - tick) * kFixedDt;
+        renderer.submit_chaff_deaths(&event, 1, age);
+    }
 
     renderer.begin_frame(camera, 0.0f);
     const render::TissueDecor decor = tissue_decor(world, lanes);

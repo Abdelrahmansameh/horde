@@ -1,0 +1,265 @@
+{
+  "schema": 2,
+  "name": "campaign_06_circuit_board",
+  "display_name": "Circuit Board",
+  "description": "Eleven breaches feed a grid of thin channels that all drain toward one corner.",
+  "difficulty": 6,
+  "tags": ["campaign"],
+  "region": "lymphatic",
+  "world": { "min": [0, 0], "max": [496.4, 489.6], "cell_size": 1 },
+  "camera": { "view_height": 489.6 },
+  "vessels": [
+    {
+      "id": "trunk_a",
+      "lane_id": "west_0",
+      "points": [
+        { "p": [27.2, 476], "w": 42.16 },
+        { "p": [136, 367.2], "w": 42.16 },
+        { "p": [244.8, 258.4], "w": 42.16 },
+        { "p": [353.6, 149.6], "w": 42.16 },
+        { "p": [462.4, 40.8], "w": 42.16 }
+      ]
+    },
+    {
+      "id": "trunk_b",
+      "lane_id": "north_3",
+      "points": [
+        { "p": [224.4, 476], "w": 31.28 },
+        { "p": [326.4, 374], "w": 31.28 },
+        { "p": [421.6, 278.8], "w": 31.28 },
+        { "p": [476, 224.4], "w": 31.28 },
+        { "p": [476, 122.4], "w": 31.28 },
+        { "p": [469.2, 40.8], "w": 31.28 }
+      ]
+    },
+    {
+      "id": "sink",
+      "lane_id": "south_road",
+      "points": [
+        { "p": [421.6, 40.8], "w": 74.8 },
+        { "p": [476, 40.8], "w": 74.8 }
+      ]
+    },
+    {
+      "id": "south_road",
+      "points": [
+        { "p": [-8.16, 40.8], "w": 31.28 },
+        { "p": [204, 40.8], "w": 31.28 },
+        { "p": [408, 40.8], "w": 31.28 },
+        { "p": [469.2, 40.8], "w": 31.28 }
+      ]
+    },
+    {
+      "id": "link_1",
+      "lane_id": "west_1",
+      "points": [
+        { "p": [136, 367.2], "w": 24.48 },
+        { "p": [326.4, 367.2], "w": 24.48 }
+      ]
+    },
+    {
+      "id": "link_2",
+      "lane_id": "west_3",
+      "points": [
+        { "p": [244.8, 258.4], "w": 24.48 },
+        { "p": [435.2, 258.4], "w": 24.48 }
+      ]
+    },
+    {
+      "id": "link_3",
+      "lane_id": "west_2",
+      "points": [
+        { "p": [176.8, 306], "w": 24.48 },
+        { "p": [380.8, 306], "w": 24.48 }
+      ]
+    },
+    {
+      "id": "link_4",
+      "lane_id": "north_3",
+      "points": [
+        { "p": [367.2, 319.6], "w": 24.48 },
+        { "p": [367.2, 224.4], "w": 24.48 },
+        { "p": [476, 136], "w": 24.48 }
+      ]
+    },
+    {
+      "id": "west_0",
+      "points": [
+        { "p": [-8.16, 448.8], "w": 27.2 },
+        { "p": [37.4, 448.8], "w": 27.2 },
+        { "p": [74.8, 448.8], "w": 27.2 }
+      ]
+    },
+    {
+      "id": "west_1",
+      "points": [
+        { "p": [-8.16, 380.8], "w": 27.2 },
+        { "p": [71.4, 380.8], "w": 27.2 },
+        { "p": [142.8, 380.8], "w": 27.2 }
+      ]
+    },
+    {
+      "id": "west_2",
+      "points": [
+        { "p": [-8.16, 312.8], "w": 27.2 },
+        { "p": [105.4, 312.8], "w": 27.2 },
+        { "p": [210.8, 312.8], "w": 27.2 }
+      ]
+    },
+    {
+      "id": "west_3",
+      "points": [
+        { "p": [-8.16, 244.8], "w": 27.2 },
+        { "p": [139.4, 244.8], "w": 27.2 },
+        { "p": [278.8, 244.8], "w": 27.2 }
+      ]
+    },
+    {
+      "id": "west_4",
+      "points": [
+        { "p": [-8.16, 176.8], "w": 27.2 },
+        { "p": [173.4, 176.8], "w": 27.2 },
+        { "p": [346.8, 176.8], "w": 27.2 }
+      ]
+    },
+    {
+      "id": "west_5",
+      "points": [
+        { "p": [-8.16, 108.8], "w": 27.2 },
+        { "p": [207.4, 108.8], "w": 27.2 },
+        { "p": [414.8, 108.8], "w": 27.2 }
+      ]
+    },
+    {
+      "id": "north_0",
+      "points": [
+        { "p": [95.2, 497.76], "w": 27.2 },
+        { "p": [95.2, 442.68], "w": 27.2 },
+        { "p": [95.2, 387.6], "w": 27.2 }
+      ]
+    },
+    {
+      "id": "north_1",
+      "points": [
+        { "p": [176.8, 497.76], "w": 27.2 },
+        { "p": [176.8, 401.88], "w": 27.2 },
+        { "p": [176.8, 306], "w": 27.2 }
+      ]
+    },
+    {
+      "id": "north_2",
+      "points": [
+        { "p": [272, 497.76], "w": 27.2 },
+        { "p": [272, 357.68], "w": 27.2 },
+        { "p": [272, 217.6], "w": 27.2 }
+      ]
+    },
+    {
+      "id": "north_3",
+      "points": [
+        { "p": [367.2, 497.76], "w": 27.2 },
+        { "p": [367.2, 408.68], "w": 27.2 },
+        { "p": [367.2, 319.6], "w": 27.2 }
+      ]
+    }
+  ],
+  "spawn_points": [
+    { "id": "p_s", "pos": [-8.16, 40.8], "radius": 14.96, "lane_id": "south_road" },
+    { "id": "p_w0", "pos": [-8.16, 448.8], "radius": 14.96, "lane_id": "west_0" },
+    { "id": "p_w1", "pos": [-8.16, 380.8], "radius": 14.96, "lane_id": "west_1" },
+    { "id": "p_w2", "pos": [-8.16, 312.8], "radius": 14.96, "lane_id": "west_2" },
+    { "id": "p_w3", "pos": [-8.16, 244.8], "radius": 14.96, "lane_id": "west_3" },
+    { "id": "p_w4", "pos": [-8.16, 176.8], "radius": 14.96, "lane_id": "west_4" },
+    { "id": "p_w5", "pos": [-8.16, 108.8], "radius": 14.96, "lane_id": "west_5" },
+    { "id": "p_n0", "pos": [95.2, 497.76], "radius": 14.96, "lane_id": "north_0" },
+    { "id": "p_n1", "pos": [176.8, 497.76], "radius": 14.96, "lane_id": "north_1" },
+    { "id": "p_n2", "pos": [272, 497.76], "radius": 14.96, "lane_id": "north_2" },
+    { "id": "p_n3", "pos": [367.2, 497.76], "radius": 14.96, "lane_id": "north_3" }
+  ],
+  "objectives": [
+    { "id": "organ", "pos": [467.84, 40.8], "half_extents": [19.04, 19.04] }
+  ],
+  "placement_zones": [
+    { "min": [0, 0], "max": [496.4, 489.6] },
+    { "min": [353.6, 13.6], "max": [496.4, 163.2], "concentrated": true, "priority": 3 },
+    { "min": [204, 204], "max": [380.8, 326.4], "concentrated": true, "priority": 2 }
+  ],
+  "waves": [
+    {
+      "name": "campaign_06_circuit_board_wave_1",
+      "prep_time": 8,
+      "atp_reward": 50,
+      "spawns": [
+        { "family": "virus", "count": 278, "duration": 4 }
+      ]
+    },
+    {
+      "name": "campaign_06_circuit_board_wave_2",
+      "prep_time": 7.43,
+      "atp_reward": 88,
+      "spawns": [
+        { "family": "virus", "count": 514, "duration": 4 },
+        { "family": "bacteria", "count": 136, "start_time": 1, "duration": 3.5 }
+      ]
+    },
+    {
+      "name": "campaign_06_circuit_board_wave_3",
+      "prep_time": 6.86,
+      "atp_reward": 126,
+      "spawns": [
+        { "family": "virus", "count": 750, "duration": 4 },
+        { "family": "bacteria", "count": 231, "start_time": 1, "duration": 3.5 }
+      ]
+    },
+    {
+      "name": "campaign_06_circuit_board_wave_4",
+      "prep_time": 6.29,
+      "atp_reward": 164,
+      "spawns": [
+        { "family": "virus", "count": 986, "duration": 4 },
+        { "family": "bacteria", "count": 326, "start_time": 1, "duration": 3.5 }
+      ]
+    },
+    {
+      "name": "campaign_06_circuit_board_wave_5",
+      "prep_time": 5.71,
+      "atp_reward": 202,
+      "spawns": [
+        { "family": "virus", "count": 1223, "duration": 4 },
+        { "family": "bacteria", "count": 421, "start_time": 1, "duration": 3.5 },
+        { "family": "bacteria", "count": 81, "start_time": 0.5, "duration": 5.5 }
+      ]
+    },
+    {
+      "name": "campaign_06_circuit_board_wave_6",
+      "prep_time": 5.14,
+      "atp_reward": 240,
+      "spawns": [
+        { "family": "virus", "count": 1459, "duration": 4 },
+        { "family": "bacteria", "count": 516, "start_time": 1, "duration": 3.5 },
+        { "family": "bacteria", "count": 122, "start_time": 0.5, "duration": 5.5 }
+      ]
+    },
+    {
+      "name": "campaign_06_circuit_board_wave_7",
+      "prep_time": 4.57,
+      "atp_reward": 278,
+      "spawns": [
+        { "family": "virus", "count": 1695, "duration": 4 },
+        { "family": "bacteria", "count": 612, "start_time": 1, "duration": 3.5 },
+        { "family": "bacteria", "count": 163, "start_time": 0.5, "duration": 5.5 }
+      ]
+    },
+    {
+      "name": "campaign_06_circuit_board_wave_8",
+      "prep_time": 4,
+      "atp_reward": 316,
+      "modifier": "swarm",
+      "spawns": [
+        { "family": "virus", "count": 1932, "duration": 4 },
+        { "family": "bacteria", "count": 707, "start_time": 1, "duration": 3.5 },
+        { "family": "bacteria", "count": 204, "start_time": 0.5, "duration": 5.5 }
+      ]
+    }
+  ]
+}

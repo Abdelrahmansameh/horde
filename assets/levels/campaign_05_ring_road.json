@@ -1,0 +1,201 @@
+{
+  "schema": 2,
+  "name": "campaign_05_ring_road",
+  "display_name": "Ring Road",
+  "description": "A ring around a core with loops on every side. Block one road and the horde takes another.",
+  "difficulty": 5,
+  "tags": ["campaign"],
+  "region": "organ_chamber",
+  "world": { "min": [0, 0], "max": [396.8, 396.8], "cell_size": 0.75 },
+  "camera": { "view_height": 396.8 },
+  "vessels": [
+    {
+      "id": "ring",
+      "lane_id": "inlet",
+      "points": [
+        { "p": [297.6, 186], "w": 37.2 },
+        { "p": [270.36, 251.76], "w": 37.2 },
+        { "p": [204.6, 279], "w": 37.2 },
+        { "p": [138.84, 251.76], "w": 37.2 },
+        { "p": [111.6, 186], "w": 37.2 },
+        { "p": [138.84, 120.24], "w": 37.2 },
+        { "p": [204.6, 93], "w": 37.2 },
+        { "p": [270.36, 120.24], "w": 37.2 },
+        { "p": [297.6, 186], "w": 37.2 },
+        { "p": [270.36, 251.76], "w": 37.2 }
+      ]
+    },
+    {
+      "id": "inlet",
+      "points": [
+        { "p": [-7.44, 198.4], "w": 37.2 },
+        { "p": [55.8, 198.4], "w": 37.2 },
+        { "p": [112.84, 189.72], "w": 37.2 }
+      ]
+    },
+    {
+      "id": "stem",
+      "lane_id": "inlet",
+      "points": [
+        { "p": [204.6, 279], "w": 37.2 },
+        { "p": [204.6, 328.6], "w": 37.2 },
+        { "p": [204.6, 375.72], "w": 37.2 }
+      ]
+    },
+    {
+      "id": "west_road",
+      "lane_id": "inlet",
+      "points": [
+        { "p": [62, 198.4], "w": 33.48 },
+        { "p": [54.56, 136.4], "w": 33.48 },
+        { "p": [68.2, 68.2], "w": 33.48 },
+        { "p": [117.8, 37.2], "w": 33.48 },
+        { "p": [204.6, 43.4], "w": 33.48 },
+        { "p": [204.6, 93], "w": 33.48 }
+      ]
+    },
+    {
+      "id": "south_road",
+      "lane_id": "inlet",
+      "points": [
+        { "p": [204.6, 43.4], "w": 33.48 },
+        { "p": [266.6, 35.96], "w": 33.48 },
+        { "p": [334.8, 59.52], "w": 33.48 },
+        { "p": [360.84, 124], "w": 33.48 },
+        { "p": [348.44, 204.6], "w": 33.48 },
+        { "p": [367.04, 266.6], "w": 33.48 },
+        { "p": [322.4, 323.64], "w": 33.48 },
+        { "p": [260.4, 354.64], "w": 33.48 },
+        { "p": [204.6, 363.32], "w": 33.48 }
+      ]
+    },
+    {
+      "id": "north_west_road",
+      "lane_id": "inlet",
+      "points": [
+        { "p": [62, 198.4], "w": 33.48 },
+        { "p": [48.36, 272.8], "w": 33.48 },
+        { "p": [86.8, 336.04], "w": 33.48 },
+        { "p": [155, 367.04], "w": 33.48 },
+        { "p": [204.6, 363.32], "w": 33.48 }
+      ]
+    },
+    {
+      "id": "spoke_e",
+      "lane_id": "inlet",
+      "points": [
+        { "p": [297.6, 186], "w": 33.48 },
+        { "p": [348.44, 204.6], "w": 33.48 }
+      ]
+    },
+    {
+      "id": "east_hook",
+      "lane_id": "inlet",
+      "points": [
+        { "p": [270.32, 251.72], "w": 31 },
+        { "p": [322.4, 291.4], "w": 31 },
+        { "p": [378.2, 272.8], "w": 31 },
+        { "p": [379.44, 210.8], "w": 31 },
+        { "p": [379.44, 155], "w": 31 }
+      ]
+    },
+    {
+      "id": "shortcut_sw",
+      "lane_id": "inlet",
+      "points": [
+        { "p": [68.2, 68.2], "w": 28.52 },
+        { "p": [111.6, 93], "w": 28.52 },
+        { "p": [138.88, 120.28], "w": 28.52 }
+      ]
+    }
+  ],
+  "spawn_points": [
+    { "id": "p0", "pos": [-7.44, 198.4], "radius": 16.12, "lane_id": "inlet" }
+  ],
+  "objectives": [
+    { "id": "organ", "pos": [204.6, 369.52], "half_extents": [18.6, 6.2] }
+  ],
+  "placement_zones": [
+    { "min": [0, 0], "max": [396.8, 396.8] },
+    { "min": [173.6, 272.8], "max": [235.6, 372], "concentrated": true, "priority": 3 },
+    { "min": [93, 155], "max": [155, 217], "concentrated": true, "priority": 2 },
+    { "min": [161.2, 235.6], "max": [248, 291.4], "concentrated": true, "priority": 2 }
+  ],
+  "waves": [
+    {
+      "name": "campaign_05_ring_road_wave_1",
+      "prep_time": 8,
+      "atp_reward": 50,
+      "spawns": [
+        { "family": "virus", "count": 250, "duration": 4 }
+      ]
+    },
+    {
+      "name": "campaign_05_ring_road_wave_2",
+      "prep_time": 7.43,
+      "atp_reward": 84,
+      "spawns": [
+        { "family": "virus", "count": 462, "duration": 4 },
+        { "family": "bacteria", "count": 120, "start_time": 1, "duration": 3.5 }
+      ]
+    },
+    {
+      "name": "campaign_05_ring_road_wave_3",
+      "prep_time": 6.86,
+      "atp_reward": 118,
+      "spawns": [
+        { "family": "virus", "count": 675, "duration": 4 },
+        { "family": "bacteria", "count": 204, "start_time": 1, "duration": 3.5 }
+      ]
+    },
+    {
+      "name": "campaign_05_ring_road_wave_4",
+      "prep_time": 6.29,
+      "atp_reward": 152,
+      "spawns": [
+        { "family": "virus", "count": 887, "duration": 4 },
+        { "family": "bacteria", "count": 288, "start_time": 1, "duration": 3.5 }
+      ]
+    },
+    {
+      "name": "campaign_05_ring_road_wave_5",
+      "prep_time": 5.71,
+      "atp_reward": 186,
+      "spawns": [
+        { "family": "virus", "count": 1100, "duration": 4 },
+        { "family": "bacteria", "count": 371, "start_time": 1, "duration": 3.5 },
+        { "family": "bacteria", "count": 72, "start_time": 0.5, "duration": 5.5 }
+      ]
+    },
+    {
+      "name": "campaign_05_ring_road_wave_6",
+      "prep_time": 5.14,
+      "atp_reward": 220,
+      "spawns": [
+        { "family": "virus", "count": 1312, "duration": 4 },
+        { "family": "bacteria", "count": 456, "start_time": 1, "duration": 3.5 },
+        { "family": "bacteria", "count": 108, "start_time": 0.5, "duration": 5.5 }
+      ]
+    },
+    {
+      "name": "campaign_05_ring_road_wave_7",
+      "prep_time": 4.57,
+      "atp_reward": 254,
+      "spawns": [
+        { "family": "virus", "count": 1525, "duration": 4 },
+        { "family": "bacteria", "count": 540, "start_time": 1, "duration": 3.5 },
+        { "family": "bacteria", "count": 144, "start_time": 0.5, "duration": 5.5 }
+      ]
+    },
+    {
+      "name": "campaign_05_ring_road_wave_8",
+      "prep_time": 4,
+      "atp_reward": 288,
+      "spawns": [
+        { "family": "virus", "count": 1737, "duration": 4 },
+        { "family": "bacteria", "count": 623, "start_time": 1, "duration": 3.5 },
+        { "family": "bacteria", "count": 180, "start_time": 0.5, "duration": 5.5 }
+      ]
+    }
+  ]
+}

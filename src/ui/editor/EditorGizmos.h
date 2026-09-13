@@ -48,6 +48,7 @@ u32 zone();
 u32 zone_concentrated();
 u32 squad_path();
 u32 world_bounds();
+u32 camera_frame();
 u32 grid();
 u32 error();
 u32 warning();

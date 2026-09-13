@@ -1,10 +1,15 @@
 // Tests for the new game/abilities/ module (DESIGN.md §5.6).
 #include "game/abilities/ActiveAbilities.h"
 
+#include "game/towers/TowerSystem.h"
 #include "sim/SimWorld.h"
 #include "sim/ecs/Components.h"
+#include "sim/ecs/EcsWorld.h"
+#include "sim/flowfield/FlowField.h"
 
 #include <catch2/catch_test_macros.hpp>
+
+#include <cmath>
 
 using namespace immune;
 using namespace immune::sim;
@@ -107,4 +112,230 @@ TEST_CASE("ability_name returns a real string for every id", "[abilities]") {
         REQUIRE_FALSE(name.empty());
         REQUIRE(name != "?");
     }
+}
+
+// ---------------------------------------------------------------------------
+// Fibrin Clot: the one ability with a footprint.
+//
+// Scene: one straight lane, `lane_height` cells tall, running the full 60-cell
+// width at cell_size 1, flowing left to right. The default clot is a 14 x 3
+// bar laid ACROSS the flow, so on a 30-tall lane it leaves 8 cells open on
+// either side, and on a 12-tall lane it would seal the lane outright -- which
+// is the case the cast must refuse.
+// ---------------------------------------------------------------------------
+namespace {
+
+constexpr i32 kLaneW = 60;
+constexpr Vec2 kLaneGoal{57.0f, 15.0f};
+
+SimWorld make_lane(i32 lane_height) {
+    SimWorld world;
+    SimDesc desc;
+    desc.seed = 7;
+    desc.max_chaff = 1024;
+    desc.world_bounds = Rect{Vec2{0.0f, 0.0f}, Vec2{static_cast<f32>(kLaneW), 30.0f}};
+    world.init(desc, nullptr);
+
+    TissueMask& mask = world.tissue();
+    mask.resize(kLaneW, 30, 1.0f, Vec2{0.0f, 0.0f});
+    const i32 y0 = 15 - lane_height / 2;
+    for (i32 y = y0; y < y0 + lane_height; ++y)
+        for (i32 x = 0; x < kLaneW; ++x) mask.set_walkable(x, y, true);
+
+    world.sdf().bake(mask);
+    FlowFieldBakeDesc fdesc;
+    fdesc.goals = {sim::FlowGoal{mask.world_to_cell(kLaneGoal)}};
+    world.flow().bake(mask, fdesc);
+    return world;
+}
+
+u32 walkable_count(const TissueMask& mask) {
+    u32 n = 0;
+    for (i32 y = 0; y < mask.height(); ++y)
+        for (i32 x = 0; x < mask.width(); ++x) n += mask.walkable(x, y) ? 1u : 0u;
+    return n;
+}
+
+u32 barrier_count(SimWorld& world) {
+    u32 n = 0;
+    for ([[maybe_unused]] auto e : world.ecs().registry().view<comp::Barrier>()) ++n;
+    return n;
+}
+
+/// Runs only the ECS half of the tick, which is where the clot's clock lives.
+void step_ecs(SimWorld& world, u32 ticks) {
+    for (u32 i = 0; i < ticks; ++i) {
+        SystemContext ctx{world, world.ecs().registry(), world.rng(), kFixedDt, world.tick_index()};
+        world.ecs().tick(ctx);
+    }
+}
+
+} // namespace
+
+TEST_CASE("Fibrin Clot carves a bar across the local flow and leaves a way round it",
+          "[abilities][clot][flowfield]") {
+    SimWorld world = make_lane(30);
+    ActiveAbilitySystem abilities;
+    abilities.load_defaults();
+    const AbilityDef& d = abilities.def(AbilityId::FibrinClot);
+    REQUIRE(d.barrier_half_length > d.barrier_half_width);
+
+    const Vec2 at{30.0f, 15.0f};
+    const u32 before = walkable_count(world.tissue());
+    REQUIRE(abilities.cast(world, AbilityId::FibrinClot, at));
+    REQUIRE_FALSE(abilities.ready(AbilityId::FibrinClot));
+
+    const TissueMask& mask = world.tissue();
+    const i32 hl = static_cast<i32>(d.barrier_half_length);
+    const i32 hw = static_cast<i32>(d.barrier_half_width);
+    // The flow runs +x here, so the bar stands vertically: thin in x, long in y.
+    REQUIRE_FALSE(mask.walkable(30, 15));
+    REQUIRE_FALSE(mask.walkable(30, 15 + hl - 1));
+    REQUIRE_FALSE(mask.walkable(30, 15 - hl + 1));
+    REQUIRE(mask.walkable(30, 15 + hl + 2));
+    REQUIRE(mask.walkable(30, 15 - hl - 2));
+    REQUIRE(mask.walkable(30 + hw + 2, 15));
+    REQUIRE(mask.walkable(30 - hw - 2, 15));
+    REQUIRE(walkable_count(mask) < before);
+
+    // Roughly the bar's area, in cells, was carved -- not a disc, not the box's
+    // whole bounding rect.
+    const u32 carved = before - walkable_count(mask);
+    const f32 expected = (2.0f * d.barrier_half_length) * (2.0f * d.barrier_half_width);
+    REQUIRE(static_cast<f32>(carved) > expected * 0.7f);
+    REQUIRE(static_cast<f32>(carved) < expected * 1.4f);
+
+    // The flow field was told, and once re-solved still reaches the goal from
+    // upstream: the clot squeezes the lane, it does not seal it.
+    REQUIRE(world.flow().has_pending_rebake());
+    world.flow().rebake_pending(mask);
+    REQUIRE(world.flow().reachable(Vec2{10.0f, 15.0f}));
+
+    // One barrier entity, oriented across the flow, carrying its clock.
+    REQUIRE(barrier_count(world) == 1);
+    auto view = world.ecs().registry().view<comp::Barrier, comp::Transform>();
+    for (auto e : view) {
+        const comp::Barrier& b = view.get<comp::Barrier>(e);
+        const comp::Transform& tf = view.get<comp::Transform>(e);
+        REQUIRE(b.half_extents.x == d.barrier_half_length);
+        REQUIRE(b.half_extents.y == d.barrier_half_width);
+        REQUIRE(b.remaining == d.field_duration);
+        REQUIRE(b.duration == d.field_duration);
+        REQUIRE(tf.position.x == at.x);
+        // Perpendicular to +x flow: |rotation| ~ pi/2.
+        REQUIRE(std::fabs(std::fabs(tf.rotation) - 1.5707963f) < 0.05f);
+    }
+}
+
+TEST_CASE("Fibrin Clot dissolves on schedule and hands the tissue back",
+          "[abilities][clot][flowfield]") {
+    SimWorld world = make_lane(30);
+    ActiveAbilitySystem abilities;
+    abilities.load_defaults();
+    abilities.register_systems(world);
+    const f32 duration = abilities.def(AbilityId::FibrinClot).field_duration;
+
+    const u32 before = walkable_count(world.tissue());
+    REQUIRE(abilities.cast(world, AbilityId::FibrinClot, Vec2{30.0f, 15.0f}));
+    world.flow().rebake_pending(world.tissue());
+    REQUIRE_FALSE(world.flow().has_pending_rebake());
+    REQUIRE(walkable_count(world.tissue()) < before);
+
+    // Just short of the clock: still standing.
+    const u32 total_ticks = static_cast<u32>(duration * static_cast<f32>(kTicksPerSecond));
+    step_ecs(world, total_ticks - 2);
+    REQUIRE(barrier_count(world) == 1);
+    REQUIRE_FALSE(world.tissue().walkable(30, 15));
+
+    // Over it: entity gone, every carved cell walkable again, and the flow
+    // field told to re-solve over the bar.
+    step_ecs(world, 4);
+    REQUIRE(barrier_count(world) == 0);
+    REQUIRE(walkable_count(world.tissue()) == before);
+    REQUIRE(world.tissue().walkable(30, 15));
+    REQUIRE(world.flow().has_pending_rebake());
+
+    // The cooldown is independent of the clot's lifetime: it is still ticking.
+    REQUIRE_FALSE(abilities.ready(AbilityId::FibrinClot));
+}
+
+TEST_CASE("Fibrin Clot refuses a point off the tissue and keeps its cooldown",
+          "[abilities][clot]") {
+    // A 12-tall lane centred on y = 15 leaves y = 2 as rock.
+    SimWorld world = make_lane(12);
+    ActiveAbilitySystem abilities;
+    abilities.load_defaults();
+
+    const u32 before = walkable_count(world.tissue());
+    REQUIRE_FALSE(abilities.cast(world, AbilityId::FibrinClot, Vec2{30.0f, 2.0f}));
+    REQUIRE(abilities.ready(AbilityId::FibrinClot));
+    REQUIRE(walkable_count(world.tissue()) == before);
+    REQUIRE(barrier_count(world) == 0);
+}
+
+TEST_CASE("Fibrin Clot refuses a bar that would seal the lane outright",
+          "[abilities][clot][reachability]") {
+    // 12 tall: the 14-long bar spans the whole cross-section.
+    SimWorld world = make_lane(12);
+    ActiveAbilitySystem abilities;
+    abilities.load_defaults();
+    REQUIRE(world.flow().reachable(Vec2{10.0f, 15.0f}));
+
+    const u32 before = walkable_count(world.tissue());
+    REQUIRE_FALSE(abilities.cast(world, AbilityId::FibrinClot, Vec2{30.0f, 15.0f}));
+    REQUIRE(abilities.ready(AbilityId::FibrinClot));
+    REQUIRE(walkable_count(world.tissue()) == before);
+    REQUIRE(barrier_count(world) == 0);
+    REQUIRE_FALSE(world.flow().has_pending_rebake());
+}
+
+TEST_CASE("Fibrin Clot leaves cells that were already blocked alone, so a footprint under it "
+          "survives the clot dissolving",
+          "[abilities][clot][towers]") {
+    SimWorld world = make_lane(30);
+    ActiveAbilitySystem abilities;
+    abilities.load_defaults();
+    abilities.register_systems(world);
+
+    // Block a patch of the lane by hand where the bar will land, standing in
+    // for a tower footprint the clot is dropped across.
+    TissueMask& mask = world.tissue();
+    for (i32 y = 13; y <= 17; ++y)
+        for (i32 x = 29; x <= 31; ++x) mask.set_walkable(x, y, false);
+    const u32 before = walkable_count(mask);
+
+    REQUIRE(abilities.cast(world, AbilityId::FibrinClot, Vec2{30.0f, 15.0f}));
+    REQUIRE(walkable_count(mask) < before);
+
+    const f32 duration = abilities.def(AbilityId::FibrinClot).field_duration;
+    step_ecs(world, static_cast<u32>(duration * static_cast<f32>(kTicksPerSecond)) + 2);
+    REQUIRE(barrier_count(world) == 0);
+    REQUIRE(walkable_count(mask) == before);
+    REQUIRE_FALSE(mask.walkable(30, 15));   // the pre-existing block survived
+    REQUIRE(mask.walkable(30, 20));         // the clot's own cells came back
+}
+
+TEST_CASE("a tower cannot be built on a live Fibrin Clot, and can again once it dissolves",
+          "[abilities][clot][towers][placement]") {
+    SimWorld world = make_lane(30);
+    ActiveAbilitySystem abilities;
+    abilities.load_defaults();
+    abilities.register_systems(world);
+    TowerSystem ts;
+
+    const Vec2 at{30.0f, 15.0f};
+    REQUIRE(ts.validate(world, TowerType::Macrophage, at, 100000).result == PlacementResult::Ok);
+    REQUIRE(abilities.cast(world, AbilityId::FibrinClot, at));
+
+    // On it, and brushing its end from a footprint radius away: refused.
+    REQUIRE(ts.validate(world, TowerType::Macrophage, at, 100000).result == PlacementResult::Overlapping);
+    const f32 hl = abilities.def(AbilityId::FibrinClot).barrier_half_length;
+    REQUIRE(ts.validate(world, TowerType::Macrophage, Vec2{30.0f, 15.0f + hl + 1.0f}, 100000).result ==
+            PlacementResult::Overlapping);
+    // Well clear of it along the lane: fine.
+    REQUIRE(ts.validate(world, TowerType::Macrophage, Vec2{38.0f, 15.0f}, 100000).result == PlacementResult::Ok);
+
+    const f32 duration = abilities.def(AbilityId::FibrinClot).field_duration;
+    step_ecs(world, static_cast<u32>(duration * static_cast<f32>(kTicksPerSecond)) + 2);
+    REQUIRE(ts.validate(world, TowerType::Macrophage, at, 100000).result == PlacementResult::Ok);
 }

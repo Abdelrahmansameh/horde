@@ -725,6 +725,55 @@ LevelLoadResult LevelLoader::validate(const LevelDef& def) const {
     return LevelLoadResult{true, "", 0};
 }
 
+Rect level_sim_bounds(const LevelDef& def) {
+    const Vec2 extent = def.world_bounds.size();
+    // A degenerate world rect has no grid to grow; validate() rejects it and
+    // bake_geometry() below produces an empty mask either way.
+    if (extent.x <= 0.0f || extent.y <= 0.0f) return def.world_bounds;
+    const f32 cell = def.cell_size > 0.0f ? def.cell_size : 0.5f;
+
+    Vec2 lo = def.world_bounds.min;
+    Vec2 hi = def.world_bounds.max;
+    for (const SpawnPoint& p : def.spawn_points) {
+        // The DISC, not the point: spawn_burst() scatters the wave across the
+        // whole radius, so a disc that straddles the edge would lose its outer
+        // half to the despawn test. The extra cells past it are walking room --
+        // an agent on the very last cell of the grid has no tissue to steer
+        // into and no flow field cell to read.
+        const f32 pad = math::max(p.radius, 0.0f) + cell * 8.0f;
+        lo = Vec2{math::min(lo.x, p.position.x - pad), math::min(lo.y, p.position.y - pad)};
+        hi = Vec2{math::max(hi.x, p.position.x + pad), math::max(hi.y, p.position.y + pad)};
+    }
+    if (lo.x == def.world_bounds.min.x && lo.y == def.world_bounds.min.y &&
+        hi.x == def.world_bounds.max.x && hi.y == def.world_bounds.max.y) {
+        return def.world_bounds;
+    }
+
+    // BACKSTOP. Every cell of this rect is allocated four times over (mask,
+    // SDF, flow, lane ownership) and swept by the flow bake, so a mistyped
+    // coordinate must not be able to ask for a grid the size of the address
+    // space. One world extent of growth per side is far more than any "walk in
+    // from off-screen" needs; a spawn point past it stays off the grid, and
+    // validate_level() reports it as an error rather than this quietly moving
+    // the spawn somewhere the author did not put it.
+    lo = Vec2{math::max(lo.x, def.world_bounds.min.x - extent.x),
+              math::max(lo.y, def.world_bounds.min.y - extent.y)};
+    hi = Vec2{math::min(hi.x, def.world_bounds.max.x + extent.x),
+              math::min(hi.y, def.world_bounds.max.y + extent.y)};
+
+    // Whole cells, outward. Growing by an exact multiple of cell_size keeps
+    // every cell the un-grown level already had at the same world position, so
+    // adding an off-map spawn point does not re-quantize the geometry that was
+    // already there (and does not shift a bake that a test pinned).
+    const auto cells_out = [cell](f32 d) { return math::max(std::ceil(d / cell), 0.0f) * cell; };
+    Rect out;
+    out.min = Vec2{def.world_bounds.min.x - cells_out(def.world_bounds.min.x - lo.x),
+                   def.world_bounds.min.y - cells_out(def.world_bounds.min.y - lo.y)};
+    out.max = Vec2{def.world_bounds.max.x + cells_out(hi.x - def.world_bounds.max.x),
+                   def.world_bounds.max.y + cells_out(hi.y - def.world_bounds.max.y)};
+    return out;
+}
+
 LevelLoadResult LevelLoader::bake_geometry(const LevelDef& def, const GeometryBakeDesc& desc,
                                            sim::TissueMask& mask, sim::DistanceField& sdf,
                                            sim::FlowField& flow, GeometryBakeStats* stats) const {
@@ -734,9 +783,13 @@ LevelLoadResult LevelLoader::bake_geometry(const LevelDef& def, const GeometryBa
     const WallClock bake_timer;
     WallClock stage;
     const f32 cell = def.cell_size > 0.0f ? def.cell_size : 0.5f;
-    const Vec2 extent = def.world_bounds.size();
+    // The SIM rect, not the play rect: a spawn point outside world_bounds still
+    // needs mask, SDF and flow under it. Identical to world_bounds unless the
+    // level actually authored one out there (level_sim_bounds()).
+    const Rect grid = level_sim_bounds(def);
+    const Vec2 extent = grid.size();
     mask.resize(static_cast<i32>(extent.x / cell), static_cast<i32>(extent.y / cell), cell,
-                def.world_bounds.min);
+                grid.min);
 
     // Splines -> TissueMask. game::VesselPoint (position/width) maps onto
     // sim::VesselPoint (pos/width/cost_mul); levels don't yet author per-point
@@ -884,7 +937,9 @@ LevelLoadResult LevelLoader::instantiate(const LevelDef& def, sim::SimWorld& wor
         const ObjectivePoint& primary = def.objectives[0];
         world.chaff_system().set_goal(primary.position, primary.half_extents, primary.rotation);
     }
-    world.chaff_system().set_world_bounds(def.world_bounds);
+    // The despawn rect is the SIM rect. Bounding it by the play area instead
+    // would retire an off-map spawn's whole burst on the tick it appeared.
+    world.chaff_system().set_world_bounds(level_sim_bounds(def));
 
     // Spawn points: SimWorld is the only thing WaveDirector::tick() can
     // reach, and LevelDef doesn't survive past this function, so this is the
@@ -1263,11 +1318,14 @@ std::string LevelLoader::resolve_spawn_point_lane_id(const LevelDef& def,
 LaneOwnershipMap LevelLoader::build_lane_ownership_map(const LevelDef& def) const {
     LaneOwnershipMap out;
     const f32 cell = def.cell_size > 0.0f ? def.cell_size : 0.5f;
-    const Vec2 extent = def.world_bounds.size();
+    // Same rect as bake_geometry()'s mask, or the two grids stop being cell-for-
+    // cell parallel the moment a level puts a spawn point off the play area.
+    const Rect grid = level_sim_bounds(def);
+    const Vec2 extent = grid.size();
     out.width = static_cast<i32>(extent.x / cell);
     out.height = static_cast<i32>(extent.y / cell);
     out.cell_size = cell;
-    out.world_origin = def.world_bounds.min;
+    out.world_origin = grid.min;
 
     const usize cell_count = static_cast<usize>(out.width) * static_cast<usize>(out.height);
     if (out.width <= 0 || out.height <= 0) return out;

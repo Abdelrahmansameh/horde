@@ -1,0 +1,94 @@
+{
+  "schema": 2,
+  "name": "campaign_01_first_bend",
+  "display_name": "First Bend",
+  "description": "One vessel, two corners. Learn where a bend slows the horde down.",
+  "difficulty": 1,
+  "tags": ["campaign"],
+  "region": "capillary",
+  "world": { "min": [0, 0], "max": [146.2, 142.8] },
+  "camera": { "view_height": 142.8 },
+  "vessels": [
+    {
+      "id": "main",
+      "points": [
+        { "p": [-18, 116], "w": 23.8 },
+        { "p": [37.4, 115.6], "w": 23.8 },
+        { "p": [70.72, 115.6], "w": 23.8 },
+        { "p": [80.24, 112.88], "w": 23.8 },
+        { "p": [83.64, 105.4], "w": 23.8 },
+        { "p": [83.64, 71.4], "w": 23.8 },
+        { "p": [83.64, 41.48], "w": 23.8 },
+        { "p": [87.04, 34.68], "w": 23.8 },
+        { "p": [93.84, 31.96], "w": 23.8 },
+        { "p": [119, 31.96], "w": 23.8 },
+        { "p": [143, 32], "w": 23.8 }
+      ]
+    }
+  ],
+  "spawn_points": [
+    { "id": "p0", "pos": [-4.08, 115.6], "radius": 9.52, "lane_id": "main" }
+  ],
+  "objectives": [
+    { "id": "organ", "pos": [141.44, 31.96], "half_extents": [3.4, 10.88] }
+  ],
+  "placement_zones": [
+    { "min": [0, 0], "max": [146.2, 142.8] },
+    { "min": [64.6, 95.2], "max": [102, 129.2], "concentrated": true, "priority": 2 },
+    { "min": [64.6, 20.4], "max": [108.8, 54.4], "concentrated": true, "priority": 2 }
+  ],
+  "waves": [
+    {
+      "name": "campaign_01_first_bend_wave_1",
+      "prep_time": 8,
+      "atp_reward": 50,
+      "spawns": [
+        { "family": "virus", "count": 138, "duration": 4 }
+      ]
+    },
+    {
+      "name": "campaign_01_first_bend_wave_2",
+      "prep_time": 7.2,
+      "atp_reward": 68,
+      "spawns": [
+        { "family": "virus", "count": 255, "duration": 4 }
+      ]
+    },
+    {
+      "name": "campaign_01_first_bend_wave_3",
+      "prep_time": 6.4,
+      "atp_reward": 86,
+      "spawns": [
+        { "family": "virus", "count": 372, "duration": 4 },
+        { "family": "bacteria", "count": 56, "start_time": 1, "duration": 3.5 }
+      ]
+    },
+    {
+      "name": "campaign_01_first_bend_wave_4",
+      "prep_time": 5.6,
+      "atp_reward": 104,
+      "spawns": [
+        { "family": "virus", "count": 489, "duration": 4 },
+        { "family": "bacteria", "count": 95, "start_time": 1, "duration": 3.5 }
+      ]
+    },
+    {
+      "name": "campaign_01_first_bend_wave_5",
+      "prep_time": 4.8,
+      "atp_reward": 122,
+      "spawns": [
+        { "family": "virus", "count": 607, "duration": 4 },
+        { "family": "bacteria", "count": 134, "start_time": 1, "duration": 3.5 }
+      ]
+    },
+    {
+      "name": "campaign_01_first_bend_wave_6",
+      "prep_time": 4,
+      "atp_reward": 140,
+      "spawns": [
+        { "family": "virus", "count": 724, "duration": 4 },
+        { "family": "bacteria", "count": 173, "start_time": 1, "duration": 3.5 }
+      ]
+    }
+  ]
+}

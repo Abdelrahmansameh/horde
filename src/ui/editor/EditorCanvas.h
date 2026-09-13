@@ -52,6 +52,7 @@ const char* tool_key(EditorTool t);
 struct ViewToggles {
     bool grid = true;
     bool world_bounds = true;
+    bool camera_frame = true;      ///< What the game camera frames at level start
     bool vessels = true;
     bool obstacles = true;
     bool spawns = true;
@@ -103,6 +104,14 @@ public:
         has_viewport_rect_ = true;
     }
     void clear_viewport_rect() { has_viewport_rect_ = false; }
+
+    /// The framing to STORE in the level so the running game shows what the
+    /// editor viewport shows right now. Not the raw camera: the world renders
+    /// to the whole framebuffer with the panels drawn on top, so the camera's
+    /// centre and height describe a view whose outer ring is hidden behind the
+    /// outliner and inspector. This re-fits to the uncovered central node and
+    /// converts back to full-window terms, which is what App applies on load.
+    void capture_framing(const render::Camera& camera, Vec2& center, f32& view_height) const;
 
     /// Eases the camera to frame `r` over the next few frames. Used by
     /// frame-selection, frame-all, and clicking a validation row.

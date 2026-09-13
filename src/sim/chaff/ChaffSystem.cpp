@@ -41,6 +41,7 @@
 #include "core/Math.h"
 #include "core/Rng.h"
 #include "sim/chaff/ChaffBuffers.h"
+#include "sim/chaff/HitFlash.h"
 #include "sim/flowfield/FlowField.h"
 #include "sim/spatial/SpatialHash.h"
 
@@ -426,19 +427,20 @@ void resolve_wall_contact(const DistanceField& sdf, f32& px, f32& py,
 ///
 /// Tests the TISSUE MASK, not the distance field, and that is the whole point.
 /// The mask is the authority on what is walkable and it is kept current: when a
-/// tower is built, sim::block_rect() marks its footprint non-walkable and the
+/// Fibrin Clot is dropped, the mask is marked non-walkable under it and the
 /// flow field is re-baked to route around it. The DISTANCE field is not
 /// re-baked -- it cannot be, because tower placement validation reads it for
-/// "is there clearance for a tower here", and folding towers into it would make
-/// every tower block its own neighbours and kill tower clustering outright.
+/// "is there clearance for a tower here", and folding runtime blocks into it
+/// would make every clot unbuildable ground for its whole lifetime.
 ///
-/// So the SDF has never heard of towers, and resolve_wall_contact() above reads
-/// only the SDF. The flow field steers the horde around a tower, but nothing
-/// physically stops agents entering one, and once the crowd behind is dense
-/// enough it simply presses them through. Measured on a 1,200-agent jam: 72
-/// agents inside the footprint at once.
+/// So the SDF has never heard of runtime blocks, and resolve_wall_contact()
+/// above reads only the SDF. The flow field steers the horde around a block,
+/// but nothing physically stops agents entering one, and once the crowd behind
+/// is dense enough it simply presses them through. Measured on a 1,200-agent
+/// jam, back when towers were still obstacles: 72 agents inside a footprint at
+/// once. (Towers no longer block anything -- the horde walks through them.)
 ///
-/// The mask closes that hole for towers and for ordinary tissue alike, and it
+/// The mask closes that hole for runtime blocks and ordinary tissue alike, and it
 /// does so geometrically rather than by any force balance: the previous
 /// position was walkable, so some point on the segment to the new one is the
 /// last walkable point, and bisection finds it without needing a normal, a
@@ -450,6 +452,28 @@ void resolve_wall_contact(const DistanceField& sdf, f32& px, f32& py,
 /// pressed against the face -- which is how a crowd crushed against something
 /// should behave. Zeroing it would make the front rank go slack and the jam
 /// would visibly stop pushing.
+///
+/// THE SLIDE, AND WHY THE BISECTION ALONE IS NOT ENOUGH. Truncating the step is
+/// the right answer for the component heading INTO the face and the wrong one
+/// for the component running ALONG it, and bisection cannot tell them apart --
+/// it scales the whole displacement by one scalar. Against a tower that is not
+/// a slow corner, it is a dead stop: the blocked/walkable boundary is a cell
+/// edge, so an agent already touching the face has essentially zero legal
+/// fraction, `good` collapses to 0, and the agent is returned to exactly where
+/// it started no matter how fast it was moving sideways. Measured before this
+/// slide existed: agents sat frozen on a tower's upwind face at |v| = max_speed
+/// with 98% of that velocity tangential, for as long as the level ran, because
+/// every tick handed back the same position. That is the "enemies get stuck on
+/// a tower and never go around it" bug, and it is a containment artefact rather
+/// than a steering one -- the flow field was already telling them to go around.
+///
+/// So the residual displacement is re-applied one axis at a time. Each axis is
+/// accepted only if it lands somewhere walkable, which is exactly "keep the
+/// tangential motion, drop the normal one" for the axis-aligned cell boundaries
+/// the mask is made of -- and needs no normal, which is the same reason the
+/// bisection above does not want one. X before Y is arbitrary but fixed, so the
+/// result stays deterministic and thread-order-independent like the rest of the
+/// kernel.
 void contain_to_tissue(const TissueMask& mask, f32& px, f32& py, f32 ox, f32 oy) {
     auto walkable = [&mask](f32 x, f32 y) {
         const IVec2 c = mask.world_to_cell(Vec2{x, y});
@@ -459,18 +483,31 @@ void contain_to_tissue(const TissueMask& mask, f32& px, f32& py, f32 ox, f32 oy)
     if (!walkable(ox, oy)) return;      // started illegal too; pass A's SDF-gradient
                                         // recovery owns this agent, not us
 
+    const f32 dx = px - ox;
+    const f32 dy = py - oy;
+
     f32 good = 0.0f;   // fraction along [old -> new] known walkable
     f32 bad = 1.0f;    // known blocked
     for (u32 k = 0; k < 6; ++k) {   // 6 halvings: within ~1.5% of the step
         const f32 mid = 0.5f * (good + bad);
-        if (walkable(ox + (px - ox) * mid, oy + (py - oy) * mid)) {
+        if (walkable(ox + dx * mid, oy + dy * mid)) {
             good = mid;
         } else {
             bad = mid;
         }
     }
-    px = ox + (px - ox) * good;
-    py = oy + (py - oy) * good;
+    f32 cx = ox + dx * good;
+    f32 cy = oy + dy * good;
+
+    // Spend what is left of the step along whichever axis is still open.
+    const f32 rest = 1.0f - good;
+    const f32 rx = dx * rest;
+    const f32 ry = dy * rest;
+    if (rx != 0.0f && walkable(cx + rx, cy)) cx += rx;
+    if (ry != 0.0f && walkable(cx, cy + ry)) cy += ry;
+
+    px = cx;
+    py = cy;
 }
 
 /// Pass B: branch-free clamp_length + p += v*dt over six contiguous streams.
@@ -513,6 +550,27 @@ void integrate_and_clamp(f32* __restrict pos_x, f32* __restrict pos_y,
         // separation impulse. Two extra adds; the loop still vectorizes.
         pos_x[i] = old_pos_x[i] + nvx * dt + push_x[i];
         pos_y[i] = old_pos_y[i] + nvy * dt + push_y[i];
+    }
+}
+
+/// Pass B3: fade every agent's hit flash toward zero. Purely cosmetic -- see
+/// sim/chaff/HitFlash.h for what the stream is and why the sim owns it.
+///
+/// LINEAR, and per-family only through the decay RATE. Nothing about the shape
+/// of the fade is decided here: the stored value is a plain 0..1 ramp and the
+/// renderer applies HitFlashParams::curve to it every frame, so retuning the
+/// curve re-shapes agents that are already mid-flash instead of only the ones
+/// hit after the change. That is the whole reason the sim stores the raw ramp.
+///
+/// One pass over one contiguous f32 stream plus a two-entry table lookup per
+/// agent. It rides here rather than in its own loop over the horde because the
+/// family stream is already hot from pass A and the alternative is a second
+/// full sweep of memory for four floating-point operations.
+void decay_hit_flash(f32* __restrict flash, const u8* __restrict family,
+                     const f32* __restrict rate, u32 n, f32 dt) {
+    for (u32 i = 0; i < n; ++i) {
+        const f32 v = flash[i] - dt * rate[family[i] < kFamilyCount ? family[i] : 0];
+        flash[i] = v > 0.0f ? v : 0.0f;
     }
 }
 
@@ -651,7 +709,7 @@ ChaffUpdateStats ChaffSystem::update(ChaffBuffers& buffers, const FlowField& flo
             // only decides where across the lane its members sit. That split is
             // the whole reason this reads as a horde in formation rather than
             // as units following waypoints: forward progress, wall contact and
-            // tower reroutes remain entirely the flow field's business, and no
+            // clot reroutes remain entirely the flow field's business, and no
             // squad can steer its members into a wall trying to reach an anchor.
             //
             // Applied as a lateral velocity IMPULSE, in the same units as the
@@ -894,6 +952,27 @@ ChaffUpdateStats ChaffSystem::update(ChaffBuffers& buffers, const FlowField& flo
     f32* py = buffers.pos_y.data();
     integrate_and_clamp(px, py, vx, vy, old_px, old_py, push_x, push_y,
                         max_speed_scratch, static_cast<u32>(count), dt);
+
+    // ---- Pass B3: hit-flash fade (serial, cosmetic) ------------------------
+    // Placed after B for no reason other than that B is where the tick's
+    // straight-line arithmetic lives; it reads and writes nothing any other
+    // pass touches, and removing it entirely cannot move state_hash().
+    //
+    // The rates are rebuilt per tick rather than cached, because the table is
+    // hot-reloadable: an author dragging `duration` in the config panel has to
+    // see the fade change on the next tick, not on the next level load.
+    {
+        f32 flash_rate[kFamilyCount];
+        for (u32 f = 0; f < kFamilyCount; ++f) {
+            const f32 seconds = family_hit_flash(static_cast<PathogenFamily>(f)).duration;
+            // A non-positive duration means "no flash at all" (HitFlash.h), and
+            // a rate of 1/dt clears the stream on the very next tick rather
+            // than leaving whatever was mid-fade when the knob was turned off
+            // frozen on screen forever.
+            flash_rate[f] = seconds > 0.0f ? 1.0f / seconds : (dt > 0.0f ? 1.0f / dt : 1.0f);
+        }
+        decay_hit_flash(buffers.hit_flash.data(), fam, flash_rate, static_cast<u32>(count), dt);
+    }
 
     // ---- Pass B2: wall contact (parallel, gather-light) ---------------------
     // Must run after B, because contact is decided against the position the

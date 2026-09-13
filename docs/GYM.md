@@ -142,7 +142,7 @@ at objective     at center
 | `tower <type\|all\|list> [at …] [tier 1-3]` | Place towers for free; `all` spreads one of each. |
 | `upgrade [all]` / `sell [all]` | Tier up, or refund. |
 | `fire` | Trigger every placed tower's active ability. |
-| `cast <complement\|histamine\|fever> [at …]` | Cast a player ability. |
+| `cast <complement\|histamine\|fever\|clot> [at …]` | Cast a player ability. The clot refuses a point off the tissue or one where its bar would seal the lane. |
 | `ready` | Clear every ability cooldown. |
 | `atp <amount\|+amount>` | Set or add ATP. |
 | `wave [start\|next\|status\|<index>]` | Skip prep, jump waves, read the director. |

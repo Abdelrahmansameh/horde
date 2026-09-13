@@ -68,6 +68,15 @@ inline constexpr config::EnumEntry kDeathStyleEnum[] = {
     {nullptr, 0},
 };
 
+/// sim::HitFlashRetrigger — what a second hit does to an agent that is already
+/// flashing. See sim/chaff/HitFlash.h.
+inline constexpr config::EnumEntry kHitFlashRetriggerEnum[] = {
+    {"highest", static_cast<i64>(sim::HitFlashRetrigger::Highest)},
+    {"refresh", static_cast<i64>(sim::HitFlashRetrigger::Refresh)},
+    {"accumulate", static_cast<i64>(sim::HitFlashRetrigger::Accumulate)},
+    {nullptr, 0},
+};
+
 inline constexpr config::EnumEntry kThreatTierEnum[] = {
     {"chaff", static_cast<i64>(ThreatTier::Chaff)},
     {"elite", static_cast<i64>(ThreatTier::Elite)},

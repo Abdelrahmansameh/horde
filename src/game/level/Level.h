@@ -402,6 +402,21 @@ struct LevelDef {
     std::vector<WaveDef> waves;
 };
 
+/// The rect the SIMULATION covers, which is NOT always the rect the level is
+/// framed by. `world_bounds` is the play area: what the camera clamps to, what
+/// the editor draws as the level's edge, what a tower may be built inside. A
+/// spawn point is allowed to sit OUTSIDE it, so a lane can run off the edge and
+/// the horde can walk in from off-screen -- but the tissue mask, the flow
+/// field, the spatial hash and the out-of-bounds despawn test all have to reach
+/// that far or the burst appears on no grid at all and is retired on the tick
+/// it spawns.
+///
+/// So: world_bounds, grown to contain every spawn point's disc plus a margin,
+/// rounded out to whole cells. Equal to world_bounds for the (overwhelmingly
+/// common) level whose spawn points are all inside it, which is why nothing
+/// downstream needs a special case for the ordinary level.
+Rect level_sim_bounds(const LevelDef& def);
+
 /// Coarse per-cell "which lane owns this point" grid, built by
 /// LevelLoader::build_lane_ownership_map(). Parallel to (same grid geometry
 /// as) the TissueMask instantiate() bakes, but this file never sees a live
@@ -500,7 +515,7 @@ public:
     /// must not do. Keeping it as the ONE rasterizer is the point: a second
     /// preview-only bake would be free to drift from what ships.
     ///
-    /// Does not resize `mask` beyond what def.world_bounds/cell_size imply, and
+    /// Does not resize `mask` beyond what level_sim_bounds(def)/cell_size imply, and
     /// does not consult any objective for reachability -- that check needs the
     /// baked flow field and belongs to the caller (instantiate() and
     /// validate_level() both run it).

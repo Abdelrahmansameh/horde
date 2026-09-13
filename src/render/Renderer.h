@@ -36,6 +36,7 @@
 #include <vector>
 
 namespace immune::sim {
+struct CombatEvent;
 class ChaffBuffers;
 class SpatialHash;
 class EcsWorld;
@@ -214,7 +215,33 @@ public:
     /// family plus one fullscreen blob pass.
     void submit_chaff(const sim::ChaffBuffers& chaff, const sim::SpatialHash& hash);
 
-    /// Named agents, towers, projectiles — a few thousand at most.
+    /// Hands this frame's combat events to the death-flash pass, which keeps
+    /// drawing the BODY of each killed agent -- white and fading -- for
+    /// HitFlashParams::death_linger seconds after the sim retired it.
+    ///
+    /// WHY THE RENDERER HAS TO OWN THIS
+    /// Chaff has no wounded state: at shipped tower rates an agent loses all of
+    /// its density inside one tick, so the killing blow is the only hit it ever
+    /// takes and it is gone before a frame is drawn. A hit flash on the body
+    /// therefore has to outlive the body, and the only layer that can hold
+    /// something the sim has already deleted is this one. See
+    /// sim/chaff/HitFlash.h's death_linger for the measurements.
+    ///
+    /// Non-ChaffDeath events are ignored, so callers can pass the whole frame's
+    /// buffer -- the same span they hand vfx::ParticleSystem::emit_for_events.
+    /// Call it BEFORE submit_chaff in the same frame; corpses are appended to
+    /// the per-family instance batches there, so they cost no extra draw call.
+    ///
+    /// `age_seconds` is how long ago these deaths happened, and exists for the
+    /// screenshot harness, which runs its entire sim before a GL context is
+    /// created and so has to hand over deaths that are already several ticks
+    /// old. Interactive callers draining once per frame pass 0.
+    void submit_chaff_deaths(const sim::CombatEvent* events, usize count,
+                             f32 age_seconds = 0.0f);
+
+    /// Named agents, towers, clots — a few thousand at most. Towers are
+    /// emitted last so they draw over every enemy standing in their footprint
+    /// (towers are not obstacles; the horde passes through them).
     void submit_entities(const sim::EcsWorld& ecs);
 
     /// Damage/AoE fields as fluid shader effects (DESIGN.md §8.5): toxin clouds,

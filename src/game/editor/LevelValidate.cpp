@@ -136,9 +136,11 @@ std::vector<Issue> validate_level(const LevelDef& def, const BakedGeometry& bake
 
     // ---- Structure ---------------------------------------------------------
 
-    if (def.schema != 1) {
+    // Both versions the loader accepts; a schema-2 file is what LevelWriter
+    // emits for any level using the v2 header (display_name, difficulty, ...).
+    if (def.schema != 1 && def.schema != 2) {
         rep.error("unsupported or missing level schema " + std::to_string(def.schema) +
-                      " (expected 1)",
+                      " (expected 1 or 2)",
                   ElementRef{ElementKind::World, -1, -1});
     }
     if (def.vessels.empty()) rep.error("level has no vessels");
@@ -147,16 +149,22 @@ std::vector<Issue> validate_level(const LevelDef& def, const BakedGeometry& bake
     if (def.waves.empty()) rep.error("level declares no waves");
 
     const Vec2 extent = def.world_bounds.size();
+    // The rect the bake actually covers. Equal to world_bounds unless the level
+    // put a spawn point outside the play area, in which case the grid -- and so
+    // everything geometric below -- reaches out to meet it (level_sim_bounds()).
+    const Rect sim_rect = level_sim_bounds(def);
+    const Vec2 sim_extent = sim_rect.size();
     if (extent.x <= 0.0f || extent.y <= 0.0f) {
         rep.error("world bounds are empty or inverted", ElementRef{ElementKind::World, -1, -1});
     }
     if (def.cell_size <= 0.0f) {
         rep.error("cell_size must be positive", ElementRef{ElementKind::World, -1, -1});
-    } else if (extent.x > 0.0f && extent.y > 0.0f) {
+    } else if (sim_extent.x > 0.0f && sim_extent.y > 0.0f) {
         // The bake is O(cells) several times over and the editor re-runs it on
         // every gesture, so grid size is an authoring decision with a felt cost.
-        const f64 cells = static_cast<f64>(extent.x / def.cell_size) *
-                          static_cast<f64>(extent.y / def.cell_size);
+        // Counted over the SIM rect: an off-map spawn point buys real cells.
+        const f64 cells = static_cast<f64>(sim_extent.x / def.cell_size) *
+                          static_cast<f64>(sim_extent.y / def.cell_size);
         if (cells > 500000.0) {
             rep.warn("world is " + std::to_string(static_cast<i64>(cells)) +
                          " cells at this cell_size; bakes and rebakes get slow past ~500k",
@@ -213,10 +221,16 @@ std::vector<Issue> validate_level(const LevelDef& def, const BakedGeometry& bake
                                 std::to_string(def.cell_size) + " -- the lumen will rasterize broken",
                             pref, p.position);
             }
-            if (extent.x > 0.0f && !inside(def.world_bounds, p.position)) {
-                rep.error_at("vessel '" + v.id + "' point " + std::to_string(k) +
-                                 " lies outside the world bounds",
-                             pref, p.position);
+            if (extent.x > 0.0f && !inside(sim_rect, p.position)) {
+                // Against the SIM rect: running a lane off the edge to feed an
+                // off-map spawn point is the supported way to do that, and the
+                // grid grew to cover it. Past the grid there is no tissue to
+                // rasterize into, but the rasterizer clips each stamped disc
+                // to the grid, so the lane simply stops at the edge. Almost
+                // always a mistyped coordinate, never a broken level.
+                rep.warn_at("vessel '" + v.id + "' point " + std::to_string(k) +
+                                " lies outside the simulated area",
+                            pref, p.position);
             }
         }
         // `children` is parsed and currently drives nothing, but a dangling id
@@ -248,13 +262,13 @@ std::vector<Issue> validate_level(const LevelDef& def, const BakedGeometry& bake
         // not re-derived here; what the parser cannot see is the world rect.
         bool out_of_bounds = false;
         if (o.shape == ObstacleShape::Disc || o.shape == ObstacleShape::Box) {
-            out_of_bounds = !inside(def.world_bounds, o.position);
+            out_of_bounds = !inside(sim_rect, o.position);
         }
         for (const VesselPoint& p : o.points) {
-            out_of_bounds = out_of_bounds || !inside(def.world_bounds, p.position);
+            out_of_bounds = out_of_bounds || !inside(sim_rect, p.position);
         }
         if (extent.x > 0.0f && out_of_bounds) {
-            rep.error_at(label + " extends outside the world bounds", ref, anchor);
+            rep.error_at(label + " extends outside the simulated area", ref, anchor);
         }
     }
 
@@ -267,8 +281,23 @@ std::vector<Issue> validate_level(const LevelDef& def, const BakedGeometry& bake
         if (p.radius <= 0.0f) {
             rep.error_at("spawn point '" + p.id + "' has non-positive radius", ref, p.position);
         }
-        if (extent.x > 0.0f && !inside(def.world_bounds, p.position)) {
-            rep.error_at("spawn point '" + p.id + "' lies outside the world bounds", ref, p.position);
+        if (extent.x > 0.0f && !inside(sim_rect, p.position)) {
+            // level_sim_bounds() caps how far the grid will chase a spawn point
+            // (one world extent per side). Past that it stopped growing, so the
+            // point is on no grid at all and its burst dies on the tick it
+            // spawns -- which is the one out-of-bounds case still an error.
+            rep.error_at("spawn point '" + p.id +
+                             "' is too far outside the world bounds to simulate -- the grid "
+                             "grows at most one world extent past each edge",
+                         ref, p.position);
+        } else if (extent.x > 0.0f && !inside(def.world_bounds, p.position)) {
+            // Deliberate off-map spawning: the horde walks in from off-screen.
+            // Worth saying out loud (it is invisible if the camera is framed on
+            // the play rect) but it is not a mistake.
+            rep.warn_at("spawn point '" + p.id +
+                            "' lies outside the world bounds -- the horde will walk in from "
+                            "off-screen, and needs tissue running out to it",
+                        ref, p.position);
         }
         if (!p.lane_id.empty() && !lane_ids.count(p.lane_id)) {
             rep.error_at("spawn point '" + p.id + "' names unknown lane '" + p.lane_id + "'", ref,

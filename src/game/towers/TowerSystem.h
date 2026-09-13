@@ -3,10 +3,10 @@
 //
 // RATIONALE (DESIGN.md §4, §5, §8.4)
 //  - Placement is grid-free and continuous, validated against the distance
-//    field (needs clearance) and against reachability (a placement that fully
-//    walls off every lane is rejected, not allowed-then-exploited).
-//  - A successful placement edits the TissueMask and marks the flow field dirty
-//    over the tower's footprint only — never a full rebake.
+//    field (needs clearance) and against the towers already standing.
+//  - Towers are NOT obstacles. A placement never touches the TissueMask or the
+//    flow field; the horde walks straight through a tower and the tower is
+//    drawn over it. The footprint radius is spacing and sprite size only.
 //  - Targeting goes through the spatial hash. A tower asks the grid for cells
 //    in range; it never iterates agents. Anti-chaff towers do not target at all:
 //    they publish a DamageField and let the aggregate damage system do the work.
@@ -28,12 +28,11 @@ struct TowerStats {
     f32 fire_interval = 1.0f;
     f32 damage = 10.0f;          ///< Named-agent damage per shot.
     f32 kill_rate = 0.0f;        ///< Chaff density removed per second in-field.
-    f32 footprint_radius = 1.0f; ///< Tissue blocked; drives the flow rebake rect.
+    f32 footprint_radius = 1.0f; ///< Body radius: tower spacing and sprite size. Not an obstacle.
     u32 build_cost = 100;
     u32 upgrade_cost = 150;
     f32 ability_cooldown = 0.0f;
     u8 family_mask = 0xFF;       ///< Which pathogen families it can affect.
-    bool blocks_flow = true;     ///< False for support cells that agents flow past.
 };
 
 enum class PlacementResult : u8 {
@@ -41,7 +40,6 @@ enum class PlacementResult : u8 {
     NotOnTissue,        ///< Outside the walkable/placeable mask.
     InsufficientClearance,
     Overlapping,        ///< Too close to an existing tower.
-    WouldBlockAllPaths, ///< Every lane becomes unreachable.
     CannotAfford,
     OutsidePlacementZone,
     /// The level's schema-2 `allowed_towers` list does not include this type.

@@ -18,6 +18,7 @@
 #include "render/Renderer.h"
 #include "sim/SimWorld.h"
 #include "sim/chaff/ChaffSystem.h"
+#include "sim/chaff/HitFlash.h"
 
 #include <array>
 
@@ -133,8 +134,10 @@ constexpr Field kAbilityFields[] = {
     IMMUNE_CONFIG_FIELD(AbilityTuning, cooldown_seconds, FieldKind::F32, ""),
     IMMUNE_CONFIG_FIELD(AbilityTuning, radius, FieldKind::F32, "Field radius (per-link for the cascade)"),
     IMMUNE_CONFIG_FIELD(AbilityTuning, kill_rate, FieldKind::F32, ""),
-    IMMUNE_CONFIG_FIELD(AbilityTuning, field_duration, FieldKind::F32, "Histamine only"),
+    IMMUNE_CONFIG_FIELD(AbilityTuning, field_duration, FieldKind::F32, "Histamine: nova lifetime; Clot: seconds the bar stands"),
     IMMUNE_CONFIG_FIELD(AbilityTuning, fever_cooldown_relief, FieldKind::F32, "Fever only: seconds shaved off every tower"),
+    IMMUNE_CONFIG_FIELD(AbilityTuning, barrier_half_length, FieldKind::F32, "Clot only: half the bar's length across the lane"),
+    IMMUNE_CONFIG_FIELD(AbilityTuning, barrier_half_width, FieldKind::F32, "Clot only: half the bar's thickness"),
 };
 constexpr Schema kAbilitySchema{"ability", kAbilityFields};
 
@@ -151,13 +154,15 @@ constexpr Schema kMetaSchema{"meta", kMetaFields};
 constexpr std::string_view kSimKeys[] = {"schema",   "capacities", "globals",
                                         "swarmers", "fluid",      "squads"};
 constexpr std::string_view kAbilitiesKeys[] = {"schema", "complement_cascade_burst",
-                                               "histamine_flare", "fever_response"};
+                                               "histamine_flare", "fever_response",
+                                               "fibrin_clot"};
 
 const char* ability_key(AbilityId id) {
     switch (id) {
         case AbilityId::ComplementCascadeBurst: return "complement_cascade_burst";
         case AbilityId::HistamineFlare: return "histamine_flare";
         case AbilityId::FeverResponse: return "fever_response";
+        case AbilityId::FibrinClot: return "fibrin_clot";
         case AbilityId::Count: break;
     }
     return "complement_cascade_burst";
@@ -489,6 +494,13 @@ GameConfig default_game_config() {
             // of the generator rather than of somebody remembering.
             fc.death_vfx = vfx::family_death_vfx(family);
             fc.death_vfx.color = render::family_color(family);
+
+            // The hit flash, read out of sim/'s table the same way. Its colour
+            // is NOT overwritten from the family colour the way the death
+            // burst's is: a burst is made of the body coming apart, so it has
+            // to be the body's colour, but a flash is a light landing ON the
+            // body and reads as an event precisely because it is not.
+            fc.hit_flash = sim::family_hit_flash(family);
 
             // The two size derivations come from the live enemy config so the
             // bootstrap cannot disagree with what apply_to_tuning() actually

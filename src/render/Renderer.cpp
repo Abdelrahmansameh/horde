@@ -17,6 +17,7 @@
 #include "render/Gl.h"
 #include "render/Screenshot.h"
 #include "render/Shader.h"
+#include "sim/CombatEvents.h"
 #include "sim/damage/DamageField.h"
 #include "sim/ecs/Components.h"
 #include "sim/ecs/EcsWorld.h"
@@ -211,6 +212,12 @@ constexpr i32 kFluidTargetDivisor = 2;
 /// the burst finishes fading a little before the entity is destroyed.
 constexpr f32 kDeathBurstWindow = 0.5f;
 constexpr f32 kDeathBurstScale = 2.4f;
+
+/// Fraction of a Fibrin Clot's lifetime (comp::Barrier) over which it fades
+/// and thins before it dissolves. A quarter is long enough to read as a
+/// warning that the lane is about to reopen, short enough that the clot
+/// spends most of its clock looking as solid as it is.
+constexpr f32 kClotDissolveFraction = 0.25f;
 
 /// Burst (lifetime > 0) DamageFields fade as their remaining lifetime runs
 /// out. DamageField only exposes *remaining* lifetime, not elapsed/total
@@ -575,6 +582,21 @@ struct Renderer::Impl {
 
     WallClock clock;
     f32 time = 0.0f;
+
+    /// One agent the sim has already deleted, still being drawn. See
+    /// Renderer::submit_chaff_deaths and sim/chaff/HitFlash.h's death_linger.
+    ///
+    /// Flat, fixed-capacity and swap-removed, exactly like the sim storage it
+    /// is standing in for: a whole wave can die on one tick, so this has to be
+    /// cheap to fill and cheap to expire, and it must never grow inside a
+    /// frame.
+    struct ChaffCorpse {
+        Vec2 position{0.0f, 0.0f};
+        Vec2 velocity{0.0f, 0.0f};
+        f32 born = 0.0f;      ///< Impl::time when the agent died.
+        u8 family = 0;
+    };
+    std::vector<ChaffCorpse> corpses;
 
     // Cached from the most recent begin_frame().
     glm::mat4 view_projection{1.0f};
@@ -1359,6 +1381,59 @@ void Renderer::submit_tissue(const sim::TissueMask& mask, const sim::DistanceFie
     stats_.submit_ms += timer.elapsed_ms();
 }
 
+/// Hard ceiling on simultaneously-drawn corpses.
+///
+/// A cleared wave can raise hundreds of deaths on one tick (the sim itself caps
+/// the events at SimDesc::max_chaff_death_events), and every one of them is a
+/// sprite that has to be packed and drawn for the next few frames. Past a few
+/// hundred the flash has already read; what the rest buy is fill rate at
+/// exactly the moment the screen is busiest. Oldest-first eviction, so what
+/// survives is what just happened.
+constexpr usize kMaxChaffCorpses = 512;
+
+void Renderer::submit_chaff_deaths(const sim::CombatEvent* events, usize count,
+                                   f32 age_seconds) {
+    if (!ready_ || !impl_ || events == nullptr) return;
+    Impl& imp = *impl_;
+
+    for (usize i = 0; i < count; ++i) {
+        const sim::CombatEvent& e = events[i];
+        if (e.type != sim::CombatEventType::ChaffDeath) continue;
+        const u32 f = static_cast<u32>(e.target_family);
+        if (f >= kFamilyCount) continue;   // "not agent-specific"; nothing to draw
+        if (sim::family_hit_flash(static_cast<PathogenFamily>(f)).death_linger <= 0.0f) continue;
+
+        if (imp.corpses.size() >= kMaxChaffCorpses) {
+            // Evict the oldest rather than dropping the newest: a corpse that
+            // is nearly faded out has already done its job, and the death the
+            // player is looking at right now is the one that just landed.
+            usize oldest = 0;
+            for (usize c = 1; c < imp.corpses.size(); ++c) {
+                if (imp.corpses[c].born < imp.corpses[oldest].born) oldest = c;
+            }
+            imp.corpses[oldest] = imp.corpses.back();
+            imp.corpses.pop_back();
+        }
+        Impl::ChaffCorpse corpse;
+        corpse.position = e.origin;
+        // ChaffDeath carries the heading as a unit vector and the speed
+        // separately (sim/CombatEvents.h), so the body keeps coasting on the
+        // velocity it died with instead of stopping dead in a moving horde.
+        corpse.velocity = e.direction * e.magnitude;
+        // Stamped from the LIVE clock, not from the cached Impl::time.
+        // Impl::time only advances in begin_frame(), and both callers push
+        // before that: interactive play drains events just ahead of the frame,
+        // and the screenshot harness pushes into a renderer whose cached time
+        // is still the 0 it was initialised with while its clock has already
+        // been running through shader compilation. Reading the clock directly
+        // makes `age_seconds` mean what it says regardless of where in the
+        // frame the push lands.
+        corpse.born = static_cast<f32>(imp.clock.elapsed_seconds()) - age_seconds;
+        corpse.family = static_cast<u8>(f);
+        imp.corpses.push_back(corpse);
+    }
+}
+
 void Renderer::submit_chaff(const sim::ChaffBuffers& chaff, const sim::SpatialHash& hash) {
     if (!ready_ || !impl_) return;
     Impl& imp = *impl_;
@@ -1396,6 +1471,68 @@ void Renderer::submit_chaff(const sim::ChaffBuffers& chaff, const sim::SpatialHa
         build_chaff_batches(chaff, occ, params, region_base,
                             desc_.lod_blob_enabled ? &imp.density_grid : nullptr);
 
+    // ---- Death flashes ----------------------------------------------------
+    // Appended straight onto the ends of the per-family regions the batcher
+    // just filled, so a corpse is drawn by the same instanced call as the live
+    // agents of its family and costs no extra draw. `counts` diverges from
+    // result.family_counts from here on; the draw loop below uses `counts`.
+    //
+    // This is the pass that makes hit feedback exist at all in this game. See
+    // Renderer::submit_chaff_deaths and sim/chaff/HitFlash.h's death_linger.
+    u32 counts[kFamilyCount];
+    for (u32 f = 0; f < kFamilyCount; ++f) counts[f] = result.family_counts[f];
+    u32 corpses_drawn = 0;
+    for (usize i = 0; i < imp.corpses.size();) {
+        const Impl::ChaffCorpse& corpse = imp.corpses[i];
+        const u32 f = corpse.family < kFamilyCount ? corpse.family : 0u;
+        const sim::HitFlashParams& flash = sim::family_hit_flash(static_cast<PathogenFamily>(f));
+        const f32 age = imp.time - corpse.born;
+        const f32 linger = flash.death_linger;
+        // Expired, or the knob was turned off underneath it mid-flight. Swap
+        // with the back rather than erasing from the middle: order carries no
+        // meaning here and a wave's worth of corpses expiring on one frame
+        // would otherwise be quadratic.
+        if (linger <= 0.0f || age >= linger || age < 0.0f) {
+            imp.corpses[i] = imp.corpses.back();
+            imp.corpses.pop_back();
+            continue;
+        }
+        ++i;
+        if (counts[f] >= per_family_cap) continue;
+
+        // 1 at the instant of death, 0 as it expires -- the exact shape a live
+        // agent's stored ramp has, so a corpse and a wounded survivor are
+        // shaded by the same strength/curve and read as the same effect.
+        const f32 ramp = 1.0f - age / linger;
+        const f32 flash_k =
+            math::saturate(flash.strength * std::pow(ramp, flash.curve));
+
+        ChaffInstance& inst = region_base[static_cast<usize>(f) * per_family_cap + counts[f]];
+        ++counts[f];
+        ++corpses_drawn;
+
+        const FamilyVisual& vis = family_visual(static_cast<PathogenFamily>(f));
+        const Vec2 p = corpse.position + corpse.velocity * age;
+        inst.x = p.x;
+        inst.y = p.y;
+        inst.scale = vis.silhouette * (1.0f + flash.scale_punch * flash_k);
+        inst.rotation = std::atan2(corpse.velocity.y, corpse.velocity.x);
+        // Alpha carries the dissolve. The body has to LEAVE, not sit there as a
+        // white sprite that snaps off -- and fading it is also what keeps a
+        // cleared wave from leaving a field of corpses standing in the lane.
+        Vec4 tint = family_color(static_cast<PathogenFamily>(f));
+        tint.a = ramp;
+        inst.tint_rgba8 = pack_rgba8(tint);
+        // Family in 8..15 and the flash in 24..31, exactly as the batcher packs
+        // a live agent. Low byte deliberately ZERO: a corpse carries none of the
+        // agent's debuff bits, because a body that is flashing white should not
+        // also be wearing the Cryo tint that helped kill it. Crowd byte zero
+        // too, so it keeps its own contact shadow.
+        inst.flags = (f << 8) | (static_cast<u32>(flash_k * 255.0f + 0.5f) << 24);
+        inst.anim_phase = imp.time * vis.tempo * math::kTwoPi;
+        inst.pad = vis.wobble;
+    }
+
     if (result.instances_dropped > 0) {
         IMMUNE_LOG_WARN("chaff render: dropped %u instances (a family exceeded "
                         "max_chaff_instances=%u)",
@@ -1409,14 +1546,26 @@ void Renderer::submit_chaff(const sim::ChaffBuffers& chaff, const sim::SpatialHa
     }
 
     const ShaderProgram chaff_prog = imp.shaders.get("chaff");
-    if (chaff_prog.valid() && result.instances_total > 0) {
+    if (chaff_prog.valid() && result.instances_total + corpses_drawn > 0) {
         glUseProgram(chaff_prog.gl_id);
         glUniformMatrix4fv(0, 1, GL_FALSE, glm::value_ptr(imp.view_projection));
         glUniform1f(1, imp.time);
+        // Per-family hit-flash colours (sim/chaff/HitFlash.h). Two vec4s, read
+        // fresh every frame rather than cached at init: the table is what the
+        // config hot-reload writes into, and an author dragging the colour has
+        // to see it on the next frame, not on the next level load. Locations
+        // 2..2+kFamilyCount-1, declared as an array in chaff.frag.
+        {
+            Vec4 flash_color[kFamilyCount];
+            for (u32 f = 0; f < kFamilyCount; ++f) {
+                flash_color[f] = sim::family_hit_flash(static_cast<PathogenFamily>(f)).color;
+            }
+            glUniform4fv(2, static_cast<GLsizei>(kFamilyCount), glm::value_ptr(flash_color[0]));
+        }
         imp.chaff_vao.bind();
         const u32 region_base_instance = imp.chaff_region * kFamilyCount * per_family_cap;
         for (u32 f = 0; f < kFamilyCount; ++f) {
-            const u32 n = result.family_counts[f];
+            const u32 n = counts[f];   // live agents plus this family's corpses
             if (n == 0) continue;
             const u32 base_instance = region_base_instance + f * per_family_cap;
             glDrawArraysInstancedBaseInstance(GL_TRIANGLE_FAN, 0, 4, static_cast<GLsizei>(n),
@@ -1445,7 +1594,7 @@ void Renderer::submit_chaff(const sim::ChaffBuffers& chaff, const sim::SpatialHa
     imp.chaff_fence.signal(imp.chaff_region);
     imp.chaff_region = (imp.chaff_region + 1) % kInstanceRegions;
 
-    stats_.chaff_instances_drawn = result.instances_total;
+    stats_.chaff_instances_drawn = result.instances_total + corpses_drawn;
     stats_.chaff_agents_in_blobs = result.agents_in_blobs;
     stats_.submit_ms += timer.elapsed_ms();
 }
@@ -1463,8 +1612,16 @@ void Renderer::submit_entities(const sim::EcsWorld& ecs) {
     const entt::registry& registry = ecs.registry();
     u32 count = 0;
     auto view = registry.view<const sim::comp::Transform, const sim::comp::Sprite>();
-    for (auto entity : view) {
-        if (count >= cap) break;
+
+    // Instances draw in buffer order, and the whole pass is one draw call, so
+    // buffer order IS the layering. Towers go in LAST: they are not obstacles
+    // (game/towers/TowerSystem.cpp), so elites and bosses walk straight
+    // through a footprint, and the tower has to composite over whatever is
+    // standing in it or the friendly silhouette gets eaten by the horde every
+    // time a lane runs through it. Two walks over the same view, split on
+    // comp::Tower, rather than a sort: the view is small (towers plus named
+    // agents) and EnTT's iteration order is not something worth depending on.
+    const auto emit = [&](entt::entity entity) {
         const auto& t = view.get<const sim::comp::Transform>(entity);
         const auto& sp = view.get<const sim::comp::Sprite>(entity);
 
@@ -1489,7 +1646,7 @@ void Renderer::submit_entities(const sim::EcsWorld& ecs) {
 
         // Every tower body spends its tier on a countable feature — the
         // Macrophage's phagosomes, the Interferon crystal's reach, the
-        // Cytotoxic T's microvilli, the Goblet Cell's granules, the NK Cell's
+        // Cytotoxic T's lytic granules, the Goblet Cell's granules, the NK Cell's
         // blades — so an upgrade is legible from the silhouette alone rather
         // than only from the stat panel.
         //
@@ -1505,6 +1662,20 @@ void Renderer::submit_entities(const sim::EcsWorld& ecs) {
         // sprite at upgrade time, for the same no-drift reason.
         if (const auto* tower = registry.try_get<const sim::comp::Tower>(entity)) {
             inst.shape_param = static_cast<f32>(tower->tier);
+        }
+
+        // Fibrin Clot (game/abilities): the quad is square and sized to the
+        // bar's length, so the shader needs the aspect to squash it to the
+        // bar's thickness -- shape 5 reads shape_param as
+        // half_length / half_width. The clot dissolves rather than vanishing:
+        // alpha runs down over the final stretch of its clock, and the shader
+        // spends that same alpha on thinning the bar so the horde visibly
+        // gets its lane back at the moment the mask does.
+        if (const auto* barrier = registry.try_get<const sim::comp::Barrier>(entity)) {
+            inst.shape_param = barrier->half_extents.x / math::max(barrier->half_extents.y, 1e-3f);
+            const f32 life = barrier->duration > 0.0f ? barrier->remaining / barrier->duration : 0.0f;
+            const f32 fade = math::saturate(life / kClotDissolveFraction);
+            inst.tint_rgba8 = pack_rgba8(Vec4{sp.tint.r, sp.tint.g, sp.tint.b, sp.tint.a * fade});
         }
 
         // Elite death burst (DESIGN.md §9.5 tier 2: "individual pop/burst
@@ -1539,6 +1710,16 @@ void Renderer::submit_entities(const sim::EcsWorld& ecs) {
                 burst.shape_param = 0.0f;
             }
         }
+    };
+    for (auto entity : view) {
+        if (count >= cap) break;
+        if (registry.all_of<sim::comp::Tower>(entity)) continue;
+        emit(entity);
+    }
+    for (auto entity : view) {
+        if (count >= cap) break;
+        if (!registry.all_of<sim::comp::Tower>(entity)) continue;
+        emit(entity);
     }
 
     // Telegraph overlay (DESIGN.md §9.5 tier 2: "a clearly telegraphed wind-up

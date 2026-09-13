@@ -139,6 +139,7 @@ EditorRequest EditorPanels::draw_menu_bar(app::EditorMode& editor, EditorCanvas&
         ImGui::MenuItem("Placement zones", "Alt+7", &v.zones);
         ImGui::MenuItem("Squad paths", "Alt+8", &v.squad_paths);
         ImGui::Separator();
+        ImGui::MenuItem("Game camera view", nullptr, &v.camera_frame);
         ImGui::MenuItem("Labels", nullptr, &v.labels);
         ImGui::MenuItem("Validation halos", nullptr, &v.validation);
         ImGui::Separator();
@@ -718,7 +719,9 @@ void draw_settings(app::EditorMode& editor, bool* open, Vec2 cam_center,
             doc.end_gesture();
         }
         if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("Capture the editor viewport framing as the level default");
+            ImGui::SetTooltip("Capture what the viewport shows now as the level default.\n"
+                              "Fitted to the full game window, so it may show a little\n"
+                              "more than the docked panels leave visible here.");
         }
     }
 
@@ -1505,7 +1508,13 @@ EditorRequest EditorPanels::build(app::EditorMode& editor, EditorCanvas& canvas,
 
         draw_outliner(editor, canvas);
         draw_inspector(editor);
-        draw_settings(editor, &show_settings_, camera.center(), camera.view_height());
+        // Not camera.center()/view_height(): those describe the full
+        // framebuffer, most of whose edges sit behind the docked panels. The
+        // canvas converts to the framing that reproduces the visible viewport.
+        Vec2 cap_center{0.0f, 0.0f};
+        f32 cap_height = 0.0f;
+        canvas.capture_framing(camera, cap_center, cap_height);
+        draw_settings(editor, &show_settings_, cap_center, cap_height);
 
         const EditorRequest wave_req = draw_waves(editor, roster, max_chaff);
         if (wave_req.action != EditorAction::None) req = wave_req;

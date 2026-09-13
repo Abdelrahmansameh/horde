@@ -459,6 +459,8 @@ TEST_CASE("every config field is addressable from the registry", "[config][game]
     REQUIRE(registry.set("economy.starting_atp", "500", err));
     REQUIRE(cfg.economy.starting_atp == 500u);
     REQUIRE(registry.set("abilities.fever_response.cooldown_seconds", "30", err));
+    REQUIRE(registry.set("abilities.fibrin_clot.barrier_half_length", "5", err));
+    REQUIRE(cfg.abilities.ability[static_cast<u32>(immune::game::AbilityId::FibrinClot)].barrier_half_length == 5.0f);
     REQUIRE(registry.set("meta.win_bonus", "80", err));
 
     // Every bound field must be readable; a path that parses but does not

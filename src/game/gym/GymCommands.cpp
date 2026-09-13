@@ -112,6 +112,7 @@ bool parse_ability(const std::string& s, AbilityId& out) {
     }
     if (s == "histamine" || s == "flare") { out = AbilityId::HistamineFlare; return true; }
     if (s == "fever") { out = AbilityId::FeverResponse; return true; }
+    if (s == "clot" || s == "fibrin" || s == "barrier") { out = AbilityId::FibrinClot; return true; }
     return false;
 }
 
@@ -121,7 +122,6 @@ const char* placement_result_name(PlacementResult r) {
         case PlacementResult::NotOnTissue: return "not on tissue";
         case PlacementResult::InsufficientClearance: return "insufficient clearance";
         case PlacementResult::Overlapping: return "overlapping another tower";
-        case PlacementResult::WouldBlockAllPaths: return "would block every path";
         case PlacementResult::CannotAfford: return "cannot afford";
         case PlacementResult::OutsidePlacementZone: return "outside placement zone";
         case PlacementResult::TowerNotAllowed: return "tower type not allowed on this level";
@@ -324,7 +324,7 @@ const std::vector<GymCommandInfo>& command_table() {
         {"upgrade", "[all]", "Upgrade the last-placed tower, or every tower, one tier."},
         {"sell", "[all]", "Sell the last-placed tower, or every tower."},
         {"fire", "", "Trigger every placed tower's active ability."},
-        {"cast", "<complement|histamine|fever> [at <x,y|cursor>]", "Cast a player ability."},
+        {"cast", "<complement|histamine|fever|clot> [at <x,y|cursor>]", "Cast a player ability."},
         {"ready", "", "Clear every ability cooldown."},
         {"atp", "<amount|+amount>", "Set or add ATP."},
         {"wave", "[start|next|status|<index>]",
@@ -810,11 +810,11 @@ GymResult cmd_fire(GymContext& ctx) {
 GymResult cmd_cast(GymContext& ctx, const std::vector<std::string>& tok) {
     if (ctx.world == nullptr) return fail("no world in this context");
     if (ctx.abilities == nullptr) return fail("no ability system in this context");
-    if (tok.size() < 2) return fail("usage: cast <complement|histamine|fever> [at ...]");
+    if (tok.size() < 2) return fail("usage: cast <complement|histamine|fever|clot> [at ...]");
 
     AbilityId id = AbilityId::ComplementCascadeBurst;
     if (!parse_ability(lower(tok[1]), id)) {
-        return fail("unknown ability '" + tok[1] + "' (complement, histamine, fever)");
+        return fail("unknown ability '" + tok[1] + "' (complement, histamine, fever, clot)");
     }
 
     usize i = 2;
@@ -824,6 +824,12 @@ GymResult cmd_cast(GymContext& ctx, const std::vector<std::string>& tok) {
 
     if (!ctx.abilities->cast(*ctx.world, id, at)) {
         const AbilityStatus st = ctx.abilities->status(id);
+        if (st.ready) {
+            // Only the clot refuses a ready cast: off the tissue, or a bar
+            // that would seal the lane (ActiveAbilities.h).
+            return fail(fmt("%s cannot go at (%.1f, %.1f): not on tissue, or it would wall the lane off",
+                            ability_name(id), at.x, at.y));
+        }
         return fail(fmt("%s is on cooldown (%.1fs left) — 'ready' clears it", ability_name(id),
                         st.cooldown_remaining));
     }

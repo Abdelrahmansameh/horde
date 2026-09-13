@@ -1,0 +1,171 @@
+{
+  "schema": 2,
+  "name": "campaign_08_blob_field",
+  "display_name": "Blob Field",
+  "description": "A wide open floodplain strewn with islands. No walls to lean on -- build your own maze.",
+  "difficulty": 8,
+  "tags": ["campaign"],
+  "region": "floodplain",
+  "world": { "min": [0, 0], "max": [828, 552], "cell_size": 1.25 },
+  "camera": { "view_height": 552 },
+  "vessels": [
+    {
+      "id": "inlet",
+      "points": [
+        { "p": [-11.04, 432.4], "w": 82.8 },
+        { "p": [36.8, 432.4], "w": 82.8 },
+        { "p": [82.8, 432.4], "w": 82.8 }
+      ]
+    },
+    {
+      "id": "field_0",
+      "lane_id": "inlet",
+      "points": [
+        { "p": [73.6, 92], "w": 156.4 },
+        { "p": [423.2, 92], "w": 156.4 },
+        { "p": [772.8, 92], "w": 156.4 }
+      ]
+    },
+    {
+      "id": "field_1",
+      "lane_id": "inlet",
+      "points": [
+        { "p": [73.6, 211.6], "w": 156.4 },
+        { "p": [423.2, 211.6], "w": 156.4 },
+        { "p": [772.8, 211.6], "w": 156.4 }
+      ]
+    },
+    {
+      "id": "field_2",
+      "lane_id": "inlet",
+      "points": [
+        { "p": [73.6, 331.2], "w": 156.4 },
+        { "p": [423.2, 331.2], "w": 156.4 },
+        { "p": [772.8, 331.2], "w": 156.4 }
+      ]
+    },
+    {
+      "id": "field_3",
+      "lane_id": "inlet",
+      "points": [
+        { "p": [73.6, 460], "w": 156.4 },
+        { "p": [423.2, 460], "w": 156.4 },
+        { "p": [772.8, 460], "w": 156.4 }
+      ]
+    }
+  ],
+  "obstacles": [
+    { "id": "nw", "shape": "polygon", "points": [[101.2, 552], [230, 552], [220.8, 496.8], [147.2, 478.4]], "inflate": 31.28 },
+    { "id": "w", "shape": "polygon", "points": [[101.2, 257.6], [138, 230]], "inflate": 38.64 },
+    { "id": "cw", "shape": "polygon", "points": [[276, 395.6], [358.8, 386.4], [349.6, 331.2], [294.4, 322]], "inflate": 29.44 },
+    { "id": "sw", "shape": "polygon", "points": [[119.6, 0], [266.8, 0], [230, 64.4], [156.4, 73.6]], "inflate": 27.6 },
+    { "id": "n", "shape": "polygon", "points": [[414, 552], [561.2, 552], [515.2, 487.6]], "inflate": 31.28 },
+    { "id": "c", "shape": "polygon", "points": [[478.4, 294.4], [561.2, 230], [515.2, 230]], "inflate": 40.48 },
+    { "id": "s", "shape": "polygon", "points": [[377.2, 0], [515.2, 0], [450.8, 92]], "inflate": 33.12 },
+    { "id": "e", "shape": "polygon", "points": [[644, 312.8], [726.8, 404.8], [680.8, 349.6]], "inflate": 40.48 },
+    { "id": "se", "shape": "polygon", "points": [[634.8, 0], [772.8, 0], [717.6, 101.2]], "inflate": 34.96 },
+    { "id": "ne", "shape": "polygon", "points": [[736, 496.8], [828, 552], [828, 478.4]], "inflate": 36.8 },
+    { "id": "pebble_1", "shape": "disc", "pos": [220.8, 165.6], "radius": 25.76 },
+    { "id": "pebble_2", "shape": "disc", "pos": [588.8, 423.2], "radius": 23.92 }
+  ],
+  "spawn_points": [
+    { "id": "p0", "pos": [-11.04, 432.4], "radius": 31.28, "lane_id": "inlet" }
+  ],
+  "objectives": [
+    { "id": "organ", "pos": [813.28, 184], "half_extents": [9.2, 64.4] }
+  ],
+  "placement_zones": [
+    { "min": [0, 0], "max": [828, 552] },
+    { "min": [644, 92], "max": [828, 294.4], "concentrated": true, "priority": 3 },
+    { "min": [276, 138], "max": [552, 414], "concentrated": true, "priority": 1.5 }
+  ],
+  "waves": [
+    {
+      "name": "campaign_08_blob_field_wave_1",
+      "prep_time": 8,
+      "atp_reward": 50,
+      "spawns": [
+        { "family": "virus", "count": 334, "duration": 4 }
+      ]
+    },
+    {
+      "name": "campaign_08_blob_field_wave_2",
+      "prep_time": 7.5,
+      "atp_reward": 96,
+      "spawns": [
+        { "family": "virus", "count": 617, "duration": 4 },
+        { "family": "bacteria", "count": 168, "start_time": 1, "duration": 3.5 }
+      ]
+    },
+    {
+      "name": "campaign_08_blob_field_wave_3",
+      "prep_time": 7,
+      "atp_reward": 142,
+      "spawns": [
+        { "family": "virus", "count": 901, "duration": 4 },
+        { "family": "bacteria", "count": 285, "start_time": 1, "duration": 3.5 }
+      ]
+    },
+    {
+      "name": "campaign_08_blob_field_wave_4",
+      "prep_time": 6.5,
+      "atp_reward": 188,
+      "spawns": [
+        { "family": "virus", "count": 1185, "duration": 4 },
+        { "family": "bacteria", "count": 403, "start_time": 1, "duration": 3.5 }
+      ]
+    },
+    {
+      "name": "campaign_08_blob_field_wave_5",
+      "prep_time": 6,
+      "atp_reward": 234,
+      "spawns": [
+        { "family": "virus", "count": 1469, "duration": 4 },
+        { "family": "bacteria", "count": 520, "start_time": 1, "duration": 3.5 },
+        { "family": "bacteria", "count": 100, "start_time": 0.5, "duration": 5.5 }
+      ]
+    },
+    {
+      "name": "campaign_08_blob_field_wave_6",
+      "prep_time": 5.5,
+      "atp_reward": 280,
+      "spawns": [
+        { "family": "virus", "count": 1753, "duration": 4 },
+        { "family": "bacteria", "count": 638, "start_time": 1, "duration": 3.5 },
+        { "family": "bacteria", "count": 151, "start_time": 0.5, "duration": 5.5 }
+      ]
+    },
+    {
+      "name": "campaign_08_blob_field_wave_7",
+      "prep_time": 5,
+      "atp_reward": 326,
+      "modifier": "fever",
+      "spawns": [
+        { "family": "virus", "count": 2037, "duration": 4 },
+        { "family": "bacteria", "count": 756, "start_time": 1, "duration": 3.5 },
+        { "family": "bacteria", "count": 201, "start_time": 0.5, "duration": 5.5 }
+      ]
+    },
+    {
+      "name": "campaign_08_blob_field_wave_8",
+      "prep_time": 4.5,
+      "atp_reward": 372,
+      "spawns": [
+        { "family": "virus", "count": 2321, "duration": 4 },
+        { "family": "bacteria", "count": 873, "start_time": 1, "duration": 3.5 },
+        { "family": "bacteria", "count": 252, "start_time": 0.5, "duration": 5.5 }
+      ]
+    },
+    {
+      "name": "campaign_08_blob_field_wave_9",
+      "prep_time": 4,
+      "atp_reward": 418,
+      "modifier": "swarm",
+      "spawns": [
+        { "family": "virus", "count": 2605, "duration": 4 },
+        { "family": "bacteria", "count": 991, "start_time": 1, "duration": 3.5 },
+        { "family": "bacteria", "count": 302, "start_time": 0.5, "duration": 5.5 }
+      ]
+    }
+  ]
+}

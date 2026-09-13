@@ -150,6 +150,28 @@ void EditorCanvas::focus_on(const Rect& r) {
     focus_active_ = true;
 }
 
+void EditorCanvas::capture_framing(const render::Camera& camera, Vec2& center,
+                                   f32& view_height) const {
+    center = camera.center();
+    view_height = camera.view_height();
+    if (!has_viewport_rect_) return;   // playtest: the framebuffer IS the viewport
+
+    const Vec2 fb{static_cast<f32>(camera.viewport().x),
+                  static_cast<f32>(camera.viewport().y)};
+    const Vec2 vp = viewport_rect_.size();
+    if (fb.x < 1.0f || fb.y < 1.0f || vp.x < 1.0f || vp.y < 1.0f) return;
+
+    // Centre: exact through screen_to_world, so it holds at any zoom and tilt.
+    center = camera.screen_to_world(viewport_rect_.center());
+    // Height: view_height spans the framebuffer height in pixels, so the
+    // central node covers view_height * (vp.y / fb.y) vertically and
+    // view_height * (vp.x / fb.x) worth of a full-window view horizontally.
+    // Taking the max fits the whole visible rect rather than cropping it -- the
+    // node's aspect rarely matches the window's, and showing slightly more in
+    // game beats losing an edge the designer framed on purpose.
+    view_height = camera.view_height() * math::max(vp.x / fb.x, vp.y / fb.y);
+}
+
 void EditorCanvas::update_focus(render::Camera& camera) {
     if (pending_recentre_ && has_viewport_rect_) {
         // Applied once the camera knows its new height: the offset is measured
@@ -319,7 +341,9 @@ void EditorCanvas::build_toolbar(app::EditorMode& editor) {
     ImGui::TextUnformatted("|");
     ImGui::SameLine();
     if (ImGui::Button("Frame all")) {
-        focus_on(expand(editor.doc().def().world_bounds, 4.0f));
+        // ALL of it, including an off-map spawn point and the tissue running
+        // out to it -- framing the play rect would hide the thing being edited.
+        focus_on(expand(game::level_sim_bounds(editor.doc().def()), 4.0f));
     }
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Home");
 }
@@ -725,6 +749,26 @@ void EditorCanvas::build(app::EditorMode& editor, render::Camera& camera,
     draw_gizmos(editor, camera);
 }
 
+namespace {
+
+/// The world rect the GAME camera shows when this level loads. Mirrors
+/// App::load_level's framing exactly -- level camera block, else whole level,
+/// clamped to the world bounds -- against the full window, which is the
+/// viewport both the game and this editor give render::Camera.
+Rect game_camera_view(const game::LevelDef& d, const render::Camera& editor_camera) {
+    render::Camera c;
+    c.set_tilt_degrees(editor_camera.tilt_degrees());
+    c.set_viewport(editor_camera.viewport().x, editor_camera.viewport().y);
+    c.set_bounds(d.world_bounds);
+    c.set_center(d.camera.has_center ? d.camera.center : d.world_bounds.center());
+    c.set_view_height(d.camera.view_height > 0.0f ? d.camera.view_height
+                                                  : d.world_bounds.size().y);
+    c.clamp_to_bounds();
+    return c.visible_bounds();
+}
+
+} // namespace
+
 void EditorCanvas::draw_gizmos(app::EditorMode& editor, const render::Camera& camera) {
     const LevelDoc& doc = editor.doc();
     const game::LevelDef& d = doc.def();
@@ -750,10 +794,39 @@ void EditorCanvas::draw_gizmos(app::EditorMode& editor, const render::Camera& ca
     }
 
     if (views_.world_bounds) {
+        // The SIM rect first, underneath and thinner. Only visible at all when
+        // a spawn point sits outside the play rect and the grid grew to reach
+        // it -- which is otherwise an invisible fact about the level, and the
+        // one that decides whether tissue out there rasterizes or not.
+        const Rect sim_rect = game::level_sim_bounds(d);
+        if (sim_rect.min.x < d.world_bounds.min.x || sim_rect.min.y < d.world_bounds.min.y ||
+            sim_rect.max.x > d.world_bounds.max.x || sim_rect.max.y > d.world_bounds.max.y) {
+            g.rect(sim_rect, gizmo_color::world_bounds(), 1.0f);
+        }
         g.rect(d.world_bounds, gizmo_color::world_bounds(), 2.0f);
         const Vec2 c[4] = {d.world_bounds.min, Vec2{d.world_bounds.max.x, d.world_bounds.min.y},
                            d.world_bounds.max, Vec2{d.world_bounds.min.x, d.world_bounds.max.y}};
         for (Vec2 p : c) g.handle(p, gizmo_color::world_bounds(), false, 4.0f);
+    }
+
+    if (views_.camera_frame) {
+        // What App applies on load (App.cpp): the level's camera block, or the
+        // whole-level default, clamped to the world rect against the FULL
+        // window -- not this canvas's camera, whose framing is the editor's own
+        // pan/zoom and whose outer ring hides behind the docked panels.
+        const Rect view = game_camera_view(d, camera);
+        g.rect(view, gizmo_color::camera_frame(), 1.0f);
+        // Dashed on top of the thin solid: reads as "a viewport", not as
+        // another authored rectangle you could grab.
+        const Vec2 c[4] = {view.min, Vec2{view.max.x, view.min.y}, view.max,
+                           Vec2{view.min.x, view.max.y}};
+        const f32 dash = 6.0f * wpp;
+        for (i32 k = 0; k < 4; ++k) {
+            g.dashed_line(c[k], c[(k + 1) % 4], gizmo_color::camera_frame(), dash, 2.0f);
+        }
+        if (views_.labels) {
+            g.label(Vec2{view.min.x, view.max.y}, "game camera", gizmo_color::camera_frame());
+        }
     }
 
     if (views_.zones) {

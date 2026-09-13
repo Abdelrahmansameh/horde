@@ -1,0 +1,197 @@
+{
+  "schema": 2,
+  "name": "campaign_09_funnel_walls",
+  "display_name": "The Funnel",
+  "description": "Three breaches along the top pour into a V of walls that narrows onto the organ.",
+  "difficulty": 9,
+  "tags": ["campaign"],
+  "region": "skin",
+  "world": { "min": [0, 0], "max": [864, 595.2], "cell_size": 1.5 },
+  "camera": { "view_height": 595.2 },
+  "vessels": [
+    {
+      "id": "in_w",
+      "points": [
+        { "p": [192, 606.72], "w": 96 },
+        { "p": [192, 566.4], "w": 96 },
+        { "p": [192, 518.4], "w": 96 }
+      ]
+    },
+    {
+      "id": "in_c",
+      "points": [
+        { "p": [432, 606.72], "w": 96 },
+        { "p": [432, 566.4], "w": 96 },
+        { "p": [432, 518.4], "w": 96 }
+      ]
+    },
+    {
+      "id": "in_e",
+      "points": [
+        { "p": [672, 606.72], "w": 96 },
+        { "p": [672, 566.4], "w": 96 },
+        { "p": [672, 518.4], "w": 96 }
+      ]
+    },
+    {
+      "id": "field_0",
+      "lane_id": "in_c",
+      "points": [
+        { "p": [57.6, 96], "w": 163.2 },
+        { "p": [432, 96], "w": 163.2 },
+        { "p": [806.4, 96], "w": 163.2 }
+      ]
+    },
+    {
+      "id": "field_1",
+      "lane_id": "in_c",
+      "points": [
+        { "p": [57.6, 240], "w": 163.2 },
+        { "p": [432, 240], "w": 163.2 },
+        { "p": [806.4, 240], "w": 163.2 }
+      ]
+    },
+    {
+      "id": "field_2",
+      "lane_id": "in_c",
+      "points": [
+        { "p": [57.6, 374.4], "w": 163.2 },
+        { "p": [432, 374.4], "w": 163.2 },
+        { "p": [806.4, 374.4], "w": 163.2 }
+      ]
+    },
+    {
+      "id": "field_3",
+      "lane_id": "in_c",
+      "points": [
+        { "p": [57.6, 508.8], "w": 163.2 },
+        { "p": [432, 508.8], "w": 163.2 },
+        { "p": [806.4, 508.8], "w": 163.2 }
+      ]
+    }
+  ],
+  "obstacles": [
+    { "id": "wall_w", "shape": "capsule", "points": [[153.6, 499.2], [326.4, 57.6]], "radius": 55.68 },
+    { "id": "wall_e", "shape": "capsule", "points": [[710.4, 499.2], [537.6, 57.6]], "radius": 55.68 },
+    { "id": "pin_0", "shape": "disc", "pos": [432, 316.8], "radius": 14.4 },
+    { "id": "pin_1", "shape": "disc", "pos": [398.4, 259.2], "radius": 14.4 },
+    { "id": "pin_2", "shape": "disc", "pos": [465.6, 259.2], "radius": 14.4 },
+    { "id": "pin_3", "shape": "disc", "pos": [364.8, 201.6], "radius": 14.4 },
+    { "id": "pin_4", "shape": "disc", "pos": [432, 201.6], "radius": 14.4 },
+    { "id": "pin_5", "shape": "disc", "pos": [499.2, 201.6], "radius": 14.4 },
+    { "id": "pin_6", "shape": "disc", "pos": [398.4, 144], "radius": 14.4 },
+    { "id": "pin_7", "shape": "disc", "pos": [465.6, 144], "radius": 14.4 }
+  ],
+  "spawn_points": [
+    { "id": "p_w", "pos": [192, 606.72], "radius": 34.56, "lane_id": "in_w" },
+    { "id": "p_c", "pos": [432, 606.72], "radius": 34.56, "lane_id": "in_c" },
+    { "id": "p_e", "pos": [672, 606.72], "radius": 34.56, "lane_id": "in_e" }
+  ],
+  "objectives": [
+    { "id": "organ", "pos": [432, 28.8], "half_extents": [57.6, 9.6] }
+  ],
+  "placement_zones": [
+    { "min": [0, 0], "max": [864, 595.2] },
+    { "min": [316.8, 38.4], "max": [547.2, 326.4], "concentrated": true, "priority": 3 },
+    { "min": [240, 326.4], "max": [624, 537.6], "concentrated": true, "priority": 1.5 }
+  ],
+  "waves": [
+    {
+      "name": "campaign_09_funnel_walls_wave_1",
+      "prep_time": 8,
+      "atp_reward": 50,
+      "spawns": [
+        { "family": "virus", "count": 362, "duration": 4 }
+      ]
+    },
+    {
+      "name": "campaign_09_funnel_walls_wave_2",
+      "prep_time": 7.56,
+      "atp_reward": 100,
+      "spawns": [
+        { "family": "virus", "count": 669, "duration": 4 },
+        { "family": "bacteria", "count": 184, "start_time": 1, "duration": 3.5 }
+      ]
+    },
+    {
+      "name": "campaign_09_funnel_walls_wave_3",
+      "prep_time": 7.11,
+      "atp_reward": 150,
+      "spawns": [
+        { "family": "virus", "count": 977, "duration": 4 },
+        { "family": "bacteria", "count": 312, "start_time": 1, "duration": 3.5 }
+      ]
+    },
+    {
+      "name": "campaign_09_funnel_walls_wave_4",
+      "prep_time": 6.67,
+      "atp_reward": 200,
+      "spawns": [
+        { "family": "virus", "count": 1285, "duration": 4 },
+        { "family": "bacteria", "count": 441, "start_time": 1, "duration": 3.5 }
+      ]
+    },
+    {
+      "name": "campaign_09_funnel_walls_wave_5",
+      "prep_time": 6.22,
+      "atp_reward": 250,
+      "spawns": [
+        { "family": "virus", "count": 1592, "duration": 4 },
+        { "family": "bacteria", "count": 570, "start_time": 1, "duration": 3.5 },
+        { "family": "bacteria", "count": 110, "start_time": 0.5, "duration": 5.5 }
+      ]
+    },
+    {
+      "name": "campaign_09_funnel_walls_wave_6",
+      "prep_time": 5.78,
+      "atp_reward": 300,
+      "spawns": [
+        { "family": "virus", "count": 1900, "duration": 4 },
+        { "family": "bacteria", "count": 699, "start_time": 1, "duration": 3.5 },
+        { "family": "bacteria", "count": 165, "start_time": 0.5, "duration": 5.5 }
+      ]
+    },
+    {
+      "name": "campaign_09_funnel_walls_wave_7",
+      "prep_time": 5.33,
+      "atp_reward": 350,
+      "spawns": [
+        { "family": "virus", "count": 2208, "duration": 4 },
+        { "family": "bacteria", "count": 828, "start_time": 1, "duration": 3.5 },
+        { "family": "bacteria", "count": 220, "start_time": 0.5, "duration": 5.5 }
+      ]
+    },
+    {
+      "name": "campaign_09_funnel_walls_wave_8",
+      "prep_time": 4.89,
+      "atp_reward": 400,
+      "modifier": "fever",
+      "spawns": [
+        { "family": "virus", "count": 2515, "duration": 4 },
+        { "family": "bacteria", "count": 956, "start_time": 1, "duration": 3.5 },
+        { "family": "bacteria", "count": 276, "start_time": 0.5, "duration": 5.5 }
+      ]
+    },
+    {
+      "name": "campaign_09_funnel_walls_wave_9",
+      "prep_time": 4.44,
+      "atp_reward": 450,
+      "spawns": [
+        { "family": "virus", "count": 2823, "duration": 4 },
+        { "family": "bacteria", "count": 1085, "start_time": 1, "duration": 3.5 },
+        { "family": "bacteria", "count": 331, "start_time": 0.5, "duration": 5.5 }
+      ]
+    },
+    {
+      "name": "campaign_09_funnel_walls_wave_10",
+      "prep_time": 4,
+      "atp_reward": 500,
+      "modifier": "swarm",
+      "spawns": [
+        { "family": "virus", "count": 3131, "duration": 4 },
+        { "family": "bacteria", "count": 1214, "start_time": 1, "duration": 3.5 },
+        { "family": "bacteria", "count": 386, "start_time": 0.5, "duration": 5.5 }
+      ]
+    }
+  ]
+}

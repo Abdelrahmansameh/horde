@@ -312,11 +312,8 @@ void Hud::build(const sim::SimWorld& world, const game::Economy& economy,
                             ImGuiCond_Always, ImVec2(1.0f, 1.0f));
     ImGui::SetNextWindowBgAlpha(0.7f);
     if (ImGui::Begin("Abilities", nullptr, flags)) {
-        static constexpr game::AbilityId kAbilityIds[3] = {
-            game::AbilityId::ComplementCascadeBurst, game::AbilityId::HistamineFlare,
-            game::AbilityId::FeverResponse};
-        for (u32 i = 0; i < 3; ++i) {
-            const game::AbilityId id = kAbilityIds[i];
+        for (u32 i = 0; i < game::kAbilityCount; ++i) {
+            const game::AbilityId id = static_cast<game::AbilityId>(i);
             const game::AbilityStatus st = abilities.status(id);
             const bool armed = g_cast_cursor_active && g_cast_cursor_ability == id;
             char label[64];
@@ -346,7 +343,7 @@ void Hud::build(const sim::SimWorld& world, const game::Economy& economy,
             }
             if (!st.ready) ImGui::EndDisabled();
             if (armed) ImGui::PopStyleColor();
-            if (i + 1 < 3) ImGui::SameLine();
+            if (i + 1 < game::kAbilityCount) ImGui::SameLine();
         }
         if (g_cast_cursor_active) {
             ImGui::SameLine();
@@ -514,9 +511,10 @@ void Hud::build(const sim::SimWorld& world, const game::Economy& economy,
         clear_build_cursor();
     }
 
-    // ---- Cast-cursor click-to-target: Complement Cascade Burst and
-    // Histamine Flare both resolve at a world point (Fever Response fires
-    // instantly from the ability bar above and never reaches here).
+    // ---- Cast-cursor click-to-target: Complement Cascade Burst, Histamine
+    // Flare and Fibrin Clot all resolve at a world point (Fever Response fires
+    // instantly from the ability bar above and never reaches here). The clot
+    // orients itself across the local flow, so a point is all it needs too.
     if (g_cast_cursor_active && !input.ui_capture_mouse() &&
         input.mouse_pressed(platform::MouseButton::Left)) {
         const Vec2 world_pos = camera.screen_to_world(input.mouse_pos());

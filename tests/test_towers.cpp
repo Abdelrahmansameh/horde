@@ -1,6 +1,7 @@
-// Tests for game/towers/TowerSystem.cpp: placement validation, the tissue/
-// flow-field footprint round-trip, upgrade/sell economics, find_target(), and
-// — since Wave 6C — the combat behaviour of the six-role roster.
+// Tests for game/towers/TowerSystem.cpp: placement validation, the
+// towers-are-not-obstacles guarantee (a placement never edits the tissue mask
+// or the flow field), upgrade/sell economics, find_target(), and — since
+// Wave 6C — the combat behaviour of the six-role roster.
 //
 // Scene layout used by the placement/geometry tests (see make_world()):
 //
@@ -10,13 +11,10 @@
 //   4  #########################........##########################
 //      0                        25       35                                                    60 (x, world units == cells, cell_size=1)
 //
-// The corridor is exactly 2 cells (2 world units) tall — narrow enough that a
-// tower whose footprint clears it (per InsufficientClearance) also fully
-// plugs it (WouldBlockAllPaths). Both rooms are deliberately much larger than
-// would_block_all_paths()'s local search window (a ~14-cell margin around the
-// footprint — see TowerSystem.cpp), so the window's border lands on genuine
-// open interior on both sides of the corridor rather than swallowing an
-// entire room and losing one side's anchors.
+// The corridor is the narrowest ground a tower still fits on (clearance >=
+// footprint_radius). Towers are not obstacles, so a tower dropped dead centre
+// in it is a legal placement and the corridor stays walkable and reachable
+// underneath it -- which is exactly what the placement tests below assert.
 //
 // WAVE 6C COMBAT TESTS
 // Each role gets a test that proves its CHARACTERISTIC GEOMETRY, not merely
@@ -86,22 +84,16 @@ void build_scene(SimWorld& world) {
     for (i32 y = 4; y < 16; ++y)
         for (i32 x = 35; x < 60; ++x) mask.set_walkable(x, y, true); // right room
     // 5-cell-tall corridor. Sized to the tower footprints, not chosen freely:
-    // this test only means anything if the corridor is wide enough that the
-    // tower FITS (clearance >= footprint_radius, or validate() rejects it for
-    // InsufficientClearance and never reaches the reachability check it is
-    // actually testing) while still being narrow enough that the footprint
-    // spans every corridor cell and genuinely plugs it.
+    // the corridor has to be wide enough that the tower FITS (clearance >=
+    // footprint_radius, or validate() rejects it for InsufficientClearance)
+    // while still being narrow enough that the footprint spans every corridor
+    // cell -- so that "the corridor is still walkable under the tower" is a
+    // real claim and not one about cells the footprint never covered.
     //
     // The SDF measures centre-to-wall less half a cell, so a corridor H cells
     // tall has centre clearance H/2 - 0.5. Footprint 1.6 therefore needs
     // H >= 4.2, i.e. 5, giving clearance 2.0. The 3.2-wide footprint then spans
-    // y 8.9..12.1, which still intersects all five corridor cells (8..12) and
-    // blocks them.
-    //
-    // It was 3 cells while footprints were <= 0.8 (clearance 1.0 >= 0.8). When
-    // every tower's footprint_radius was doubled, a 1.6-radius tower stopped
-    // fitting a 3-cell corridor at all and this test began failing on the
-    // clearance assertion instead of exercising reachability.
+    // y 8.9..12.1, which intersects all five corridor cells (8..12).
     for (i32 y = 8; y < 13; ++y)
         for (i32 x = 25; x < 35; ++x) mask.set_walkable(x, y, true);
 
@@ -458,40 +450,70 @@ TEST_CASE("validate() rejects a placement overlapping an existing tower", "[towe
     REQUIRE(far_enough.result == PlacementResult::Ok);
 }
 
-TEST_CASE("validate() rejects a placement that would fully plug the only corridor, "
-          "but allows the same tower with room to spare",
+TEST_CASE("validate() allows a tower that spans the only corridor: towers are not obstacles",
           "[towers][placement][reachability]") {
     SimWorld world = make_world();
     TowerSystem ts;
 
-    // Sanity: the goal is reachable from the left room before any placement.
+    // Sanity: the goal is reachable from the left room before any placement,
+    // and the NK Cell's footprint genuinely spans the whole corridor (see
+    // build_scene), so this is the placement that used to be refused for
+    // sealing the lane.
     REQUIRE(world.flow().reachable(kRoomCenterLeft));
+    REQUIRE(ts.stats(TowerType::NKCell, 1).footprint_radius * 2.0f >= 3.0f);
 
-    const auto blocked = ts.validate(world, TowerType::NKCell, kCorridorCenter, 100000);
-    REQUIRE(blocked.result == PlacementResult::WouldBlockAllPaths);
+    const auto mid = ts.validate(world, TowerType::NKCell, kCorridorCenter, 100000);
+    REQUIRE(mid.result == PlacementResult::Ok);
 
     const auto open = ts.validate(world, TowerType::NKCell, kRoomCenterRight, 100000);
     REQUIRE(open.result == PlacementResult::Ok);
 }
 
-TEST_CASE("place() blocks tissue over exactly its footprint and marks the flow field dirty",
+TEST_CASE("place() and sell() never touch the tissue mask or the flow field",
           "[towers][placement][flowfield]") {
     SimWorld world = make_world();
     TowerSystem ts;
     REQUIRE_FALSE(world.flow().has_pending_rebake());
 
-    const EntityId id = ts.place(world, TowerType::Macrophage, kRoomCenterLeft);
+    // Snapshot the mask so the assertion is "unchanged", not merely "walkable":
+    // a tower that flipped cost or re-marked cells walkable would pass a
+    // walkable() check and still be editing ground it has no business editing.
+    const TissueMask& mask = world.tissue();
+    std::vector<u8> before_walkable;
+    std::vector<f32> before_cost;
+    for (i32 y = 0; y < mask.height(); ++y) {
+        for (i32 x = 0; x < mask.width(); ++x) {
+            before_walkable.push_back(mask.walkable(x, y) ? 1u : 0u);
+            before_cost.push_back(mask.cost(x, y));
+        }
+    }
+    const auto mask_unchanged = [&]() {
+        usize i = 0;
+        for (i32 y = 0; y < mask.height(); ++y) {
+            for (i32 x = 0; x < mask.width(); ++x, ++i) {
+                if ((mask.walkable(x, y) ? 1u : 0u) != before_walkable[i]) return false;
+                if (mask.cost(x, y) != before_cost[i]) return false;
+            }
+        }
+        return true;
+    };
+
+    // Dead centre of the corridor, where the footprint covers every cell of
+    // the lane: the strongest case for "nothing was blocked".
+    const EntityId id = ts.place(world, TowerType::NKCell, kCorridorCenter);
     REQUIRE(id.valid());
 
-    // footprint_radius (tier 1) is 1.0, so the tower's own cell must now be blocked.
-    const IVec2 c = world.tissue().world_to_cell(kRoomCenterLeft);
-    REQUIRE_FALSE(world.tissue().walkable(c.x, c.y));
-    REQUIRE(world.flow().has_pending_rebake());
-
-    world.flow().rebake_pending(world.tissue());
+    const IVec2 c = mask.world_to_cell(kCorridorCenter);
+    REQUIRE(mask.walkable(c.x, c.y));
+    REQUIRE(mask_unchanged());
     REQUIRE_FALSE(world.flow().has_pending_rebake());
-    // The room is large; a detour around the tower still reaches the goal.
-    REQUIRE(world.flow().reachable(kRoomCenterLeft + Vec2{2.0f, 3.0f}));
+    // The (untouched) field still routes the left room through the corridor.
+    REQUIRE(world.flow().reachable(kRoomCenterLeft));
+    REQUIRE(world.flow().reachable(kCorridorCenter));
+
+    REQUIRE(ts.sell(world, id) > 0);
+    REQUIRE(mask_unchanged());
+    REQUIRE_FALSE(world.flow().has_pending_rebake());
 }
 
 TEST_CASE("a freshly placed tower spins up rather than discharging on the placement tick",
@@ -514,7 +536,7 @@ TEST_CASE("a freshly placed tower spins up rather than discharging on the placem
     REQUIRE(world.combat_events().size() == 0);
 }
 
-TEST_CASE("upgrade() advances tier and stats, caps at 3; sell() refunds ATP and restores tissue",
+TEST_CASE("upgrade() advances tier and stats, caps at 3; sell() refunds ATP",
           "[towers][economy]") {
     SimWorld world = make_world();
     TowerSystem ts;
@@ -544,9 +566,6 @@ TEST_CASE("upgrade() advances tier and stats, caps at 3; sell() refunds ATP and 
     REQUIRE(refund == 227);
 
     REQUIRE_FALSE(world.ecs().registry().valid(e));
-    const IVec2 c = world.tissue().world_to_cell(kRoomCenterLeft);
-    REQUIRE(world.tissue().walkable(c.x, c.y)); // tissue restored
-    REQUIRE(world.flow().has_pending_rebake());  // dirtied again by the sell
 
     bool still_listed = false;
     for (EntityId t : ts.placed_towers())
@@ -681,9 +700,12 @@ TEST_CASE("GUNNER leads a moving target instead of firing at where it already wa
     ready_now(world, tower);
 
     // ONE agent, so the focus centroid is exactly its position and the geometry
-    // below is exact. Crossing the line of fire is the worst case for lag.
+    // below is exact. Crossing the line of fire is the worst case for lag, and
+    // it crosses FAST: the teeth below are "unled misses by more than spread
+    // can explain", so the lead has to open an angle clearly wider than the
+    // configured muzzle spread or the check stops proving anything.
     const Vec2 target = kRoomCenterLeft + Vec2{9.0f, 0.0f};
-    const Vec2 target_vel{0.0f, 3.5f};
+    const Vec2 target_vel{0.0f, 12.0f};
     {
         ChaffSpawnParams p;
         p.position = target;
@@ -724,8 +746,12 @@ TEST_CASE("GUNNER leads a moving target instead of firing at where it already wa
     };
 
     // Muzzle spread is the only thing allowed to separate the shot from the
-    // ideal intercept angle.
-    const f32 tolerance = 0.045f + 1e-3f;
+    // ideal intercept angle. `want` is solved from the muzzle the round
+    // ACTUALLY came out of, so the random spawn offset along the arc is already
+    // inside it and does not loosen this at all -- read the tolerance from the
+    // configured spread so retuning the spray never silently defangs the test.
+    const GunnerParams& gun = tower_mechanics(TowerType::Neutrophil, 1).gunner;
+    const f32 tolerance = gun.spread + 1e-3f;
     INFO("intercept t=" << t << " want=" << want << " got=" << got << " unled=" << unled);
     REQUIRE(angle_gap(got, want) <= tolerance);
     // ...and the test has teeth: aiming at the agent's CURRENT position — the
@@ -733,9 +759,59 @@ TEST_CASE("GUNNER leads a moving target instead of firing at where it already wa
     REQUIRE(angle_gap(unled, want) > tolerance);
 
     // The turret is pointed where it shoots, so the barrel, the flash and the
-    // round all agree on screen.
+    // round all agree on screen. It is solved from the un-jittered barrel
+    // rather than the offset spawn point (the sprite must not twitch once per
+    // round), so it is allowed to trail the round by the parallax the arc
+    // offset can open up between the two.
     const f32 rotation = world.ecs().registry().get<comp::Transform>(world.ecs().from_id(tower)).rotation;
-    REQUIRE(angle_gap(rotation, want) <= tolerance);
+    REQUIRE(angle_gap(rotation, want) <= tolerance + gun.muzzle_arc_radians);
+}
+
+TEST_CASE("GUNNER kills a horde pinned against its own footprint",
+          "[towers][combat][gunner][projectiles]") {
+    // Regression: a round is spawned at the muzzle and then integrated a full
+    // dt before ProjectileSystem tests it for the first time (SimWorld.h's tick
+    // order: towers fire in the ECS phase, projectiles run after it). With a
+    // FIXED standoff of footprint + 0.15 the nearest position any round was
+    // ever tested at was 2.30 out at tier 1 -- 1.85 once the hit radius is
+    // allowed for -- against a footprint of 1.40. Anything jammed on the
+    // tower's own face therefore sat in a hole no round could be tested inside,
+    // and ChaffSystem::contain_to_tissue exists precisely to keep a crowd
+    // pressed exactly there. The Gunner publishes no damage field, so nothing
+    // else was touching that jam either: it took zero damage and never cleared.
+    SimWorld world = make_world();
+    TowerSystem ts;
+    ts.register_systems(world);
+    const EntityId tower = ts.place(world, TowerType::Neutrophil, kRoomCenterLeft);
+    REQUIRE(tower.valid());
+    ready_now(world, tower);
+
+    const TowerStats& st = ts.stats(TowerType::Neutrophil, 1);
+    // Just past the footprint, pressed right up against the tower's face and
+    // well inside the hole.
+    const Vec2 jam = kRoomCenterLeft + Vec2{st.footprint_radius + 0.2f, 0.0f};
+    spawn_chaff_cluster(world, jam, 24, 1.0f, /*spread=*/0.2f);
+    const f32 before = density_in(world, jam, 1.0f);
+    REQUIRE(before > 0.0f);
+
+    // The barrel gives ground rather than reaching past the crowd, and the
+    // round still leaves pointing AT it: a muzzle placed BEHIND the target used
+    // to flip `shot` and spin the turret around to fire away from the horde.
+    submit_only(world);
+    REQUIRE(world.projectiles().count() == 1);
+    const Vec2 muzzle{world.projectiles().pos_x[0], world.projectiles().pos_y[0]};
+    INFO("muzzle at " << math::length(muzzle - kRoomCenterLeft)
+         << ", jam at " << math::length(jam - kRoomCenterLeft));
+    REQUIRE(math::length(muzzle - kRoomCenterLeft) < math::length(jam - kRoomCenterLeft));
+    REQUIRE(world.projectiles().vel_x[0] > 0.0f);
+
+    for (int i = 0; i < 120; ++i) step_combat(world);
+
+    const f32 after = density_in(world, jam, 1.0f);
+    INFO("density before=" << before << " after=" << after
+         << " impacts=" << count_events(world, CombatEventType::ProjectileImpact, TowerType::Count));
+    REQUIRE(count_events(world, CombatEventType::ProjectileImpact, TowerType::Count) > 0);
+    REQUIRE(after < before);
 }
 
 TEST_CASE("GUNNER fire rate escalates hard with tier and rounds never outrun the spatial hash",

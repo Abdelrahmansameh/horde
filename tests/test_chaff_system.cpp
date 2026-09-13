@@ -857,16 +857,18 @@ TEST_CASE("a crushing crowd cannot be squeezed out through a lane wall",
     REQUIRE(deepest < 1.0f);
 }
 
-TEST_CASE("a crowd cannot be pushed through a tower footprint", "[sim][chaff][walls][tower]") {
-    // Placing a tower calls sim::block_rect() to mark its footprint
-    // non-walkable and FlowField::mark_dirty() to reroute the horde around it.
-    // The DistanceField is NOT rebaked -- so the wall-contact resolver, which
-    // reads only the SDF, has never heard of the tower. The flow field steers
-    // agents around it, but nothing physically stops them entering it, and once
-    // the crowd is dense enough the pressure behind simply pushes them through.
+TEST_CASE("a crowd cannot be pushed through a runtime mask block", "[sim][chaff][walls][block]") {
+    // A runtime block (the Fibrin Clot in game/abilities; towers used to do
+    // this too before they stopped being obstacles) calls sim::block_rect() to
+    // mark its cells non-walkable and FlowField::mark_dirty() to reroute the
+    // horde around it. The DistanceField is NOT rebaked -- so the wall-contact
+    // resolver, which reads only the SDF, has never heard of the block. The
+    // flow field steers agents around it, but nothing physically stops them
+    // entering it, and once the crowd is dense enough the pressure behind
+    // simply pushes them through.
     //
-    // This reproduces that directly: bake the field, THEN block a rectangle the
-    // way a tower does, then drive a dense crowd at it.
+    // This reproduces that directly: bake the field, THEN block a rectangle
+    // the way a clot does, then drive a dense crowd at it.
     constexpr f32 kCell = 0.5f;
     const Rect bounds{Vec2{0.0f, 0.0f}, Vec2{80.0f, 40.0f}};
     const f32 mid_y = 20.0f;
@@ -882,7 +884,7 @@ TEST_CASE("a crowd cannot be pushed through a tower footprint", "[sim][chaff][wa
     DistanceField sdf;
     sdf.bake(mask);   // baked BEFORE the tower, exactly as the game does
 
-    // The tower: a solid block mid-lane, leaving gaps above and below so the
+    // The block: solid ground mid-lane, leaving gaps above and below so the
     // flow field still has a route and the horde is not simply dammed.
     const Rect footprint{Vec2{38.0f, mid_y - 4.0f}, Vec2{44.0f, mid_y + 4.0f}};
     sim::block_rect(mask, footprint);
@@ -928,9 +930,136 @@ TEST_CASE("a crowd cannot be pushed through a tower footprint", "[sim][chaff][wa
         }
         worst_in_tower = math::max(worst_in_tower, in_tower);
     }
-    INFO("worst agents inside the tower footprint: " << worst_in_tower << " of "
+    INFO("worst agents inside the block: " << worst_in_tower << " of "
                                                      << buffers.count());
     REQUIRE(worst_in_tower == 0);
+}
+
+TEST_CASE("a crowd against a runtime block slides around it instead of freezing on its face",
+          "[sim][chaff][walls][block]") {
+    // The other half of the block-contact problem, and the one that was
+    // actually visible in play back when towers were obstacles: "enemies get
+    // stuck on a tower and never go around it". Towers no longer block, but
+    // the Fibrin Clot does, and it is the same containment code.
+    //
+    // Keeping agents OUT of the footprint (the test above) is done by
+    // truncating the step at the last walkable point along it. That truncation
+    // scales the WHOLE displacement by one scalar, so it cannot keep the part
+    // of the motion that runs along the face while dropping the part heading
+    // into it. Against a tower the walkable boundary is a cell edge rather than
+    // a gradual corner, so an agent already touching the face has essentially
+    // no legal fraction left: the scalar collapses to zero and the agent is
+    // handed back the position it started from, tangential velocity and all.
+    //
+    // Measured before the fix, on exactly this scene: a handful of agents sat
+    // on the upwind face at |v| = max_speed with ~98% of it tangential, not
+    // moving by a single float for thousands of ticks. The flow field was
+    // already routing around the tower -- nothing was wrong with the steering,
+    // the containment simply refused to let them act on it.
+    //
+    // So this asserts the horde CLEARS the tower, not merely that it stays out
+    // of it.
+    //
+    // The lane is deliberately wide relative to the tower and the run is
+    // deliberately long: the point is to leave no innocent explanation for an
+    // agent still sitting on the upwind face at the end. A tower 3.2 across in
+    // a lane 12 across is a detour of a couple of seconds, not a bottleneck, so
+    // this scene never develops the standing queue a plugged lane would -- and
+    // a queue is the one thing that could make "still upstream" mean something
+    // other than "stuck".
+    constexpr f32 kCell = 0.5f;
+    const Rect bounds{Vec2{0.0f, 0.0f}, Vec2{80.0f, 24.0f}};
+    const f32 mid_y = 12.0f;
+
+    TissueMask mask;
+    const i32 w = static_cast<i32>(bounds.size().x / kCell);
+    const i32 h = static_cast<i32>(bounds.size().y / kCell);
+    mask.resize(w, h, kCell, bounds.min);
+    for (i32 y = 0; y < h; ++y) {
+        const f32 wy = (static_cast<f32>(y) + 0.5f) * kCell;
+        for (i32 x = 0; x < w; ++x) mask.set_walkable(x, y, std::fabs(wy - mid_y) <= 6.0f);
+    }
+    DistanceField sdf;
+    sdf.bake(mask);   // baked BEFORE the tower, exactly as the game does
+
+    // A tower-sized block: block_rect() over the square a 1.6-radius
+    // footprint circumscribes. Named `tower` below for the scene's history.
+    const Vec2 tower{40.0f, mid_y};
+    const f32 fp_r = 1.6f;
+    const Rect footprint{tower - Vec2{fp_r, fp_r}, tower + Vec2{fp_r, fp_r}};
+    sim::block_rect(mask, footprint);
+
+    FlowField flow;
+    FlowFieldBakeDesc fd;
+    fd.goals = {sim::FlowGoal{mask.world_to_cell(Vec2{70.0f, mid_y})}};
+    // Smoothing on, as the levels ship it: it rounds the crease either side of
+    // the tower, which is where an agent that fails to slide ends up parked.
+    fd.smoothing_radius = 1.5f;
+    flow.bake(mask, fd);
+
+    SpatialHash hash = make_hash(bounds);
+    ChaffSystem sys;
+    ChaffTuning t = flat_tuning(/*accel*/ 24.0f, /*max_speed*/ 6.0f, /*sep_radius*/ 1.2f,
+                                /*sep_strength*/ 8.0f, /*jitter*/ 0.4f);
+    for (u32 f = 0; f < kFamilyCount; ++f) t.family[f].radius = 0.5f;
+    sys.set_tuning(t);
+    sys.set_world_bounds(bounds);
+    // No goal footprint: nothing despawns, so an agent that never arrives is
+    // still in the buffer at the end to be counted.
+    sys.set_goal(Vec2{70.0f, mid_y}, Vec2{0.0f, 0.0f});
+
+    ChaffBuffers buffers;
+    buffers.reserve(3000);
+    Rng rng(1234);
+    for (u32 i = 0; i < 1200; ++i) {
+        ChaffSpawnParams p;
+        p.position = Vec2{20.0f + static_cast<f32>(i % 40) * 0.3f,
+                          mid_y - 5.0f + static_cast<f32>((i / 40) % 30) * 0.34f};
+        p.density = 1.0f;
+        buffers.spawn(p);
+    }
+
+    std::vector<Vec2> before_last_second;
+    for (u32 tick = 0; tick < 1800; ++tick) {   // 30 s
+        if (tick == 1740) {   // snapshot one second from the end
+            before_last_second.assign(buffers.count(), Vec2{0.0f, 0.0f});
+            for (usize i = 0; i < buffers.count(); ++i)
+                before_last_second[i] = Vec2{buffers.pos_x[i], buffers.pos_y[i]};
+        }
+        rebuild(hash, buffers);
+        sys.update(buffers, flow, sdf, mask, hash, no_squads(), rng, kFixedDt, nullptr);
+    }
+
+    // 1. Nobody is left on the upwind side. 30 s at 6 u/s covers the 20 u
+    // approach many times over, so anything still short of the tower is pinned
+    // on it rather than queueing behind it.
+    u32 upstream = 0;
+    for (usize i = 0; i < buffers.count(); ++i) {
+        if (buffers.pos_x[i] < footprint.min.x) ++upstream;
+    }
+    INFO("agents still upstream of the tower after 30 s: " << upstream << " of "
+                                                           << buffers.count());
+    CHECK(upstream == 0);
+
+    // 2. And nobody is frozen anywhere near the tower. A pinned agent does not
+    // merely lag -- it is handed back a bit-identical position every tick, so a
+    // whole second of exactly zero displacement is the signature, and it is one
+    // that neither a moving agent nor a jittering one in a jam can produce.
+    //
+    // Scoped to the tower's neighbourhood on purpose. Nothing despawns in this
+    // scene, so the horde eventually heaps up against the far end of the level
+    // and a few agents settle into the map's own corners -- pre-existing, not
+    // player-visible (the real objective consumes them long before), and not
+    // what this test is about.
+    REQUIRE(before_last_second.size() == buffers.count());
+    u32 frozen = 0;
+    for (usize i = 0; i < buffers.count(); ++i) {
+        const Vec2 now{buffers.pos_x[i], buffers.pos_y[i]};
+        if (std::fabs(now.x - tower.x) > 10.0f) continue;
+        if (now.x == before_last_second[i].x && now.y == before_last_second[i].y) ++frozen;
+    }
+    INFO("agents frozen next to the tower over the final second: " << frozen);
+    CHECK(frozen == 0);
 }
 
 TEST_CASE("a jammed crowd moves smoothly instead of shimmering",

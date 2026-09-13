@@ -372,9 +372,8 @@ AutoPlayAction AutoPlayer::tick(sim::SimWorld& world, TowerSystem& towers, Econo
     if (action.kind == AutoPlayAction::Kind::None) return action;
 
     if (action.kind == AutoPlayAction::Kind::Placed) {
-        // Re-validate: the flow field and the neighbouring footprints have both
-        // moved since the plan was made, and WouldBlockAllPaths in particular is
-        // a function of what is already standing.
+        // Re-validate: the neighbouring footprints have moved since the plan
+        // was made, and Overlapping is a function of what is already standing.
         for (usize i = next_site_; i < sites_.size(); ++i) {
             PlannedSite& s = sites_[i];
             if (s.built.valid() || s.rejected) {

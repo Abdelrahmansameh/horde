@@ -77,6 +77,7 @@ add_library(immune_sim STATIC
   src/sim/SimWorld.cpp
   src/sim/chaff/ChaffBuffers.cpp
   src/sim/chaff/ChaffSystem.cpp
+  src/sim/chaff/HitFlash.cpp
   src/sim/damage/DamageField.cpp
   src/sim/ecs/AiStateMachine.cpp
   src/sim/ecs/EcsWorld.cpp

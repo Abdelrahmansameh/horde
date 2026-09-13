@@ -25,6 +25,7 @@ void ChaffBuffers::reserve(usize max_agents) {
     flags.assign(max_agents, 0u);
     generation.assign(max_agents, 0u);
     squad_id.assign(max_agents, kNoSquad);
+    hit_flash.assign(max_agents, 0.0f);
     next_generation_ = 1u;   // 0 is the reserved "invalid handle" generation.
     clear();
 }
@@ -38,6 +39,7 @@ void ChaffBuffers::clear() {
         flags[i] = 0;
         generation[i] = 0;
         squad_id[i] = kNoSquad;
+        hit_flash[i] = 0.0f;
     }
     // Deliberately NOT resetting next_generation_: handles taken before a clear()
     // must not silently resolve to a freshly spawned agent.
@@ -56,6 +58,8 @@ ChaffHandle ChaffBuffers::spawn(const ChaffSpawnParams& p) {
     flags[i] = static_cast<u8>((p.flags | chaff_flags::kAlive) & ~chaff_flags::kPendingKill);
     generation[i] = next_generation_++;
     squad_id[i] = p.squad_id;
+    // A recycled slot can still be carrying the flash of whatever died in it.
+    hit_flash[i] = 0.0f;
     if (next_generation_ == 0u) next_generation_ = 1u;   // never hand out 0
     total_density_ += p.density;
     ++family_counts_[static_cast<u32>(p.family)];
@@ -75,6 +79,18 @@ void ChaffBuffers::apply_density_loss(usize index, f32 amount) {
     density[index] = before - removed;
     total_density_ -= removed;
     if (density[index] <= 0.0f) flags[index] |= chaff_flags::kPendingKill;
+
+    // Hit feedback. Raised off `removed` rather than off `amount`, so a hit
+    // that was mostly overkill flashes for the part that actually landed --
+    // the same reason DamageField's apply_and_record reads the clamped effect
+    // for its accounting. Purely cosmetic and unhashed; see HitFlash.h.
+    const u8 fam = family[index];
+    const HitFlashParams& flash =
+        family_hit_flash(static_cast<PathogenFamily>(fam < kFamilyCount ? fam : 0u));
+    const f32 incoming = hit_flash_intensity(flash, before, removed);
+    if (incoming > 0.0f) {
+        hit_flash[index] = hit_flash_combine(flash.retrigger, hit_flash[index], incoming);
+    }
 }
 
 usize ChaffBuffers::compact(u32* removed_by_family) {
@@ -107,11 +123,13 @@ usize ChaffBuffers::compact(u32* removed_by_family) {
             // which is what keeps its ChaffHandle resolvable across compaction.
             generation[i] = generation[last];
             squad_id[i] = squad_id[last];
+            hit_flash[i] = hit_flash[last];
         }
         --count_;
         flags[count_] = 0;
         generation[count_] = 0;   // the retired id is never reissued
         squad_id[count_] = kNoSquad;
+        hit_flash[count_] = 0.0f;
         // Do not advance i: the swapped-in agent must be tested too.
     }
     if (total_density_ < 0.0f) total_density_ = 0.0f;
@@ -144,6 +162,7 @@ void ChaffBuffers::assert_invariants() const {
     assert(family.size() == capacity_ && density.size() == capacity_);
     assert(flags.size() == capacity_ && generation.size() == capacity_);
     assert(squad_id.size() == capacity_);
+    assert(hit_flash.size() == capacity_);
     for (usize i = 0; i < count_; ++i) {
         assert((flags[i] & chaff_flags::kAlive) != 0);               // I1
         assert((flags[i] & chaff_flags::kPendingKill) == 0);         // post-compact

@@ -16,6 +16,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <cmath>
 #include <string>
 #include <vector>
 
@@ -208,15 +209,88 @@ TEST_CASE("dangling references are errors", "[level][validate]") {
 }
 
 TEST_CASE("geometry outside the world is an error", "[level][validate]") {
-    SECTION("vessel point") {
+    SECTION("vessel point: a warning, the rasterizer clips it") {
+        // Vessels are checked against the SIMULATED rect, which is the world
+        // rect here because every spawn point is inside it.
         LevelDef d = base_level();
         d.vessels[0].points[1].position = Vec2{999.0f, 16.0f};
-        REQUIRE(has_error(validate_level(d), "outside the world bounds"));
+        const std::vector<Issue> issues = validate_level(d);
+        REQUIRE(has_warning(issues, "outside the simulated area"));
+        REQUIRE_FALSE(has_error(issues, "outside the simulated area"));
     }
     SECTION("objective") {
         LevelDef d = base_level();
         d.objectives[0].position = Vec2{-5.0f, 16.0f};
         REQUIRE(has_error(validate_level(d), "outside the world bounds"));
+    }
+}
+
+// ---- Off-map spawning ------------------------------------------------------
+//
+// A spawn point outside world_bounds is a supported authoring choice: the lane
+// runs off the edge and the horde walks in from off-screen. The grid has to
+// grow to meet it, or the burst lands on no grid at all and is retired on the
+// tick it spawns -- so these check the rect as much as the messages.
+
+TEST_CASE("level_sim_bounds grows to cover off-map spawn points", "[level][validate]") {
+    SECTION("an ordinary level gets its world rect back, exactly") {
+        const LevelDef d = base_level();
+        const Rect r = level_sim_bounds(d);
+        REQUIRE(r.min.x == d.world_bounds.min.x);
+        REQUIRE(r.min.y == d.world_bounds.min.y);
+        REQUIRE(r.max.x == d.world_bounds.max.x);
+        REQUIRE(r.max.y == d.world_bounds.max.y);
+    }
+    SECTION("an off-map spawn point pulls the rect out past it, in whole cells") {
+        LevelDef d = base_level();
+        d.spawn_points[0].position = Vec2{-10.0f, 16.0f};
+        const Rect r = level_sim_bounds(d);
+        // The disc AND walking room, so the burst is not sitting on the last cell.
+        REQUIRE(r.min.x < -10.0f - d.spawn_points[0].radius);
+        // Whole cells, so every cell the un-grown level had keeps its position.
+        const f32 grown = d.world_bounds.min.x - r.min.x;
+        REQUIRE(std::fabs(grown / d.cell_size - std::round(grown / d.cell_size)) < 1e-3f);
+        // Untouched on the axes and edges nothing reached past.
+        REQUIRE(r.max.x == d.world_bounds.max.x);
+        REQUIRE(r.min.y == d.world_bounds.min.y);
+        REQUIRE(r.max.y == d.world_bounds.max.y);
+    }
+    SECTION("the grid refuses to chase a spawn point past one world extent") {
+        LevelDef d = base_level();
+        d.spawn_points[0].position = Vec2{-5000.0f, 16.0f};
+        const Rect r = level_sim_bounds(d);
+        REQUIRE(r.min.x >= d.world_bounds.min.x - d.world_bounds.size().x);
+    }
+}
+
+TEST_CASE("a spawn point outside the world bounds is allowed", "[level][validate]") {
+    SECTION("just outside: a warning, not an error") {
+        LevelDef d = base_level();
+        // Lane and spawn both run off the left edge, which is the whole point.
+        d.vessels[0].points[0].position = Vec2{-8.0f, 16.0f};
+        d.spawn_points[0].position = Vec2{-6.0f, 16.0f};
+        const std::vector<Issue> issues = validate_level(d);
+        REQUIRE_FALSE(has_error(issues, "outside the world bounds"));
+        REQUIRE(has_warning(issues, "walk in from off-screen"));
+        // The vessel followed it out, and the grid grew for both.
+        REQUIRE_FALSE(has_warning(issues, "outside the simulated area"));
+    }
+    SECTION("the tissue under it actually rasterizes") {
+        // The rule that used to make off-map spawning impossible even with the
+        // bounds check relaxed: the mask stopped at world_bounds, so a spawn
+        // out there was always "not on tissue" and unreachable.
+        LevelDef d = base_level();
+        d.vessels[0].points[0].position = Vec2{-8.0f, 16.0f};
+        d.spawn_points[0].position = Vec2{-6.0f, 16.0f};
+        Baked b = bake(d);
+        const std::vector<Issue> issues = validate_level(d, b.view());
+        REQUIRE_FALSE(has_error(issues, "not on tissue"));
+        REQUIRE_FALSE(has_error(issues, "lane is sealed"));
+    }
+    SECTION("far enough out that the grid gave up: still an error") {
+        LevelDef d = base_level();
+        d.spawn_points[0].position = Vec2{-5000.0f, 16.0f};
+        REQUIRE(has_error(validate_level(d), "too far outside the world bounds"));
     }
 }
 

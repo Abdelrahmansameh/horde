@@ -21,6 +21,7 @@ IMMUNE_CONFIG_SCHEMA_ASSERT(FamilyVisualParams);
 IMMUNE_CONFIG_SCHEMA_ASSERT(FamilyBehaviorParams);
 IMMUNE_CONFIG_SCHEMA_ASSERT(FamilyChaffParams);
 IMMUNE_CONFIG_SCHEMA_ASSERT(vfx::FamilyDeathVfx);
+IMMUNE_CONFIG_SCHEMA_ASSERT(sim::HitFlashParams);
 IMMUNE_CONFIG_SCHEMA_ASSERT(BaseAttackParams);
 IMMUNE_CONFIG_SCHEMA_ASSERT(EliteStatsParams);
 
@@ -99,6 +100,23 @@ constexpr Field kDeathVfxFields[] = {
 };
 constexpr Schema kDeathVfxSchema{"family_death_vfx", kDeathVfxFields};
 
+// The per-family hit flash (sim/chaff/HitFlash.h). Every knob the effect has is
+// here -- there is no second, hardcoded half of it anywhere -- so a family can
+// go from a hard white pop to a slow crimson smoulder without a rebuild.
+constexpr Field kHitFlashFields[] = {
+    IMMUNE_CONFIG_FIELD(sim::HitFlashParams, enabled, FieldKind::Bool, "False shows no hit feedback at all for this family"),
+    IMMUNE_CONFIG_ENUM_FIELD(sim::HitFlashParams, retrigger, FieldKind::EnumU8, "A second hit while flashing: 'highest', 'refresh' or 'accumulate'", kHitFlashRetriggerEnum),
+    IMMUNE_CONFIG_FIELD(sim::HitFlashParams, color, FieldKind::Vec4, "RGB the body flares toward; alpha is ignored (see strength)"),
+    IMMUNE_CONFIG_FIELD(sim::HitFlashParams, strength, FieldKind::F32, "Peak mix toward color, 0..1"),
+    IMMUNE_CONFIG_FIELD(sim::HitFlashParams, duration, FieldKind::F32, "Seconds to fade back; 0 disables the effect"),
+    IMMUNE_CONFIG_FIELD(sim::HitFlashParams, curve, FieldKind::F32, "Response exponent; >1 crushes weak continuous damage, <1 lifts it"),
+    IMMUNE_CONFIG_FIELD(sim::HitFlashParams, gain, FieldKind::F32, "Multiplier on the fraction of density one hit removed"),
+    IMMUNE_CONFIG_FIELD(sim::HitFlashParams, min_fraction, FieldKind::F32, "Hits removing less of the agent than this store nothing"),
+    IMMUNE_CONFIG_FIELD(sim::HitFlashParams, death_linger, FieldKind::F32, "Seconds a killed body keeps being drawn, white and fading; 0 is off"),
+    IMMUNE_CONFIG_FIELD(sim::HitFlashParams, scale_punch, FieldKind::F32, "Extra sprite diameter at peak, as a fraction of silhouette; 0 is off"),
+};
+constexpr Schema kHitFlashSchema{"family_hit_flash", kHitFlashFields};
+
 constexpr Field kBaseAttackFields[] = {
     IMMUNE_CONFIG_FIELD(BaseAttackParams, active, FieldKind::F32, "Seconds the strike is live"),
     IMMUNE_CONFIG_FIELD(BaseAttackParams, recovery, FieldKind::F32, "Seconds of recovery after a strike"),
@@ -140,7 +158,7 @@ const char* speed_tier_key(SpeedTier t) {
 }
 
 constexpr std::string_view kFamilyEntryKeys[] = {"speed_tier", "visual", "behavior", "chaff",
-                                                 "death_vfx"};
+                                                 "death_vfx", "hit_flash"};
 constexpr std::string_view kEliteEntryKeys[] = {"id", "name", "family", "tier", "stats"};
 
 } // namespace
@@ -201,6 +219,11 @@ void parse_enemies(const Json& doc, EnemyConfig& out, config::Ctx& ctx) {
                 config::Ctx::Scope d(ctx, "death_vfx");
                 config::parse_struct(config::require_object(entry, "death_vfx", ctx),
                                      kDeathVfxSchema, &fc.death_vfx, ctx);
+            }
+            {
+                config::Ctx::Scope h(ctx, "hit_flash");
+                config::parse_struct(config::require_object(entry, "hit_flash", ctx),
+                                     kHitFlashSchema, &fc.hit_flash, ctx);
             }
         }
     }
@@ -267,6 +290,9 @@ Json dump_enemies(const EnemyConfig& cfg) {
         Json death_vfx = Json::object();
         config::dump_struct(death_vfx, kDeathVfxSchema, &fc.death_vfx);
         entry["death_vfx"] = std::move(death_vfx);
+        Json hit_flash = Json::object();
+        config::dump_struct(hit_flash, kHitFlashSchema, &fc.hit_flash);
+        entry["hit_flash"] = std::move(hit_flash);
         families[family_key(static_cast<PathogenFamily>(i))] = std::move(entry);
     }
     doc["families"] = std::move(families);
@@ -305,6 +331,7 @@ void bind_enemies(config::Registry& registry, EnemyConfig& cfg) {
         registry.bind(base + "behavior", kBehaviorSchema, &cfg.families[i].behavior);
         registry.bind(base + "chaff", kChaffSchema, &cfg.families[i].chaff);
         registry.bind(base + "death_vfx", kDeathVfxSchema, &cfg.families[i].death_vfx);
+        registry.bind(base + "hit_flash", kHitFlashSchema, &cfg.families[i].hit_flash);
     }
     registry.bind("enemies.base_attack", kBaseAttackSchema, &cfg.base_attack);
     for (EliteConfig& ec : cfg.elites) {

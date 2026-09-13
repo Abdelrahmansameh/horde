@@ -23,6 +23,7 @@
 #include "game/economy/Economy.h"
 #include "game/enemies/EnemyRoster.h"
 #include "game/towers/TowerSystem.h"
+#include "sim/chaff/HitFlash.h"
 #include "sim/fluid/Fluid.h"
 #include "sim/squad/Squads.h"
 #include "vfx/DeathVfx.h"
@@ -47,7 +48,16 @@ const char* tower_role_name(TowerRole role);
 struct GunnerParams {
     f32 round_speed = 45.0f;
     f32 hit_radius = 0.45f;
-    f32 spread = 0.045f;
+    /// Half-angle of the per-round aim jitter, radians.
+    f32 spread = 0.09f;
+    /// Half-angle of the arc the muzzle itself slides along, radians. The spawn
+    /// point swings around the tower centre by this much either side of the aim
+    /// while the round is still solved at the target from wherever it landed,
+    /// so a stream reads as a spray of cells rather than one rigid barrel.
+    f32 muzzle_arc_radians = 0.35f;
+    /// Half-width of the random push in/out along the standoff radius, world
+    /// units. Clamped so the muzzle never crosses the tower centre.
+    f32 muzzle_radial_jitter = 0.35f;
 };
 
 struct MortarParams {
@@ -146,8 +156,6 @@ struct TowerGlobals {
     f32 refund_fraction = 0.7f;
     /// Base of the tower shape-id space, kept clear of overlay ids.
     u32 shape_base = 16;
-    /// Half-width, in cells, of the window would_block_all_paths() searches.
-    f32 block_check_pad_cells = 14.0f;
 };
 
 struct TowerConfig {
@@ -213,6 +221,11 @@ struct FamilyConfig {
     /// and the two would eventually disagree about what the game actually
     /// draws. See vfx/DeathVfx.h for what each knob does.
     vfx::FamilyDeathVfx death_vfx{};
+    /// The white flare this family shows when something hits it. Reused
+    /// verbatim from sim/ for the same no-mirror reason as `death_vfx` above;
+    /// see sim/chaff/HitFlash.h for what each knob does and for why that struct
+    /// lives one layer lower than the death burst's does.
+    sim::HitFlashParams hit_flash{};
 };
 
 /// Shared melee shape every elite starts from.
@@ -331,6 +344,8 @@ struct AbilityTuning {
     f32 kill_rate = 40.0f;
     f32 field_duration = 1.5f;
     f32 fever_cooldown_relief = 3.0f;
+    f32 barrier_half_length = 7.0f;
+    f32 barrier_half_width = 1.5f;
 };
 
 struct AbilityConfig {

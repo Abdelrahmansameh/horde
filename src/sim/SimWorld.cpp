@@ -61,6 +61,12 @@ void raise_chaff_deaths(const ChaffBuffers& chaff, const ChaffTuning& tuning, us
 
 void SimWorld::init(const SimDesc& desc, JobSystem* jobs) {
     desc_ = desc;
+    // Resolve the "empty means world_bounds" default ONCE, here, so every
+    // reader below (and every reader in tick()) can use desc_.sim_bounds
+    // unconditionally instead of re-deciding which rect it meant.
+    if (desc_.sim_bounds.size().x <= 0.0f || desc_.sim_bounds.size().y <= 0.0f) {
+        desc_.sim_bounds = desc_.world_bounds;
+    }
     jobs_ = jobs;
     rng_.reseed(desc.seed);
     tick_ = 0;
@@ -81,7 +87,7 @@ void SimWorld::init(const SimDesc& desc, JobSystem* jobs) {
 
     chaff_.reserve(desc.max_chaff);
     chaff_system_.set_tuning(desc.chaff_tuning);
-    chaff_system_.set_world_bounds(desc.world_bounds);
+    chaff_system_.set_world_bounds(desc_.sim_bounds);
 
     // Squad tuning is bounded HERE because this is the only place that sees
     // both the separation radii and the spatial cell size. gather_neighbours()
@@ -102,7 +108,7 @@ void SimWorld::init(const SimDesc& desc, JobSystem* jobs) {
     }
 
     SpatialHashDesc shd;
-    shd.bounds = desc.world_bounds;
+    shd.bounds = desc_.sim_bounds;
     shd.cell_size = desc.spatial_cell_size;
     spatial_.configure(shd);
 
@@ -111,7 +117,7 @@ void SimWorld::init(const SimDesc& desc, JobSystem* jobs) {
     swarmers_.reserve(desc.max_swarmers);
     fluid_.reserve(desc.max_fluid_particles);
     fluid_.clear();
-    fluid_system_.configure(desc.world_bounds, desc.fluid_tuning);
+    fluid_system_.configure(desc_.sim_bounds, desc.fluid_tuning);
     combat_events_.reserve(desc.max_combat_events);
     damage_.clear_all();
 
@@ -185,7 +191,7 @@ void SimWorld::tick(Profiler* profiler) {
     // has applied. Running it here also means a round and a field that kill the
     // same agent on the same tick both get their damage counted.
     const ProjectileStats projectile_stats =
-        projectile_system_.update(projectiles_, chaff_, spatial_, desc_.world_bounds,
+        projectile_system_.update(projectiles_, chaff_, spatial_, desc_.sim_bounds,
                                   rng_, kFixedDt, &combat_events_);
 
     // 4c. Swarmers. Same placement rule and the same reason as projectiles
@@ -193,7 +199,7 @@ void SimWorld::tick(Profiler* profiler) {
     // and before the single chaff compaction so a swarmer's drain and a field's
     // damage on the same agent on the same tick both get counted.
     const SwarmerStats swarmer_stats =
-        swarmer_system_.update(swarmers_, chaff_, spatial_, desc_.world_bounds,
+        swarmer_system_.update(swarmers_, chaff_, spatial_, desc_.sim_bounds,
                                rng_, kFixedDt, &combat_events_);
 
     // 4d. Fluid. Same placement rule and the same reason again -- after the ECS
@@ -204,7 +210,7 @@ void SimWorld::tick(Profiler* profiler) {
     // other two means a round or a granule that already killed an agent this
     // tick has not yet moved that agent's slot out from under the grid.
     const FluidStats fluid_stats =
-        fluid_system_.update(fluid_, chaff_, spatial_, sdf_, desc_.world_bounds,
+        fluid_system_.update(fluid_, chaff_, spatial_, sdf_, desc_.sim_bounds,
                              kFixedDt, &combat_events_);
 
     // 4e. Kill accounting for the tick. DamageField.h's ACCOUNTING rule is
