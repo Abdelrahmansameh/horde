@@ -70,11 +70,19 @@ inline constexpr u8 kAlive      = 1u << 0; ///< Slot occupied.
 /// own damage by kMarkedDamageMultiplier. Originally the Dendritic Cell's and
 /// the old B-Cell's job; the Goblet Cell's mucus coverage is the current (and
 /// only) source — see sim/fluid/Fluid.cpp. Nothing ever clears the bit once
-/// set, same as kSlowed below: a soaked agent stays weakened for the rest of
-/// its life, not just while fluid is actively touching it.
+/// set: a soaked agent stays weakened for the rest of its life, not just while
+/// fluid is actively touching it.
 inline constexpr u8 kMarked     = 1u << 1;
-inline constexpr u8 kSlowed     = 1u << 2; ///< In a NET / snare field.
-inline constexpr u8 kHidden     = 1u << 3; ///< Burrowed; only NK Cells may target.
+/// Slow debuff. Unlike kMarked this one is TIMED: `slow_remaining` counts down
+/// and sim/zone/SlowZones.cpp clears the bit when it reaches zero, so a slow
+/// is something an agent walks out of. While set, the movement kernel scales
+/// the family's max speed by `slow_factor`. The Interferon's slow zones are the
+/// only source today.
+inline constexpr u8 kSlowed     = 1u << 2;
+/// Burrowed. Untargetable by every tower's swarmers (sim/swarm/Swarmers.cpp)
+/// and by the aim-point search in game/towers; the aggregate damage paths
+/// (fields, fluid) still touch it, since they do not target at all.
+inline constexpr u8 kHidden     = 1u << 3;
 inline constexpr u8 kDrifting   = 1u << 4; ///< Ignores flow, follows ambient drift.
 inline constexpr u8 kReplicated = 1u << 5; ///< Spawned by viral replication (replication budget).
 inline constexpr u8 kPendingKill= 1u << 7; ///< Scheduled for removal by the next compact().
@@ -83,6 +91,11 @@ inline constexpr u8 kPendingKill= 1u << 7; ///< Scheduled for removal by the nex
 /// number cannot drift between DamageField, Projectiles, Swarmers, and the
 /// named-agent comp::Marked component in sim/ecs/Components.h.
 inline constexpr f32 kMarkedDamageMultiplier = 1.5f;
+/// What `slow_factor` holds for an agent nothing has slowed yet, and what a
+/// spawn that arrives already carrying kSlowed (a test, a scripted hazard)
+/// gets: a slow zone overwrites it with its own factor, but a bare flag still
+/// has to mean "slowed" rather than silently doing nothing.
+inline constexpr f32 kDefaultSlowFactor = 0.4f;
 } // namespace chaff_flags
 
 /// Stable reference to a chaff agent across compaction. Rarely needed.
@@ -166,6 +179,15 @@ public:
     std::vector<f32> replication_pulse;
     std::vector<f32> replication_origin_x;
     std::vector<f32> replication_origin_y;
+
+    /// The timed half of chaff_flags::kSlowed. `slow_remaining` is seconds of
+    /// slow left (meaningful only while the bit is set; a slow zone refreshes
+    /// it every tick an agent stays inside), and `slow_factor` is the max-speed
+    /// multiplier the movement kernel applies while it lasts. Both are sim
+    /// state and both are in SimWorld::state_hash(): the bit alone is not the
+    /// whole debuff any more.
+    std::vector<f32> slow_remaining;
+    std::vector<f32> slow_factor;
 
     /// Reserves every stream to `max_agents`. Call once at level load.
     void reserve(usize max_agents);

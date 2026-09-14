@@ -1,7 +1,7 @@
 // ui/Hud.cpp — real ImGui build menu + placement cursor. Owner: Wave 3B, 4E.
 //
 // Wave 4E adds: a world-space range/placement previsualizer ring, tower
-// selection (click a placed tower) with an upgrade/sell/trigger-ability
+// selection (click a placed tower) with an upgrade/sell
 // panel, a wave-preview panel, and a scaffolded active-ability bar. See the
 // final report for two frozen-header gaps this wave found and could not
 // close itself (ActiveAbilitySystem& and GameStateId not threaded into
@@ -10,6 +10,7 @@
 
 #include "core/Math.h"
 #include "game/economy/Economy.h"
+#include "game/towers/TowerMechanics.h"
 #include "game/towers/TowerSystem.h"
 #include "game/wave/WaveDirector.h"
 #include "platform/Input.h"
@@ -364,7 +365,9 @@ void Hud::build(const sim::SimWorld& world, const game::Economy& economy,
             const Vec2 tower_pos = transform ? transform->position : Vec2{0.0f, 0.0f};
             const game::TowerStats& tstats = towers.stats(tower.type, tower.tier);
 
-            draw_range_ring(ImGui::GetBackgroundDrawList(), camera, tower_pos, tstats.range,
+            // The ring is the swarmers' aggro radius: a tower has no range of
+            // its own, and this is the reach the player is actually buying.
+            draw_range_ring(ImGui::GetBackgroundDrawList(), camera, tower_pos, tower.range,
                             kRingSelectedColor);
 
             ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x - 12.0f, 160.0f), ImGuiCond_Always,
@@ -372,8 +375,11 @@ void Hud::build(const sim::SimWorld& world, const game::Economy& economy,
             ImGui::SetNextWindowBgAlpha(0.7f);
             if (ImGui::Begin("Selected Tower", nullptr, flags)) {
                 ImGui::Text("%s -- tier %u", game::tower_type_name(tower.type), tower.tier);
-                ImGui::Text("Range %.1f  Dmg %.1f  Fire %.2fs", tstats.range, tstats.damage,
-                           tstats.fire_interval);
+                {
+                    const game::TowerMechanics& mech = game::tower_mechanics(tower.type, tower.tier);
+                    ImGui::Text("Aggro %.1f  Volley %u every %.2fs", mech.swarm.search_radius,
+                                mech.swarm.release_per_shot, tstats.fire_interval);
+                }
 
                 if (tower.tier < 3) {
                     const bool affordable = economy.can_afford(tstats.upgrade_cost);
@@ -396,26 +402,6 @@ void Hud::build(const sim::SimWorld& world, const game::Economy& economy,
                     intent.entity = g_selected_tower;
                     out_intents.push_back(intent);
                     g_selected_tower = EntityId{};
-                }
-
-                if (tstats.ability_cooldown > 0.0f) {
-                    ImGui::SameLine();
-                    const bool ready = tower.ability_cooldown <= 0.0f;
-                    if (!ready) ImGui::BeginDisabled();
-                    char ability_label[32];
-                    if (ready) {
-                        std::snprintf(ability_label, sizeof(ability_label), "Ability");
-                    } else {
-                        std::snprintf(ability_label, sizeof(ability_label), "Ability (%s)",
-                                     fmt::format_countdown_seconds(tower.ability_cooldown).c_str());
-                    }
-                    if (ImGui::Button(ability_label)) {
-                        Intent intent;
-                        intent.kind = IntentKind::TriggerAbility;
-                        intent.entity = g_selected_tower;
-                        out_intents.push_back(intent);
-                    }
-                    if (!ready) ImGui::EndDisabled();
                 }
 
                 if (ImGui::Button("Deselect")) g_selected_tower = EntityId{};
@@ -463,11 +449,11 @@ void Hud::build(const sim::SimWorld& world, const game::Economy& economy,
 
     // ---- Number-key shortcuts arm the same build cursor as clicking a button.
     using platform::Action;
-    // Sized to the roster, not to the 8 available key bindings: SelectTower7/8
+    // Sized to the roster, not to the 8 available key bindings: SelectTower6-8
     // still exist as actions but no longer map to a tower.
     static constexpr Action kSelectActions[kTowerTypeCount] = {
         Action::SelectTower1, Action::SelectTower2, Action::SelectTower3,
-        Action::SelectTower4, Action::SelectTower5, Action::SelectTower6,
+        Action::SelectTower4, Action::SelectTower5,
     };
     if (!input.ui_capture_keyboard()) {
         for (u32 i = 0; i < kTowerTypeCount; ++i) {
@@ -489,9 +475,9 @@ void Hud::build(const sim::SimWorld& world, const game::Economy& economy,
         const Vec2 hovered_world = camera.screen_to_world(input.mouse_pos());
         const game::PlacementQuery query =
             towers.validate(world, build_cursor_type_, hovered_world, economy.atp());
-        const game::TowerStats& armed_stats = towers.stats(build_cursor_type_, 1);
+        const f32 armed_aggro = game::tower_mechanics(build_cursor_type_, 1).swarm.search_radius;
         draw_range_ring(ImGui::GetBackgroundDrawList(), camera, query.snapped_position,
-                        armed_stats.range, query.valid() ? kRingValidColor : kRingInvalidColor);
+                        armed_aggro, query.valid() ? kRingValidColor : kRingInvalidColor);
     }
 
     // ---- Click-to-place: only when the cursor is armed and the click wasn't

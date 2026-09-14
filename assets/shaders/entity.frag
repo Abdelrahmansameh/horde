@@ -14,9 +14,9 @@
 //       bar's aspect, half_length / half_width, and v_tint.a its dissolve)
 // Tower shape ids start at 16 (kTowerShapeBase in TowerSystem.cpp) and run in
 // TowerType declaration order, so id == 16 + TowerType:
-//   16 = GUNNER (Neutrophil)   17 = MORTAR (Macrophage)
-//   18 = CRYO   (Interferon)   19 = TESLA  (Cytotoxic T)
-//   20 = HYDRO  (Goblet Cell)   21 = BLADE  (NK Cell)
+//   16 = Neutrophil   17 = Macrophage   18 = Interferon
+//   19 = Cytotoxic T  20 = Goblet Cell
+// (21 was the NK Cell's rotor; retired with the swarmer roster.)
 // Any other id falls back to the filled blob.
 
 in vec2  v_local;
@@ -24,7 +24,7 @@ in vec4  v_tint;
 flat in uint v_shape_id;
 in float v_anim_phase;
 /// Extra per-shape parameter (EntityInstance::shape_param); meaning is defined
-/// by v_shape_id, 0 for shapes that don't declare one. Every tower body (16-21)
+/// by v_shape_id, 0 for shapes that don't declare one. Every tower body (16-20)
 /// reads it as the tower's TIER, 1-3, and spends it on a countable feature —
 /// phagosomes, crystal reach, lytic granules, mucin granules, blades — so an
 /// upgrade is legible from the silhouette instead of only from the stat panel.
@@ -138,143 +138,6 @@ float sdf_neutrophil(vec2 p, float phase, out float nucleus_d, out float granule
     granule = smoothstep(0.62, 0.82, fbm(p * 16.0 + vec2(phase * 0.05, 0.0)));
 
     return body;
-}
-
-// ---------------------------------------------------------------------------
-// BLADE — NK Cell.
-//
-// NK cells are small, dense granular lymphocytes -- tighter and rounder than
-// the Gunner's amoeboid neutrophil, with a single large eccentric nucleus
-// rather than a lobed one. The "blade" isn't a literal weapon: it's a stylised
-// take on the real kill mechanism -- an NK cell reorients its microtubule-
-// organizing centre toward the target and fires perforin/granzyme down the
-// cytoskeleton at the immunological synapse.
-//
-// SCALE. Unlike every other tower this quad is sized to the tower's RANGE, not
-// its footprint (see tower_sprite_size in TowerSystem.cpp), because
-// system_blade's damage really does cover the whole disc. So local radius
-// kNkReach maps to exactly st.range in world units, and the blades are drawn
-// out to it: the silhouette is a truthful readout of the kill zone, and the
-// glowing tips mark its boundary. That makes the body double as the tower's
-// own range indicator, which is why it must re-render on upgrade.
-//
-// Because the quad is ~10x the size of every other tower's, it covers ~10x the
-// pixels, so the antialiasing widths below are deliberately much tighter than
-// the Gunner's -- reusing those would smear the edges into mush at this scale.
-//
-// LOOKING GOOD AT THAT SIZE is the real problem, and three things do the work:
-//   1. The blades SWEEP (each centreline lags by kNkSweep radians from hub to
-//      rim) instead of being straight spokes. A straight spoke at this length
-//      reads as a static star; a trailing curve reads as rotation even in a
-//      still frame, and covers far more of the disc.
-//   2. They taper hard and FADE toward the tip, dissolving into the field glow
-//      rather than ending in a hard edge -- so a huge sprite doesn't read as a
-//      few thin sticks over empty space.
-//   3. The hub stays small in local space (kNkHubR is roughly the real
-//      footprint over the range), so growing the quad doesn't inflate the cell
-//      into a blob; it keeps the "tiny cell, long reach" silhouette.
-//
-// comp::Transform::rotation (driven by system_blade's continuous
-// kBladeSpinRadPerSec spin) already rotates the whole instance quad in the
-// vertex stage, so the geometry below is defined in a FIXED local orientation
-// -- the spin comes for free and needs no phase term, unlike the neutrophil's
-// writhing warp.
-// ---------------------------------------------------------------------------
-const float kNkReach   = 0.5;    // local radius == st.range in world units
-const float kNkHubR    = 0.085;  // cell body; big enough to still read as a cell
-const float kNkRootW   = 0.075;  // TRAILING half-width where the blade leaves the hub
-const float kNkLeadFrac = 0.30;  // leading half-width, as a fraction of trailing
-const float kNkSweep   = 0.55;   // radians the blade lags across its length
-const float kNkGlowR   = 0.022;  // perforin granule radius at each tip
-const float kNkTipFade = 0.55;   // blade alpha at the rim
-const int   kNkMaxBlades = 5;    // tier 3 -> 2 + 3
-
-/// Returns the blade/hub signed distance. `blade_count` comes straight from
-/// EntityInstance::shape_param (2 + tower tier).
-float sdf_nk_cell(vec2 p, float phase, float blade_count, float spin,
-                  out float nucleus_d, out float radial_t, out float granule_glow,
-                  out float edge_glow) {
-    float r = length(p);
-    radial_t = clamp(r / kNkReach, 0.0, 1.0);
-
-    // THE HUB DOES NOT SPIN. It is the cell; the blades are what sweep around
-    // it. The hub and its nucleus are evaluated in `hp` -- `p` rotated back to
-    // world alignment -- so they hold still while the rotor turns. Drawn in the
-    // raw local frame the eccentric nucleus visibly orbits the centre, which
-    // reads as the whole cell tumbling rather than as a rotor spinning.
-    // Everything else (blades, leading edges, tip granules) deliberately stays
-    // in `p` so it rides the spin.
-    //
-    // The angle is +spin, NOT -spin. entity.vert hands us the UNROTATED corner
-    // and rotates the quad's world offset by R(+rotation); `p` is therefore
-    // already expressed in the spinning frame, so applying R(+rotation) is what
-    // cancels it back to world. Negating instead double-rotates, and the
-    // nucleus orbits backwards at twice the speed.
-    float cs = cos(spin);
-    float sn = sin(spin);
-    vec2 hp = vec2(p.x * cs - p.y * sn, p.x * sn + p.y * cs);
-
-    // Hub: a small, barely-writhing lymphocyte. Much less domain warp than the
-    // neutrophil -- NK cells are round and compact, not amoeboid, and at this
-    // quad size a large warp would wobble the hub distractingly.
-    float wx = fbm(hp * 11.0 + vec2(phase * 0.05, 0.0)) - 0.5;
-    float wy = fbm(hp * 11.0 + vec2(9.1, -phase * 0.04)) - 0.5;
-    float hub = length(hp + vec2(wx, wy) * 0.010) - kNkHubR;
-
-    // One large, dense nucleus -- not lobed like the neutrophil's. Kept a touch
-    // off-centre (a real lymphocyte's is), but only a touch: at the full
-    // eccentricity it read as the core having drifted loose of the rotor rather
-    // than as a cell nucleus.
-    nucleus_d = length(hp - vec2(0.005, -0.004)) - kNkHubR * 0.52;
-
-    // At least THREE arms, always. Two arms 180 degrees apart, both swept the
-    // same way, fuse through the hub into a single continuous S-curve: it reads
-    // as one sinuous flagellum, not as a rotor. Three-fold is the lowest
-    // symmetry with no opposing pair to line up, so it reads as a pinwheel
-    // immediately -- the same "avoid the degenerate silhouette" reasoning that
-    // gives sdf_neutrophil five lobes instead of four.
-    float n = max(blade_count, 3.0);
-    float ang = atan(p.y, p.x);
-    float blades = 1e9;
-    granule_glow = 0.0;
-    edge_glow = 0.0;
-
-    for (int k = 0; k < kNkMaxBlades; ++k) {
-        if (float(k) >= n) break;
-        float base = float(k) * (6.28318530 / n);
-
-        // Swept centreline: the angle the blade occupies drifts with radius.
-        float centre = base - kNkSweep * radial_t;
-        float da = mod(ang - centre + 3.14159265, 6.28318530) - 3.14159265;
-        // Angular offset -> arc length, so the blade keeps a constant physical
-        // width instead of fanning out into a wedge as r grows.
-        float arc = da * r;
-
-        // Convex taper: broad most of the way out, then falling off fast to a
-        // point. A linear taper produces an even sliver that reads as a
-        // tentacle; holding the width and losing it late is the blade profile.
-        float taper = pow(1.0 - radial_t, 0.6);
-
-        // ASYMMETRIC cross-section, and the single biggest "is this a blade?"
-        // cue. The tower spins toward +angle, so the +arc side is the leading
-        // edge: keep it thin and hard (a cutting edge) and let the trailing
-        // side carry the mass. A symmetric blade is just a rounded spoke.
-        float w = kNkRootW * taper * (arc > 0.0 ? kNkLeadFrac : 1.0);
-        blades = min(blades, max(abs(arc) - w, r - kNkReach));
-
-        // Specular line riding the leading edge -- what actually sells "sharp".
-        if (r < kNkReach) {
-            edge_glow = max(edge_glow,
-                            1.0 - smoothstep(0.0, 0.010, abs(arc - kNkRootW * taper * kNkLeadFrac)));
-        }
-
-        // Perforin granule riding the tip, exactly on the range boundary.
-        vec2 tip = vec2(cos(base - kNkSweep), sin(base - kNkSweep)) * kNkReach;
-        granule_glow = max(granule_glow, 1.0 - smoothstep(-0.004, kNkGlowR, length(p - tip)));
-    }
-
-    // Fuse rather than union so the blades grow out of the cell, no seam.
-    return smin(hub, blades, 0.030);
 }
 
 /// Smooth maximum — the counterpart to smin(), and what CARVES a shape instead
@@ -516,7 +379,7 @@ float sdf_interferon(vec2 p, float phase, float tier, out float crystal_d,
 //
 // Nothing else on the field is asymmetric front-to-back like that. The
 // Neutrophil and the Macrophage are radial lumps, the Interferon is a crystal,
-// the NK Cell is a rotor, and the Goblet Cell — the only other directional
+// and the Goblet Cell — the only other directional
 // body — is a narrow stalk swelling into a round cup, i.e. widest at the BACK
 // of its mass with a bore drilled through the front. This one is widest at the
 // FRONT and comes to a point at the back, so the two never resolve to the same
@@ -926,63 +789,6 @@ void main() {
         rgb = mix(rgb, vec3(1.0), rim * 0.68);
 
         o_color = over_shadow(rgb, a * v_tint.a, sh);
-        if (o_color.a <= 0.001) discard;
-        return;
-    } else if (v_shape_id == 21u) {
-        // BLADE (NK Cell). Tower shape ids start at 16; see kTowerShapeBase
-        // in TowerSystem.cpp ("nk_cell" is index 5 in kTowerNames -> 21).
-        float nucleus_d, radial_t, granule_glow, edge_glow;
-        // 2 + tier blades; v_shape_param carries the raw tier for every tower,
-        // and the "+2" lives here rather than on the CPU so this file is the
-        // one place that decides what a tier looks like.
-        float body_d = sdf_nk_cell(v_local, v_anim_phase, 2.0 + v_shape_param, v_rotation,
-                                   nucleus_d, radial_t, granule_glow, edge_glow);
-
-        // Tight AA band: this quad is ~10x the on-screen size of other towers.
-        float a = 1.0 - smoothstep(-0.005, 0.002, body_d);
-        // Feather the blade toward the rim so it dissolves into the damage
-        // field instead of ending in a hard chopped-off edge. Radius-driven, so
-        // the hub (deep inside kNkReach) is untouched.
-        a *= mix(1.0, kNkTipFade, smoothstep(0.35, 1.0, radial_t));
-        a = max(a, granule_glow * 0.95); // granules stay solid at the rim
-        if (a <= 0.0) discard;
-
-        float depth = clamp(-body_d * 26.0, 0.0, 1.0);
-
-        // The NK Cell's identity hue, hardcoded to mirror palette_for()'s
-        // magenta-pink entry in vfx/Particles.cpp so the body, its rotor-sweep
-        // trails and its slash VFX all read as the same tower. It can't come
-        // from v_tint: TowerSystem::build gives every tower a white sprite
-        // tint, so mixing toward it would be a no-op. Same reasoning as
-        // sdf_neutrophil hardcoding its own pale cytoplasm.
-        const vec3 kNkHue = vec3(1.00, 0.52, 0.86);
-
-        // Pale granular cytoplasm, warmed slightly toward the identity hue.
-        vec3 cytoplasm = mix(vec3(0.96, 0.93, 0.96), vec3(0.74, 0.62, 0.76), depth);
-        cytoplasm = mix(cytoplasm, kNkHue, 0.20);
-
-        // Blades run hotter the further out they go, so the rotor reads as
-        // energised rather than as pale limbs stuck onto a cell.
-        vec3 rgb = mix(cytoplasm, kNkHue, smoothstep(0.10, 1.0, radial_t) * 0.75);
-
-        // Dense eccentric nucleus, stained dark violet. Confined to the hub.
-        float nuc = 1.0 - smoothstep(-0.004, 0.004, nucleus_d);
-        rgb = mix(rgb, vec3(0.30, 0.22, 0.38), nuc * 0.88);
-
-        // Hard specular line down each leading edge. Suppressed over the hub so
-        // the cell body doesn't get a stripe through it.
-        float lead = edge_glow * smoothstep(0.12, 0.30, radial_t);
-        rgb = mix(rgb, vec3(1.0), lead * 0.85);
-
-        // Perforin granules glow hot white-pink at the blade tips -- the
-        // payload about to be fired, and incidentally a range marker.
-        rgb = mix(rgb, vec3(1.0, 0.85, 0.95), granule_glow * 0.9);
-
-        // Membrane rim, same "wet cell boundary" treatment as the Gunner.
-        float rim = 1.0 - smoothstep(0.0, 0.010, abs(body_d));
-        rgb = mix(rgb, vec3(1.0), rim * 0.62);
-
-        o_color = over_shadow(rgb, a * v_tint.a, entity_shadow(v_local, 0.30));
         if (o_color.a <= 0.001) discard;
         return;
     } else if (v_shape_id == 17u) {

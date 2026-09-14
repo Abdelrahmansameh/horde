@@ -20,6 +20,13 @@ SessionOutcome step_level(const LevelSystems& s, Profiler* profiler) {
     // spawning into the same spawn point on the same tick resolve in a fixed order.
     if (s.spawns != nullptr) s.spawns->tick(world);
     if (s.waves != nullptr) s.waves->tick(world, world.rng(), kFixedDt);
+    // Towers spawn continuously while a round is on and hold in Prep: the
+    // build phase between rounds is for building, not for seeding the lane.
+    // With no wave director the level is one long round.
+    if (s.towers != nullptr) {
+        s.towers->set_releasing(s.waves == nullptr ||
+                                s.waves->status().phase != WavePhase::Prep);
+    }
     world.tick(profiler);
     // Before the win/loss check below reads the snapshot, so an enabled hold
     // actually prevents the loss instead of racing it.

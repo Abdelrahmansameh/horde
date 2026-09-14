@@ -23,19 +23,26 @@
 // THE LOOK
 // ---------------------------------------------------------------------------
 // Flat, illustrated, clean -- a vector-art cross-section of tissue, not a wet
-// photographic one. Three materials, each a flat colour with crisp-edged
-// shapes on it and NO lighting, NO grain, NO noise-warped edges. Every colour
-// was measured off docs/ref_image.webp:
+// photographic one. NO lighting, NO grain, NO noise-warped edges. Every colour
+// and every area fraction below was MEASURED off docs/ref_image.webp rather
+// than eyeballed, and the thresholds are set to reproduce those numbers:
 //
-//   INTERSTITIUM  large DARK crimson cells (a warped, corner-rounded Voronoi)
-//                 separated by LIGHTER red channels that pool at the
-//                 junctions and run along the outside of every vessel. Each
-//                 cell carries a big light oval with a lighter patch on it,
-//                 and on its other side a dark oval or a loose cluster of
-//                 small light discs.
+//   INTERSTITIUM  large DARK cells (a warped Voronoi) separated by a LIGHTER
+//                 channel web that pools out where three cells meet. 24.7% of
+//                 the area is web, 3.8% is the dark shapes inside the cells,
+//                 and the rest is cell body spanning just six luminance
+//                 levels -- so nearly all of its structure is carried by hue
+//                 and shape, almost none by contrast.
 //   WALL          from the fluid outward: a rose lining (lighter, then
-//                 darker), then a thin plum line, then the channel.
-//   LUMEN         a bright salmon fluid paved with light ovals.
+//                 darker), then a thin plum line, then the web again.
+//   LUMEN         the same construction at a third the scale with the
+//                 contrast inverted -- a LIGHT grout with slightly DARKER
+//                 rounded cobbles over it, close to half the area each.
+//
+// Each cell carries up to three crisp shapes -- a big light oval, a dark
+// oval, and either a mid-tone oval (sometimes a ring) or a loose cluster of
+// small discs -- SIZED AND PLACED TO FIT the cell they belong to, so none of
+// them ever needs fading out where it would cross the web.
 //
 // Every edge is a smoothstep over one pixel's worth of world units, so a wall
 // is exactly as smooth as the distance field, and the field is smooth.
@@ -70,7 +77,7 @@ layout(location = 11) uniform float u_pattern_scale;
 // ===========================================================================
 // Interstitium: DARK cells separated by a LIGHTER channel web (14.4% of area).
 const vec3 kCell      = vec3(0.443, 0.106, 0.204);  // #711B34  cell body
-const vec3 kCellDark  = vec3(0.427, 0.094, 0.192);  // #6D1831  the darker half
+const vec3 kCellDark  = vec3(0.435, 0.098, 0.200);  // #6F1933  the darker half
 const vec3 kCellLite  = vec3(0.451, 0.110, 0.208);  // #731C35  the lighter half
 const vec3 kChannel   = vec3(0.588, 0.157, 0.271);  // #962845  the web
 const vec3 kChannelHi = vec3(0.627, 0.176, 0.286);  // #A02D49  its brighter core
@@ -139,6 +146,14 @@ float fbm3(vec2 p) {
 /// three cells actually meet, and is the cell's full width in its middle.
 struct Cells {
     float e1, e2;       ///< nearest / second-nearest border distance
+    /// Radius of the largest disc centred on the cell's OWN seed that fits
+    /// inside it -- half the distance to the nearest neighbouring seed, which
+    /// is exact because a Voronoi border is a perpendicular bisector. It is a
+    /// property of the cell, not of the sample point, so every fragment of a
+    /// given cell computes the same value; that is what lets the shapes drawn
+    /// inside a cell be SIZED TO FIT it instead of being faded out wherever
+    /// they happen to cross its border.
+    float inradius;
     vec2 id;            ///< winning cell's lattice coordinate, for per-cell hashes
     vec2 to_center;     ///< p -> the winning feature point
 };
@@ -161,16 +176,21 @@ Cells voronoi(vec2 p, float jitter) {
     }
     // Distance to each border is the distance to the perpendicular bisector
     // between the winner and that neighbour. Two smallest, kept separately.
-    c.e1 = 8.0; c.e2 = 8.0;
+    c.e1 = 8.0; c.e2 = 8.0; c.inradius = 8.0;
     for (int j = -2; j <= 2; ++j) {
         for (int i = -2; i <= 2; ++i) {
             vec2 g = mg + vec2(float(i), float(j));
             vec2 feature = g + 0.5 + (hash22(ip + g) - 0.5) * jitter;
             vec2 r = feature - fp;
+            // Seed-to-seed offset; its half-length is this border's distance
+            // from the cell's own seed, and the smallest of those is the
+            // inradius.
             vec2 dr = r - c.to_center;
             float l2 = dot(dr, dr);
             if (l2 < 1e-6) continue;
-            float dist = dot(0.5 * (c.to_center + r), dr * inversesqrt(l2));
+            float l = sqrt(l2);
+            c.inradius = min(c.inradius, l * 0.5);
+            float dist = dot(0.5 * (c.to_center + r), dr / l);
             if (dist < c.e1) { c.e2 = c.e1; c.e1 = dist; }
             else if (dist < c.e2) { c.e2 = dist; }
         }
@@ -222,11 +242,11 @@ vec3 interstitium(vec2 p, float px, float S, float d, float band_w, vec3 tint) {
     // Two warps: a broad one that shoves whole cells around, and a finer one
     // that bows their sides, so no border is straight and no two cells are
     // the same size.
-    float cell = 29.0 * S;
+    float cell = 28.0 * S;
     vec2 warp = (vec2(fbm3(p / (cell * 1.9)), fbm3(p / (cell * 1.9) + 7.3)) - 0.5) * 0.42 +
                 (vec2(fbm3(p / (cell * 0.6) + 3.1), fbm3(p / (cell * 0.6) + 11.9)) - 0.5) * 0.12;
     vec2 q = (p + warp * cell) / cell;
-    Cells c = voronoi(q, 1.0);
+    Cells c = voronoi(q, 0.82);
     // Antialiasing width for the flat shapes, in lattice units. `px` is the
     // world size of a pixel, measured once in main() in uniform control flow
     // (a derivative taken inside a branch is undefined, and reads as a blur).
@@ -241,6 +261,9 @@ vec3 interstitium(vec2 p, float px, float S, float d, float band_w, vec3 tint) {
     float h5 = hash21(c.id + 83.9);
 
     vec2 rel = -c.to_center;   // from the cell's feature point to p
+    // Channel half-width along a plain border. Resolved here rather than at
+    // the web, because the shapes inside the cell are fitted against it.
+    float w_half = 0.020 + (vnoise(p / (cell * 0.4) + 5.0) - 0.5) * 0.013;
 
     // ---- The cell body -------------------------------------------------
     // Two things the reference does that a flat fill does not: neighbouring
@@ -256,14 +279,19 @@ vec3 interstitium(vec2 p, float px, float S, float d, float band_w, vec3 tint) {
 
     // ---- Crisp shapes inside it ----------------------------------------
     // Measured off the reference: light discs run 30-66 px equivalent
-    // diameter and dark ovals 29-52, against a 230-px cell -- so 0.13 to
-    // 0.29 of a cell across, i.e. lattice radii of 0.065 to 0.145. They are
-    // scattered around the cell rather than stacked, and a cell carries some
-    // subset of them, never all.
+    // diameter and dark ovals 29-52, against a 194-px cell -- so 0.15 to
+    // 0.34 of a cell across.
     //
-    // `inset` keeps every shape off the channel: one that touches it reads as
-    // a leak rather than as something inside the cell.
-    float inset = smoothstep(0.06, 0.14, filleted_edge(c, 0.30));
+    // EVERY SHAPE IS SIZED AND PLACED TO FIT ITS OWN CELL. `room` is the
+    // largest radius that still clears the channel, and a shape of radius `r`
+    // is offset by at most `room - r`, so it lies entirely inside the cell by
+    // construction. An earlier version instead drew shapes at a fixed size
+    // and multiplied them by a "distance from the border" fade, which is what
+    // produced the half-dissolved blobs at the cell edges -- a shape that
+    // overhung its cell was not moved or shrunk, just ghosted away where it
+    // did not belong. It also meant a small cell and a large one carried the
+    // same size shapes, so the small ones were mostly fade.
+    float room = max(c.inradius - w_half - 0.05, 0.02);
     // Three anchor directions, 120 degrees apart from a per-cell phase, so
     // the shapes spread out instead of piling on one side.
     float phase = h1 * 6.2832;
@@ -271,66 +299,81 @@ vec3 interstitium(vec2 p, float px, float S, float d, float band_w, vec3 tint) {
     vec2 a1 = vec2(cos(phase + 2.094), sin(phase + 2.094));
     vec2 a2 = vec2(cos(phase + 4.189), sin(phase + 4.189));
 
-    // 1. The light disc. Nearly every cell has one; it is the brightest thing
-    //    on the interstitium and the shape the eye reads first.
+    // Three features, each on its own anchor: a big light oval, a big dark
+    // oval, and a third slot that is either a mid-tone oval (sometimes a
+    // ring) or a loose cluster of small discs. That is the reference's
+    // vocabulary; keeping the cluster OFF the light oval's anchor is what
+    // stops the two merging into a snowman.
+    //
+    // 1. The light oval -- the brightest thing on the interstitium and the
+    //    shape the eye reads first.
     if (h0 < 0.95) {
-        vec2 off = a0 * (0.10 + 0.16 * h2);
+        float r = room * (0.34 + 0.24 * h2);
+        vec2 off = a0 * (room - r) * (0.45 + 0.5 * h4);
         float ang = phase + 0.9 + h3 * 1.8;
-        float r = 0.075 + 0.07 * h2;
-        float a = oval(rel - off, ang, r, 0.72 + 0.24 * h3, aa) * inset;
+        float a = oval(rel - off, ang, r, 0.68 + 0.26 * h3, aa);
         col = mix(col, kDiscLight, a);
         // A brighter patch riding on one end of it.
         vec2 ax = vec2(cos(ang), sin(ang));
-        float hi = oval(rel - off - ax * r * 0.32, ang, r * 0.5, 0.8, aa) * a;
+        float hi = oval(rel - off - ax * r * 0.34, ang, r * 0.46, 0.8, aa) * a;
         col = mix(col, kDiscHi, hi * 0.8);
-        // 0-3 satellites, much smaller and of widely varying size -- the
-        // reference's clusters are never a ring of equal dots.
-        if (h4 > 0.34) {
-            int n = 1 + int(h5 * 2.99);
-            float dots = 0.0;
-            for (int k = 0; k < 3; ++k) {
-                if (k >= n) break;
-                vec2 hk = hash22(c.id + float(k) * 7.7 + 31.0);
-                vec2 o = off + (hk - 0.5) * (r * 2.6 + 0.12);
-                float rr = r * (0.16 + 0.34 * hash21(c.id + float(k) + 2.2));
-                dots = max(dots, 1.0 - smoothstep(rr - aa, rr + aa, length(rel - o)));
-            }
-            col = mix(col, kDiscLight, dots * inset);
-        }
     }
 
-    // 2. The dark oval, on a different side of the cell.
-    if (h2 > 0.16) {
-        vec2 off = a1 * (0.12 + 0.16 * h4);
+    // 2. The dark oval, on the opposite side.
+    if (h2 > 0.30) {
+        float r = room * (0.20 + 0.16 * h4);
+        vec2 off = a1 * (room - r) * (0.5 + 0.45 * h5);
         float ang = h3 * 6.2832;
-        float r = 0.065 + 0.06 * h4;
-        float a = oval(rel - off, ang, r, 0.58 + 0.34 * h5, aa) * inset;
-        col = mix(col, kOvalDark, a);
+        col = mix(col, kOvalDark, oval(rel - off, ang, r, 0.56 + 0.36 * h5, aa));
     }
 
-    // 3. The mid-tone oval, sometimes hollow -- the reference has a few
-    //    distinct rings, and they are what stop the field reading as a
-    //    repeating two-shape stamp.
-    if (h3 > 0.34) {
-        vec2 off = a2 * (0.12 + 0.15 * h5);
-        float ang = h4 * 6.2832;
-        float r = 0.07 + 0.06 * h5;
-        float a = oval(rel - off, ang, r, 0.66 + 0.28 * h2, aa) * inset;
-        if (h5 > 0.78) {
-            float hole = oval(rel - off, ang, r * 0.52, 0.66 + 0.28 * h2, aa);
-            a *= 1.0 - hole;
+    // 3. The third slot.
+    if (h1 > 0.42) {
+        // A cluster of 2-4 small discs of widely varying size. The reference
+        // never draws these as a ring of equal dots, so both the radius and
+        // the spacing are drawn per dot.
+        vec2 base = a2 * room * (0.42 + 0.35 * h3);
+        float rmax = room * (0.10 + 0.06 * h5);
+        int n = 2 + int(h4 * 2.99);
+        float dots = 0.0;
+        for (int k = 0; k < 4; ++k) {
+            if (k >= n) break;
+            vec2 hk = hash22(c.id + float(k) * 7.7 + 31.0);
+            float rr = rmax * (0.35 + 0.65 * hash21(c.id + float(k) + 2.2));
+            vec2 dir = normalize(hk - 0.5 + vec2(1e-3));
+            vec2 o = base + dir * (rmax * 1.5) * (0.4 + 0.6 * hash21(c.id + float(k) + 5.1));
+            // Pull it back inside the cell if it would cross the channel.
+            float over = length(o) + rr - room;
+            if (over > 0.0) o -= normalize(o) * over;
+            dots = max(dots, 1.0 - smoothstep(rr - aa, rr + aa, length(rel - o)));
         }
+        col = mix(col, kDiscLight, dots);
+    } else if (h3 > 0.2) {
+        // A mid-tone oval, sometimes hollow -- the reference has a few
+        // distinct rings, and they are what stop the field reading as a
+        // repeating two-shape stamp.
+        float r = room * (0.24 + 0.22 * h5);
+        vec2 off = a2 * (room - r) * (0.5 + 0.45 * h2);
+        float ang = h4 * 6.2832;
+        float sq = 0.64 + 0.3 * h2;
+        float a = oval(rel - off, ang, r, sq, aa);
+        if (h5 > 0.7) a *= 1.0 - oval(rel - off, ang, r * 0.5, sq, aa);
         col = mix(col, mix(kOvalMid, kOvalMidHi, h2), a);
     }
 
     // ---- The channel web -----------------------------------------------
     // Flat and crisp, widening into a smooth pool at every junction; see
-    // filleted_edge(), which is where that comes from.
-    float w = 0.032 + (vnoise(p / (cell * 0.4) + 5.0) - 0.5) * 0.018;
-    float e = filleted_edge(c, 0.30);
-    float chan = 1.0 - smoothstep(w - aa, w + aa, e);
+    // filleted_edge(), which is where that comes from. Its half-width was
+    // resolved above, before the shapes, because they are fitted against it.
+    float e = filleted_edge(c, 0.35);
+    float chan = 1.0 - smoothstep(w_half - aa, w_half + aa, e);
     // A slightly brighter thread down the middle of the web.
-    float core = 1.0 - smoothstep(0.25 * w, w, e);
+    float core = 1.0 - smoothstep(0.25 * w_half, w_half, e);
+    // A soft skirt of the channel's colour spilling a little way into the
+    // cell. The reference's cell does not butt against the web: there is a
+    // 15-px ramp between them, which is most of its mid-tone band.
+    float skirt = 1.0 - smoothstep(w_half, w_half + 0.060, e);
+    col = mix(col, kChannel, skirt * 0.30);
     col = mix(col, mix(kChannel, kChannelHi, core * 0.3), chan);
 
     // The same web runs along the outside of every vessel, its width
@@ -363,9 +406,16 @@ vec3 lumen(vec2 p, float px, float S, float d, vec3 tint) {
     float h1 = hash21(c.id + 13.3);
 
     vec3 col = kGrout;
-    // Grout half-width: the gap between two cobbles is about twice this.
-    float w = 0.055 + (vnoise(p / (cell * 0.8) + 3.0) - 0.5) * 0.025;
-    float e = filleted_edge(c, 0.26);
+    // Grout half-width: the gap between two cobbles is about twice this. It
+    // varies PER COBBLE, not just from place to place, which is what gives
+    // the reference's wide spread of cobble sizes -- a cobble that keeps more
+    // grout around it is simply a smaller cobble. A shared width would tile
+    // the lane with one size.
+    float h2 = hash21(c.id + 31.7);
+    float w = (0.030 + 0.055 * h2 * h2) + (vnoise(p / (cell * 0.8) + 3.0) - 0.5) * 0.014;
+    // A large fillet: the reference's cobbles are rounded blobs with generous
+    // gaps, not a polygonal tiling with thin grout.
+    float e = filleted_edge(c, 0.55);
     float cobble = smoothstep(w - aa, w + aa, e);
     // A sixth of them sit deeper, which is what keeps the fluid from reading
     // as a regular tiling.

@@ -84,6 +84,7 @@ bool setup(Run& run, const Options& opt, const HeadlessConfig& tuning, std::stri
     desc.max_damage_fields = tuning.cfg.sim.capacities.max_damage_fields;
     desc.max_projectiles = tuning.cfg.sim.capacities.max_projectiles;
     desc.max_swarmers = tuning.cfg.sim.capacities.max_swarmers;
+    desc.max_slow_zones = tuning.cfg.sim.capacities.max_slow_zones;
     desc.max_fluid_particles = tuning.cfg.sim.capacities.max_fluid_particles;
     desc.max_combat_events = tuning.cfg.sim.capacities.max_combat_events;
     desc.max_chaff_death_events = tuning.cfg.sim.capacities.max_chaff_death_events;

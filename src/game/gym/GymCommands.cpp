@@ -12,10 +12,12 @@
 #include "game/abilities/ActiveAbilities.h"
 #include "game/economy/Economy.h"
 #include "game/enemies/EnemyRoster.h"
+#include "game/towers/TowerMechanics.h"
 #include "game/towers/TowerSystem.h"
 #include "game/wave/WaveDirector.h"
 #include "render/Camera.h"
 #include "sim/SimWorld.h"
+#include "sim/ecs/Components.h"
 #include "sim/squad/Squads.h"
 
 #include <algorithm>
@@ -323,7 +325,7 @@ const std::vector<GymCommandInfo>& command_table() {
          "Place a tower for free. 'all' spreads one of each across the level."},
         {"upgrade", "[all]", "Upgrade the last-placed tower, or every tower, one tier."},
         {"sell", "[all]", "Sell the last-placed tower, or every tower."},
-        {"fire", "", "Trigger every placed tower's active ability."},
+        {"fire", "", "Clear every placed tower's cooldown so it releases a volley next tick."},
         {"cast", "<complement|histamine|fever|clot> [at <x,y|cursor>]", "Cast a player ability."},
         {"ready", "", "Clear every ability cooldown."},
         {"atp", "<amount|+amount>", "Set or add ATP."},
@@ -692,8 +694,10 @@ GymResult cmd_tower(GymContext& ctx, const std::vector<std::string>& tok) {
         for (u32 t = 0; t < kTowerTypeCount; ++t) {
             const TowerType type = static_cast<TowerType>(t);
             const TowerStats& st = ctx.towers->stats(type, 1);
-            out += fmt("\n  %-11s range=%.1f rate=%.2fs dmg=%.0f cost=%u", tower_type_name(type),
-                       st.range, st.fire_interval, st.damage, st.build_cost);
+            const game::TowerMechanics& m = game::tower_mechanics(type, 1);
+            out += fmt("\n  %-11s %-12s aggro=%.1f volley=%.2fs x%u cost=%u", tower_type_name(type),
+                       game::tower_kind_name(game::tower_kind(type)), m.swarm.search_radius,
+                       st.fire_interval, m.swarm.release_per_shot, st.build_cost);
         }
         return okay(std::move(out));
     }
@@ -799,11 +803,18 @@ GymResult cmd_fire(GymContext& ctx) {
     }
     const std::vector<EntityId>& placed = ctx.towers->placed_towers();
     if (placed.empty()) return fail("no towers placed");
+    // Towers have no active ability any more; "fire" now skips the spin-up so
+    // a freshly placed board releases on the very next tick, which is what a
+    // capture or a quick look wants.
+    entt::registry& registry = ctx.world->ecs().registry();
     u32 n = 0;
-    for (const EntityId e : placed) {
-        if (ctx.towers->trigger_ability(*ctx.world, e)) ++n;
+    for (const EntityId id : placed) {
+        const entt::entity e = ctx.world->ecs().from_id(id);
+        if (!registry.valid(e) || !registry.all_of<sim::comp::Tower>(e)) continue;
+        registry.get<sim::comp::Tower>(e).cooldown = 0.0f;
+        ++n;
     }
-    return okay(fmt("triggered %u/%zu tower abilities (the rest are on cooldown or have none)", n,
+    return okay(fmt("cleared the cooldown on %u/%zu towers; they release next tick", n,
                     placed.size()));
 }
 

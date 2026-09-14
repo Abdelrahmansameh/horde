@@ -47,7 +47,7 @@ ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_EXE = (Path(os.environ.get("LOCALAPPDATA", "")) / "horde-build" / "windows-release" /
                "bin" / "immune.exe")
 
-TOWERS = ["neutrophil", "macrophage", "interferon", "cytotoxic_t", "goblet_cell", "nk_cell"]
+TOWERS = ["neutrophil", "macrophage", "interferon", "cytotoxic_t", "goblet_cell"]
 CORE_PROFILES = ["greedy-cheapest", "spread-coverage", "save-for-tier3"]
 SINGLE_PROFILES = [f"single-type:{t}" for t in TOWERS]
 ALL_PROFILES = CORE_PROFILES + SINGLE_PROFILES

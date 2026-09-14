@@ -303,6 +303,18 @@ public:
     /// implementation for why a grid puts a periodic hole down the jet.
     u32 emit(FluidBuffers& fluid, const FluidJetParams& jet, f32 dt) const;
 
+    /// Spawns one SPLASH: `count` droplets filling a disc of `radius` around
+    /// `origin`, each launched outward at `speed` (faster at the rim than at
+    /// the centre, so the blob visibly bursts rather than teleporting in).
+    /// This is what a Goblet Cell swarmer turns into when it pops on a
+    /// pathogen; the solver then owns everything after — spreading, pooling,
+    /// coverage, damage, weakening — exactly as it does for a jet. `jet`
+    /// carries the per-droplet terms (lifetime, dps, mask, owner, visual,
+    /// seed); its origin/direction/speed/nozzle fields are ignored.
+    /// Returns the number actually spawned (the store may be full).
+    u32 splash(FluidBuffers& fluid, const FluidJetParams& jet, Vec2 origin, f32 radius,
+               f32 speed, u32 count) const;
+
     /// One tick: substep the solver, resolve walls, brake against the horde,
     /// splat coverage, damage the chaff, retire the expired, compact.
     ///

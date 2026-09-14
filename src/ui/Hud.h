@@ -34,8 +34,7 @@ enum class IntentKind : u8 {
     SelectTower,
     UpgradeTower,
     SellTower,
-    TriggerAbility,
-    CastAbility,     ///< A DESIGN.md §5.6 active ability, distinct from a tower's own TriggerAbility.
+    CastAbility,     ///< A DESIGN.md §5.6 active ability (game/abilities).
     SetTimeScale,
     StartWaveEarly,
     OpenMenu,

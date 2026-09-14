@@ -27,6 +27,7 @@
 #include "sim/projectile/Projectiles.h"
 #include "sim/fluid/Fluid.h"
 #include "sim/swarm/Swarmers.h"
+#include "sim/zone/SlowZones.h"
 #include "sim/spatial/SpatialHash.h"
 #include "vfx/Particles.h"
 
@@ -163,7 +164,7 @@ struct ProjectileGpuInstance {
     u32 visual_id;
 };
 
-/// Per-granule GPU layout, mirrored in swarmer.vert. Same status as
+/// Per-swarmer GPU layout, mirrored in swarmer.vert. Same status as
 /// ProjectileGpuInstance: a Renderer.cpp implementation detail, not a contract.
 struct SwarmerGpuInstance {
     f32 x, y;
@@ -171,8 +172,25 @@ struct SwarmerGpuInstance {
     f32 radius;
     f32 phase;
     f32 r, g, b, a;
-    u32 flags;      ///< bit 0: attached to a host. Mirrors swarmer.frag.
+    /// bit 0: engaged with a target; bits 8..11: sim::SwarmerKind; bits
+    /// 12..15: tier 1..3. Mirrors swarmer.frag.
+    u32 flags;
 };
+
+/// The identity hue of each tower, for its swarmers. Mirrors palette_for()'s
+/// `primary` in vfx/Particles.cpp entry for entry, so a tower's body, its
+/// particles, its swarmers and the marks they leave are all one colour.
+Vec4 swarmer_tint(TowerType source) {
+    switch (source) {
+    case TowerType::Neutrophil: return Vec4{1.00f, 0.96f, 0.68f, 1.0f};
+    case TowerType::Macrophage: return Vec4{1.00f, 0.66f, 0.24f, 1.0f};
+    case TowerType::Interferon: return Vec4{0.52f, 0.84f, 1.00f, 1.0f};
+    case TowerType::CytotoxicT: return Vec4{0.78f, 0.68f, 1.00f, 1.0f};
+    case TowerType::GobletCell: return Vec4{0.55f, 0.98f, 0.74f, 1.0f};
+    case TowerType::Count: break;
+    }
+    return Vec4{1.0f, 1.0f, 1.0f, 1.0f};
+}
 
 /// Per-instance data for the fluid thickness pass. Mirrored only in
 /// assets/shaders/fluid.vert.
@@ -1834,7 +1852,8 @@ void Renderer::submit_entities(const sim::EcsWorld& ecs) {
     stats_.submit_ms += timer.elapsed_ms();
 }
 
-void Renderer::submit_fields(const sim::DamageField* fields, usize count) {
+void Renderer::submit_fields(const sim::DamageField* fields, usize count,
+                             const sim::SlowZone* zones, usize zone_count) {
     // DESIGN.md §9.5: tower AoEs render as literal fluid/chemical fields that
     // visibly reshape the pathogen river. See field.vert/field.frag for the
     // shape-specific SDF treatment; this function's job is purely the CPU-side
@@ -1846,11 +1865,16 @@ void Renderer::submit_fields(const sim::DamageField* fields, usize count) {
     WallClock timer;
 
     if (count > 0 && fields == nullptr) count = 0;
+    if (zone_count > 0 && zones == nullptr) zone_count = 0;
     const u32 draw_count = math::min(static_cast<u32>(count), kMaxFieldInstances);
     if (count > draw_count) {
         IMMUNE_LOG_WARN("field VFX: dropped %zu fields (exceeds kMaxFieldInstances=%u)",
                         count - draw_count, kMaxFieldInstances);
     }
+    // Zones take whatever room the fields left. They are the rarer thing and
+    // the quieter one on screen, so they are the ones to lose under pressure.
+    const u32 zone_draw = math::min(static_cast<u32>(zone_count), kMaxFieldInstances - draw_count);
+    stats_.vfx_fields_drawn += zone_draw;
 
     imp.field_fence.wait(imp.field_region);
     FieldGpuInstance* region_base = imp.field_instances.mapped_as<FieldGpuInstance>() +
@@ -1875,7 +1899,10 @@ void Renderer::submit_fields(const sim::DamageField* fields, usize count) {
     // the right answer there — it is the same mechanism fired by the player).
     // Circle is the one genuine ambiguity and is split below by lifetime.
     const Vec4 kMortarTint{1.00f, 0.66f, 0.24f, 1.0f};  // Macrophage — amber
-    const Vec4 kBladeTint{1.00f, 0.52f, 0.86f, 1.0f};   // NK Cell    — magenta
+    // No tower casts a persistent Circle any more (the NK Cell's rotor is
+    // retired). Kept so a scripted persistent circle still renders as
+    // something distinct from a shell landing.
+    const Vec4 kBladeTint{1.00f, 0.52f, 0.86f, 1.0f};   // unclaimed  — magenta
     // No tower casts a Rect any more -- the Goblet Cell that replaced the old
     // beam publishes no field at all. Kept because DamageField::Rect is still a
     // shape a future caster (or a scripted hazard) may submit, and an unhandled
@@ -1991,14 +2018,37 @@ void Renderer::submit_fields(const sim::DamageField* fields, usize count) {
         region_base[i] = inst;
     }
 
+    // Slow zones: shape 5, the Interferon's cyan. Intensity fades over the
+    // zone's OWN duration (unlike a DamageField it knows what it started at),
+    // so a circle that is about to close visibly thins rather than popping.
+    for (u32 z = 0; z < zone_draw; ++z) {
+        const sim::SlowZone& zone = zones[z];
+        FieldGpuInstance inst{};
+        inst.x = zone.origin.x;
+        inst.y = zone.origin.y;
+        const f32 diameter = math::max(zone.radius, 0.05f) * 2.0f;
+        inst.scale_x = diameter;
+        inst.scale_y = diameter;
+        inst.rotation = 0.0f;
+        inst.arc_cos = -1.0f;
+        inst.falloff = 0.0f;
+        inst.shape_id = 5;
+        const f32 life = zone.duration > math::kEpsilon ? zone.remaining / zone.duration : 1.0f;
+        // Hold near-full for most of the life, fade over the last third.
+        inst.intensity = math::saturate(life * 3.0f) * (0.55f + 0.20f * math::saturate(life));
+        inst.tint_rgba8 = pack_rgba8(swarmer_tint(zone.source));
+        region_base[draw_count + z] = inst;
+    }
+    const u32 total_draw = draw_count + zone_draw;
+
     const ShaderProgram prog = imp.shaders.get("field");
-    if (prog.valid() && draw_count > 0) {
+    if (prog.valid() && total_draw > 0) {
         glUseProgram(prog.gl_id);
         glUniformMatrix4fv(0, 1, GL_FALSE, glm::value_ptr(imp.view_projection));
         glUniform1f(1, imp.time);
         imp.field_vao.bind();
         const u32 base_instance = imp.field_region * kMaxFieldInstances;
-        glDrawArraysInstancedBaseInstance(GL_TRIANGLE_FAN, 0, 4, static_cast<GLsizei>(draw_count),
+        glDrawArraysInstancedBaseInstance(GL_TRIANGLE_FAN, 0, 4, static_cast<GLsizei>(total_draw),
                                           base_instance);
         ++stats_.draw_calls;
     }
@@ -2065,8 +2115,8 @@ void Renderer::submit_projectiles(const sim::ProjectileBuffers& projectiles) {
 
 
 void Renderer::submit_swarmers(const sim::SwarmerBuffers& swarmers) {
-    // The Cytotoxic T's granules. Drawn after the projectile pass and before
-    // the particles, for the same reason rounds are: these are matter, and the
+    // Every tower's swarmers. Drawn after the projectile pass and before the
+    // particles, for the same reason rounds are: these are matter, and the
     // additive cosmetic layer should composite on top of them.
     const usize count = swarmers.count();
     stats_.swarmer_instances_drawn = static_cast<u32>(count);
@@ -2080,35 +2130,38 @@ void Renderer::submit_swarmers(const sim::SwarmerBuffers& swarmers) {
     SwarmerGpuInstance* base = imp.swarmer_instances.mapped_as<SwarmerGpuInstance>() +
         static_cast<usize>(imp.swarmer_region) * imp.max_swarmer_instances;
 
-    // The Cytotoxic T's violet, matching both the tower body (entity.frag) and
-    // the palette the VFX layer uses for the same tower. Granules carry a tier
-    // in visual_id but not a TowerType, and today only this tower releases
-    // them, so the hue is a constant here rather than a per-granule lookup.
+    // Hue and size come from the swarmer's profile: the tower that released
+    // it, matching both the tower body (entity.frag) and the palette the VFX
+    // layer uses for the same tower, and the authored body radius.
     for (u32 i = 0; i < draw_count; ++i) {
+        const sim::SwarmerProfile& pr = swarmers.profile_of(i);
         SwarmerGpuInstance inst{};
         inst.x = swarmers.pos_x[i];
         inst.y = swarmers.pos_y[i];
         inst.vx = swarmers.vel_x[i];
         inst.vy = swarmers.vel_y[i];
-
-        // Size tracks tier, and every granule is small on purpose: the read is
-        // "there are a lot of them", which a bigger sprite actively destroys.
-        const f32 tier = static_cast<f32>(math::clamp<u16>(swarmers.visual_id[i], 1u, 3u));
-        inst.radius = 0.20f + 0.035f * tier;
+        inst.radius = math::max(pr.size, 0.05f);
 
         // Hashed off the slot so the cloud does not pulse in lockstep, same
         // rationale as ChaffInstance::anim_phase and the projectile pass.
         const u32 h = (swarmers.seed[i] * 2654435761u) ^ 0x85EBCA6Bu;
         inst.phase = static_cast<f32>(h & 0xFFFFu) * (math::kTwoPi / 65536.0f);
 
-        // Fade the last half-second of life instead of popping out. Granules
-        // dissolve constantly, and a cloud where dozens blink out per second
-        // reads as flicker rather than as turnover.
-        const f32 fade = math::saturate(swarmers.life[i] * 2.0f);
-        inst.r = 0.78f; inst.g = 0.68f; inst.b = 1.0f;
+        // Fade the last half-second of life instead of popping out. Swarmers
+        // retire constantly, and a cloud where dozens blink out per second
+        // reads as flicker rather than as turnover. A bomber does not fade:
+        // it is about to go off, and the shader makes it swell instead.
+        const bool detonates = sim::swarmer_kind_detonates(pr.kind);
+        const f32 fade = detonates ? 1.0f : math::saturate(swarmers.life[i] * 2.0f);
+        const Vec4 tint = swarmer_tint(pr.source);
+        inst.r = tint.r; inst.g = tint.g; inst.b = tint.b;
         inst.a = 0.55f + 0.45f * fade;
 
-        inst.flags = (swarmers.flags[i] & sim::swarmer_flags::kAttached) != 0 ? 1u : 0u;
+        // visual_id carries the VFX tier (1/3/5); the body shaders want the
+        // data tier (1..3), and the bomber spends it on phagosome count.
+        const u32 data_tier = math::clamp<u32>((static_cast<u32>(swarmers.visual_id[i] & 0xFFu) + 1u) / 2u, 1u, 3u);
+        inst.flags = ((swarmers.flags[i] & sim::swarmer_flags::kAttached) != 0 ? 1u : 0u) |
+                     (static_cast<u32>(pr.kind) << 8) | (data_tier << 12);
         base[i] = inst;
     }
 

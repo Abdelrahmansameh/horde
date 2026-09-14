@@ -404,7 +404,7 @@ TEST_CASE("a missing field in a real config names its file and path",
     // Drop one field out of one tier row.
     const std::string path = (dir / "towers.json").string();
     Json doc = Json::parse(*platform::read_text_file(path));
-    doc["towers"]["macrophage"]["tiers"][2]["stats"].erase("damage");
+    doc["towers"]["macrophage"]["tiers"][2]["stats"].erase("fire_interval");
     REQUIRE(platform::write_text_file(path, doc.dump(2)));
 
     config::ConfigStore store;
@@ -412,21 +412,21 @@ TEST_CASE("a missing field in a real config names its file and path",
     REQUIRE_FALSE(immune::game::load_game_config(store, dir.string(), cfg, err));
     REQUIRE(contains(err, "towers.json"));
     REQUIRE(contains(err, "macrophage"));
-    REQUIRE(contains(err, "missing required field 'damage'"));
+    REQUIRE(contains(err, "missing required field 'fire_interval'"));
 
     std::filesystem::remove_all(dir);
 }
 
-TEST_CASE("a tower row cannot carry another role's mechanics", "[config][game]") {
+TEST_CASE("a tower row cannot carry another kind's payload", "[config][game]") {
     const std::filesystem::path dir = scratch_dir("game_role");
     std::string err;
     REQUIRE(immune::game::write_game_config(immune::game::default_game_config(), dir.string(), err));
 
     const std::string path = (dir / "towers.json").string();
     Json doc = Json::parse(*platform::read_text_file(path));
-    // A mortar knob pasted into the hydro row: the kind of edit that would
-    // otherwise sit in the file doing nothing.
-    doc["towers"]["goblet_cell"]["tiers"][0]["mechanics"]["burst_radius"] = 9.0;
+    // A bomber knob pasted into the mucus bomber row: the kind of edit that
+    // would otherwise sit in the file doing nothing.
+    doc["towers"]["goblet_cell"]["tiers"][0]["payload"]["burst_radius"] = 9.0;
     REQUIRE(platform::write_text_file(path, doc.dump(2)));
 
     config::ConfigStore store;
@@ -445,10 +445,13 @@ TEST_CASE("every config field is addressable from the registry", "[config][game]
     std::string value;
     std::string err;
 
-    REQUIRE(registry.get("towers.macrophage.3.stats.damage", value, err));
-    REQUIRE(value == "175");
-    REQUIRE(registry.set("towers.macrophage.3.stats.damage", "200", err));
-    REQUIRE(cfg.towers.stats[static_cast<u32>(TowerType::Macrophage)][2].damage == 200.0f);
+    REQUIRE(registry.get("towers.macrophage.3.stats.build_cost", value, err));
+    REQUIRE(value == "150");
+    REQUIRE(registry.set("towers.macrophage.3.stats.fire_interval", "2", err));
+    REQUIRE(cfg.towers.stats[static_cast<u32>(TowerType::Macrophage)][2].fire_interval == 2.0f);
+    REQUIRE(registry.get("towers.macrophage.3.payload.burst_radius", value, err));
+    REQUIRE(registry.set("towers.cytotoxic_t.1.swarm.release_per_shot", "12", err));
+    REQUIRE(cfg.towers.mechanics[static_cast<u32>(TowerType::CytotoxicT)][0].swarm.release_per_shot == 12u);
 
     REQUIRE(registry.get("enemies.families.virus.visual.silhouette", value, err));
     REQUIRE(value == "1.53");

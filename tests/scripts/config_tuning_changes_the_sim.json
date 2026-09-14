@@ -6,15 +6,15 @@
   "max_chaff": 20000,
   "level": "assets/levels/gym.json",
   "actions": [
-    { "tick": 0,  "type": "cmd", "cmd": "config get towers.macrophage.3.stats.kill_rate" },
+    { "tick": 0,  "type": "cmd", "cmd": "config get towers.macrophage.3.payload.burst_damage" },
     { "tick": 0,  "type": "cmd", "cmd": "invuln on" },
 
     { "tick": 1,  "type": "cmd", "cmd": "spawn bacteria 1200 at p_lymph radius 8" },
     { "tick": 2,  "type": "cmd", "cmd": "tower macrophage at 120,75 tier 3" },
     { "tick": 120, "type": "cmd", "cmd": "kill all" },
 
-    { "tick": 130, "type": "cmd", "cmd": "config set towers.macrophage.3.stats.kill_rate 0" },
-    { "tick": 130, "type": "cmd", "cmd": "config set towers.macrophage.3.mechanics.burst_radius 0.1" },
+    { "tick": 130, "type": "cmd", "cmd": "config set towers.macrophage.3.payload.burst_damage 0" },
+    { "tick": 130, "type": "cmd", "cmd": "config set towers.macrophage.3.payload.burst_radius 0.1" },
     { "tick": 131, "type": "cmd", "cmd": "spawn bacteria 1200 at p_lymph radius 8" },
     { "tick": 132, "type": "cmd", "cmd": "tower macrophage at 120,75 tier 3" }
   ],

@@ -1,5 +1,5 @@
-// game/towers/TowerSystem.h — placement, targeting, upgrades. FROZEN CONTRACT.
-// Owner: Wave 2B.
+// game/towers/TowerSystem.h — placement, targeting, upgrades.
+// Owner: Wave 2B; reshaped by the swarmer-roster redesign.
 //
 // RATIONALE (DESIGN.md §4, §5, §8.4)
 //  - Placement is grid-free and continuous, validated against the distance
@@ -7,9 +7,12 @@
 //  - Towers are NOT obstacles. A placement never touches the TissueMask or the
 //    flow field; the horde walks straight through a tower and the tower is
 //    drawn over it. The footprint radius is spacing and sprite size only.
-//  - Targeting goes through the spatial hash. A tower asks the grid for cells
-//    in range; it never iterates agents. Anti-chaff towers do not target at all:
-//    they publish a DamageField and let the aggregate damage system do the work.
+//  - A tower has no range and never DAMAGES anything itself: every tower is
+//    a spawner that releases swarmers (sim/swarm/Swarmers.h) continuously
+//    while a round is on, and the swarmers do the work -- they aggro on
+//    whatever is inside their own search radius. What a tower owns is the
+//    cadence, the volley size, and which way it faces; the facing is a
+//    spatial-hash look-around, never an agent scan.
 #pragma once
 
 #include "core/Types.h"
@@ -22,16 +25,17 @@ namespace immune::sim { class SimWorld; }
 
 namespace immune::game {
 
-/// Static per-type, per-tier data. Loaded from a data table (Wave 2B).
+/// Static per-type, per-tier data. Loaded from assets/config/towers.json.
+///
+/// Deliberately carries NO damage number: a tower's output is entirely its
+/// swarmers' (game/config/GameConfig.h's TowerMechanics), so a `damage` here
+/// would be a second, disagreeing source of truth. Derive DPS from the
+/// mechanics if a display or a bot needs one.
 struct TowerStats {
-    f32 range = 8.0f;
-    f32 fire_interval = 1.0f;
-    f32 damage = 10.0f;          ///< Named-agent damage per shot.
-    f32 kill_rate = 0.0f;        ///< Chaff density removed per second in-field.
+    f32 fire_interval = 1.0f;    ///< Seconds between volleys.
     f32 footprint_radius = 1.0f; ///< Body radius: tower spacing and sprite size. Not an obstacle.
     u32 build_cost = 100;
     u32 upgrade_cost = 150;
-    f32 ability_cooldown = 0.0f;
     u8 family_mask = 0xFF;       ///< Which pathogen families it can affect.
 };
 
@@ -105,19 +109,26 @@ public:
     /// the flow field dirty again. Returns the ATP refunded.
     u32 sell(sim::SimWorld& world, EntityId tower);
 
-    /// Fires the tower's single active ability if off cooldown.
-    bool trigger_ability(sim::SimWorld& world, EntityId tower);
-
-    /// Nearest / strongest target inside range, resolved through the spatial
-    /// hash. Returns an invalid id if nothing is in range.
-    EntityId find_target(const sim::SimWorld& world, Vec2 origin, f32 range,
-                         u8 family_mask, bool require_detect_hidden) const;
+    /// Nearest named agent inside `radius`. Burrowed agents are never
+    /// returned: nothing in the roster can see one. Returns an invalid id if
+    /// nothing is that close.
+    EntityId find_target(const sim::SimWorld& world, Vec2 origin, f32 radius,
+                         u8 family_mask) const;
 
     const std::vector<EntityId>& placed_towers() const { return towers_; }
+
+    /// Whether towers release volleys at all. Towers spawn CONTINUOUSLY while
+    /// this is on -- with or without anything to aim at -- and hold between
+    /// rounds. game/session/LevelSession.cpp sets it from the wave phase every
+    /// tick (off in Prep); it defaults to on so a world with no wave director
+    /// (tests, the gym, headless captures) behaves as one long round.
+    void set_releasing(bool on) { releasing_ = on; }
+    bool releasing() const { return releasing_; }
 
 private:
     TowerStats stats_[kTowerTypeCount][3]{};
     std::vector<EntityId> towers_;
+    bool releasing_ = true;
     /// Bitmask over TowerType; 0 = unrestricted. See set_allowed_towers().
     u32 allowed_mask_ = 0;
 };

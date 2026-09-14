@@ -54,15 +54,16 @@ TEST_CASE("every combat event type emits particles", "[vfx][particles]") {
 
 TEST_CASE("each tower source produces particles for its own signature event",
           "[vfx][particles]") {
-    // Pairs each tower with the event its combat system actually raises, so a
-    // tower whose look was never authored shows up as a failure here.
+    // Pairs each tower with the events its swarmers actually raise (the
+    // release, and what the swarmer does on contact), so a tower whose look was
+    // never authored shows up as a failure here.
     const std::pair<TowerType, sim::CombatEventType> cases[] = {
         {TowerType::Neutrophil, sim::CombatEventType::MuzzleFlash},
         {TowerType::Macrophage, sim::CombatEventType::Explosion},
-        {TowerType::Interferon, sim::CombatEventType::ConePulse},
-        {TowerType::CytotoxicT, sim::CombatEventType::ChainArc},
+        {TowerType::Interferon, sim::CombatEventType::Explosion},
+        {TowerType::CytotoxicT, sim::CombatEventType::ProjectileImpact},
+        {TowerType::GobletCell, sim::CombatEventType::Explosion},
         {TowerType::GobletCell, sim::CombatEventType::MuzzleFlash},
-        {TowerType::NKCell,     sim::CombatEventType::BladeSlash},
     };
     for (const auto& [tower, event] : cases) {
         ParticleSystem ps;

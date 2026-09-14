@@ -75,7 +75,7 @@ struct DamageField {
     f32 falloff = 0.0f;
 
     /// Bitmask of PathogenFamily bits this field affects. 0xFF = all families.
-    /// Lets NK Cells hit only kHidden targets, Cytotoxic T favour elites, etc.
+    /// Lets a caster restrict itself to some pathogen families.
     u8 family_mask = 0xFF;
 
     /// Multiplier applied to agents carrying chaff_flags::kMarked (the Goblet

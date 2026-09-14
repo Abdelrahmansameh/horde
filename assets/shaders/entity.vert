@@ -20,13 +20,14 @@ out vec2  v_local;
 out vec4  v_tint;
 flat out uint v_shape_id;
 out float v_anim_phase;
-/// Per-shape extra parameter, meaning defined by v_shape_id. Currently only
-/// the NK Cell body reads it (blade count). Zero for everything else.
+/// Per-shape extra parameter, meaning defined by v_shape_id. Every tower body
+/// reads it as the tier; the clot bar as its aspect. Zero for everything else.
 out float v_shape_param;
 /// The instance's world rotation. v_local is the UNROTATED corner, so a shape
 /// drawn from it turns with the quad; counter-rotating by this angle puts a
 /// feature back into world alignment so it stays put while the sprite spins.
-/// Only the NK Cell hub uses it (see entity.frag).
+/// Nothing reads it since the NK Cell's rotor was retired; kept for the next
+/// shape that wants a world-aligned feature.
 out float v_rotation;
 
 // Same height-sell trick as the chaff pass, no shadow (named agents are few

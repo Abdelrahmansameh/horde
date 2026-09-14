@@ -15,6 +15,7 @@
 #include "core/Log.h"
 #include "core/Math.h"
 #include "game/economy/Economy.h"
+#include "game/towers/TowerMechanics.h"
 #include "game/towers/TowerSystem.h"
 #include "game/wave/WaveDirector.h"
 #include "sim/SimWorld.h"
@@ -156,10 +157,12 @@ void AutoPlayer::plan(const LevelDef& level, const LaneOwnershipMap& lanes,
     };
     std::vector<Candidate> candidates;
 
-    // Reference range for the coverage term. Using one type's range (rather
-    // than each candidate's eventual type, which is not chosen yet) keeps the
-    // ordering independent of the assignment that follows it.
-    const f32 reference_range = towers.stats(TowerType::Macrophage, 1).range;
+    // Reference reach for the coverage term: one type's swarmer aggro radius
+    // (towers have no range of their own). Using one type's rather than each
+    // candidate's eventual type, which is not chosen yet, keeps the ordering
+    // independent of the assignment that follows it.
+    (void)towers;
+    const f32 reference_range = tower_mechanics(TowerType::Macrophage, 1).swarm.search_radius;
 
     f32 max_cost = 0.0f;
     for (const Vessel& v : level.vessels) {

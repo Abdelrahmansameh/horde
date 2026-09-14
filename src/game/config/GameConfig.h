@@ -27,6 +27,7 @@
 #include "sim/chaff/ReplicationSplit.h"
 #include "sim/fluid/Fluid.h"
 #include "sim/squad/Squads.h"
+#include "sim/swarm/Swarmers.h"
 #include "vfx/DeathVfx.h"
 
 #include <string>
@@ -38,116 +39,100 @@ namespace immune::game {
 // towers.json
 // ---------------------------------------------------------------------------
 
-/// Which mechanism arm a tower type uses. Derived from TowerType, never
-/// authored: the role IS the type, so letting a file claim otherwise would let
+/// Which swarmer KIND a tower type releases. Derived from TowerType, never
+/// authored: the kind IS the type, so letting a file claim otherwise would let
 /// a config describe a tower the code cannot build.
-enum class TowerRole : u8 { Gunner, Mortar, Cryo, Tesla, Hydro, Blade };
+sim::SwarmerKind tower_kind(TowerType type);
+const char* tower_kind_name(sim::SwarmerKind kind);
 
-TowerRole tower_role(TowerType type);
-const char* tower_role_name(TowerRole role);
-
-struct GunnerParams {
-    f32 round_speed = 45.0f;
-    f32 hit_radius = 0.45f;
-    /// Half-angle of the per-round aim jitter, radians.
-    f32 spread = 0.09f;
-    /// Half-angle of the arc the muzzle itself slides along, radians. The spawn
-    /// point swings around the tower centre by this much either side of the aim
-    /// while the round is still solved at the target from wherever it landed,
-    /// so a stream reads as a spray of cells rather than one rigid barrel.
-    f32 muzzle_arc_radians = 0.35f;
-    /// Half-width of the random push in/out along the standoff radius, world
-    /// units. Clamped so the muzzle never crosses the tower centre.
-    f32 muzzle_radial_jitter = 0.35f;
-};
-
-struct MortarParams {
-    f32 burst_seconds = 0.30f;
-    f32 burst_radius = 5.0f;
-    f32 burst_falloff = 0.4f;
-    f32 marked_multiplier = 1.5f;
-};
-
-struct CryoParams {
-    f32 arc_radians = 0.60f;
-    f32 inner_fraction = 0.55f;
-    f32 cone_falloff = 0.5f;
-    u32 max_freeze_events = 6;
-};
-
-struct TeslaParams {
-    u32 release_per_shot = 36;
-    f32 swarmer_lifetime = 6.8f;
-    f32 swarmer_speed = 26.0f;
-    f32 swarmer_dps = 4.2f;
-    f32 attach_radius = 0.55f;
+/// The swarmer chassis, shared by every tower: how many a volley releases and
+/// how each one flies, aggros and reaches. What a swarmer does on contact is
+/// the per-kind payload below.
+struct SwarmParams {
+    u32 release_per_shot = 24;
+    /// Seconds before a swarmer retires. Against fire_interval and
+    /// release_per_shot this sets the standing cloud size.
+    f32 lifetime = 4.0f;
+    f32 speed = 20.0f;
+    /// Aggro radius: how far a targetless swarmer looks for something to go at.
     f32 search_radius = 9.0f;
+    /// Contact radius. Latch: latches inside it; bombers: detonate inside it;
+    /// Shooter: its standoff -- stops and fires inside, chases outside.
+    f32 attach_radius = 0.55f;
+    /// Launch cone half-angle, radians. Volleys are scattered across it.
     f32 launch_spread = 0.85f;
+    /// Body radius, world units: drawn at this size, and kept this far (x
+    /// sim::kWallContactFraction) off the vessel wall.
+    f32 size = 1.5f;
 };
 
-/// The Goblet Cell's nozzle. Note what is NOT here: no damage radius, no
-/// falloff curve, no beam length. Where the mucus goes and what it touches is
-/// decided by the fluid solver (sim/fluid/Fluid.h), and these are only the
-/// terms of its release. The solver's own constants live in sim.json, because
-/// there is one solver for the whole world and every nozzle shares it.
-struct HydroParams {
-    /// How long one trigger pull keeps spraying. This is what makes the attack
-    /// read as BURSTS: the tower sprays for this long, then reloads for
-    /// TowerStats::fire_interval, and the gap is where the player watches the
-    /// slug of fluid travel, land, and spread.
-    f32 burst_seconds = 0.34f;
-    /// Muzzle velocity of the jet, world units/sec. Together with the tower's
-    /// range this decides whether the beam still has pressure when it arrives.
-    f32 jet_speed = 34.0f;
-    /// Half-width of the nozzle mouth. Sets beam thickness — and, through the
-    /// swept-area emission model, the flow rate.
-    f32 nozzle_radius = 1.05f;
-    /// Launch cone half-angle, radians. Deliberately tiny.
-    f32 spread = 0.05f;
-    /// Seconds a droplet survives once it has left the cell. THE burst-lifetime
-    /// knob: it is what stops a board full of Goblet Cells from silting up into
-    /// one permanent lake, and what makes a splash a moment rather than terrain.
-    f32 droplet_lifetime = 1.9f;
-    /// Multiplier on the geometrically-derived emission rate. 1 emits at
-    /// exactly rest density; lower gives a thinner, gappier, cheaper stream.
-    f32 flow_scale = 1.0f;
-    /// Seconds a NAMED agent stays weakened (chaff_flags::kMarked's counterpart
-    /// for the ECS half of the sim, comp::Marked) after this tower's own strike
-    /// hits it. Refreshed on every hit, so a Goblet Cell with a target locked in
-    /// range keeps it permanently marked; one that loses its target lets the
-    /// mark run out. Chaff, by contrast, stays marked forever once soaked (see
-    /// sim/fluid/Fluid.cpp) — a named agent is a much bigger prize, so its
-    /// version of the debuff is not a free permanent buff to the whole roster.
-    f32 mark_seconds = 2.6f;
+struct LatchParams {
+    /// Density drained per second by one attached swarmer.
+    f32 dps = 4.2f;
 };
 
-struct BladeParams {
-    f32 spin_rad_per_sec = 9.0f;
-    f32 rotor_falloff = 0.0f;
-    u32 max_slash_events = 5;
+struct ShooterParams {
+    f32 fire_interval = 0.25f;
+    f32 round_damage = 2.0f;
+    f32 round_speed = 40.0f;
+    f32 round_hit_radius = 0.45f;
+    /// Aim jitter half-angle, radians.
+    f32 round_spread = 0.10f;
+    /// Distance between squad-mates along the rank a volley holds.
+    f32 formation_spacing = 3.5f;
 };
 
-/// All six arms held flat. Only the arm matching the tower's role is read or
-/// written; a flat aggregate keeps offsetof trivial and costs a few hundred
-/// bytes for the whole table.
+struct BomberParams {
+    /// Seconds a bomber chases one target before detonating where it is.
+    f32 chase_seconds = 1.0f;
+    f32 burst_radius = 4.0f;
+    /// Total density an agent at the centre loses over the burst.
+    f32 burst_damage = 20.0f;
+    /// How long the burst field lingers. The rate is damage / seconds.
+    f32 burst_seconds = 0.3f;
+    f32 burst_falloff = 0.4f;
+    /// Hit points a named agent at the centre takes, before armor.
+    f32 named_damage = 20.0f;
+};
+
+struct SlowBomberParams {
+    /// Seconds a bomber chases one target before detonating where it is.
+    f32 chase_seconds = 1.0f;
+    f32 zone_radius = 3.0f;
+    /// Seconds the circle stays on the ground.
+    f32 zone_duration = 3.0f;
+    /// Seconds an agent stays slowed after its last tick inside the circle.
+    f32 slow_duration = 1.5f;
+    /// Max-speed multiplier while slowed; 0.4 = 40% speed.
+    f32 slow_factor = 0.4f;
+};
+
+struct MucusBomberParams {
+    /// Seconds a bomber chases one target before detonating where it is.
+    f32 chase_seconds = 1.0f;
+    /// Fluid particles one splash puts down.
+    u32 droplets = 24;
+    f32 splash_radius = 1.2f;
+    /// Outward launch speed of the splash's rim droplets.
+    f32 splash_speed = 6.0f;
+    /// Seconds each droplet survives.
+    f32 droplet_lifetime = 2.0f;
+    /// Density removed per second from a FULLY soaked coverage cell.
+    f32 splash_dps = 10.0f;
+    /// Seconds a named agent inside the splash stays weakened (comp::Marked).
+    f32 mark_seconds = 2.5f;
+};
+
+/// The chassis plus every payload arm held flat. Only the arm matching the
+/// tower's kind is read or written; a flat aggregate keeps offsetof trivial
+/// and costs a few hundred bytes for the whole table.
 struct TowerMechanics {
-    GunnerParams gunner{};
-    MortarParams mortar{};
-    CryoParams cryo{};
-    TeslaParams tesla{};
-    HydroParams hydro{};
-    BladeParams blade{};
-};
-
-/// Neutrophil's NET ability.
-struct NetAbilityParams {
-    u32 micro_units = 3;
-    f32 spread_jitter = 0.5f;
-    f32 micro_lifetime = 1.5f;
-    f32 micro_sprite_size = 0.3f;
-    f32 net_duration = 3.0f;
-    Vec4 micro_tint{0.3f, 0.6f, 1.0f, 1.0f};
-    Vec4 net_tint{0.2f, 0.8f, 0.9f, 0.5f};
+    SwarmParams swarm{};
+    LatchParams latch{};
+    ShooterParams shooter{};
+    BomberParams bomber{};
+    SlowBomberParams slow_bomber{};
+    MucusBomberParams mucus_bomber{};
 };
 
 struct TowerGlobals {
@@ -163,7 +148,6 @@ struct TowerConfig {
     TowerGlobals globals{};
     TowerStats stats[kTowerTypeCount][3]{};
     TowerMechanics mechanics[kTowerTypeCount][3]{};
-    NetAbilityParams net{};
 };
 
 // ---------------------------------------------------------------------------
@@ -279,7 +263,8 @@ struct SimCapacities {
     u32 max_chaff = 16384;
     u32 max_damage_fields = 512;
     u32 max_projectiles = 8192;
-    u32 max_swarmers = 24576;
+    u32 max_swarmers = 32768;
+    u32 max_slow_zones = 256;
     u32 max_fluid_particles = 8192;
     u32 max_combat_events = 8192;
     /// Chaff death bursts raised per tick, out of the budget above. See

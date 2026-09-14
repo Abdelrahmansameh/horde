@@ -6,7 +6,8 @@
     "max_damage_fields": 512,
     "max_fluid_particles": 8192,
     "max_projectiles": 8192,
-    "max_swarmers": 24576
+    "max_slow_zones": 256,
+    "max_swarmers": 32768
   },
   "fluid": {
     "chaff_drag": 9.0,

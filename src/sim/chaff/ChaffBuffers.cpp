@@ -29,6 +29,8 @@ void ChaffBuffers::reserve(usize max_agents) {
     replication_pulse.assign(max_agents, 0.0f);
     replication_origin_x.assign(max_agents, 0.0f);
     replication_origin_y.assign(max_agents, 0.0f);
+    slow_remaining.assign(max_agents, 0.0f);
+    slow_factor.assign(max_agents, chaff_flags::kDefaultSlowFactor);
     next_generation_ = 1u;   // 0 is the reserved "invalid handle" generation.
     clear();
 }
@@ -46,6 +48,8 @@ void ChaffBuffers::clear() {
         replication_pulse[i] = 0.0f;
         replication_origin_x[i] = 0.0f;
         replication_origin_y[i] = 0.0f;
+        slow_remaining[i] = 0.0f;
+        slow_factor[i] = chaff_flags::kDefaultSlowFactor;
     }
     // Deliberately NOT resetting next_generation_: handles taken before a clear()
     // must not silently resolve to a freshly spawned agent.
@@ -69,6 +73,10 @@ ChaffHandle ChaffBuffers::spawn(const ChaffSpawnParams& p) {
     replication_pulse[i] = p.replication_pulse;
     replication_origin_x[i] = p.replication_origin.x;
     replication_origin_y[i] = p.replication_origin.y;
+    // A spawn flagged kSlowed by its caller has no zone behind it: it slows at
+    // the default factor, and with no timer the first zone upkeep clears it.
+    slow_remaining[i] = 0.0f;
+    slow_factor[i] = chaff_flags::kDefaultSlowFactor;
     if (next_generation_ == 0u) next_generation_ = 1u;   // never hand out 0
     total_density_ += p.density;
     ++family_counts_[static_cast<u32>(p.family)];
@@ -136,6 +144,8 @@ usize ChaffBuffers::compact(u32* removed_by_family) {
             replication_pulse[i] = replication_pulse[last];
             replication_origin_x[i] = replication_origin_x[last];
             replication_origin_y[i] = replication_origin_y[last];
+            slow_remaining[i] = slow_remaining[last];
+            slow_factor[i] = slow_factor[last];
         }
         --count_;
         flags[count_] = 0;
@@ -145,6 +155,8 @@ usize ChaffBuffers::compact(u32* removed_by_family) {
         replication_pulse[count_] = 0.0f;
         replication_origin_x[count_] = 0.0f;
         replication_origin_y[count_] = 0.0f;
+        slow_remaining[count_] = 0.0f;
+        slow_factor[count_] = chaff_flags::kDefaultSlowFactor;
         // Do not advance i: the swapped-in agent must be tested too.
     }
     if (total_density_ < 0.0f) total_density_ = 0.0f;
@@ -180,6 +192,7 @@ void ChaffBuffers::assert_invariants() const {
     assert(hit_flash.size() == capacity_);
     assert(replication_pulse.size() == capacity_);
     assert(replication_origin_x.size() == capacity_ && replication_origin_y.size() == capacity_);
+    assert(slow_remaining.size() == capacity_ && slow_factor.size() == capacity_);
     for (usize i = 0; i < count_; ++i) {
         assert((flags[i] & chaff_flags::kAlive) != 0);               // I1
         assert((flags[i] & chaff_flags::kPendingKill) == 0);         // post-compact

@@ -183,7 +183,7 @@ TEST_CASE("single-type profiles plan only their own tower", "[autoplay]") {
 
 TEST_CASE("profile names round-trip", "[autoplay]") {
     const char* names[] = {"greedy-cheapest", "spread-coverage", "save-for-tier3",
-                           "single-type:neutrophil", "single-type:nk_cell"};
+                           "single-type:neutrophil", "single-type:goblet_cell"};
     for (const char* name : names) {
         AutoPlayProfile profile{};
         TowerType type = TowerType::Neutrophil;

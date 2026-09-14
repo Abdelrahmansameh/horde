@@ -1,36 +1,37 @@
-﻿// game/towers/TowerSystem.cpp â€” placement, targeting, upgrades. Wave 2B.
+// game/towers/TowerSystem.cpp — placement, targeting, upgrades, and the one
+// Combat system every tower runs: release a volley of swarmers.
 //
-// TowerSystem.h is a FROZEN CONTRACT: no signature, member, or friend may be
-// added to it. Two consequences shape everything below:
+// THE ROSTER IS A ROSTER OF SPAWNERS. No tower here damages anything, and no
+// tower has a range. While a round is on (TowerSystem::releasing), every
+// tower releases SwarmParams::release_per_shot swarmers from its face on every
+// cooldown, whether or not anything is near: the swarmers aggro on their own,
+// inside their own search radius, and sim/swarm/Swarmers.h owns everything
+// after release -- the chase, the latch, the shot, the detonation. The tower
+// only decides which way to face: toward the nearest crowd its swarmers could
+// aggro on if there is one, otherwise up the lane, and in that case the
+// volley is scattered all round rather than in a cone. What differs per tower
+// is the swarmer KIND its profile carries (game/config/TowerConfig.cpp's
+// tower_kind), and every number about it is in assets/config/towers.json, per
+// type and per tier.
 //
-//  1. Any state that must outlive a single call but isn't already one of the
-//     header's declared members (`stats_`, `towers_`) cannot live on
-//     TowerSystem itself. Per-tower bookkeeping needed for sell() refunds,
-//     and Neutrophil's NET slow-zone state, are instead stored as ordinary
-//     EnTT components private to this translation unit (`priv::TowerRecord`,
-//     `priv::ActiveNet`) â€” attached to entities this file creates, cleaned up
-//     automatically by registry.destroy().
-//  2. Helper logic that needs `stats_`/`towers_` can only live inside the
-//     bodies of the methods the header actually declares (validate, place,
-//     upgrade, sell, trigger_ability, find_target, stats, set_stats,
-//     register_systems) â€” those have normal private access because they are
-//     genuine member-function definitions. Free functions in the anonymous
-//     namespace below (the default-stats loader, the six per-tower Combat
-//     systems) only ever go through the class's *public* API (`stats()`,
-//     `find_target()`, `trigger_ability()`).
+// Spawn rate against lifetime is what bounds the standing cloud now that the
+// spawning never pauses inside a round: a tower's live population settles at
+// release_per_shot * lifetime / fire_interval, and the tables below are tuned
+// so a full board stays in the low hundreds per tower at tier 3.
+//
+// The old six-role roster (GUNNER / MORTAR / CRYO / TESLA / HYDRO / BLADE)
+// each had a Combat system of its own in this file. They are gone, along with
+// the NK Cell and the towers' active abilities; the Cytotoxic T's granule
+// release was the model and now it is the whole roster.
+//
+// Per-tower bookkeeping needed for sell() refunds lives in an EnTT component
+// private to this translation unit (`priv::TowerRecord`), attached to the
+// entities this file creates and cleaned up by registry.destroy().
 //
 // TOWERS ARE NOT OBSTACLES. place() and sell() never touch the TissueMask or
 // the FlowField: the horde walks straight through a tower's footprint and the
 // renderer draws the tower over it (submit_entities orders towers last). The
 // footprint radius only spaces towers apart and sizes the sprite.
-//
-// WAVE 6C rewrote every Combat-phase system for the six-role roster (GUNNER /
-// MORTAR / CRYO / TESLA / LASER / BLADE) and retuned the whole stats table.
-// The LASER slot has since become HYDRO -- see system_hydro below, and the note
-// on TowerType::GobletCell in core/Types.h for why.
-// See the "Wave 6C: shared combat helpers" block below for the rules those
-// systems are written against â€” in particular why exactly one of them uses
-// projectiles and none of them damage chaff agent-by-agent.
 #include "game/towers/TowerSystem.h"
 
 #include "game/towers/TowerMechanics.h"
@@ -40,12 +41,9 @@
 #include "sim/CombatEvents.h"
 #include "sim/SimWorld.h"
 #include "sim/chaff/ChaffBuffers.h"
-#include "sim/damage/DamageField.h"
 #include "sim/ecs/Components.h"
 #include "sim/ecs/EcsWorld.h"
 #include "sim/flowfield/FlowField.h"
-#include "sim/fluid/Fluid.h"
-#include "sim/projectile/Projectiles.h"
 #include "sim/swarm/Swarmers.h"
 #include "sim/spatial/SpatialHash.h"
 
@@ -56,25 +54,24 @@
 
 namespace immune::game {
 
-// TowerSystem.h (this class's own header) refers to sim::SimWorld etc. with an
-// explicit `sim::` qualifier throughout, which this file keeps for anything
-// declared in the header's own signatures. Everything below additionally
-// needs `sim::comp::*`, `sim::EcsWorld`, `sim::SystemContext`,
-// `sim::chaff_flags`, and friends constantly enough that an unqualified
-// `comp::Tower` etc. is far more readable â€” hence this using-directive,
-// exactly like the sim-side test files (e.g. tests/test_named_agents.cpp) do.
+// TowerSystem.h refers to sim::SimWorld etc. with an explicit `sim::`
+// qualifier throughout, which this file keeps for anything declared in the
+// header's own signatures. Everything below additionally needs
+// `sim::comp::*`, `sim::EcsWorld`, `sim::SystemContext`, `sim::chaff_flags`,
+// and friends constantly enough that an unqualified `comp::Tower` etc. is far
+// more readable -- hence this using-directive, exactly like the sim-side test
+// files do.
 using namespace immune::sim;
 
 namespace {
 
 // Order must match TowerType's declaration order exactly.
 constexpr const char* kTowerNames[kTowerTypeCount] = {
-    "neutrophil",   // GUNNER
-    "macrophage",   // MORTAR
-    "interferon",   // CRYO
-    "cytotoxic_t",  // TESLA
-    "goblet_cell",  // HYDRO
-    "nk_cell"};     // BLADE
+    "neutrophil",   // SHOOTER
+    "macrophage",   // BOMBER
+    "interferon",   // SLOW BOMBER
+    "cytotoxic_t",  // LATCH
+    "goblet_cell"}; // MUCUS BOMBER
 
 // ---------------------------------------------------------------------------
 // Private auxiliary ECS components (see file header comment).
@@ -87,74 +84,38 @@ struct TowerRecord {
     u32 invested_atp = 0;
 };
 
-/// A Goblet Cell's nozzle state. comp::Tower carries exactly one timer
-/// (`cooldown`), which is enough for every tower that fires an instant, and not
-/// enough for one that SPRAYS: the Goblet Cell needs a second clock for how much
-/// of the current burst is left, plus a burst counter and a jitter seed the
-/// emitter can advance per tick. TowerSystem.h is frozen and comp::Tower is not
-/// this file's to widen, so it lives here as a private component, exactly like
-/// ActiveNet below.
-struct Nozzle {
-    /// Seconds of spray left in the current burst. > 0 means "firing now".
-    f32 burst_remaining = 0.0f;
-    /// Aim locked at the moment the trigger was pulled. A burst does NOT track
-    /// its target mid-spray, and that is the design: a jet that swivels to
-    /// follow a moving target sprays a fan and never lands a slug anywhere.
-    /// Committing to one line per burst is what makes the fluid arrive as a
-    /// coherent column that piles up and splashes at one place.
-    Vec2 aim{1.0f, 0.0f};
-    u16 burst_id = 0;
-    u32 seed = 0;
-};
-
-/// A live Neutrophil NET: a timed slow zone. Its own entity rather than tower
-/// state, so it keeps ticking down (and applying kSlowed) independently of
-/// the tower that dropped it, including across an upgrade or sell.
-struct ActiveNet {
-    Vec2 origin{0.0f, 0.0f};
-    f32 radius = 0.0f;
-    f32 remaining = 0.0f;
-    EntityId owner{};
-};
-
 } // namespace priv
 
 Rect footprint_rect(Vec2 pos, f32 radius) { return Rect{pos - Vec2{radius, radius}, pos + Vec2{radius, radius}}; }
 
 // ---------------------------------------------------------------------------
-// Default stats table (deliverable 1).
+// Default stats table.
 // ---------------------------------------------------------------------------
 
-TowerStats make_stats(f32 range, f32 fire_interval, f32 damage, f32 kill_rate, f32 footprint_radius,
-                      u32 build_cost, u32 upgrade_cost, f32 ability_cooldown) {
+TowerStats make_stats(f32 fire_interval, f32 footprint_radius, u32 build_cost,
+                      u32 upgrade_cost) {
     TowerStats s;
-    s.range = range;
     s.fire_interval = fire_interval;
-    s.damage = damage;
-    s.kill_rate = kill_rate;
     s.footprint_radius = footprint_radius;
     s.build_cost = build_cost;
     s.upgrade_cost = upgrade_cost;
-    s.ability_cooldown = ability_cooldown;
-    s.family_mask = 0xFF; // every tower can affect every family; see report re: tuning scope.
+    s.family_mask = 0xFF; // every tower can affect every family
     return s;
 }
 
 // ---------------------------------------------------------------------------
-// MECHANISM CONSTANTS (Wave 6C), now data.
+// SWARMER TABLE, compiled-in defaults.
 //
-// These are the per-role knobs that have nowhere to live in the frozen
-// TowerStats struct: the mortar's burst duty cycle, the T-cell's granule
-// release rate and lifetime, the gunner's muzzle velocity and spread, the
-// cryo cone's arc, the beam's half-width, the rotor's spin.
-//
-// They used to be file-static constexpr tables, mirrored by name in
-// tests/test_towers.cpp. They now live in a mutable store that
-// assets/config/towers.json writes through apply_tower_config()
-// (game/towers/TowerMechanics.h). The initial contents below ARE those former
-// constants, so a TowerSystem that never sees a config behaves exactly as it
-// always did -- and game::default_game_config() reads the shipped JSON's
-// mechanics values back out of here, so the two cannot drift.
+// These are the per-tower knobs that are not stats: what a volley is, how a
+// swarmer flies, and what it does on contact. They live in a mutable store
+// that assets/config/towers.json writes through apply_tower_config()
+// (game/towers/TowerMechanics.h). The initial contents below mirror the
+// shipped JSON, so a TowerSystem that never sees a config behaves the same --
+// and game::default_game_config() reads its bootstrap values back out of
+// here, so the two cannot drift. (The one deliberate difference is
+// footprint_radius in load_default_stats below: the compiled-in bodies are
+// half the shipped size, because the test scenes in tests/test_towers.cpp
+// are built around the smaller footprints.)
 // ---------------------------------------------------------------------------
 
 /// Index into a `[3]` per-tier table from a 1..3 tier.
@@ -168,77 +129,92 @@ void init_mechanics_once() {
     if (g_mechanics_ready) return;
     g_mechanics_ready = true;
 
-    // GUNNER: muzzle velocity per tier. Bounded on purpose -- Projectiles.cpp
-    // documents that a round whose per-tick step greatly exceeds the spatial
-    // cell size (4.0) can tunnel past agents. Even tier 3 steps 1.0 per tick.
-    constexpr f32 kGunnerRoundSpeed[3] = {45.0f, 52.0f, 60.0f};
-    // MORTAR: burst radius per tier, deliberately far larger than any other
-    // tower's footprint -- the "consequential" answer to a clump.
-    constexpr f32 kMortarBurstRadius[3] = {5.00f, 5.75f, 6.50f};
-    // CRYO: cone half-angle per tier.
-    constexpr f32 kCryoArcRadians[3] = {0.60f, 0.66f, 0.72f};
-    // TESLA: release rate against lifetime sets the standing granule cloud --
-    // 36 per 0.9s over 6.8s is ~270 live granules at tier 1, ~1090 at tier 3,
-    // which is why SimDesc::max_swarmers is five figures.
-    constexpr u32 kCtlReleasePerShot[3] = {36u, 57u, 78u};
-    constexpr f32 kCtlSwarmerLifetime[3] = {6.8f, 7.6f, 8.4f};
-    constexpr f32 kCtlSwarmerSpeed[3] = {26.0f, 30.0f, 34.0f};
-    constexpr f32 kCtlSwarmerDps[3] = {4.2f, 6.4f, 8.4f};
-    // Generous relative to the tower's own range on purpose: a granule already
-    // in the field should chase the horde, not expire at the edge of its
-    // parent's reach.
-    constexpr f32 kCtlSearchRadius[3] = {9.0f, 11.0f, 13.0f};
-    // HYDRO: the nozzle, per tier. Thickness and speed both climb, and because
-    // the emission rate is derived from swept area (mouth x speed x dt), the
-    // two together mean tier 3 puts out roughly 2.2x the fluid tier 1 does --
-    // the upgrade is visibly a fatter, faster, further-reaching jet rather than
-    // the same jet with a bigger number attached.
-    constexpr f32 kHydroNozzleRadius[3] = {0.85f, 1.05f, 1.30f};
-    constexpr f32 kHydroJetSpeed[3] = {30.0f, 34.0f, 39.0f};
-    // Burst length against TowerStats::fire_interval is the duty cycle. Well
-    // under half, so there is always a visible gap where the slug of mucus is
-    // in flight and the cell is visibly refilling.
-    constexpr f32 kHydroBurstSeconds[3] = {0.28f, 0.34f, 0.40f};
-    // Droplet lifetime. This is the "unspawns after a while" rule, and it is
-    // deliberately short: long enough for a splash to pool and be read, short
-    // enough that a board of Goblet Cells never silts up into a permanent lake.
-    constexpr f32 kHydroDropletLifetime[3] = {1.6f, 1.9f, 2.2f};
-    // How long a STRUCK NAMED AGENT stays weakened. Set comfortably above
-    // TowerStats::fire_interval (0.95 / 0.88 / 0.80) so a target the tower keeps
-    // hitting never sees the debuff lapse between bursts; a target it loses
-    // sight of stops being a free buff to the rest of the roster within a few
-    // seconds instead of forever.
-    constexpr f32 kHydroMarkSeconds[3] = {2.2f, 2.6f, 3.0f};
-
-    // Aim jitter, muzzle arc and muzzle push-in all TIGHTEN with tier: a tier 1
-    // Neutrophil is a loose, scattering spray of cells and a tier 3 is a
-    // disciplined stream, which is the upgrade the player is paying for. These
-    // are only the compiled-in fallbacks; assets/config/towers.json is
-    // authoritative and can be tuned per tier without a rebuild.
-    constexpr f32 kGunnerSpread[3] = {0.11f, 0.085f, 0.06f};
-    constexpr f32 kGunnerMuzzleArc[3] = {0.45f, 0.35f, 0.26f};
-    constexpr f32 kGunnerMuzzleRadialJitter[3] = {0.45f, 0.38f, 0.30f};
-
     for (u32 tier = 0; tier < 3; ++tier) {
-        g_mechanics[static_cast<u32>(TowerType::Neutrophil)][tier].gunner =
-            GunnerParams{kGunnerRoundSpeed[tier], 0.45f, kGunnerSpread[tier],
-                         kGunnerMuzzleArc[tier], kGunnerMuzzleRadialJitter[tier]};
-        g_mechanics[static_cast<u32>(TowerType::Macrophage)][tier].mortar =
-            MortarParams{0.30f, kMortarBurstRadius[tier], 0.4f, 1.5f};
-        g_mechanics[static_cast<u32>(TowerType::Interferon)][tier].cryo =
-            CryoParams{kCryoArcRadians[tier], 0.55f, 0.5f, 6u};
-        g_mechanics[static_cast<u32>(TowerType::CytotoxicT)][tier].tesla =
-            TeslaParams{kCtlReleasePerShot[tier], kCtlSwarmerLifetime[tier],
-                        kCtlSwarmerSpeed[tier],   kCtlSwarmerDps[tier],
-                        0.55f,                    kCtlSearchRadius[tier],
-                        0.85f};
-        g_mechanics[static_cast<u32>(TowerType::GobletCell)][tier].hydro =
-            HydroParams{kHydroBurstSeconds[tier], kHydroJetSpeed[tier],
-                        kHydroNozzleRadius[tier], 0.05f,
-                        kHydroDropletLifetime[tier], 1.0f,
-                        kHydroMarkSeconds[tier]};
-        g_mechanics[static_cast<u32>(TowerType::NKCell)][tier].blade =
-            BladeParams{9.0f, 0.0f, 5u};
+        // SHOOTER -- Neutrophil. Few, long-lived swarmers that keep a standoff
+        // and pour rounds in. Tier tightens the spread and speeds the stream,
+        // which is the upgrade the player is paying for.
+        {
+            TowerMechanics& m = g_mechanics[static_cast<u32>(TowerType::Neutrophil)][tier];
+            constexpr u32 kRelease[3] = {2u, 3u, 4u};
+            constexpr f32 kLife[3] = {6.0f, 6.5f, 7.0f};
+            constexpr f32 kSpeed[3] = {22.0f, 25.0f, 28.0f};
+            constexpr f32 kSearch[3] = {14.0f, 16.0f, 18.0f};
+            constexpr f32 kStandoff[3] = {8.0f, 9.0f, 10.0f};
+            constexpr f32 kSize[3] = {1.50f, 1.65f, 1.80f};
+            m.swarm = SwarmParams{kRelease[tier], kLife[tier], kSpeed[tier], kSearch[tier],
+                                  kStandoff[tier], 0.70f, kSize[tier]};
+            constexpr f32 kFire[3] = {0.18f, 0.15f, 0.12f};
+            constexpr f32 kDamage[3] = {1.9f, 3.0f, 3.3f};
+            constexpr f32 kRoundSpeed[3] = {45.0f, 52.0f, 60.0f};
+            constexpr f32 kSpread[3] = {0.11f, 0.085f, 0.06f};
+            m.shooter = ShooterParams{kFire[tier], kDamage[tier], kRoundSpeed[tier], 0.45f, kSpread[tier],
+                                      kSize[tier] * 2.4f};
+        }
+        // BOMBER -- Macrophage. Slow, fat swarmers; each one is a shell.
+        {
+            TowerMechanics& m = g_mechanics[static_cast<u32>(TowerType::Macrophage)][tier];
+            constexpr u32 kRelease[3] = {1u, 2u, 3u};
+            constexpr f32 kLife[3] = {6.0f, 6.5f, 7.0f};
+            constexpr f32 kSpeed[3] = {14.0f, 16.0f, 18.0f};
+            constexpr f32 kSearch[3] = {14.0f, 16.0f, 18.0f};
+            constexpr f32 kSize[3] = {2.10f, 2.40f, 2.70f};
+            m.swarm = SwarmParams{kRelease[tier], kLife[tier], kSpeed[tier], kSearch[tier],
+                                  0.70f, 0.60f, kSize[tier]};
+            constexpr f32 kRadius[3] = {3.5f, 4.0f, 4.5f};
+            constexpr f32 kDamage[3] = {12.0f, 22.0f, 38.0f};
+            constexpr f32 kNamed[3] = {20.0f, 40.0f, 70.0f};
+            m.bomber = BomberParams{1.0f, kRadius[tier], kDamage[tier], 0.30f, 0.4f, kNamed[tier]};
+        }
+        // SLOW BOMBER -- Interferon. No damage at all; the swarmers pop into
+        // circles that slow, and the circles are what the tower is for.
+        {
+            TowerMechanics& m = g_mechanics[static_cast<u32>(TowerType::Interferon)][tier];
+            constexpr u32 kRelease[3] = {1u, 2u, 3u};
+            constexpr f32 kSpeed[3] = {16.0f, 18.0f, 20.0f};
+            constexpr f32 kSearch[3] = {14.0f, 16.0f, 18.0f};
+            m.swarm = SwarmParams{kRelease[tier], 6.0f, kSpeed[tier], kSearch[tier], 0.70f, 0.60f, 1.80f};
+            constexpr f32 kRadius[3] = {3.0f, 3.5f, 4.0f};
+            constexpr f32 kZone[3] = {3.0f, 3.5f, 4.0f};
+            constexpr f32 kSlow[3] = {1.5f, 2.0f, 2.5f};
+            constexpr f32 kFactor[3] = {0.50f, 0.42f, 0.35f};
+            m.slow_bomber = SlowBomberParams{1.0f, kRadius[tier], kZone[tier], kSlow[tier], kFactor[tier]};
+        }
+        // LATCH -- Cytotoxic T. The original: many small swarmers, each one a
+        // lytic granule that rides its host and drains it. Still the biggest
+        // cloud in the roster -- 4 per half-second over 4s is ~32 live at
+        // tier 1, ~140 at tier 3 -- and a full board of them is why
+        // SimDesc::max_swarmers is five figures.
+        {
+            TowerMechanics& m = g_mechanics[static_cast<u32>(TowerType::CytotoxicT)][tier];
+            constexpr u32 kRelease[3] = {4u, 6u, 8u};
+            constexpr f32 kLife[3] = {4.0f, 5.0f, 6.0f};
+            constexpr f32 kSpeed[3] = {20.0f, 30.0f, 34.0f};
+            constexpr f32 kSearch[3] = {12.0f, 14.0f, 16.0f};
+            constexpr f32 kSize[3] = {1.41f, 1.62f, 1.83f};
+            m.swarm = SwarmParams{kRelease[tier], kLife[tier], kSpeed[tier], kSearch[tier],
+                                  0.55f, 0.85f, kSize[tier]};
+            constexpr f32 kDps[3] = {4.2f, 6.4f, 8.4f};
+            m.latch = LatchParams{kDps[tier]};
+        }
+        // MUCUS BOMBER -- Goblet Cell. Swarmers that pop into a splash of real
+        // fluid (sim/fluid) which weakens what it soaks; the splash is the
+        // attack, and the fluid solver owns it from the instant it lands.
+        {
+            TowerMechanics& m = g_mechanics[static_cast<u32>(TowerType::GobletCell)][tier];
+            constexpr u32 kRelease[3] = {1u, 2u, 3u};
+            constexpr f32 kSpeed[3] = {16.0f, 18.0f, 20.0f};
+            constexpr f32 kSearch[3] = {14.0f, 16.0f, 18.0f};
+            constexpr f32 kSize[3] = {1.80f, 1.95f, 2.10f};
+            m.swarm = SwarmParams{kRelease[tier], 6.0f, kSpeed[tier], kSearch[tier], 0.70f, 0.60f, kSize[tier]};
+            constexpr u32 kDroplets[3] = {20u, 28u, 36u};
+            constexpr f32 kRadius[3] = {1.0f, 1.2f, 1.4f};
+            constexpr f32 kSplashSpeed[3] = {6.0f, 7.0f, 8.0f};
+            constexpr f32 kDropLife[3] = {1.6f, 1.9f, 2.2f};
+            constexpr f32 kDps[3] = {14.0f, 34.0f, 62.0f};
+            constexpr f32 kMark[3] = {2.2f, 2.6f, 3.0f};
+            m.mucus_bomber = MucusBomberParams{1.0f, kDroplets[tier], kRadius[tier], kSplashSpeed[tier],
+                                               kDropLife[tier], kDps[tier], kMark[tier]};
+        }
     }
     g_globals = TowerGlobals{0.7f, 16u};
 }
@@ -247,132 +223,82 @@ void init_mechanics_once() {
 const TowerMechanics& mech(TowerType type, u8 tier) { return tower_mechanics(type, tier); }
 
 // ---------------------------------------------------------------------------
-// Cost-curve design goal (DESIGN.md Â§5.3/Â§7.1): upgrading one tier must be a
+// Cost-curve design goal (DESIGN.md §5.3/§7.1): upgrading one tier must be a
 // reliably better ATP-per-output deal than placing a fresh tower, so
-// reinforcing a concentrated position beats spreading thin. For every role
-// below: tier 2's upgrade_cost is well under a fresh build, tier 2's output
-// pushes past 2x tier 1's, tier 3's upgrade_cost is smaller still and its
-// output pulls further ahead â€” accelerating value, decelerating cost.
+// reinforcing a concentrated position beats spreading thin. For every tower:
+// tier 2's upgrade_cost is well under a fresh build, tier 2's output pushes
+// past 2x tier 1's, tier 3's upgrade_cost is smaller still and its output
+// pulls further ahead -- accelerating value, decelerating cost.
 //
-// "Output" is per-role, because the six roles spend different stats:
-//   GUNNER  damage / fire_interval          (projectile throughput)
-//   MORTAR  kill_rate * burst / interval    (burst duty cycle)
-//   CRYO    kill_rate                       (continuous cone)
-//   TESLA   kill_rate * arc / interval      (discharge duty cycle)
-//   HYDRO   kill_rate * burst / interval    (spray duty cycle)
-//   BLADE   kill_rate                       (continuous rotor)
-// tests/test_towers.cpp's tower_output() is exactly this table, and proves the
-// claim numerically for all six.
+// "Output" is derived from the swarmer table, per kind; tests/test_towers.cpp's
+// tower_output() is that derivation and proves the claim numerically.
 // ---------------------------------------------------------------------------
 
 void load_default_stats(TowerSystem& self) {
-    // GUNNER â€” cheapest, longest-uptime, single-target. Its whole identity is
-    // rate: 11 rounds/s at tier 1 up to 33/s at tier 3, so the stream reads as
-    // continuous rather than as individual shots. kill_rate is 0 by design â€”
-    // the Gunner is the one tower that does NOT publish a damage field.
-    self.set_stats(TowerType::Neutrophil, 1, make_stats(18.0f, 0.045f, 1.9f, 0.0f, 1.4f, 70, 45, 6.0f));
-    self.set_stats(TowerType::Neutrophil, 2, make_stats(20.0f, 0.0275f, 3.0f, 0.0f, 1.4f, 70, 38, 5.0f));
-    self.set_stats(TowerType::Neutrophil, 3, make_stats(22.0f, 0.015f, 3.3f, 0.0f, 1.4f, 70, 0, 4.0f));
+    // SHOOTER -- cheapest, steady single-target pressure.
+    self.set_stats(TowerType::Neutrophil, 1, make_stats(1.00f, 1.4f, 70, 45));
+    self.set_stats(TowerType::Neutrophil, 2, make_stats(0.85f, 1.4f, 70, 38));
+    self.set_stats(TowerType::Neutrophil, 3, make_stats(0.70f, 1.4f, 70, 0));
 
-    // MORTAR â€” the longest range and by far the slowest cadence. One shell
-    // every 2.6s that erases whatever was standing in a 5-unit circle.
-    self.set_stats(TowerType::Macrophage, 1, make_stats(14.0f, 2.60f, 45.0f, 62.0f, 2.0f, 150, 95, 0.0f));
-    self.set_stats(TowerType::Macrophage, 2, make_stats(15.5f, 2.30f, 95.0f, 145.0f, 2.0f, 150, 80, 0.0f));
-    self.set_stats(TowerType::Macrophage, 3, make_stats(17.0f, 2.00f, 175.0f, 240.0f, 2.0f, 150, 0, 0.0f));
+    // BOMBER -- the slowest cadence and the biggest single answer to a clump.
+    self.set_stats(TowerType::Macrophage, 1, make_stats(1.50f, 2.0f, 150, 95));
+    self.set_stats(TowerType::Macrophage, 2, make_stats(1.30f, 2.0f, 150, 80));
+    self.set_stats(TowerType::Macrophage, 3, make_stats(1.10f, 2.0f, 150, 0));
 
-    // CRYO â€” deliberately the weakest kill_rate in the roster. Its output is
-    // crowd control: everything in the cone is slowed, and anything caught deep
-    // in it is locked down outright. No active ability (ability_cooldown 0):
-    // it used to have a Flash Freeze panic-button nova, but that field always
-    // rendered in the generic burst-Circle amber rather than the tower's own
-    // cyan, so it read as a stray, unrelated buff flashing on the tower rather
-    // than as an extension of the cone it was supposed to belong to.
-    self.set_stats(TowerType::Interferon, 1, make_stats(24.0f, 0.55f, 3.0f, 2.0f, 2.4f, 110, 70, 0.0f));
-    self.set_stats(TowerType::Interferon, 2, make_stats(27.0f, 0.50f, 7.0f, 5.4f, 2.4f, 110, 60, 0.0f));
-    self.set_stats(TowerType::Interferon, 3, make_stats(30.0f, 0.45f, 14.0f, 10.5f, 2.4f, 110, 0, 0.0f));
+    // SLOW BOMBER -- crowd control only. Its whole output is the circles.
+    self.set_stats(TowerType::Interferon, 1, make_stats(2.00f, 2.4f, 110, 70));
+    self.set_stats(TowerType::Interferon, 2, make_stats(1.70f, 2.4f, 110, 60));
+    self.set_stats(TowerType::Interferon, 3, make_stats(1.40f, 2.4f, 110, 0));
 
-    // TESLA â€” short base range but its chain reaches far past it by hopping.
-    // Bursty: nothing at all between discharges.
-    self.set_stats(TowerType::CytotoxicT, 1, make_stats(7.00f, 0.90f, 30.0f, 60.0f, 1.6f, 130, 84, 0.0f));
-    self.set_stats(TowerType::CytotoxicT, 2, make_stats(7.75f, 0.75f, 62.0f, 135.0f, 1.6f, 130, 70, 0.0f));
-    self.set_stats(TowerType::CytotoxicT, 3, make_stats(8.50f, 0.60f, 120.0f, 210.0f, 1.6f, 130, 0, 0.0f));
+    // LATCH -- the fastest cadence: a steady trickle of granules.
+    self.set_stats(TowerType::CytotoxicT, 1, make_stats(0.50f, 1.6f, 130, 84));
+    self.set_stats(TowerType::CytotoxicT, 2, make_stats(0.40f, 1.6f, 130, 70));
+    self.set_stats(TowerType::CytotoxicT, 3, make_stats(0.35f, 1.6f, 130, 0));
 
-    // HYDRO â€” area denial that arrives late and lingers. `fire_interval` is the
-    // reload between bursts, not a rate of fire, and `kill_rate` is the damage a
-    // FULLY soaked patch takes per second, so its real output depends on how
-    // much of the lane the fluid ends up covering. It kills slower than the
-    // roster average on paper and harder in practice, because everything it
-    // touches is also permanently weakened (chaff_flags::kMarked) and takes
-    // 50% more from every OTHER tower for the rest of its life. Deliberately
-    // does NOT slow: the mucus is a force multiplier for the rest of the
-    // roster, not a second root alongside Interferon's cone and Neutrophil's
-    // NET. Expensive, and the second-longest reach.
-    self.set_stats(TowerType::GobletCell, 1, make_stats(16.0f, 0.95f, 6.0f, 14.0f, 1.4f, 160, 104, 0.0f));
-    self.set_stats(TowerType::GobletCell, 2, make_stats(18.0f, 0.88f, 13.0f, 34.0f, 1.4f, 160, 88, 0.0f));
-    self.set_stats(TowerType::GobletCell, 3, make_stats(20.0f, 0.80f, 26.0f, 62.0f, 1.4f, 160, 0, 0.0f));
-
-    // BLADE â€” by far the shortest range in the roster (it is a contact weapon)
-    // and by far the highest sustained kill_rate per unit of range. A wall
-    // tower: it only works where the horde is forced to walk into it.
-    self.set_stats(TowerType::NKCell, 1, make_stats(16.0f, 0.18f, 5.0f, 8.0f, 1.6f, 90, 58, 0.0f));
-    self.set_stats(TowerType::NKCell, 2, make_stats(18.0f, 0.14f, 10.0f, 21.0f, 1.6f, 90, 49, 0.0f));
-    self.set_stats(TowerType::NKCell, 3, make_stats(20.0f, 0.10f, 20.0f, 41.0f, 1.6f, 90, 0, 0.0f));
+    // MUCUS BOMBER -- area denial that lingers and weakens. Expensive.
+    self.set_stats(TowerType::GobletCell, 1, make_stats(1.60f, 1.4f, 160, 104));
+    self.set_stats(TowerType::GobletCell, 2, make_stats(1.40f, 1.4f, 160, 88));
+    self.set_stats(TowerType::GobletCell, 3, make_stats(1.20f, 1.4f, 160, 0));
 }
 
 bool same_stats(const TowerStats& a, const TowerStats& b) {
-    return a.range == b.range && a.fire_interval == b.fire_interval && a.damage == b.damage &&
-           a.kill_rate == b.kill_rate && a.footprint_radius == b.footprint_radius &&
-           a.build_cost == b.build_cost && a.upgrade_cost == b.upgrade_cost &&
-           a.ability_cooldown == b.ability_cooldown && a.family_mask == b.family_mask;
+    return a.fire_interval == b.fire_interval &&
+           a.footprint_radius == b.footprint_radius && a.build_cost == b.build_cost &&
+           a.upgrade_cost == b.upgrade_cost && a.family_mask == b.family_mask;
 }
 
-/// TowerSystem.h forbids adding a constructor or a loaded-flag member, so
-/// there is no natural hook to populate `stats_` once per instance. The table
-/// is filled lazily instead, the first time it is observed still untouched,
-/// which is what lets a bare `TowerSystem ts;` -- in a test, in a bench
-/// scenario, in the gym -- be usable without every caller remembering an init
-/// call.
-///
-/// stats() does the actual populating, because it is a member and has direct
-/// private access; this free helper only has to touch one row to trigger it.
-/// It used to duplicate the check and read stats(Macrophage, 1), which was
-/// mutual recursion waiting to happen.
+/// There is no constructor hook to populate `stats_` once per instance, so
+/// the table is filled lazily instead, the first time it is observed still
+/// untouched, which is what lets a bare `TowerSystem ts;` -- in a test, in a
+/// bench scenario, in the gym -- be usable without every caller remembering
+/// an init call. stats() does the actual populating; this helper only has to
+/// touch one row to trigger it. The sentinel compare in stats() has to work
+/// on a populated row, and every populated row has a non-zero build cost.
 void ensure_default_stats(const TowerSystem& self) {
     (void)self.stats(TowerType::Neutrophil, 1);
 }
 
 // ---------------------------------------------------------------------------
-// Wave 6C: shared combat helpers.
+// Aiming helpers.
 //
-// THE LOAD-BEARING RULE (DamageField.h's own rationale, restated because it is
-// the thing that is easiest to accidentally undo): the five AREA roles never
-// touch chaff agent-by-agent to *damage* them. They publish one DamageField and
-// let the aggregate damage system thin whatever it overlaps. Cost then scales
-// with fields and cells, not with towers x 10,000 agents. Only the Gunner is
-// the documented exception, and it uses the projectile store, not a per-agent
-// loop either.
+// A tower needs an aim point for exactly one reason: to orient the release
+// cone and the body sprite. It does not need a target to HIT, because it is
+// not hitting anything -- its swarmers choose their own targets once released
+// -- and it releases whether or not it found one. The look-around radius is
+// the swarmers' own search_radius: "face the crowd my units could aggro on".
 //
-// What DOES touch agents individually here, and why each is bounded:
-//   - acquire_focus()  reads per-cell OCCUPANCY over the cells a range circle
-//     overlaps (tens of integers), then averages the positions of exactly ONE
-//     cell's agents. Never a scan of the store.
-//   - nearest_chaff()  is a generic "closest agent" helper. Bounded by the
-//     caller's radius (a handful of cells) and used only on ticks where a
-//     tower actually needs one. The Cytotoxic T no longer calls it at all --
-//     its granules do their own searching in sim/swarm, on their own budget.
-//   - the Cryo and Blade passes set chaff_flags / emit contact events over the
-//     agents in their (small) shape. Flags and events have no aggregate path at
-//     all â€” DamageField publishes damage, not state â€” so this is the only way
-//     to express "slowed" or "the rotor touched this one". Both are capped, and
-//     both run on a fire_interval pulse, not every tick.
+// acquire_focus() reads per-cell OCCUPANCY over the cells that circle
+// overlaps (tens of integers), then averages the positions of exactly ONE
+// cell's agents. Never a scan of the store.
 // ---------------------------------------------------------------------------
 
 constexpr u32 kNoIndex = static_cast<u32>(-1);
 
+Vec2 heading(f32 radians) { return Vec2{std::cos(radians), std::sin(radians)}; }
+
 /// The data model has 3 upgrade tiers; vfx/Particles.cpp's art authoring keys
 /// its escalation on visual_id 1..5. Spread the three tiers across that range
-/// so tier 3 gets the top-end look (most barrels, most branches, most blades)
-/// rather than the middle of it.
+/// so tier 3 gets the top-end look rather than the middle of it.
 u16 tier_visual(u8 tier) { return tier >= 3 ? u16{5} : (tier == 2 ? u16{3} : u16{1}); }
 
 sim::CombatEvent tower_event(sim::CombatEventType type, TowerType source, u8 tier, Vec2 origin) {
@@ -387,30 +313,26 @@ sim::CombatEvent tower_event(sim::CombatEventType type, TowerType source, u8 tie
 
 bool family_allowed(u8 mask, u8 family) { return (mask & static_cast<u8>(1u << family)) != 0; }
 
+/// What a tower may aim at. Burrowed (kHidden) chaff is excluded: nothing in
+/// the roster can see it, so a tower must not spend a volley on it either.
 bool chaff_targetable(const sim::ChaffBuffers& chaff, u32 idx, u8 mask) {
     if (idx >= chaff.count()) return false;
     const u8 f = chaff.flags[idx];
     if ((f & sim::chaff_flags::kAlive) == 0) return false;
     if ((f & sim::chaff_flags::kPendingKill) != 0) return false;
+    if ((f & sim::chaff_flags::kHidden) != 0) return false;
     return family_allowed(mask, chaff.family[idx]);
 }
 
-/// "Where is the horde, roughly" â€” the aim point every area tower and the
-/// Gunner share. Cost is O(cells overlapping the range circle) for the search
-/// plus O(one cell's occupancy) for the refine; it never walks the chaff store.
+/// "Where is the horde, roughly" -- the aim point every tower shares. Cost is
+/// O(cells overlapping the range circle) for the search plus O(one cell's
+/// occupancy) for the refine; it never walks the chaff store.
 ///
 /// Picks the fullest spatial-hash cell that can actually contain an in-range
 /// agent (a cell whose NEAREST point is out of range provably cannot), then
 /// returns the centroid of that cell's in-range agents. Deterministic: cell
 /// scan order is row-major and ties keep the first (lowest-index) cell.
-///
-/// `out_vel`, when given, receives the mean velocity of the SAME agents the
-/// centroid averaged, so a caller with travel time to cover can lead the shot
-/// (see lead_aim_point). Everything else ignores it â€” an area field lands the
-/// tick it is published, so it has nothing to lead.
-bool acquire_focus(const sim::SimWorld& world, Vec2 origin, f32 range, u8 mask, Vec2& out,
-                   Vec2* out_vel = nullptr) {
-    if (out_vel) *out_vel = Vec2{0.0f, 0.0f};
+bool acquire_focus(const sim::SimWorld& world, Vec2 origin, f32 range, u8 mask, Vec2& out) {
     const sim::SpatialHash& hash = world.spatial();
     const sim::ChaffBuffers& chaff = world.chaff();
     if (chaff.count() == 0) return false;
@@ -450,26 +372,20 @@ bool acquire_focus(const sim::SimWorld& world, Vec2 origin, f32 range, u8 mask, 
 
     Vec2 in_range{0.0f, 0.0f};
     Vec2 anywhere{0.0f, 0.0f};
-    Vec2 vel_in{0.0f, 0.0f};
-    Vec2 vel_any{0.0f, 0.0f};
     u32 n_in = 0;
     u32 n_any = 0;
     for (u32 s = begin; s < end; ++s) {
         const u32 a = indices[s];
         if (!chaff_targetable(chaff, a, mask)) continue;
         const Vec2 p{chaff.pos_x[a], chaff.pos_y[a]};
-        const Vec2 v{chaff.vel_x[a], chaff.vel_y[a]};
         anywhere += p;
-        vel_any += v;
         ++n_any;
         if (math::length_sq(p - origin) > r2) continue;
         in_range += p;
-        vel_in += v;
         ++n_in;
     }
     if (n_in > 0) {
         out = in_range / static_cast<f32>(n_in);
-        if (out_vel) *out_vel = vel_in / static_cast<f32>(n_in);
         return true;
     }
     if (n_any == 0) return false;
@@ -480,785 +396,147 @@ bool acquire_focus(const sim::SimWorld& world, Vec2 origin, f32 range, u8 mask, 
     const Vec2 d = c - origin;
     const f32 l = math::length(d);
     out = (l > range && l > math::kEpsilon) ? origin + d * (range / l) : c;
-    if (out_vel) *out_vel = vel_any / static_cast<f32>(n_any);
     return true;
 }
 
-/// Where to point so a round of `speed` and the target meet, given the target's
-/// position and velocity RIGHT NOW. Without this the Gunner shoots at where the
-/// horde was when the trigger was pulled, and every round lands one travel-time
-/// behind a moving crowd â€” a constant, very visible lag, not a near-miss.
-///
-/// Solves |D + V*t| = speed*t for the earliest t >= 0, with D = target - origin:
-///
-///     (V.V - speed^2) t^2 + 2 (D.V) t + D.D = 0
-///
-/// `a` is negative whenever the round outruns the target (kGunnerRoundSpeed is
-/// 45+ against agents that move single digits, so always, here) and `c` is a
-/// squared length, so the roots have opposite signs and exactly one is valid.
-/// The degenerate cases â€” target already on the muzzle, or somehow no positive
-/// root â€” fall back to the unled point, which is the old behaviour.
-Vec2 lead_aim_point(Vec2 origin, Vec2 target, Vec2 target_vel, f32 speed) {
-    if (speed <= math::kEpsilon) return target;
-    const Vec2 d = target - origin;
-    const f32 a = math::length_sq(target_vel) - speed * speed;
-    const f32 b = 2.0f * (d.x * target_vel.x + d.y * target_vel.y);
-    const f32 c = math::length_sq(d);
-    if (c <= math::kEpsilon) return target;
-
-    f32 t = -1.0f;
-    if (std::fabs(a) <= math::kEpsilon) {
-        // Target receding at exactly muzzle speed: the quadratic collapses to a
-        // line. Only meets if it is closing on the b term.
-        if (std::fabs(b) > math::kEpsilon) t = -c / b;
-    } else {
-        const f32 disc = b * b - 4.0f * a * c;
-        if (disc < 0.0f) return target;
-        const f32 root = std::sqrt(disc);
-        const f32 t0 = (-b - root) / (2.0f * a);
-        const f32 t1 = (-b + root) / (2.0f * a);
-        // Earliest non-negative root; they cannot both be negative while a < 0.
-        if (t0 >= 0.0f && t1 >= 0.0f) t = math::min(t0, t1);
-        else t = math::max(t0, t1);
-    }
-    if (!(t > 0.0f)) return target;
-    return target + target_vel * t;
-}
-
-/// Nearest live matching chaff agent to `from` within `radius`, skipping the
-/// `n_exclude` indices in `exclude`. Ties resolve to the lowest chaff index, so
-/// the walk is a pure function of the store's contents.
-u32 nearest_chaff(const sim::SimWorld& world, Vec2 from, f32 radius, u8 mask,
-                  const u32* exclude, u32 n_exclude, Vec2& out_pos) {
-    static thread_local std::vector<u32> scratch;
-    if (scratch.capacity() < 1024) scratch.reserve(1024);
-    scratch.clear();
-    world.spatial().query_circle(from, radius, scratch);
-
-    const sim::ChaffBuffers& chaff = world.chaff();
-    const f32 r2 = radius * radius;
-    u32 best = kNoIndex;
-    f32 best_d2 = 0.0f;
-    for (u32 idx : scratch) {
-        if (!chaff_targetable(chaff, idx, mask)) continue;
-        bool skip = false;
-        for (u32 k = 0; k < n_exclude; ++k) {
-            if (exclude[k] == idx) { skip = true; break; }
-        }
-        if (skip) continue;
-        const f32 dx = chaff.pos_x[idx] - from.x;
-        const f32 dy = chaff.pos_y[idx] - from.y;
-        const f32 d2 = dx * dx + dy * dy;
-        if (d2 > r2) continue;
-        if (best == kNoIndex || d2 < best_d2) {
-            best = idx;
-            best_d2 = d2;
-            out_pos = Vec2{chaff.pos_x[idx], chaff.pos_y[idx]};
-        }
-    }
-    return best;
-}
-
 /// The aim point a tower should face this tick: the chaff focus if there is
-/// one, otherwise the nearest named agent, otherwise nothing. `out_vel`, when
-/// given, receives that target's velocity for lead_aim_point; it is zero when
-/// the target has no Velocity to report.
-bool acquire_aim_point(TowerSystem& self, sim::SystemContext& ctx, Vec2 origin,
-                       const TowerStats& st, bool detect_hidden, Vec2& out,
-                       Vec2* out_vel = nullptr) {
-    if (acquire_focus(ctx.world, origin, st.range, st.family_mask, out, out_vel)) return true;
-    if (out_vel) *out_vel = Vec2{0.0f, 0.0f};
-    const EntityId named = self.find_target(ctx.world, origin, st.range, st.family_mask, detect_hidden);
+/// one, otherwise the nearest named agent, otherwise nothing.
+bool acquire_aim_point(TowerSystem& self, sim::SystemContext& ctx, Vec2 origin, f32 look_radius,
+                       const TowerStats& st, Vec2& out) {
+    if (acquire_focus(ctx.world, origin, look_radius, st.family_mask, out)) return true;
+    const EntityId named = self.find_target(ctx.world, origin, look_radius, st.family_mask);
     if (!named.valid()) return false;
     const entt::entity te = ctx.world.ecs().from_id(named);
     if (!ctx.registry.valid(te) || !ctx.registry.all_of<comp::Transform>(te)) return false;
     out = ctx.registry.get<comp::Transform>(te).position;
-    if (out_vel) {
-        if (const auto* v = ctx.registry.try_get<comp::Velocity>(te)) *out_vel = v->value;
-    }
     return true;
 }
 
-/// Every role also hurts named agents when it fires. Armor is a flat reduction
-/// per damage event (Components.h), and every one of these is a discrete event
-/// (a round, a shell, a discharge, a beam refresh, a rotor pulse), so it is
-/// applied straight rather than prorated by dt.
-///
-/// `mark_seconds` and `owner` are the Goblet Cell's alone: every other caller
-/// passes the defaults (0, invalid), which skips the emplace entirely and
-/// leaves this function's behaviour for the other five roles byte-for-byte
-/// what it always was. Passing a positive `mark_seconds` refreshes
-/// comp::Marked on whatever this hit lands on â€” the named-agent half of the
-/// weaken debuff chaff gets from chaff_flags::kMarked (sim/fluid/Fluid.cpp).
-/// Decay is system_marked_upkeep's job, not this function's: strike_named runs
-/// once per tower per tick and has no business owning a timer's lifecycle.
-void strike_named(TowerSystem& self, sim::SystemContext& ctx, comp::Tower& tw, Vec2 origin,
-                  const TowerStats& st, bool detect_hidden, f32 mark_seconds = 0.0f,
-                  EntityId owner = EntityId{}) {
-    if (st.damage <= 0.0f) return;
-    const EntityId target = self.find_target(ctx.world, origin, st.range, st.family_mask, detect_hidden);
-    if (!target.valid()) return;
-    const entt::entity te = ctx.world.ecs().from_id(target);
-    if (!ctx.registry.valid(te) || !ctx.registry.all_of<comp::Health>(te)) return;
-    comp::Health& hp = ctx.registry.get<comp::Health>(te);
-    f32 amount = math::max(0.0f, st.damage - hp.armor);
-    if (const auto* mk = ctx.registry.try_get<comp::Marked>(te)) amount *= mk->damage_multiplier;
-    const bool was_alive = !hp.dead();
-    hp.current -= amount;
-    tw.current_target = target;
-
-    // Elite/boss damage is the third damage path (chaff fields and projectiles
-    // are the other two) and the only one the aggregate sim counters never see,
-    // since named agents carry hit points rather than density. The sink lives on
-    // the world's DamageSystem so this function needs no new plumbing of its
-    // own; it is null in normal play. See sim/Attribution.h.
-    if (sim::DamageAttribution* attribution = ctx.world.damage().attribution()) {
-        if (owner.valid()) attribution->record_named(owner, amount, was_alive && hp.dead());
-    }
-
-    if (mark_seconds > 0.0f) {
-        comp::Marked& mk = ctx.registry.get_or_emplace<comp::Marked>(te);
-        mk.remaining = mark_seconds;
-        mk.damage_multiplier = chaff_flags::kMarkedDamageMultiplier;
-        mk.source = owner;
-    }
-}
-
-Vec2 heading(f32 radians) { return Vec2{std::cos(radians), std::sin(radians)}; }
-Vec2 perp(Vec2 v) { return Vec2{-v.y, v.x}; }
-
 // ---------------------------------------------------------------------------
-// GUNNER â€” Neutrophil. Real projectiles; the only tower that publishes no
-// damage field at all.
-// ---------------------------------------------------------------------------
-void system_gunner(TowerSystem& self, sim::SystemContext& ctx) {
-    auto view = ctx.registry.view<comp::Tower, comp::Transform>();
-    for (auto e : view) {
-        comp::Tower& tw = view.get<comp::Tower>(e);
-        if (tw.type != TowerType::Neutrophil) continue;
-        comp::Transform& tf = view.get<comp::Transform>(e);
-        const TowerStats& st = self.stats(tw.type, tw.tier);
-
-        Vec2 target{};
-        Vec2 target_vel{};
-        if (!acquire_aim_point(self, ctx, tf.position, st, false, target, &target_vel)) continue;
-
-        const u32 slot = tier_slot(tw.tier);
-        const f32 speed = mech(tw.type, tw.tier).gunner.round_speed;
-        // Lead from the barrel, not the base. The muzzle sits up to a footprint
-        // out along the aim, so the round has that much less ground to cover and
-        // wants a correspondingly shorter lead â€” hence the second solve once
-        // the first one has told us which way the barrel points. Both use the
-        // same closed form; the refinement is two dozen flops.
-        Vec2 led = lead_aim_point(tf.position, target, target_vel, speed);
-        Vec2 aim = math::normalize_safe(led - tf.position);
-        if (aim.x == 0.0f && aim.y == 0.0f) aim = heading(tf.rotation);
-
-        // POINT BLANK. The standoff is a MAXIMUM, not a constant, because a
-        // round is spawned here and then integrated a full dt before
-        // ProjectileSystem tests it for the first time. Its earliest tested
-        // position is therefore `standoff + speed*dt` out from the base, and
-        // everything nearer than that (less the hit radius) sat in a hole the
-        // Gunner could not shoot into at all: 1.85 world units at tier 1,
-        // against a footprint of 1.4.
-        //
-        // That hole swallowed the one case where it matters. ChaffSystem's
-        // contain_to_tissue deliberately keeps a jam PRESSED against whatever
-        // it ran into, so a horde that reaches a Gunner stops dead on its
-        // footprint -- right inside the hole. The fullest cell in range is then
-        // the jam on the tower, acquire_focus aims at it, and every round
-        // spawned past the crowd and flew away. Worse, a target closer than the
-        // standoff put the muzzle BEHIND it, which flipped `shot` around and
-        // spun the turret to fire away from the horde. Since the Gunner is the
-        // one tower that publishes no damage field, nothing else was touching
-        // that jam either and it simply stayed there.
-        //
-        // So pull the muzzle in until the round's first tested position lands
-        // on the target instead of behind it. At contact range that puts the
-        // muzzle at the tower's own centre, which is the honest picture of a
-        // cell firing at something already touching it. Nothing changes beyond
-        // `standoff + speed*dt` out, so every ordinary shot keeps the barrel
-        // it always had.
-        f32 standoff = st.footprint_radius + 0.15f;
-        const f32 first_step = speed * ctx.dt;
-        const f32 to_target = math::length(target - tf.position);
-        if (to_target < standoff + first_step) {
-            standoff = math::max(0.0f, to_target - first_step);
-        }
-        // The turret still points down the clean aim, and the muzzle flash
-        // still comes out of wherever the round actually did. Solving the
-        // barrel from the un-jittered muzzle keeps the sprite from twitching
-        // once per round while the arc offset scatters underneath it.
-        const Vec2 barrel = tf.position + aim * standoff;
-        led = lead_aim_point(barrel, target, target_vel, speed);
-        Vec2 shot = math::normalize_safe(led - barrel);
-        if (shot.x == 0.0f && shot.y == 0.0f) shot = aim;
-
-        // The barrel points where it will SHOOT, so the muzzle flash, the round
-        // and the turret all agree on screen even while the horde slides past.
-        tf.rotation = std::atan2(shot.y, shot.x);
-        if (tw.cooldown > 0.0f) continue;
-
-        // EXACTLY THREE Rng draws per round fired, taken unconditionally and
-        // before anything that could fail. ProjectileSystem::update
-        // deliberately draws nothing, so the sim stream advances a fixed amount
-        // per SHOT and not once per round-in-flight; drawing all three whatever
-        // the params say keeps the stream independent of the tuning values, so
-        // retuning spread never reshuffles the rest of the sim.
-        const GunnerParams& gun = mech(tw.type, tw.tier).gunner;
-        const f32 jitter = ctx.rng.range_f(-gun.spread, gun.spread);
-        const f32 arc = ctx.rng.range_f(-gun.muzzle_arc_radians, gun.muzzle_arc_radians);
-        const f32 radial = ctx.rng.range_f(-gun.muzzle_radial_jitter, gun.muzzle_radial_jitter);
-
-        // SPAWN OFFSET. Swing the spawn point around the tower centre along the
-        // arc and breathe it in and out along the standoff, then re-solve the
-        // lead from there: the rounds leave from scattered points but still
-        // converge on the target, which is the "cell spraying" read rather than
-        // a cone of misses. Re-apply the point-blank rule from above, because
-        // a pushed-out muzzle can land behind a target that is already touching
-        // the footprint.
-        const f32 muzzle_angle = std::atan2(aim.y, aim.x) + arc;
-        f32 muzzle_radius = math::max(0.0f, standoff + radial);
-        if (to_target < muzzle_radius + first_step) {
-            muzzle_radius = math::max(0.0f, to_target - first_step);
-        }
-        const Vec2 muzzle = tf.position + heading(muzzle_angle) * muzzle_radius;
-        Vec2 fire = math::normalize_safe(lead_aim_point(muzzle, target, target_vel, speed) - muzzle);
-        if (fire.x == 0.0f && fire.y == 0.0f) fire = shot;
-
-        const f32 cj = std::cos(jitter);
-        const f32 sj = std::sin(jitter);
-        const Vec2 dir{fire.x * cj - fire.y * sj, fire.x * sj + fire.y * cj};
-
-        sim::ProjectileSpawnParams round;
-        round.position = muzzle;
-        round.velocity = dir * speed;
-        round.damage = st.damage;
-        // Just enough to cross the full range. A round that outlives its
-        // usefulness is a store slot another round wanted.
-        round.lifetime = (st.range + 2.0f) / speed;
-        round.hit_radius = gun.hit_radius;
-        round.family_mask = st.family_mask;
-        round.owner = ctx.world.ecs().to_id(e);
-        round.visual_id = tier_visual(tw.tier);
-        ctx.world.projectiles().spawn(round);
-
-        sim::CombatEvent flash = tower_event(sim::CombatEventType::MuzzleFlash, tw.type, tw.tier, muzzle);
-        flash.direction = dir;
-        flash.radius = gun.hit_radius;
-        flash.magnitude = st.damage;
-        ctx.world.combat_events().push(flash);
-
-        strike_named(self, ctx, tw, tf.position, st, false, 0.0f, ctx.world.ecs().to_id(e));
-        tw.cooldown = st.fire_interval;
-    }
-}
-
-// ---------------------------------------------------------------------------
-// MORTAR â€” Macrophage. One big Circle burst on a long cooldown, lobbed at the
-// densest thing in range.
-// ---------------------------------------------------------------------------
-void system_mortar(TowerSystem& self, sim::SystemContext& ctx) {
-    auto view = ctx.registry.view<comp::Tower, comp::Transform>();
-    for (auto e : view) {
-        comp::Tower& tw = view.get<comp::Tower>(e);
-        if (tw.type != TowerType::Macrophage) continue;
-        comp::Transform& tf = view.get<comp::Transform>(e);
-        const TowerStats& st = self.stats(tw.type, tw.tier);
-
-        Vec2 target{};
-        if (!acquire_aim_point(self, ctx, tf.position, st, false, target)) continue;
-        Vec2 aim = math::normalize_safe(target - tf.position);
-        if (aim.x == 0.0f && aim.y == 0.0f) aim = heading(tf.rotation);
-        tf.rotation = std::atan2(aim.y, aim.x);
-        if (tw.cooldown > 0.0f) continue;
-
-        const MortarParams& mortar = mech(tw.type, tw.tier).mortar;
-        const f32 radius = mortar.burst_radius;
-
-        sim::DamageField burst;
-        burst.shape = sim::FieldShape::Circle;
-        burst.origin = target;
-        burst.radius = radius;
-        burst.kill_rate = st.kill_rate;
-        // Mostly flat with a soft edge: a shell that only kills at the exact
-        // centre does not read as a shell.
-        burst.falloff = mortar.burst_falloff;
-        burst.family_mask = st.family_mask;
-        burst.marked_multiplier = mortar.marked_multiplier;
-        burst.lifetime = mortar.burst_seconds;
-        burst.owner = ctx.world.ecs().to_id(e);
-        ctx.world.damage().submit(burst);
-
-        sim::CombatEvent lob = tower_event(sim::CombatEventType::MuzzleFlash, tw.type, tw.tier,
-                                           tf.position + aim * st.footprint_radius);
-        lob.direction = aim;
-        lob.magnitude = 1.0f;
-        ctx.world.combat_events().push(lob);
-
-        // radius drives the shockwave ring; the particle layer stages the
-        // land -> charge -> burst timing itself off this single event.
-        sim::CombatEvent boom = tower_event(sim::CombatEventType::Explosion, tw.type, tw.tier, target);
-        boom.direction = aim;
-        boom.radius = radius;
-        boom.magnitude = st.kill_rate * mortar.burst_seconds;
-        ctx.world.combat_events().push(boom);
-
-        strike_named(self, ctx, tw, tf.position, st, false, 0.0f, ctx.world.ecs().to_id(e));
-        tw.cooldown = st.fire_interval;
-    }
-}
-
-// ---------------------------------------------------------------------------
-// CRYO â€” Interferon. A persistent Cone field with the roster's lowest kill_rate;
-// the point is the slow, and the lockdown deep inside the cone.
-// ---------------------------------------------------------------------------
-void system_cryo(TowerSystem& self, sim::SystemContext& ctx) {
-    static thread_local std::vector<u32> scratch;
-    if (scratch.capacity() < 2048) scratch.reserve(2048);
-
-    auto view = ctx.registry.view<comp::Tower, comp::Transform>();
-    for (auto e : view) {
-        comp::Tower& tw = view.get<comp::Tower>(e);
-        if (tw.type != TowerType::Interferon) continue;
-        comp::Transform& tf = view.get<comp::Transform>(e);
-        const TowerStats& st = self.stats(tw.type, tw.tier);
-        const CryoParams& cryo = mech(tw.type, tw.tier).cryo;
-        const f32 arc = cryo.arc_radians;
-
-        Vec2 target{};
-        Vec2 dir = heading(tf.rotation);
-        const bool have_target = acquire_aim_point(self, ctx, tf.position, st, false, target);
-        if (have_target) {
-            const Vec2 d = math::normalize_safe(target - tf.position);
-            if (d.x != 0.0f || d.y != 0.0f) dir = d;
-            tf.rotation = std::atan2(dir.y, dir.x);
-        }
-
-        // Persistent (lifetime <= 0): resubmitted every tick by its owner, per
-        // DamageField.h. The signal is continuous even between pulses.
-        sim::DamageField cone;
-        cone.shape = sim::FieldShape::Cone;
-        cone.origin = tf.position;
-        cone.direction = dir;
-        cone.radius = st.range;
-        cone.arc_radians = arc;
-        cone.kill_rate = st.kill_rate;
-        cone.falloff = 0.5f;
-        cone.family_mask = st.family_mask;
-        // Weakened chaff (the Goblet Cell's mucus) freezes faster too â€” same
-        // flag every other damage path in the sim reads.
-        cone.marked_multiplier = chaff_flags::kMarkedDamageMultiplier;
-        cone.lifetime = 0.0f;
-        cone.owner = ctx.world.ecs().to_id(e);
-        ctx.world.damage().submit(cone);
-
-        if (!have_target || tw.cooldown > 0.0f) continue;
-
-        sim::CombatEvent pulse = tower_event(sim::CombatEventType::ConePulse, tw.type, tw.tier, tf.position);
-        pulse.direction = dir;
-        pulse.radius = st.range;
-        pulse.arc_radians = arc;
-        pulse.magnitude = 1.0f;
-        ctx.world.combat_events().push(pulse);
-
-        sim::CombatEvent emit = tower_event(sim::CombatEventType::MuzzleFlash, tw.type, tw.tier, tf.position);
-        emit.direction = dir;
-        ctx.world.combat_events().push(emit);
-
-        // The slow itself. DamageField publishes damage, not state, so there is
-        // no aggregate path for a flag â€” this pass is the only way to express
-        // "slowed", and it runs on the pulse cadence, not every tick.
-        scratch.clear();
-        ctx.world.spatial().query_cone(tf.position, dir, st.range, arc, scratch);
-        sim::ChaffBuffers& chaff = ctx.world.chaff();
-        const f32 cos_half = std::cos(arc);
-        const f32 r2 = st.range * st.range;
-        const f32 inner = st.range * cryo.inner_fraction;
-        u32 freezes = 0;
-        for (u32 idx : scratch) {
-            if (!chaff_targetable(chaff, idx, st.family_mask)) continue;
-            const Vec2 d = Vec2{chaff.pos_x[idx], chaff.pos_y[idx]} - tf.position;
-            const f32 d2 = math::length_sq(d);
-            if (d2 > r2) continue;
-            const f32 dist = std::sqrt(d2);
-            if (dist > math::kEpsilon && (d.x * dir.x + d.y * dir.y) / dist < cos_half) continue;
-
-            const bool was_slowed = (chaff.flags[idx] & sim::chaff_flags::kSlowed) != 0;
-            chaff.flags[idx] |= sim::chaff_flags::kSlowed;
-
-            // "Fully locked down" = caught deep in the cone rather than clipped
-            // at its fringe. Nothing in the sim clears kSlowed, so this fires at
-            // most once per agent, which is what keeps the PINGs a trickle.
-            if (was_slowed || dist > inner || freezes >= cryo.max_freeze_events) continue;
-            ++freezes;
-            sim::CombatEvent frozen = tower_event(sim::CombatEventType::Freeze, tw.type, tw.tier,
-                                                  Vec2{chaff.pos_x[idx], chaff.pos_y[idx]});
-            frozen.target_family = static_cast<PathogenFamily>(chaff.family[idx]);
-            frozen.direction = dir;
-            frozen.radius = 0.7f + 0.1f * static_cast<f32>(tw.tier);
-            frozen.magnitude = 1.0f;
-            ctx.world.combat_events().push(frozen);
-        }
-
-        strike_named(self, ctx, tw, tf.position, st, false, 0.0f, ctx.world.ecs().to_id(e));
-        tw.cooldown = st.fire_interval;
-    }
-}
-
-// ---------------------------------------------------------------------------
-// SWARM â€” Cytotoxic T. Releases a volley of lytic granules from its synapse
-// face on every cooldown; the granules do the rest themselves.
+// THE ONE COMBAT SYSTEM. Every tower: face the horde, and on cooldown release
+// a volley of swarmers from the cell's face -- continuously, for as long as
+// the round is on.
 //
-// This tower publishes NO DamageField. It is the only anti-chaff tower in the
-// roster that does not, and that is the whole point of the redesign: the
-// aggregate path can only ever draw a region, and this tower needed to read as
-// a population. All of its chaff damage now comes from sim/swarm, one attached
-// granule at a time. See kCtl* above for the numbers and sim/swarm/Swarmers.h
-// for what a granule does once released.
-//
-// The tower still needs an aim point, but only to orient the release cone and
-// to keep the body sprite facing its work â€” it does not need a target to hit,
-// because it is not hitting anything. When nothing is in range it holds fire
-// rather than seeding granules into empty tissue.
+// This publishes NO DamageField and touches no agent. With nothing in sight
+// it still releases: the units go out in a full ring instead of a cone and
+// aggro on whatever wanders into their search radius, and a bomber that finds
+// nothing pops on expiry where it stands, which is the design.
 // ---------------------------------------------------------------------------
-void system_swarm(TowerSystem& self, sim::SystemContext& ctx) {
+void system_spawner(TowerSystem& self, sim::SystemContext& ctx) {
     auto view = ctx.registry.view<comp::Tower, comp::Transform>();
     for (auto e : view) {
         comp::Tower& tw = view.get<comp::Tower>(e);
-        if (tw.type != TowerType::CytotoxicT) continue;
         comp::Transform& tf = view.get<comp::Transform>(e);
         const TowerStats& st = self.stats(tw.type, tw.tier);
-        const u32 slot = tier_slot(tw.tier);
+        const SwarmParams& swarm_params = mech(tw.type, tw.tier).swarm;
 
         Vec2 aim_point{};
-        const bool have_aim = acquire_aim_point(self, ctx, tf.position, st, false, aim_point);
+        const bool have_aim =
+            acquire_aim_point(self, ctx, tf.position, swarm_params.search_radius, st, aim_point);
         if (have_aim) {
             const Vec2 d = math::normalize_safe(aim_point - tf.position);
             if (d.x != 0.0f || d.y != 0.0f) tf.rotation = std::atan2(d.y, d.x);
+        } else {
+            // Nothing in sight: face up the lane, where the horde comes from.
+            // The flow points at the goal, so upstream is its opposite.
+            const Vec2 up = -ctx.world.flow().sample(tf.position);
+            if (math::length_sq(up) > math::kEpsilon) tf.rotation = std::atan2(up.y, up.x);
         }
+        if (!self.releasing()) continue;
         if (tw.cooldown > 0.0f) continue;
-        if (!have_aim) continue;
 
-        const Vec2 aim = math::normalize_safe(aim_point - tf.position);
-        const Vec2 facing = (aim.x == 0.0f && aim.y == 0.0f) ? Vec2{1.0f, 0.0f} : aim;
+        const Vec2 facing = heading(tf.rotation);
+        // A blind volley goes all round rather than down the cone: there is
+        // nothing to point it at, and a ring gives the units every approach.
+        const f32 spread = have_aim ? swarm_params.launch_spread : math::kPi;
 
-        // Granules leave the SYNAPSE FACE, not the middle of the cell.
-        // entity.frag's sdf_cytotoxic flattens the body's leading edge against
-        // a carve circle that puts that face at local +x 0.19 on centreline
-        // and 0.28 out at the corners. The quad is drawn at footprint_radius *
-        // 2, so local +x 0.5 is one footprint_radius out; releasing at 0.52 of
-        // one (local 0.26) puts the volley just past the membrane, where the
-        // cell is visibly secreting. At the old footprint_radius â€” the tip of
-        // the electrode this body no longer has â€” it would leave from most of
-        // a cell-width out in clear tissue.
+        // Swarmers leave the cell's FACE, not its middle. The quad is drawn at
+        // footprint_radius * 2, so local +x 0.5 is one footprint_radius out;
+        // releasing at 0.52 of one puts the volley just past the membrane,
+        // where the cell is visibly secreting.
         const Vec2 muzzle = tf.position + facing * (st.footprint_radius * 0.52f);
 
-        const TeslaParams& tesla = mech(tw.type, tw.tier).tesla;
-        const u32 release = tesla.release_per_shot;
+        const u32 release = swarm_params.release_per_shot;
         sim::SwarmerBuffers& swarm = ctx.world.swarmers();
 
+        // Re-register the profile on every volley. Fifteen small structs at
+        // most, and it is what lets a towers.json hot-reload reach the units
+        // already in flight without any world plumbing.
+        const u16 slot = sim::swarmer_profile_slot(tw.type, tw.tier);
+        swarm.set_profile(slot, swarmer_profile(tw.type, tw.tier));
+
+        const EntityId owner = ctx.world.ecs().to_id(e);
         for (u32 k = 0; k < release; ++k) {
-            // Granule identity. Everything stochastic about this release is
+            // Swarmer identity. Everything stochastic about this release is
             // derived from this one word rather than drawn from the shared sim
-            // Rng: a per-granule draw would make every downstream system's
-            // numbers depend on the tier of every T-cell on the board.
+            // Rng: a per-swarmer draw would make every downstream system's
+            // numbers depend on the tier of every tower on the board.
             u32 gseed = (static_cast<u32>(ctx.tick * 2654435761ull) ^ (k * 0x9E3779B9u) ^
-                         static_cast<u32>(ctx.world.ecs().to_id(e).value * 0x85EBCA6Bull)) | 1u;
+                         static_cast<u32>(owner.value * 0x85EBCA6Bull)) | 1u;
             const auto draw = [&gseed]() {
                 gseed = gseed * 1664525u + 1013904223u;
                 return static_cast<f32>((gseed >> 8) & 0xFFFFu) / 65535.0f;   // [0,1]
             };
 
             // SCATTER the cone, do not fan it evenly. An even fan launched from
-            // one point arrives as a crescent of dots â€” a tidy arc is the one
-            // shape a swarm must never make, and it survives speed jitter
-            // because every granule still sits on the same expanding circle.
-            const f32 offset = (draw() * 2.0f - 1.0f) * tesla.launch_spread;
+            // one point arrives as a crescent of dots -- a tidy arc is the one
+            // shape a swarm must never make.
+            const f32 offset = (draw() * 2.0f - 1.0f) * spread;
             const f32 ca = std::cos(offset);
             const f32 sa = std::sin(offset);
             const Vec2 dir{facing.x * ca - facing.y * sa, facing.x * sa + facing.y * ca};
 
-            // Spread the origin across the width of that face too, so a
-            // volley does not visibly emanate from a single pixel. The face is
-            // wide â€” roughly +-0.6 footprints â€” and the old +-0.35 spread was
-            // sized for the electrode's narrow mouth, which left the release
-            // pinched to a point in the middle of a broad membrane.
+            // Spread the origin across the width of the face too, so a volley
+            // does not visibly emanate from a single pixel.
             const Vec2 across{-facing.y, facing.x};
-            const Vec2 origin = muzzle + across * ((draw() - 0.5f) * 1.6f)
+            const Vec2 origin = muzzle + across * ((draw() - 0.5f) * st.footprint_radius * 0.5f)
                                        + facing * ((draw() - 0.5f) * 0.5f);
 
-            // Speed spread on top, so granules launched on the same bearing
+            // Speed spread on top, so swarmers launched on the same bearing
             // still separate along it.
             const f32 jitter = 0.60f + 0.80f * draw();
 
             sim::SwarmerSpawnParams p;
             p.position = origin;
-            p.velocity = dir * (tesla.swarmer_speed * jitter);
-            p.damage_per_second = tesla.swarmer_dps;
-            p.lifetime = tesla.swarmer_lifetime;
-            p.attach_radius = tesla.attach_radius;
-            p.search_radius = tesla.search_radius;
-            p.speed = tesla.swarmer_speed;
+            p.velocity = dir * (swarm_params.speed * jitter);
+            p.profile = slot;
             p.family_mask = st.family_mask;
-            p.owner = ctx.world.ecs().to_id(e);
-            p.visual_id = tw.tier;
+            p.owner = owner;
+            p.visual_id = tier_visual(tw.tier);
             p.seed = gseed;
+            // One volley is one squad (shooters march as a rank); the release
+            // tick names it and k orders the rank.
+            p.group = static_cast<u32>(ctx.tick);
+            p.slot = static_cast<u16>(k);
             swarm.spawn(p);
         }
 
-        // One release event for the VFX layer: the secretion at the synapse.
-        // The granules themselves are simulated and drawn from sim state, so
-        // there is deliberately no per-granule cosmetic event.
+        // One release event for the VFX layer: the secretion at the face. The
+        // swarmers themselves are simulated and drawn from sim state, so there
+        // is deliberately no per-unit cosmetic event here.
         sim::CombatEvent fired =
             tower_event(sim::CombatEventType::MuzzleFlash, tw.type, tw.tier, muzzle);
         fired.direction = facing;
         fired.magnitude = static_cast<f32>(release);
         ctx.world.combat_events().push(fired);
 
-        strike_named(self, ctx, tw, tf.position, st, false, 0.0f, ctx.world.ecs().to_id(e));
         tw.cooldown = st.fire_interval;
     }
 }
 
-// ---------------------------------------------------------------------------
-// HYDRO â€” Goblet Cell. Bursts of real, simulated fluid.
-//
-// WHAT REPLACED THE BEAM, AND WHY
-// This slot used to be the B Cell's LASER: an instantaneous Rect damage field
-// along the aim. That field is an AABB (core/Types.h has no rotated rect), so
-// the aim had to be snapped to one of four axes or a diagonal beam's bounding
-// box would have killed everything nowhere near the visible line. It worked,
-// and it was the one tower in the roster whose picture and whose kill zone were
-// arguing with each other.
-//
-// The Goblet Cell submits NO damage field at all. It opens its nozzle for
-// `burst_seconds` and hands fluid to sim/fluid/Fluid.h, which owns everything
-// after that: where the mucus travels, what it piles against, how it spreads
-// when it lands, and what it is still covering three seconds later. Damage
-// comes from that layer's coverage grid. There is nothing here for the picture
-// to disagree with, because the picture IS the simulation.
-//
-// WHY THE AIM IS LOCKED FOR THE WHOLE BURST
-// The obvious thing is to re-aim every tick while spraying, so the jet tracks.
-// It looks terrible: the emitted column fans out across every direction the
-// target passed through, arrives spread over an arc, and never accumulates
-// enough fluid in one place to pile up and splash. Committing to the aim at
-// trigger-pull sends one coherent slug down one line. The tower re-aims freely
-// BETWEEN bursts, so it still tracks the horde â€” just at burst granularity,
-// which is the same bargain the Mortar makes with its shell.
-// ---------------------------------------------------------------------------
-void system_hydro(TowerSystem& self, sim::SystemContext& ctx) {
-    auto view = ctx.registry.view<comp::Tower, comp::Transform>();
-    for (auto e : view) {
-        comp::Tower& tw = view.get<comp::Tower>(e);
-        if (tw.type != TowerType::GobletCell) continue;
-        comp::Transform& tf = view.get<comp::Transform>(e);
-        const TowerStats& st = self.stats(tw.type, tw.tier);
-        const HydroParams& hyd = mech(tw.type, tw.tier).hydro;
-
-        // The nozzle is created lazily, on the tower's first Combat tick, so
-        // place() does not have to know this component exists.
-        priv::Nozzle& noz = ctx.registry.get_or_emplace<priv::Nozzle>(
-            e, priv::Nozzle{0.0f, heading(tf.rotation),
-                            0u, static_cast<u32>(ctx.world.ecs().to_id(e).value)});
-
-        Vec2 target{};
-        const bool have_target = acquire_aim_point(self, ctx, tf.position, st, false, target);
-
-        // ---- Between bursts: track, and pull the trigger when ready -------
-        if (noz.burst_remaining <= 0.0f) {
-            if (have_target) {
-                const Vec2 aim = math::normalize_safe(target - tf.position);
-                if (aim.x != 0.0f || aim.y != 0.0f) tf.rotation = std::atan2(aim.y, aim.x);
-            }
-            if (!have_target || tw.cooldown > 0.0f) continue;
-
-            noz.aim = heading(tf.rotation);
-            noz.burst_remaining = hyd.burst_seconds;
-            ++noz.burst_id;
-            // Reload starts now, not when the burst ends: fire_interval is the
-            // whole cycle, so a longer burst eats into its own downtime rather
-            // than extending the period and quietly nerfing the tower.
-            tw.cooldown = st.fire_interval;
-
-            // One flash per trigger pull. The spray itself is drawn from live
-            // fluid state, so there is deliberately no per-tick emission event.
-            sim::CombatEvent charge = tower_event(sim::CombatEventType::MuzzleFlash, tw.type,
-                                                  tw.tier, tf.position + noz.aim * st.footprint_radius);
-            charge.direction = noz.aim;
-            charge.magnitude = hyd.jet_speed;
-            ctx.world.combat_events().push(charge);
-
-            strike_named(self, ctx, tw, tf.position, st, false, hyd.mark_seconds,
-                        ctx.world.ecs().to_id(e));
-        }
-
-        // ---- Spraying -----------------------------------------------------
-        // The muzzle sits a footprint out along the locked aim so fluid is born
-        // clear of the cell body, not inside it â€” a particle spawned inside the
-        // tower would be pushed out by the solver in a random direction and
-        // read as the cell leaking.
-        sim::FluidJetParams jet;
-        jet.origin = tf.position + noz.aim * (st.footprint_radius + hyd.nozzle_radius * 0.5f);
-        jet.direction = noz.aim;
-        jet.speed = hyd.jet_speed;
-        jet.spread = hyd.spread;
-        jet.nozzle_radius = hyd.nozzle_radius;
-        jet.flow_scale = hyd.flow_scale;
-        jet.lifetime = hyd.droplet_lifetime;
-        jet.damage_per_second = st.kill_rate;
-        jet.family_mask = st.family_mask;
-        jet.owner = ctx.world.ecs().to_id(e);
-        jet.visual_id = tw.tier;
-        jet.burst_id = noz.burst_id;
-        // Advanced every tick so consecutive slabs do not leave the nozzle in
-        // identical formation, and so the fractional emission rate really
-        // dithers instead of quantizing.
-        jet.seed = noz.seed;
-        noz.seed = noz.seed * 1664525u + 1013904223u;
-
-        ctx.world.fluid_system().emit(ctx.world.fluid(), jet, ctx.dt);
-        noz.burst_remaining -= ctx.dt;
-    }
-}
-
-// Shape ids 0..15 belong to agents and renderer overlays (blob, range ring,
-// telegraph diamond, countdown ring, death burst â€” see entity.frag). Towers
-// start here so the two spaces cannot collide.
-
-/// World-space diameter of a tower's body sprite.
-///
-/// Most towers are drawn at their physical footprint: the sprite IS the lump of
-/// cell sitting on the tissue, and its reach is communicated by the separate
-/// DamageField / range-ring visuals.
-///
-/// The NK Cell is the exception. Its whole silhouette is a rotor whose blades
-/// sweep the kill disc (system_blade submits a Circle field of st.range every
-/// tick), so the blades have to physically reach that far or the visual lies
-/// about where the tower kills. Its quad is therefore sized to the FIELD, not
-/// the footprint, and entity.frag draws the small cell body as a hub at the
-/// centre with the blades spanning out to the rim. This is why the NK sprite
-/// must be re-sized on upgrade (see TowerSystem::upgrade) â€” for every other
-/// tower the footprint never changes, but the NK Cell's reach does.
-f32 tower_sprite_size(TowerType type, const TowerStats& st) {
-    if (type == TowerType::NKCell) return st.range * 2.0f;
-    return st.footprint_radius * 2.0f;
-}
-
-// ---------------------------------------------------------------------------
-// BLADE â€” NK Cell. A short 360-degree Circle field pinned to the tower, running
-// continuously, with a contact slash raised for whatever the rotor passes
-// through. The one tower that still sees Burrowed named agents.
-// ---------------------------------------------------------------------------
-void system_blade(TowerSystem& self, sim::SystemContext& ctx) {
-    static thread_local std::vector<u32> scratch;
-    if (scratch.capacity() < 1024) scratch.reserve(1024);
-
-    auto view = ctx.registry.view<comp::Tower, comp::Transform>();
-    for (auto e : view) {
-        comp::Tower& tw = view.get<comp::Tower>(e);
-        if (tw.type != TowerType::NKCell) continue;
-        comp::Transform& tf = view.get<comp::Transform>(e);
-        const TowerStats& st = self.stats(tw.type, tw.tier);
-
-        // The rotor never stops, so its facing is a pure function of elapsed
-        // ticks rather than of any target.
-        tf.rotation += mech(tw.type, tw.tier).blade.spin_rad_per_sec * ctx.dt;
-        if (tf.rotation > math::kTwoPi) tf.rotation -= math::kTwoPi;
-        const Vec2 arm = heading(tf.rotation);
-
-        sim::DamageField rotor;
-        rotor.shape = sim::FieldShape::Circle;
-        rotor.origin = tf.position;
-        rotor.radius = st.range;
-        rotor.kill_rate = st.kill_rate;
-        rotor.falloff = 0.0f;   // contact damage: uniform inside the disc
-        rotor.family_mask = st.family_mask;
-        rotor.marked_multiplier = chaff_flags::kMarkedDamageMultiplier;
-        rotor.lifetime = 0.0f;  // persistent: continuous contact
-        rotor.owner = ctx.world.ecs().to_id(e);
-        ctx.world.damage().submit(rotor);
-
-        if (tw.cooldown > 0.0f) continue;
-
-        scratch.clear();
-        ctx.world.spatial().query_circle(tf.position, st.range, scratch);
-        const sim::ChaffBuffers& chaff = ctx.world.chaff();
-        const f32 r2 = st.range * st.range;
-        u32 slashes = 0;
-        for (u32 idx : scratch) {
-            if (slashes >= mech(tw.type, tw.tier).blade.max_slash_events) break;
-            if (!chaff_targetable(chaff, idx, st.family_mask)) continue;
-            const Vec2 p{chaff.pos_x[idx], chaff.pos_y[idx]};
-            const Vec2 d = p - tf.position;
-            if (math::length_sq(d) > r2) continue;
-            ++slashes;
-            sim::CombatEvent cut = tower_event(sim::CombatEventType::BladeSlash, tw.type, tw.tier, p);
-            // Blade travel at the contact point is tangential, not radial.
-            cut.direction = perp(math::normalize_safe(d));
-            if (cut.direction.x == 0.0f && cut.direction.y == 0.0f) cut.direction = perp(arm);
-            cut.target_family = static_cast<PathogenFamily>(chaff.family[idx]);
-            cut.radius = st.range;
-            cut.magnitude = 1.0f;
-            ctx.world.combat_events().push(cut);
-        }
-
-        if (slashes > 0) {
-            sim::CombatEvent sweep =
-                tower_event(sim::CombatEventType::MuzzleFlash, tw.type, tw.tier, tf.position);
-            sweep.direction = arm;
-            sweep.radius = st.range;
-            ctx.world.combat_events().push(sweep);
-        }
-
-        // The ONLY targeting path that may return a Burrowed named agent.
-        strike_named(self, ctx, tw, tf.position, st, /*detect_hidden=*/true, 0.0f,
-                     ctx.world.ecs().to_id(e));
-        tw.cooldown = st.fire_interval;
-    }
-}
-
-/// Decrements every live Neutrophil NET, applies chaff_flags::kSlowed to
-/// whatever it overlaps this tick, and destroys expired NETs. ActiveNet is
-/// exclusive to this file, so this fully owns its lifecycle (unlike
-/// comp::Ephemeral â€” see system_ephemeral_drift below).
-void system_net_upkeep(sim::SystemContext& ctx) {
-    static thread_local std::vector<u32> scratch;
-    static thread_local std::vector<entt::entity> expired;
-    expired.clear();
-    auto view = ctx.registry.view<priv::ActiveNet>();
-    for (auto e : view) {
-        priv::ActiveNet& net = view.get<priv::ActiveNet>(e);
-        net.remaining -= ctx.dt;
-        scratch.clear();
-        ctx.world.spatial().query_circle(net.origin, net.radius, scratch);
-        sim::ChaffBuffers& chaff = ctx.world.chaff();
-        const f32 r2 = net.radius * net.radius;
-        for (u32 idx : scratch) {
-            if (idx >= chaff.count()) continue;
-            const f32 dx = chaff.pos_x[idx] - net.origin.x;
-            const f32 dy = chaff.pos_y[idx] - net.origin.y;
-            if (dx * dx + dy * dy > r2) continue;
-            chaff.flags[idx] |= sim::chaff_flags::kSlowed;
-        }
-        if (net.remaining <= 0.0f) expired.push_back(e);
-    }
-    for (entt::entity e : expired) ctx.registry.destroy(e);
-}
+/// World-space diameter of a tower's body sprite: the sprite IS the lump of
+/// cell sitting on the tissue, and its reach is communicated by the range
+/// ring, not the body.
+f32 tower_sprite_size(const TowerStats& st) { return st.footprint_radius * 2.0f; }
 
 /// Decays every live comp::Marked debuff and removes it once it expires.
-/// Marked is a generic, frozen component (sim/ecs/Components.h) that any tower
-/// could in principle apply, but the Goblet Cell (system_hydro, via
-/// strike_named's mark_seconds parameter) is currently the only producer, so
-/// its upkeep lives here next to the mucus system that emplaces it â€” the same
-/// arrangement system_net_upkeep above has with the Neutrophil's NET, and for
-/// the same reason: the component itself carries no lifecycle of its own.
+/// Marked is a generic component (sim/ecs/Components.h) that any system could
+/// apply; the Goblet Cell's splashes (SimWorld::apply_swarmer_effects) are the
+/// only producer, and the component itself carries no lifecycle of its own.
 ///
-/// Unlike ActiveNet, this never re-applies anything to chaff â€” comp::Marked is
-/// exclusively the named-agent half of the weaken debuff (chaff_flags::kMarked
-/// is the chaff half, and nothing ever clears that one at all; see
-/// sim/fluid/Fluid.cpp for why a named agent's version gets a timer instead).
+/// This never re-applies anything to chaff -- comp::Marked is exclusively the
+/// named-agent half of the weaken debuff (chaff_flags::kMarked is the chaff
+/// half, and nothing ever clears that one at all; see sim/fluid/Fluid.cpp).
 void system_marked_upkeep(sim::SystemContext& ctx) {
     static thread_local std::vector<entt::entity> expired;
     expired.clear();
@@ -1271,37 +549,33 @@ void system_marked_upkeep(sim::SystemContext& ctx) {
     for (entt::entity e : expired) ctx.registry.remove<comp::Marked>(e);
 }
 
-/// Integrates position for Ephemeral entities that also carry Velocity â€”
-/// currently only Neutrophil's micro-units, spawned by trigger_ability.
-/// Deliberately does NOT touch comp::Ephemeral::lifetime or destroy anything:
-/// Wave 1D's `named::system_named_cleanup` (registered by `named::install`)
-/// already owns comp::Ephemeral's decay/expiry for the whole sim. Duplicating
-/// that here would double-decrement lifetime and risk destroy()ing an entity
-/// twice in the same tick.
-void system_ephemeral_drift(sim::SystemContext& ctx) {
-    auto view = ctx.registry.view<comp::Ephemeral, comp::Transform, comp::Velocity>();
+/// Same arrangement for comp::Slowed, the named-agent half of the Interferon's
+/// slow. The chaff half expires in sim/zone/SlowZones.cpp.
+void system_slowed_upkeep(sim::SystemContext& ctx) {
+    static thread_local std::vector<entt::entity> expired;
+    expired.clear();
+    auto view = ctx.registry.view<comp::Slowed>();
     for (auto e : view) {
-        comp::Transform& tf = view.get<comp::Transform>(e);
-        const comp::Velocity& vel = view.get<comp::Velocity>(e);
-        tf.position += vel.value * ctx.dt;
+        comp::Slowed& sl = view.get<comp::Slowed>(e);
+        sl.remaining -= ctx.dt;
+        if (sl.remaining <= 0.0f) expired.push_back(e);
     }
+    for (entt::entity e : expired) ctx.registry.remove<comp::Slowed>(e);
 }
 
-/// PreUpdate: decays comp::Tower's own cooldown timers. This one legitimately
-/// needs no TowerSystem access at all.
+/// PreUpdate: decays comp::Tower's own cooldown timers.
 void system_tower_cooldowns(sim::SystemContext& ctx) {
     auto view = ctx.registry.view<comp::Tower>();
     for (auto e : view) {
         comp::Tower& tw = view.get<comp::Tower>(e);
         tw.cooldown = math::max(0.0f, tw.cooldown - ctx.dt);
-        tw.ability_cooldown = math::max(0.0f, tw.ability_cooldown - ctx.dt);
     }
 }
 
 } // namespace
 
 // ---------------------------------------------------------------------------
-// Public API (deliverables 2-4).
+// Public API.
 // ---------------------------------------------------------------------------
 
 const char* tower_type_name(TowerType type) {
@@ -1481,16 +755,16 @@ EntityId TowerSystem::place(sim::SimWorld& world, TowerType type, Vec2 world_pos
     comp::Tower tw;
     tw.type = type;
     tw.tier = 1;
-    tw.range = st.range;
-    // Spin-up: a tower starts one full fire_interval from its first shot rather
-    // than discharging on the tick it is dropped. For the Gunner that is 90ms
-    // and invisible; for the Mortar it is the difference between "placed a
-    // tower" and "instantly deleted the wave you were about to be hit by", and
-    // tests/scripts/tower_thins_horde.json asserts exactly that (no kills on
-    // the placement tick).
+    // A tower has no range; what the component carries is its swarmers'
+    // aggro radius, which is what the HUD ring and the balance bot want.
+    tw.range = tower_mechanics(type, 1).swarm.search_radius;
+    // Spin-up: a tower starts one full fire_interval from its first volley
+    // rather than releasing on the tick it is dropped -- the difference
+    // between "placed a tower" and "instantly answered the wave you were about
+    // to be hit by", and tests/scripts/tower_thins_horde.json asserts exactly
+    // that (no kills on the placement tick).
     tw.cooldown = st.fire_interval;
     tw.fire_interval = st.fire_interval;
-    tw.ability_cooldown = 0.0f;
     registry.emplace<comp::Tower>(e, tw);
     // Shape ids start at kTowerShapeBase so tower and overlay id spaces cannot
     // collide.
@@ -1499,7 +773,7 @@ EntityId TowerSystem::place(sim::SimWorld& world, TowerType type, Vec2 world_pos
     // (type 1) drew as the range-indicator RING, the Cytotoxic T (3) as the
     // telegraph countdown ring, and slot 4 as an elite death burst.
     // Every tower was wearing some other system's overlay.
-    registry.emplace<comp::Sprite>(e, comp::Sprite{Vec4{1.0f, 1.0f, 1.0f, 1.0f}, tower_sprite_size(type, st),
+    registry.emplace<comp::Sprite>(e, comp::Sprite{Vec4{1.0f, 1.0f, 1.0f, 1.0f}, tower_sprite_size(st),
                                                     static_cast<u16>(tower_globals().shape_base + static_cast<u16>(t)),
                                                     /*layer=*/1});
     registry.emplace<priv::TowerRecord>(e, std::move(rec));
@@ -1523,17 +797,15 @@ u8 TowerSystem::upgrade(sim::SimWorld& world, EntityId tower) {
     const TowerStats& next = stats_[static_cast<u32>(tw.type)][next_tier - 1];
 
     tw.tier = next_tier;
-    tw.range = next.range;
+    tw.range = tower_mechanics(tw.type, next_tier).swarm.search_radius;
     tw.fire_interval = next.fire_interval;
 
-    // Keep the body sprite in step with the new tier's stats. This only
-    // actually changes anything for the NK Cell (whose quad tracks st.range so
-    // its blades keep spanning the kill disc â€” see tower_sprite_size); every
-    // other tower has a tier-invariant footprint and re-sizes to the same
-    // value it already had. Done unconditionally anyway so that a future tower
-    // with a growing footprint doesn't silently keep a stale sprite.
+    // Keep the body sprite in step with the new tier's stats. Every shipped
+    // tower has a tier-invariant footprint, so this re-sizes to the value it
+    // already had; done unconditionally so a future tower with a growing
+    // footprint doesn't silently keep a stale sprite.
     if (auto* sprite = registry.try_get<comp::Sprite>(e)) {
-        sprite->size = tower_sprite_size(tw.type, next);
+        sprite->size = tower_sprite_size(next);
     }
 
     if (auto* rec = registry.try_get<priv::TowerRecord>(e)) rec->invested_atp += cur.upgrade_cost;
@@ -1576,62 +848,13 @@ u32 TowerSystem::sell(sim::SimWorld& world, EntityId tower) {
     return refund;
 }
 
-bool TowerSystem::trigger_ability(sim::SimWorld& world, EntityId tower) {
-    ensure_default_stats(*this);
-    entt::registry& registry = world.ecs().registry();
-    const entt::entity e = world.ecs().from_id(tower);
-    if (!registry.valid(e) || !registry.all_of<comp::Tower, comp::Transform>(e)) return false;
-
-    comp::Tower& tw = registry.get<comp::Tower>(e);
-    if (tw.ability_cooldown > 0.0f) return false;
-    const TowerStats& st = stats_[static_cast<u32>(tw.type)][tw.tier - 1];
-    if (st.ability_cooldown <= 0.0f) return false; // this type has no active ability
-
-    const comp::Transform& tf = registry.get<comp::Transform>(e);
-
-    switch (tw.type) {
-    case TowerType::Neutrophil: {
-        // Spawns a few short-lived micro-units that drift outward along the
-        // local flow direction, and drops a timed NET slow zone. Both halves
-        // of the "swarm response" mechanic on one ability, since the header
-        // allows "alternatively/additionally".
-        Vec2 dir = math::normalize_safe(world.flow().sample(tf.position));
-        if (dir.x == 0.0f && dir.y == 0.0f) dir = Vec2{1.0f, 0.0f};
-        for (int i = 0; i < 3; ++i) {
-            const f32 jitter = world.rng().range_f(-0.5f, 0.5f);
-            const f32 c = std::cos(jitter);
-            const f32 s = std::sin(jitter);
-            Vec2 vel{dir.x * c - dir.y * s, dir.x * s + dir.y * c};
-            vel *= math::max(st.range, 1.0f);
-
-            const entt::entity u = registry.create();
-            registry.emplace<comp::Transform>(u, comp::Transform{tf.position, 0.0f, 0.4f});
-            registry.emplace<comp::Velocity>(u, comp::Velocity{vel, math::length(vel)});
-            registry.emplace<comp::Ephemeral>(u, comp::Ephemeral{1.5f, tower});
-            registry.emplace<comp::Sprite>(u, comp::Sprite{Vec4{0.3f, 0.6f, 1.0f, 1.0f}, 0.3f, 100, 2});
-        }
-
-        const entt::entity net = registry.create();
-        registry.emplace<comp::Transform>(net, comp::Transform{tf.position, 0.0f, 1.0f});
-        registry.emplace<comp::Sprite>(net, comp::Sprite{Vec4{0.2f, 0.8f, 0.9f, 0.5f}, st.range, 101, 0});
-        registry.emplace<priv::ActiveNet>(net, priv::ActiveNet{tf.position, st.range, 3.0f, tower});
-        break;
-    }
-    default:
-        return false; // no active ability defined for this type
-    }
-
-    tw.ability_cooldown = st.ability_cooldown;
-    return true;
-}
-
-EntityId TowerSystem::find_target(const sim::SimWorld& world, Vec2 origin, f32 range, u8 family_mask,
-                                  bool require_detect_hidden) const {
+EntityId TowerSystem::find_target(const sim::SimWorld& world, Vec2 origin, f32 radius,
+                                  u8 family_mask) const {
     const entt::registry& registry = world.ecs().registry();
     auto view = registry.view<const comp::NamedAgent, const comp::Transform, const comp::Health>();
 
     entt::entity best = entt::null;
-    f32 best_d2 = range * range;
+    f32 best_d2 = radius * radius;
     for (auto e : view) {
         const comp::NamedAgent& agent = view.get<const comp::NamedAgent>(e);
         const u8 fam_bit = static_cast<u8>(1u << static_cast<u8>(agent.family));
@@ -1640,8 +863,9 @@ EntityId TowerSystem::find_target(const sim::SimWorld& world, Vec2 origin, f32 r
         const comp::Health& health = view.get<const comp::Health>(e);
         if (health.dead()) continue;
 
+        // Burrowed is invisible to the whole roster.
         if (const auto* brain = registry.try_get<comp::AiBrain>(e)) {
-            if (brain->state == comp::AiState::Burrowed && !require_detect_hidden) continue;
+            if (brain->state == comp::AiState::Burrowed) continue;
         }
 
         const comp::Transform& tf = view.get<const comp::Transform>(e);
@@ -1667,26 +891,12 @@ void TowerSystem::register_systems(sim::SimWorld& world) {
 
     ecs.add_system(sim::SystemPhase::PreUpdate, "tower_cooldowns", 20, &system_tower_cooldowns);
 
-    // Sort keys are the canonical roster order (core/Types.h). Fixed order is a
-    // determinism requirement, not a preference: the Gunner draws from the sim
-    // Rng when it fires, so any reshuffle here would move every downstream
-    // system's numbers.
-    ecs.add_system(sim::SystemPhase::Combat, "tower_gunner", 0,
-                   [this](sim::SystemContext& ctx) { system_gunner(*this, ctx); });
-    ecs.add_system(sim::SystemPhase::Combat, "tower_mortar", 1,
-                   [this](sim::SystemContext& ctx) { system_mortar(*this, ctx); });
-    ecs.add_system(sim::SystemPhase::Combat, "tower_cryo", 2,
-                   [this](sim::SystemContext& ctx) { system_cryo(*this, ctx); });
-    ecs.add_system(sim::SystemPhase::Combat, "tower_swarm", 3,
-                   [this](sim::SystemContext& ctx) { system_swarm(*this, ctx); });
-    ecs.add_system(sim::SystemPhase::Combat, "tower_hydro", 4,
-                   [this](sim::SystemContext& ctx) { system_hydro(*this, ctx); });
-    ecs.add_system(sim::SystemPhase::Combat, "tower_blade", 5,
-                   [this](sim::SystemContext& ctx) { system_blade(*this, ctx); });
-    ecs.add_system(sim::SystemPhase::Combat, "tower_net_upkeep", 8, &system_net_upkeep);
+    // One Combat system for the whole roster. Fixed sort keys are a
+    // determinism requirement, not a preference.
+    ecs.add_system(sim::SystemPhase::Combat, "tower_spawner", 0,
+                   [this](sim::SystemContext& ctx) { system_spawner(*this, ctx); });
     ecs.add_system(sim::SystemPhase::Combat, "marked_upkeep", 9, &system_marked_upkeep);
-
-    ecs.add_system(sim::SystemPhase::Movement, "tower_ephemeral_drift", 50, &system_ephemeral_drift);
+    ecs.add_system(sim::SystemPhase::Combat, "slowed_upkeep", 10, &system_slowed_upkeep);
 }
 
 
@@ -1703,6 +913,54 @@ const TowerMechanics& tower_mechanics(TowerType type, u8 tier) {
 const TowerGlobals& tower_globals() {
     init_mechanics_once();
     return g_globals;
+}
+
+sim::SwarmerProfile swarmer_profile(TowerType type, u8 tier) {
+    const TowerMechanics& m = tower_mechanics(type, tier);
+    sim::SwarmerProfile p;
+    p.kind = tower_kind(type);
+    p.source = type;
+
+    p.lifetime = m.swarm.lifetime;
+    p.speed = m.swarm.speed;
+    p.search_radius = m.swarm.search_radius;
+    p.attach_radius = m.swarm.attach_radius;
+    p.size = m.swarm.size;
+
+    p.dps = m.latch.dps;
+
+    p.fire_interval = m.shooter.fire_interval;
+    p.round_damage = m.shooter.round_damage;
+    p.round_speed = m.shooter.round_speed;
+    p.round_hit_radius = m.shooter.round_hit_radius;
+    p.round_spread = m.shooter.round_spread;
+    p.formation_spacing = m.shooter.formation_spacing;
+
+    switch (p.kind) {
+    case sim::SwarmerKind::Bomber:      p.chase_seconds = m.bomber.chase_seconds; break;
+    case sim::SwarmerKind::SlowBomber:  p.chase_seconds = m.slow_bomber.chase_seconds; break;
+    case sim::SwarmerKind::MucusBomber: p.chase_seconds = m.mucus_bomber.chase_seconds; break;
+    default:                            p.chase_seconds = 0.0f; break;
+    }
+
+    p.burst_radius = m.bomber.burst_radius;
+    p.burst_damage = m.bomber.burst_damage;
+    p.burst_seconds = m.bomber.burst_seconds;
+    p.burst_falloff = m.bomber.burst_falloff;
+    p.burst_named_damage = m.bomber.named_damage;
+
+    p.zone_radius = m.slow_bomber.zone_radius;
+    p.zone_duration = m.slow_bomber.zone_duration;
+    p.slow_duration = m.slow_bomber.slow_duration;
+    p.slow_factor = m.slow_bomber.slow_factor;
+
+    p.splash_droplets = m.mucus_bomber.droplets;
+    p.splash_radius = m.mucus_bomber.splash_radius;
+    p.splash_speed = m.mucus_bomber.splash_speed;
+    p.splash_lifetime = m.mucus_bomber.droplet_lifetime;
+    p.splash_dps = m.mucus_bomber.splash_dps;
+    p.mark_seconds = m.mucus_bomber.mark_seconds;
+    return p;
 }
 
 void apply_tower_config(TowerSystem& towers, const TowerConfig& cfg) {

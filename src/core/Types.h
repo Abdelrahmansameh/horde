@@ -59,42 +59,34 @@ inline constexpr u32 kFamilyCount = static_cast<u32>(PathogenFamily::Count);
 
 /// Immune cell tower types (DESIGN.md §5).
 ///
-/// Six archetypes, each a recognizable tower-defense role wearing immune-system
-/// clothing. The role name is what players actually think in ("the gunner"),
-/// the cell name is the fiction and stays the code identifier — DESIGN.md,
+/// Five archetypes, and every one of them is a SPAWNER. A tower does not shoot
+/// a beam or publish a field; it releases a volley of its own small cells
+/// ("swarmers", sim/swarm/Swarmers.h) that fly out, pick a pathogen, and do
+/// the tower's work on contact. The whole roster reads as a horde answering a
+/// horde. What differs per tower is what a swarmer does when it reaches its
+/// target (sim::SwarmerKind), and every number about it is per type and per
+/// tier in assets/config/towers.json.
+///
+/// The cell name is the fiction and stays the code identifier -- DESIGN.md,
 /// level JSON, sim-test scripts, and save files all speak the biological name.
 /// Enum ORDER is the canonical roster order: build menu, stats table rows, and
 /// tower_type_name()/parse_tower_type() all follow it.
 ///
-///   Neutrophil  GUNNER  high-rate single-target stream of real projectiles
-///   Macrophage  MORTAR  slow lobbed vesicle, huge delayed area burst
-///   Interferon  CRYO    signal cone, slows then fully encases
-///   CytotoxicT  TESLA   instantaneous jagged chain between targets
-///   GobletCell  HYDRO   bursts of simulated mucus that splash where they land
-///   NKCell      BLADE   close-range 360 rotor, continuous contact damage
+///   Neutrophil  SHOOTER       swarmers hold a standoff and fire real rounds
+///   Macrophage  BOMBER        swarmers detonate on contact, area damage
+///   Interferon  SLOW BOMBER   swarmers detonate into a timed slow zone
+///   CytotoxicT  LATCH         swarmers latch on and drain (the original)
+///   GobletCell  MUCUS BOMBER  swarmers detonate into a splash of real mucus
 ///
-/// Replaces the earlier 8-type roster; Dendritic and MastCell are retired and
-/// ComplementCascade became Interferon (the Complement Cascade survives as an
-/// active ability, see game/abilities, not as a tower).
-///
-/// Slot 4 was the B Cell (LASER), a straight piercing antibody beam. It is now
-/// the GOBLET CELL, and the change is a design one, not a rename: the beam was
-/// an instantaneous line that had to be axis-snapped to fit an AABB damage
-/// field, which made it the one tower whose visual and whose kill zone were
-/// arguing with each other. The Goblet Cell is the mucosal epithelium's
-/// secretory cell — it exists in real tissue to dump viscous mucin over
-/// invaders — so it fires BURSTS OF ACTUAL FLUID (sim/fluid/Fluid.h), which
-/// travel, pile up, splash off walls and crowds, pool, and expire. Nothing
-/// about that needed an axis snap, and the level set it belongs on (the
-/// mucosal and gut-lining maps) is already in the game.
+/// The NK Cell (a close-range rotor, slot 5) was retired when the roster moved
+/// to the swarmer model: a contact rotor had no swarmer to be.
 enum class TowerType : u8 {
-    Neutrophil = 0,   ///< GUNNER
-    Macrophage = 1,   ///< MORTAR
-    Interferon = 2,   ///< CRYO
-    CytotoxicT = 3,   ///< TESLA
-    GobletCell = 4,   ///< HYDRO
-    NKCell = 5,       ///< BLADE
-    Count = 6
+    Neutrophil = 0,   ///< SHOOTER
+    Macrophage = 1,   ///< BOMBER
+    Interferon = 2,   ///< SLOW BOMBER
+    CytotoxicT = 3,   ///< LATCH
+    GobletCell = 4,   ///< MUCUS BOMBER
+    Count = 5
 };
 
 inline constexpr u32 kTowerTypeCount = static_cast<u32>(TowerType::Count);

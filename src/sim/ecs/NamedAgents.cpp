@@ -224,7 +224,13 @@ void system_named_movement(SystemContext& ctx) {
         // 6. Deterministic per-entity wander.
         accel += wander_impulse(seed ? seed->seed : 0u, ctx.tick, steer.jitter);
 
-        const f32 max_speed = velocity.max_speed * speed_scale;
+        // A live slow (comp::Slowed, the Interferon's zones) scales the top
+        // speed the same way chaff_flags::kSlowed scales a chaff agent's.
+        f32 slow = 1.0f;
+        if (const comp::Slowed* sl = registry.try_get<comp::Slowed>(e)) {
+            if (sl->remaining > 0.0f) slow = math::clamp(sl->factor, 0.0f, 1.0f);
+        }
+        const f32 max_speed = velocity.max_speed * speed_scale * slow;
         velocity.value += accel * steer.accel * ctx.dt;
         velocity.value = math::clamp_length(velocity.value, math::max(max_speed, 0.0f));
         transform.position += velocity.value * ctx.dt;

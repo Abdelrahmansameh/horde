@@ -288,6 +288,35 @@ u32 FluidSystem::emit(FluidBuffers& fluid, const FluidJetParams& jet, f32 dt) co
     return emitted;
 }
 
+u32 FluidSystem::splash(FluidBuffers& fluid, const FluidJetParams& jet, Vec2 origin, f32 radius,
+                        f32 speed, u32 count) const {
+    if (count == 0) return 0;
+    const f32 r = math::max(radius, tuning_.rest_spacing);
+
+    // Sunflower (Vogel) fill: golden-angle spiral with sqrt radial growth puts
+    // `count` points at even density over the disc for ANY count, which is the
+    // same reason emit() uses R2 for its slab. Rotated by the seed so two
+    // splashes on the same tick do not pop in identical formation.
+    constexpr f32 kGolden = 2.399963230f;
+    const f32 spin = hash_unit(jet.seed ^ 0x27D4EB2Fu) * math::kTwoPi;
+
+    u32 emitted = 0;
+    for (u32 n = 0; n < count; ++n) {
+        const f32 fn = static_cast<f32>(n) + 0.5f;
+        const f32 t = std::sqrt(fn / static_cast<f32>(count));   // 0..1, area-uniform
+        const f32 ang = fn * kGolden + spin;
+        const Vec2 radial{std::cos(ang), std::sin(ang)};
+        const Vec2 p = origin + radial * (t * r);
+        const u32 h = hash_u32(jet.seed * 2654435761u + n * 40503u);
+        // Rim droplets fly, centre droplets settle: the blob bursts outward
+        // from a wet middle rather than every droplet leaving at once.
+        const f32 launch = speed * (0.35f + 0.65f * t) * (0.9f + 0.2f * hash_unit(h));
+        if (!fluid.spawn(p, radial * launch, jet)) break;   // store full; drop the rest
+        ++emitted;
+    }
+    return emitted;
+}
+
 // ---------------------------------------------------------------------------
 // Neighbour grid
 // ---------------------------------------------------------------------------

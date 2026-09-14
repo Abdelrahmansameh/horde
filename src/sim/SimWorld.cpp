@@ -2,6 +2,10 @@
 
 #include "core/JobSystem.h"
 #include "core/Math.h"
+#include "sim/ecs/Components.h"
+
+#include <algorithm>
+#include <cmath>
 
 namespace immune::sim {
 namespace {
@@ -115,6 +119,11 @@ void SimWorld::init(const SimDesc& desc, JobSystem* jobs) {
     damage_.reserve(desc.max_damage_fields);
     projectiles_.reserve(desc.max_projectiles);
     swarmers_.reserve(desc.max_swarmers);
+    swarmer_system_.effects().reserve(1024);
+    named_targets_.items.reserve(256);
+    named_targets_.damage.reserve(256);
+    slow_zones_.reserve(desc.max_slow_zones);
+    slow_zones_.clear();
     fluid_.reserve(desc.max_fluid_particles);
     fluid_.clear();
     fluid_system_.configure(desc_.sim_bounds, desc.fluid_tuning);
@@ -195,12 +204,23 @@ void SimWorld::tick(Profiler* profiler) {
                                   rng_, kFixedDt, &combat_events_);
 
     // 4c. Swarmers. Same placement rule and the same reason as projectiles
-    // above: after the ECS tick so this tick's newly released granules exist,
+    // above: after the ECS tick so this tick's newly released units exist,
     // and before the single chaff compaction so a swarmer's drain and a field's
-    // damage on the same agent on the same tick both get counted.
+    // damage on the same agent on the same tick both get counted. The kernel
+    // sees named agents through a flat snapshot built here, and what it asks
+    // for -- bursts, slow circles, splashes, rounds -- lands in the other
+    // stores straight after, so a detonation this tick is a field, a zone, or
+    // fluid by the time the fluid solver below runs.
+    build_named_targets();
     const SwarmerStats swarmer_stats =
-        swarmer_system_.update(swarmers_, chaff_, spatial_, desc_.sim_bounds,
+        swarmer_system_.update(swarmers_, chaff_, spatial_, named_targets_, &sdf_, desc_.sim_bounds,
                                rng_, kFixedDt, &combat_events_);
+    apply_swarmer_effects();
+
+    // 4c'. Slow zones. After the swarmers so a circle dropped this tick starts
+    // slowing on the tick it lands; before the fluid because the fluid brakes
+    // against the crowd's velocities and should see the slowed ones.
+    slow_zones_.update(chaff_, spatial_, kFixedDt);
 
     // 4d. Fluid. Same placement rule and the same reason again -- after the ECS
     // tick so this tick's freshly emitted jet exists, and before the single
@@ -310,6 +330,21 @@ u64 SimWorld::state_hash() const {
         mix(chaff_.density.data(), n * sizeof(f32));
         mix(chaff_.family.data(), n * sizeof(u8));
         mix(chaff_.flags.data(), n * sizeof(u8));
+        // The slow is a timer now, not just a bit: two worlds whose agents are
+        // slowed for different remaining seconds diverge on the next tick.
+        mix(chaff_.slow_remaining.data(), n * sizeof(f32));
+        mix(chaff_.slow_factor.data(), n * sizeof(f32));
+    }
+    // Swarmers steer, choose and kill, so where they are and what they hold
+    // is gameplay state; positions plus targets are enough to catch a
+    // divergence, everything else is derived from those next tick.
+    const usize sn = swarmers_.count();
+    if (sn > 0) {
+        mix(swarmers_.pos_x.data(), sn * sizeof(f32));
+        mix(swarmers_.pos_y.data(), sn * sizeof(f32));
+        mix(swarmers_.target_generation.data(), sn * sizeof(u32));
+        mix(swarmers_.life.data(), sn * sizeof(f32));
+        mix(swarmers_.group.data(), sn * sizeof(u32));
     }
     // The fluid is gameplay state -- it damages, it slows, and where it lands
     // decides both -- so it belongs in the hash. Positions only: velocity and
@@ -329,6 +364,171 @@ u64 SimWorld::state_hash() const {
     mix(&killed_total_, sizeof(killed_total_));
     mix(&leaked_total_, sizeof(leaked_total_));
     return h;
+}
+
+void SimWorld::build_named_targets() {
+    named_targets_.clear();
+    const entt::registry& registry = ecs_.registry();
+    auto view = registry.view<const comp::NamedAgent, const comp::Transform, const comp::Health>();
+    for (auto e : view) {
+        const comp::Health& hp = view.get<const comp::Health>(e);
+        if (hp.dead()) continue;
+        // Burrowed is invisible to every swarmer. This is the one place that
+        // rule is enforced for named agents; chaff enforce it through kHidden
+        // in the kernel's own targetable() test.
+        if (const auto* brain = registry.try_get<comp::AiBrain>(e)) {
+            if (brain->state == comp::AiState::Burrowed) continue;
+        }
+        NamedTarget t;
+        t.id = ecs_.to_id(e);
+        t.position = view.get<const comp::Transform>(e).position;
+        if (const auto* v = registry.try_get<comp::Velocity>(e)) t.velocity = v->value;
+        // Body radius from the sprite, which is what the player sees as the
+        // agent's edge; half its size is the radius.
+        if (const auto* sp = registry.try_get<comp::Sprite>(e)) t.radius = math::max(sp->size * 0.5f, 0.0f);
+        t.armor = hp.armor;
+        t.health = hp.current;
+        if (const auto* mk = registry.try_get<comp::Marked>(e)) t.damage_multiplier = mk->damage_multiplier;
+        t.family = static_cast<u8>(view.get<const comp::NamedAgent>(e).family);
+        named_targets_.add(t);
+    }
+    named_targets_.sort();
+}
+
+void SimWorld::apply_swarmer_effects() {
+    entt::registry& registry = ecs_.registry();
+    SwarmerEffects& fx = swarmer_system_.effects();
+    DamageAttribution* attribution = damage_.attribution();
+
+    // ---- Named-agent hit points the kernel accumulated (latch drains, shooter
+    // rounds). Already armor-adjusted, marked-multiplied and attributed; just
+    // land them.
+    for (usize k = 0; k < named_targets_.items.size(); ++k) {
+        const f32 amount = named_targets_.damage[k];
+        if (amount <= 0.0f) continue;
+        const entt::entity e = ecs_.from_id(named_targets_.items[k].id);
+        if (!registry.valid(e) || !registry.all_of<comp::Health>(e)) continue;
+        registry.get<comp::Health>(e).current -= amount;
+    }
+
+    // ---- Bursts: a timed Circle field for the chaff (the damage system's
+    // job from here), plus a direct hit on every named agent under it.
+    for (const SwarmerBurst& b : fx.bursts) {
+        DamageField field;
+        field.shape = FieldShape::Circle;
+        field.origin = b.origin;
+        field.radius = b.radius;
+        // `damage` is the total a centred agent takes over the burst; the
+        // field wants a rate.
+        field.kill_rate = b.damage / math::max(b.seconds, kFixedDt);
+        field.falloff = b.falloff;
+        field.family_mask = b.family_mask;
+        field.marked_multiplier = chaff_flags::kMarkedDamageMultiplier;
+        field.lifetime = math::max(b.seconds, kFixedDt);
+        field.owner = b.owner;
+        damage_.submit(field);
+
+        if (b.named_damage <= 0.0f) continue;
+        auto view = registry.view<const comp::NamedAgent, const comp::Transform, comp::Health>();
+        for (auto e : view) {
+            comp::Health& hp = view.get<comp::Health>(e);
+            if (hp.dead()) continue;
+            const comp::NamedAgent& na = view.get<const comp::NamedAgent>(e);
+            if ((b.family_mask & static_cast<u8>(1u << static_cast<u8>(na.family))) == 0) continue;
+            const Vec2 pos = view.get<const comp::Transform>(e).position;
+            const f32 d = math::length(pos - b.origin);
+            if (d > b.radius) continue;
+            const f32 t = math::saturate(d / math::max(b.radius, math::kEpsilon));
+            const f32 fall = b.falloff <= 0.0f ? 1.0f : std::pow(1.0f - t, math::max(b.falloff, 0.1f));
+            f32 amount = math::max(0.0f, b.named_damage * fall - hp.armor);
+            if (const auto* mk = registry.try_get<comp::Marked>(e)) amount *= mk->damage_multiplier;
+            if (amount <= 0.0f) continue;
+            const bool was_alive = !hp.dead();
+            hp.current -= amount;
+            if (attribution && b.owner.valid()) {
+                attribution->record_named(b.owner, amount, was_alive && hp.dead());
+            }
+        }
+    }
+
+    // ---- Slow circles: the chaff half is the zone system's; the named half
+    // is refreshed here every tick a named agent stands in a live zone (see
+    // below), so a fresh zone only has to be registered.
+    for (const SwarmerSlowZone& z : fx.zones) {
+        SlowZone zone;
+        zone.origin = z.origin;
+        zone.radius = z.radius;
+        zone.remaining = z.duration;
+        zone.duration = z.duration;
+        zone.slow_duration = z.slow_duration;
+        zone.slow_factor = z.slow_factor;
+        zone.family_mask = z.family_mask;
+        zone.owner = z.owner;
+        zone.source = z.source;
+        zone.visual_id = z.visual_id;
+        slow_zones_.spawn(zone);
+    }
+    if (!slow_zones_.zones().empty()) {
+        auto view = registry.view<const comp::NamedAgent, const comp::Transform, const comp::Health>();
+        for (auto e : view) {
+            if (view.get<const comp::Health>(e).dead()) continue;
+            const Vec2 pos = view.get<const comp::Transform>(e).position;
+            const u8 fam_bit = static_cast<u8>(1u << static_cast<u8>(view.get<const comp::NamedAgent>(e).family));
+            for (const SlowZone& zone : slow_zones_.zones()) {
+                if ((zone.family_mask & fam_bit) == 0) continue;
+                if (math::length_sq(pos - zone.origin) > zone.radius * zone.radius) continue;
+                comp::Slowed& sl = registry.get_or_emplace<comp::Slowed>(e);
+                sl.remaining = math::max(sl.remaining, zone.slow_duration);
+                sl.factor = math::clamp(zone.slow_factor, 0.0f, 1.0f);
+                sl.source = zone.owner;
+            }
+        }
+    }
+
+    // ---- Splashes: real fluid, and a weaken mark on any named agent that
+    // was standing where it landed (the chaff half comes from coverage, in the
+    // fluid solver).
+    for (const SwarmerSplash& s : fx.splashes) {
+        FluidJetParams jet;
+        jet.lifetime = s.lifetime;
+        jet.damage_per_second = s.dps;
+        jet.family_mask = s.family_mask;
+        jet.owner = s.owner;
+        jet.visual_id = s.visual_id;
+        jet.burst_id = static_cast<u16>(s.seed & 0xFFFFu);
+        jet.seed = s.seed;
+        fluid_system_.splash(fluid_, jet, s.origin, s.radius, s.speed, s.droplets);
+
+        if (s.mark_seconds <= 0.0f) continue;
+        auto view = registry.view<const comp::NamedAgent, const comp::Transform, const comp::Health>();
+        for (auto e : view) {
+            if (view.get<const comp::Health>(e).dead()) continue;
+            const Vec2 pos = view.get<const comp::Transform>(e).position;
+            if (math::length_sq(pos - s.origin) > s.radius * s.radius) continue;
+            comp::Marked& mk = registry.get_or_emplace<comp::Marked>(e);
+            mk.remaining = math::max(mk.remaining, s.mark_seconds);
+            mk.damage_multiplier = chaff_flags::kMarkedDamageMultiplier;
+            mk.source = s.owner;
+        }
+    }
+
+    // ---- Rounds: straight into the projectile store. They integrate from
+    // the next tick, which is the same one-tick latency a tower-fired round
+    // always had.
+    for (const SwarmerShot& sh : fx.shots) {
+        ProjectileSpawnParams round;
+        round.position = sh.origin;
+        round.velocity = sh.velocity;
+        round.damage = sh.damage;
+        round.lifetime = sh.lifetime;
+        round.hit_radius = sh.hit_radius;
+        round.family_mask = sh.family_mask;
+        round.owner = sh.owner;
+        round.visual_id = sh.visual_id;
+        projectiles_.spawn(round);
+    }
+
+    fx.clear();
 }
 
 } // namespace immune::sim

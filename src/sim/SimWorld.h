@@ -21,7 +21,7 @@
 //   2. chaff update                [prof: chaff_update]
 //   3. ECS systems                 [prof: ecs_tick]
 //   4. damage fields apply
-//   4b. projectiles, swarmers, fluid
+//   4b. projectiles, swarmers (and what they asked for), slow zones, fluid
 //   4f. chaff death events (must be after every damage source and before
 //       compaction — the only window where a dead agent still has a position)
 //   5. chaff compact + despawn accounting
@@ -43,6 +43,7 @@
 #include "sim/swarm/Swarmers.h"
 #include "sim/spatial/SpatialHash.h"
 #include "sim/squad/Squads.h"
+#include "sim/zone/SlowZones.h"
 
 #include <string>
 #include <vector>
@@ -59,10 +60,14 @@ struct SimDesc {
     /// continuous stream, and a dropped round is invisible but a reallocation
     /// mid-tick is forbidden outright.
     usize max_projectiles = 8192;
-    /// Live Cytotoxic T swarmers. Spawn rate against lifetime sets the standing
-    /// cloud size (see sim/swarm/Swarmers.h); this only has to be above the
-    /// equilibrium a full board of maxed T-cells reaches.
-    usize max_swarmers = 24576;
+    /// Live swarmers across EVERY tower (sim/swarm/Swarmers.h) -- the whole
+    /// roster spawns them now. Spawn rate against lifetime sets each tower's
+    /// standing cloud; this only has to be above the equilibrium a full board
+    /// of maxed towers reaches.
+    usize max_swarmers = 32768;
+    /// Live Interferon slow zones (sim/zone/SlowZones.h). Each is one circle
+    /// query per tick, so this is a cost cap as much as a memory one.
+    usize max_slow_zones = 256;
     /// Live Goblet Cell fluid particles (sim/fluid/Fluid.h). Emission rate is
     /// derived from nozzle geometry rather than authored, so the standing
     /// population is a firm number -- roughly 380 per firing tower at tier 3.
@@ -239,11 +244,29 @@ public:
     const ProjectileBuffers& projectiles() const { return projectiles_; }
     ProjectileSystem& projectile_system() { return projectile_system_; }
 
-    /// The Cytotoxic T's live swarmers. Towers push straight into this store,
+    /// Every tower's live swarmers. Towers push straight into this store,
     /// same arrangement as projectiles.
     SwarmerBuffers& swarmers() { return swarmers_; }
     const SwarmerBuffers& swarmers() const { return swarmers_; }
     SwarmerSystem& swarmer_system() { return swarmer_system_; }
+
+    /// The Interferon's live slow circles.
+    SlowZoneSystem& slow_zones() { return slow_zones_; }
+    const SlowZoneSystem& slow_zones() const { return slow_zones_; }
+
+    /// Rebuilds the swarmer kernel's view of the named agents from the ECS:
+    /// every live, non-Burrowed elite/boss, sorted by id. tick() does this
+    /// itself; exposed so a test that drives the swarmer update by hand sees
+    /// the same targets the real tick would.
+    void build_named_targets();
+    NamedTargetList& named_targets() { return named_targets_; }
+
+    /// Resolves what the last swarmer update asked for -- bursts into the
+    /// damage system, slow circles into slow_zones(), splashes into the fluid,
+    /// rounds into projectiles() -- and applies the hit points the kernel
+    /// accumulated against named agents. tick() calls this right after the
+    /// swarmer update; a test driving the pieces by hand calls it the same way.
+    void apply_swarmer_effects();
 
     /// The Goblet Cell's live fluid. Unlike projectiles and swarmers, towers do
     /// NOT push into this store directly -- they go through
@@ -332,6 +355,8 @@ private:
     ProjectileSystem projectile_system_;
     SwarmerBuffers swarmers_;
     SwarmerSystem swarmer_system_;
+    NamedTargetList named_targets_;
+    SlowZoneSystem slow_zones_;
     FluidBuffers fluid_;
     FluidSystem fluid_system_;
     CombatEventSink combat_events_;

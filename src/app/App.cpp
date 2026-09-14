@@ -278,6 +278,7 @@ void App::poll_config_reload(f32 dt) {
         fresh.sim.capacities.max_chaff != config_.sim.capacities.max_chaff ||
         fresh.sim.capacities.max_projectiles != config_.sim.capacities.max_projectiles ||
         fresh.sim.capacities.max_swarmers != config_.sim.capacities.max_swarmers ||
+        fresh.sim.capacities.max_slow_zones != config_.sim.capacities.max_slow_zones ||
         fresh.sim.globals.spatial_cell_size != config_.sim.globals.spatial_cell_size;
 
     config_ = std::move(fresh);
@@ -324,6 +325,7 @@ bool App::load_level_def(const game::LevelDef& level, const std::string& source_
     desc.max_damage_fields = config_.sim.capacities.max_damage_fields;
     desc.max_projectiles = config_.sim.capacities.max_projectiles;
     desc.max_swarmers = config_.sim.capacities.max_swarmers;
+    desc.max_slow_zones = config_.sim.capacities.max_slow_zones;
     desc.max_fluid_particles = config_.sim.capacities.max_fluid_particles;
     desc.max_combat_events = config_.sim.capacities.max_combat_events;
     desc.max_chaff_death_events = config_.sim.capacities.max_chaff_death_events;
@@ -759,7 +761,6 @@ void App::apply_intents(const std::vector<ui::Intent>& intents) {
             case ui::IntentKind::SellTower:
                 economy_.credit_bounty(towers_.sell(sim_, in.entity));
                 break;
-            case ui::IntentKind::TriggerAbility: towers_.trigger_ability(sim_, in.entity); break;
             case ui::IntentKind::CastAbility: {
                 if (!abilities_.cast(sim_, in.ability_id, in.world_position)) {
                     audio_.post(audio::AudioEvent{audio::SoundId::UiInvalid, in.world_position});
@@ -1060,7 +1061,8 @@ void App::render_frame() {
     // have already been culled from the submission buffer by this point.
     // See DamageSystem::rendered_fields().
     renderer_.submit_fields(sim_.damage().rendered_fields().data(),
-                            sim_.damage().rendered_fields().size());
+                            sim_.damage().rendered_fields().size(),
+                            sim_.slow_zones().zones().data(), sim_.slow_zones().zones().size());
     renderer_.submit_projectiles(sim_.projectiles());
     renderer_.submit_swarmers(sim_.swarmers());
     // After the other matter passes and before the additive particle layer.

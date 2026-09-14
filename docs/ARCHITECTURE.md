@@ -144,16 +144,21 @@ Everything a tick touches hangs off `SimWorld`, and the tick order is fixed:
 1. spatial hash rebuild        [prof: spatial_hash]
 1b. squad centroids + anchors  [prof: squad_update]
 2. chaff update                [prof: chaff_update]
-3. ECS systems                 [prof: ecs_tick]
+3. ECS systems                 [prof: ecs_tick]   (towers release swarmers here)
 4. damage fields apply
+4b. projectiles
+4c. swarmers, then what they asked for (bursts -> fields, slow circles ->
+    slow zones, splashes -> fluid, rounds -> projectiles), then slow zones
+4d. fluid
 5. chaff compact + kill accounting
 6. flow-field incremental rebake pump (budgeted)
 7. tick counter advance
 ```
 
 Changing this order is a contract change. `state_hash()` is an FNV-1a over the
-chaff streams plus counters; `--sim-test` asserts on it to catch determinism
-regressions that don't show up in aggregate counts.
+chaff streams (including the slow timers), the swarmer positions and targets,
+the fluid positions, plus counters; `--sim-test` asserts on it to catch
+determinism regressions that don't show up in aggregate counts.
 
 `SimSnapshot` also carries per-family lifetime tallies —
 `chaff_{spawned,killed,leaked,despawned}_by_family`. These were added for the
@@ -320,9 +325,11 @@ switch and the feel pass picks by playing:
   forked stream to stay deterministic.
 
 Field shape supports Circle / Rect / Cone / Chain (the Complement Cascade
-resolves to a sequence of circle links at evaluation time). `family_mask` lets NK
-Cells hit only hidden targets and Cytotoxic T favour elites. `friendly_fire`
-marks fields that damage the player's own units/objective.
+resolves to a sequence of circle links at evaluation time). `family_mask`
+restricts a field to some pathogen families. `friendly_fire` marks fields that
+damage the player's own units/objective. Since the swarmer roster, the only
+tower-originated field is the Macrophage bomber's timed Circle burst; the
+Complement Cascade ability and scripted hazards are the other casters.
 
 Removed density is attributed to the owning tower and to the economy via
 `DamageStats`. **Nothing may infer kills by diffing agent counts** — under
@@ -332,10 +339,51 @@ crossed.
 **Renderers must read `rendered_fields()`, not `fields()`.** `fields()` is the
 submission buffer, and `clear_transient()` runs at the *end* of `SimWorld::tick`,
 dropping every persistent field on the grounds that its owner re-submits next
-tick. That is right for the sim and wrong for the screen: the Cryo cone and the NK
-rotor are both persistent, so anything drawing after the tick sees the
-permanently-on AoEs as permanently absent.
-`rendered_fields()` is the snapshot taken just before that cull.
+tick. That is right for the sim and wrong for the screen: a persistent field
+(the Complement Cascade's, say) would be seen by anything drawing after the
+tick as permanently absent. `rendered_fields()` is the snapshot taken just
+before that cull.
+
+### 4.5b `sim/swarm` and `sim/zone` — the towers' own horde
+
+Every tower is a **spawner** with no range of its own. On each cooldown,
+for as long as the round is on (`TowerSystem::set_releasing`, driven from the
+wave phase by `game/session/LevelSession.cpp`; off in Prep), it releases a
+volley of swarmers (`sim/swarm/Swarmers.h`) from its face -- toward the
+nearest crowd inside the swarmers' aggro radius, or all round if there is
+none; the swarmers pick a target --
+chaff or named agent, whichever is nearest inside their search radius; Burrowed
+(`kHidden`) is invisible to all of them -- chase it, and do the tower's work on
+contact. What a swarmer does on contact is its `SwarmerKind`, and every number
+about it comes from a `SwarmerProfile` the tower registers per type and tier
+(filled from `towers.json` by `game/towers`):
+
+| Tower | Kind | On contact |
+|---|---|---|
+| Cytotoxic T | Latch | latches on, drains, moves on when the host dies |
+| Neutrophil | Shooter | holds a standoff and fires real rounds into `sim/projectile` |
+| Macrophage | Bomber | detonates into a timed Circle `DamageField` |
+| Interferon | SlowBomber | detonates into a timed slow circle (`sim/zone/SlowZones.h`) |
+| Goblet Cell | MucusBomber | detonates into a splash of real fluid (`sim/fluid`) |
+
+Bombers whose lifetime runs out detonate where they stand; latchers and
+shooters dissolve. Shooters and bombers **stand their ground**: a target that
+leaves the shooter's standoff / the bomber's aggro radius is swapped for the
+nearest other target in reach, and only followed when there is none.
+Shooters released together are a **squad** (`group` + `slot` streams) and
+march and hold as one rank across their approach. Every unit steering on its
+own is projected back onto the tissue against the distance field, the way
+the fluid is, so a volley cannot clip through a vessel wall. The kernel never
+touches those other stores itself: it
+records `SwarmerEffects`, and `SimWorld::apply_swarmer_effects()` lands them
+(and the hit points queued against named agents) right after the update. That
+keeps the kernel testable with a chaff store and a spatial hash alone.
+
+`sim/zone/SlowZones.h` owns the Interferon's circles. A slow is **timed** now:
+`chaff_flags::kSlowed` plus the parallel `slow_remaining` / `slow_factor`
+streams on `ChaffBuffers`, refreshed every tick an agent stands in a zone and
+cleared by the zone system when the clock runs out. Named agents get the same
+through `comp::Slowed`.
 
 ### 4.6 `sim/ecs` — the small half
 
@@ -499,31 +547,34 @@ zero binary assets, shader source is the *only* on-disk art, so hot reload is th
 entire art iteration loop. A failed recompile logs the GLSL error and **keeps the
 previous working program**, so a typo never blanks the screen.
 
-**Tower art lives in two shaders, and they have to agree.** A tower's *body* is a
-procedural SDF in `entity.frag`, selected by `shape_id = 16 + TowerType` (16
-GUNNER, 17 MORTAR, 18 CRYO, 19 TESLA, 20 HYDRO, 21 BLADE); its *attack* is a
-`DamageField` drawn by `field.frag` — except the Goblet Cell, whose attack is
-simulated fluid drawn by its own pass (see `sim/fluid/Fluid.h`). Three rules
-hold body and attack together:
+**Tower art lives in three shaders, and they have to agree.** A tower's *body* is
+a procedural SDF in `entity.frag`, selected by `shape_id = 16 + TowerType` (16
+Neutrophil, 17 Macrophage, 18 Interferon, 19 Cytotoxic T, 20 Goblet Cell); its
+*attack* is its swarmers, drawn from sim state by `swarmer.frag` (tinted by the
+releasing tower, silhouette varied by kind), plus whatever they leave behind:
+the Macrophage's burst and the Interferon's slow circle go through `field.frag`
+(shapes 0 and 5), the Goblet Cell's mucus through the fluid pass (see
+`sim/fluid/Fluid.h`), the Neutrophil's rounds through the projectile pass.
+Three rules hold body and attack together:
 
 - **Identity hue is one colour per tower, everywhere.** `palette_for()` in
   `vfx/Particles.cpp` is the source; the body tints toward it, the particles use
   it, and `submit_fields` tints the AoE with it. Hue is the only channel that
   survives a glance at 60 fps (DESIGN.md §9.3), so a tower must never say two
   different things in two places.
-- **Silhouette is the fallback channel, so no two bodies share one.** Five of the
-  six are amoeboid blobs; the Interferon is deliberately the hard-edged crystal,
-  the Goblet Cell the only vessel-shaped one, and the NK Cell the only rotor.
+- **Silhouette is the fallback channel, so no two bodies share one.** Most are
+  amoeboid blobs; the Interferon is deliberately the hard-edged crystal and the
+  Goblet Cell the only vessel-shaped one.
   Each also carries a *directional* feature aligned to local +x — the
   Macrophage's maw, the Cytotoxic T's flattened synapse face, the Goblet Cell's
   open apical mouth — which `entity.vert` has already rotated onto the aim.
 - **Tier is spent on something countable.** `EntityInstance::shape_param` carries
   the raw tier, and each body turns it into phagosomes / crystal reach /
-  lytic granules / mucin granules / blades, so an upgrade shows in the silhouette
+  lytic granules / mucin granules, so an upgrade shows in the silhouette
   rather than only in the stat panel.
 
-The one field shape two towers share is Circle, split by lifetime: persistent is
-the NK Cell's rotor disc, timed is a Macrophage shell or a Histamine nova.
+Circle fields split by lifetime in `field.frag`: timed is a Macrophage burst or
+a Histamine nova, persistent is unclaimed since the NK Cell's rotor was retired.
 
 `Screenshot` writes PNGs via `stb_image_write` and handles the GL bottom-up →
 PNG top-down flip. This is the project's primary visual verification channel.
@@ -548,8 +599,11 @@ PNG top-down flip. This is the project's primary visual verification channel.
   is a rule the game does not actually have. A successful placement edits the
   tissue mask and marks the flow field dirty over the footprint only. Targeting goes
   through the spatial hash; a tower asks the grid for cells in range and never
-  iterates agents. Anti-chaff towers don't target at all — they publish a
-  `DamageField`.
+  iterates agents. And a tower never damages anything itself: it releases a
+  volley of swarmers (`sim/swarm`, §4.5b) and the swarmers do the work. The
+  per-type/per-tier swarmer table (`TowerMechanics`: the shared `swarm` chassis
+  plus a per-kind `payload`) lives behind `TowerMechanics.h` and is filled from
+  `assets/config/towers.json`.
 - **`enemies/`** — the DESIGN.md §6 readability rule (colour = family, silhouette
   size = threat tier, tempo = speed tier) is enforced *structurally*: those are
   three separate fields sourced from tables, so no archetype can quietly break the

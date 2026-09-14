@@ -2,38 +2,30 @@
 //
 // The file is keyed by tower name and indexed by tier, mirroring
 // TowerSystem::stats(type, tier). Each tier row carries a `stats` object (the
-// frozen TowerStats fields) and a `mechanics` object whose shape is chosen by
-// the tower's ROLE — a hydro row cannot carry a stale burst_radius, because
-// the parser demands exactly the keys that role uses and rejects the rest.
+// TowerStats fields), a `swarm` object (the swarmer chassis every tower
+// shares: volley size, lifetime, speed, aggro and contact radii) and a
+// `payload` object whose shape is chosen by the tower's KIND — a bomber row
+// cannot carry a stale dps, because the parser demands exactly the keys that
+// kind uses and rejects the rest.
 #include "game/config/Schemas.h"
 
 #include <array>
 
 namespace immune::game {
 
-TowerRole tower_role(TowerType type) {
+sim::SwarmerKind tower_kind(TowerType type) {
     switch (type) {
-        case TowerType::Neutrophil: return TowerRole::Gunner;
-        case TowerType::Macrophage: return TowerRole::Mortar;
-        case TowerType::Interferon: return TowerRole::Cryo;
-        case TowerType::CytotoxicT: return TowerRole::Tesla;
-        case TowerType::GobletCell: return TowerRole::Hydro;
-        case TowerType::NKCell:     return TowerRole::Blade;
+        case TowerType::Neutrophil: return sim::SwarmerKind::Shooter;
+        case TowerType::Macrophage: return sim::SwarmerKind::Bomber;
+        case TowerType::Interferon: return sim::SwarmerKind::SlowBomber;
+        case TowerType::CytotoxicT: return sim::SwarmerKind::Latch;
+        case TowerType::GobletCell: return sim::SwarmerKind::MucusBomber;
+        case TowerType::Count:      break;
     }
-    return TowerRole::Gunner;
+    return sim::SwarmerKind::Latch;
 }
 
-const char* tower_role_name(TowerRole role) {
-    switch (role) {
-        case TowerRole::Gunner: return "gunner";
-        case TowerRole::Mortar: return "mortar";
-        case TowerRole::Cryo:   return "cryo";
-        case TowerRole::Tesla:  return "tesla";
-        case TowerRole::Hydro:  return "hydro";
-        case TowerRole::Blade:  return "blade";
-    }
-    return "gunner";
-}
+const char* tower_kind_name(sim::SwarmerKind kind) { return sim::swarmer_kind_name(kind); }
 
 } // namespace immune::game
 
@@ -46,94 +38,78 @@ using config::Json;
 using config::Schema;
 
 IMMUNE_CONFIG_SCHEMA_ASSERT(TowerStats);
-IMMUNE_CONFIG_SCHEMA_ASSERT(GunnerParams);
-IMMUNE_CONFIG_SCHEMA_ASSERT(MortarParams);
-IMMUNE_CONFIG_SCHEMA_ASSERT(CryoParams);
-IMMUNE_CONFIG_SCHEMA_ASSERT(TeslaParams);
-IMMUNE_CONFIG_SCHEMA_ASSERT(HydroParams);
-IMMUNE_CONFIG_SCHEMA_ASSERT(BladeParams);
-IMMUNE_CONFIG_SCHEMA_ASSERT(NetAbilityParams);
+IMMUNE_CONFIG_SCHEMA_ASSERT(SwarmParams);
+IMMUNE_CONFIG_SCHEMA_ASSERT(LatchParams);
+IMMUNE_CONFIG_SCHEMA_ASSERT(ShooterParams);
+IMMUNE_CONFIG_SCHEMA_ASSERT(BomberParams);
+IMMUNE_CONFIG_SCHEMA_ASSERT(SlowBomberParams);
+IMMUNE_CONFIG_SCHEMA_ASSERT(MucusBomberParams);
 IMMUNE_CONFIG_SCHEMA_ASSERT(TowerGlobals);
 
 constexpr Field kStatsFields[] = {
-    IMMUNE_CONFIG_FIELD(TowerStats, range, FieldKind::F32, "Targeting radius, world units"),
-    IMMUNE_CONFIG_FIELD(TowerStats, fire_interval, FieldKind::F32, "Seconds between shots"),
-    IMMUNE_CONFIG_FIELD(TowerStats, damage, FieldKind::F32, "Per-shot damage to named agents"),
-    IMMUNE_CONFIG_FIELD(TowerStats, kill_rate, FieldKind::F32, "Chaff density removed per second in-field"),
+    IMMUNE_CONFIG_FIELD(TowerStats, fire_interval, FieldKind::F32, "Seconds between volleys; volleys never pause inside a round"),
     IMMUNE_CONFIG_FIELD(TowerStats, footprint_radius, FieldKind::F32, "Body radius: tower spacing and sprite size; not an obstacle"),
     IMMUNE_CONFIG_FIELD(TowerStats, build_cost, FieldKind::U32, "ATP to place"),
     IMMUNE_CONFIG_FIELD(TowerStats, upgrade_cost, FieldKind::U32, "ATP to reach the next tier; 0 at max tier"),
-    IMMUNE_CONFIG_FIELD(TowerStats, ability_cooldown, FieldKind::F32, "Seconds; 0 means no active ability"),
     IMMUNE_CONFIG_FIELD(TowerStats, family_mask, FieldKind::U8, "Bitmask of affectable pathogen families; 255 = all"),
 };
 constexpr Schema kStatsSchema{"tower_stats", kStatsFields};
 
-constexpr Field kGunnerFields[] = {
-    IMMUNE_CONFIG_FIELD(GunnerParams, round_speed, FieldKind::F32, "Muzzle velocity, units/sec"),
-    IMMUNE_CONFIG_FIELD(GunnerParams, hit_radius, FieldKind::F32, "Projectile hit radius"),
-    IMMUNE_CONFIG_FIELD(GunnerParams, spread, FieldKind::F32, "Muzzle spread half-angle, radians"),
-    IMMUNE_CONFIG_FIELD(GunnerParams, muzzle_arc_radians, FieldKind::F32,
-                        "Half-angle of the arc the spawn point slides along, radians"),
-    IMMUNE_CONFIG_FIELD(GunnerParams, muzzle_radial_jitter, FieldKind::F32,
-                        "Random in/out spawn offset along the standoff, world units"),
+constexpr Field kSwarmFields[] = {
+    IMMUNE_CONFIG_FIELD(SwarmParams, release_per_shot, FieldKind::U32, "Swarmers released per volley"),
+    IMMUNE_CONFIG_FIELD(SwarmParams, lifetime, FieldKind::F32, "Seconds before a swarmer retires (bombers detonate in place)"),
+    IMMUNE_CONFIG_FIELD(SwarmParams, speed, FieldKind::F32, "Swarmer travel speed"),
+    IMMUNE_CONFIG_FIELD(SwarmParams, search_radius, FieldKind::F32, "Aggro radius: how far a loose swarmer looks for a target; also how far the tower looks to face its volley"),
+    IMMUNE_CONFIG_FIELD(SwarmParams, attach_radius, FieldKind::F32, "Contact radius; a shooter's standoff"),
+    IMMUNE_CONFIG_FIELD(SwarmParams, launch_spread, FieldKind::F32, "Launch cone half-angle, radians"),
+    IMMUNE_CONFIG_FIELD(SwarmParams, size, FieldKind::F32, "Body radius, world units: drawn size and wall clearance"),
 };
-constexpr Schema kGunnerSchema{"gunner", kGunnerFields};
+constexpr Schema kSwarmSchema{"swarm", kSwarmFields};
 
-constexpr Field kMortarFields[] = {
-    IMMUNE_CONFIG_FIELD(MortarParams, burst_seconds, FieldKind::F32, "Lifetime of the burst field"),
-    IMMUNE_CONFIG_FIELD(MortarParams, burst_radius, FieldKind::F32, "Burst circle radius"),
-    IMMUNE_CONFIG_FIELD(MortarParams, burst_falloff, FieldKind::F32, "Damage falloff toward the rim, 0..1"),
-    IMMUNE_CONFIG_FIELD(MortarParams, marked_multiplier, FieldKind::F32, "Damage multiplier against marked agents"),
+constexpr Field kLatchFields[] = {
+    IMMUNE_CONFIG_FIELD(LatchParams, dps, FieldKind::F32, "Density drained per second by one attached swarmer"),
 };
-constexpr Schema kMortarSchema{"mortar", kMortarFields};
+constexpr Schema kLatchSchema{"latch", kLatchFields};
 
-constexpr Field kCryoFields[] = {
-    IMMUNE_CONFIG_FIELD(CryoParams, arc_radians, FieldKind::F32, "Cone half-angle"),
-    IMMUNE_CONFIG_FIELD(CryoParams, inner_fraction, FieldKind::F32, "Fraction of reach counted as fully encased"),
-    IMMUNE_CONFIG_FIELD(CryoParams, cone_falloff, FieldKind::F32, "Damage falloff across the cone"),
-    IMMUNE_CONFIG_FIELD(CryoParams, max_freeze_events, FieldKind::U32, "Cosmetic cap on Freeze events per pulse"),
+constexpr Field kShooterFields[] = {
+    IMMUNE_CONFIG_FIELD(ShooterParams, fire_interval, FieldKind::F32, "Seconds between one swarmer's rounds"),
+    IMMUNE_CONFIG_FIELD(ShooterParams, round_damage, FieldKind::F32, "Density removed by one round; hit points off a named agent"),
+    IMMUNE_CONFIG_FIELD(ShooterParams, round_speed, FieldKind::F32, "Muzzle velocity, units/sec"),
+    IMMUNE_CONFIG_FIELD(ShooterParams, round_hit_radius, FieldKind::F32, "Projectile hit radius"),
+    IMMUNE_CONFIG_FIELD(ShooterParams, round_spread, FieldKind::F32, "Aim jitter half-angle, radians"),
+    IMMUNE_CONFIG_FIELD(ShooterParams, formation_spacing, FieldKind::F32, "Distance between squad-mates along the rank"),
 };
-constexpr Schema kCryoSchema{"cryo", kCryoFields};
+constexpr Schema kShooterSchema{"shooter", kShooterFields};
 
-constexpr Field kTeslaFields[] = {
-    IMMUNE_CONFIG_FIELD(TeslaParams, release_per_shot, FieldKind::U32, "Swarmers released per shot"),
-    IMMUNE_CONFIG_FIELD(TeslaParams, swarmer_lifetime, FieldKind::F32, "Seconds before a granule dissolves"),
-    IMMUNE_CONFIG_FIELD(TeslaParams, swarmer_speed, FieldKind::F32, "Granule travel speed"),
-    IMMUNE_CONFIG_FIELD(TeslaParams, swarmer_dps, FieldKind::F32, "Density drained per second by one attached granule"),
-    IMMUNE_CONFIG_FIELD(TeslaParams, attach_radius, FieldKind::F32, "How close a granule latches"),
-    IMMUNE_CONFIG_FIELD(TeslaParams, search_radius, FieldKind::F32, "How far a loose granule looks for a host"),
-    IMMUNE_CONFIG_FIELD(TeslaParams, launch_spread, FieldKind::F32, "Launch cone half-angle, radians"),
+constexpr Field kBomberFields[] = {
+    IMMUNE_CONFIG_FIELD(BomberParams, chase_seconds, FieldKind::F32, "Seconds a bomber chases one target before detonating where it is"),
+    IMMUNE_CONFIG_FIELD(BomberParams, burst_radius, FieldKind::F32, "Burst circle radius"),
+    IMMUNE_CONFIG_FIELD(BomberParams, burst_damage, FieldKind::F32, "Density an agent at the centre loses over the burst"),
+    IMMUNE_CONFIG_FIELD(BomberParams, burst_seconds, FieldKind::F32, "Lifetime of the burst field"),
+    IMMUNE_CONFIG_FIELD(BomberParams, burst_falloff, FieldKind::F32, "Damage falloff toward the rim, 0..1"),
+    IMMUNE_CONFIG_FIELD(BomberParams, named_damage, FieldKind::F32, "Hit points off a named agent at the centre, before armor"),
 };
-constexpr Schema kTeslaSchema{"tesla", kTeslaFields};
+constexpr Schema kBomberSchema{"bomber", kBomberFields};
 
-constexpr Field kHydroFields[] = {
-    IMMUNE_CONFIG_FIELD(HydroParams, burst_seconds, FieldKind::F32, "How long one trigger pull keeps spraying"),
-    IMMUNE_CONFIG_FIELD(HydroParams, jet_speed, FieldKind::F32, "Muzzle velocity of the jet, units/sec"),
-    IMMUNE_CONFIG_FIELD(HydroParams, nozzle_radius, FieldKind::F32, "Half-width of the nozzle mouth; sets beam thickness and flow rate"),
-    IMMUNE_CONFIG_FIELD(HydroParams, spread, FieldKind::F32, "Launch cone half-angle, radians"),
-    IMMUNE_CONFIG_FIELD(HydroParams, droplet_lifetime, FieldKind::F32, "Seconds a droplet survives after leaving the cell"),
-    IMMUNE_CONFIG_FIELD(HydroParams, flow_scale, FieldKind::F32, "Multiplier on the derived emission rate; 1 = rest density"),
-    IMMUNE_CONFIG_FIELD(HydroParams, mark_seconds, FieldKind::F32, "Seconds a named agent stays weakened after this tower strikes it"),
+constexpr Field kSlowBomberFields[] = {
+    IMMUNE_CONFIG_FIELD(SlowBomberParams, chase_seconds, FieldKind::F32, "Seconds a bomber chases one target before detonating where it is"),
+    IMMUNE_CONFIG_FIELD(SlowBomberParams, zone_radius, FieldKind::F32, "Slow circle radius"),
+    IMMUNE_CONFIG_FIELD(SlowBomberParams, zone_duration, FieldKind::F32, "Seconds the circle stays on the ground"),
+    IMMUNE_CONFIG_FIELD(SlowBomberParams, slow_duration, FieldKind::F32, "Seconds an agent stays slowed after leaving the circle"),
+    IMMUNE_CONFIG_FIELD(SlowBomberParams, slow_factor, FieldKind::F32, "Max-speed multiplier while slowed; 0.4 = 40% speed"),
 };
-constexpr Schema kHydroSchema{"hydro", kHydroFields};
+constexpr Schema kSlowBomberSchema{"slow_bomber", kSlowBomberFields};
 
-constexpr Field kBladeFields[] = {
-    IMMUNE_CONFIG_FIELD(BladeParams, spin_rad_per_sec, FieldKind::F32, "Rotor angular velocity"),
-    IMMUNE_CONFIG_FIELD(BladeParams, rotor_falloff, FieldKind::F32, "Damage falloff across the rotor"),
-    IMMUNE_CONFIG_FIELD(BladeParams, max_slash_events, FieldKind::U32, "Cosmetic cap on BladeSlash events per pulse"),
+constexpr Field kMucusBomberFields[] = {
+    IMMUNE_CONFIG_FIELD(MucusBomberParams, chase_seconds, FieldKind::F32, "Seconds a bomber chases one target before detonating where it is"),
+    IMMUNE_CONFIG_FIELD(MucusBomberParams, droplets, FieldKind::U32, "Fluid particles one splash puts down"),
+    IMMUNE_CONFIG_FIELD(MucusBomberParams, splash_radius, FieldKind::F32, "Radius the droplets fill at the instant of the splash"),
+    IMMUNE_CONFIG_FIELD(MucusBomberParams, splash_speed, FieldKind::F32, "Outward launch speed of the rim droplets"),
+    IMMUNE_CONFIG_FIELD(MucusBomberParams, droplet_lifetime, FieldKind::F32, "Seconds a droplet survives"),
+    IMMUNE_CONFIG_FIELD(MucusBomberParams, splash_dps, FieldKind::F32, "Density removed per second from a fully soaked coverage cell"),
+    IMMUNE_CONFIG_FIELD(MucusBomberParams, mark_seconds, FieldKind::F32, "Seconds a named agent inside the splash stays weakened"),
 };
-constexpr Schema kBladeSchema{"blade", kBladeFields};
-
-constexpr Field kNetFields[] = {
-    IMMUNE_CONFIG_FIELD(NetAbilityParams, micro_units, FieldKind::U32, "Micro-units spawned"),
-    IMMUNE_CONFIG_FIELD(NetAbilityParams, spread_jitter, FieldKind::F32, "Launch angle jitter, radians"),
-    IMMUNE_CONFIG_FIELD(NetAbilityParams, micro_lifetime, FieldKind::F32, "Micro-unit lifetime, seconds"),
-    IMMUNE_CONFIG_FIELD(NetAbilityParams, micro_sprite_size, FieldKind::F32, ""),
-    IMMUNE_CONFIG_FIELD(NetAbilityParams, net_duration, FieldKind::F32, "Seconds the slow zone persists"),
-    IMMUNE_CONFIG_FIELD(NetAbilityParams, micro_tint, FieldKind::Vec4, "RGBA"),
-    IMMUNE_CONFIG_FIELD(NetAbilityParams, net_tint, FieldKind::Vec4, "RGBA"),
-};
-constexpr Schema kNetSchema{"net_ability", kNetFields};
+constexpr Schema kMucusBomberSchema{"mucus_bomber", kMucusBomberFields};
 
 constexpr Field kGlobalsFields[] = {
     IMMUNE_CONFIG_FIELD(TowerGlobals, refund_fraction, FieldKind::F32, "Filled from economy.json; kept here for addressing"),
@@ -141,36 +117,36 @@ constexpr Field kGlobalsFields[] = {
 };
 constexpr Schema kGlobalsSchema{"tower_globals", kGlobalsFields};
 
-/// The mechanics schema and the sub-struct offset for one role. Selecting both
-/// from the role is what keeps a tier row's mechanics object exactly the shape
+/// The payload schema and the sub-struct offset for one kind. Selecting both
+/// from the kind is what keeps a tier row's payload object exactly the shape
 /// its tower actually reads.
-struct RoleBinding {
+struct KindBinding {
     const Schema* schema;
     usize offset;
 };
 
-RoleBinding role_binding(TowerRole role) {
-    switch (role) {
-        case TowerRole::Gunner: return {&kGunnerSchema, offsetof(TowerMechanics, gunner)};
-        case TowerRole::Mortar: return {&kMortarSchema, offsetof(TowerMechanics, mortar)};
-        case TowerRole::Cryo:   return {&kCryoSchema,   offsetof(TowerMechanics, cryo)};
-        case TowerRole::Tesla:  return {&kTeslaSchema,  offsetof(TowerMechanics, tesla)};
-        case TowerRole::Hydro:  return {&kHydroSchema,  offsetof(TowerMechanics, hydro)};
-        case TowerRole::Blade:  return {&kBladeSchema,  offsetof(TowerMechanics, blade)};
+KindBinding kind_binding(sim::SwarmerKind kind) {
+    switch (kind) {
+        case sim::SwarmerKind::Latch:       return {&kLatchSchema,      offsetof(TowerMechanics, latch)};
+        case sim::SwarmerKind::Shooter:     return {&kShooterSchema,    offsetof(TowerMechanics, shooter)};
+        case sim::SwarmerKind::Bomber:      return {&kBomberSchema,     offsetof(TowerMechanics, bomber)};
+        case sim::SwarmerKind::SlowBomber:  return {&kSlowBomberSchema, offsetof(TowerMechanics, slow_bomber)};
+        case sim::SwarmerKind::MucusBomber: return {&kMucusBomberSchema, offsetof(TowerMechanics, mucus_bomber)};
+        case sim::SwarmerKind::Count:       break;
     }
-    return {&kGunnerSchema, offsetof(TowerMechanics, gunner)};
+    return {&kLatchSchema, offsetof(TowerMechanics, latch)};
 }
 
-void* mechanics_arm(TowerMechanics& m, TowerRole role) {
-    return reinterpret_cast<u8*>(&m) + role_binding(role).offset;
+void* payload_arm(TowerMechanics& m, sim::SwarmerKind kind) {
+    return reinterpret_cast<u8*>(&m) + kind_binding(kind).offset;
 }
 
-const void* mechanics_arm(const TowerMechanics& m, TowerRole role) {
-    return reinterpret_cast<const u8*>(&m) + role_binding(role).offset;
+const void* payload_arm(const TowerMechanics& m, sim::SwarmerKind kind) {
+    return reinterpret_cast<const u8*>(&m) + kind_binding(kind).offset;
 }
 
-constexpr std::string_view kTierRowKeys[] = {"stats", "mechanics"};
-constexpr std::string_view kTowerEntryKeys[] = {"role", "tiers"};
+constexpr std::string_view kTierRowKeys[] = {"stats", "swarm", "payload"};
+constexpr std::string_view kTowerEntryKeys[] = {"kind", "tiers"};
 
 } // namespace
 
@@ -181,11 +157,6 @@ void parse_towers(const Json& doc, TowerConfig& out, config::Ctx& ctx) {
         config::Ctx::Scope scope(ctx, "globals");
         config::parse_struct(config::require_object(doc, "globals", ctx), kGlobalsSchema,
                              &out.globals, ctx);
-    }
-    {
-        config::Ctx::Scope scope(ctx, "net_ability");
-        config::parse_struct(config::require_object(doc, "net_ability", ctx), kNetSchema,
-                             &out.net, ctx);
     }
 
     const Json& towers = config::require_object(doc, "towers", ctx);
@@ -203,20 +174,20 @@ void parse_towers(const Json& doc, TowerConfig& out, config::Ctx& ctx) {
         for (u32 t = 0; t < kTowerTypeCount; ++t) {
             const auto type = static_cast<TowerType>(t);
             const char* name = tower_type_name(type);
-            const TowerRole role = tower_role(type);
-            const RoleBinding binding = role_binding(role);
+            const sim::SwarmerKind kind = tower_kind(type);
+            const KindBinding binding = kind_binding(kind);
 
             config::Ctx::Scope tower_scope(ctx, name);
             const Json& entry = config::require_object(towers, name, ctx);
             config::reject_unknown_keys(entry, kTowerEntryKeys, ctx);
 
-            // `role` is derived from the type, so it is validated rather than
+            // `kind` is derived from the type, so it is validated rather than
             // read: it documents the file for a human without letting one
             // claim a tower is something the code cannot build.
-            const std::string declared_role = config::require_string(entry, "role", ctx);
-            if (declared_role != tower_role_name(role)) {
-                ctx.fail("role is '" + declared_role + "' but " + name + " is a " +
-                         tower_role_name(role) + " (role is fixed by the tower type)");
+            const std::string declared_kind = config::require_string(entry, "kind", ctx);
+            if (declared_kind != tower_kind_name(kind)) {
+                ctx.fail("kind is '" + declared_kind + "' but " + name + " is a " +
+                         tower_kind_name(kind) + " (kind is fixed by the tower type)");
             }
 
             const Json& tiers = config::require_array(entry, "tiers", ctx);
@@ -233,10 +204,15 @@ void parse_towers(const Json& doc, TowerConfig& out, config::Ctx& ctx) {
                                          &out.stats[t][tier], ctx);
                 }
                 {
-                    config::Ctx::Scope s(ctx, "mechanics");
-                    config::parse_struct(config::require_object(row, "mechanics", ctx),
+                    config::Ctx::Scope s(ctx, "swarm");
+                    config::parse_struct(config::require_object(row, "swarm", ctx), kSwarmSchema,
+                                         &out.mechanics[t][tier].swarm, ctx);
+                }
+                {
+                    config::Ctx::Scope s(ctx, "payload");
+                    config::parse_struct(config::require_object(row, "payload", ctx),
                                          *binding.schema,
-                                         mechanics_arm(out.mechanics[t][tier], role), ctx);
+                                         payload_arm(out.mechanics[t][tier], kind), ctx);
                 }
             }
         }
@@ -254,53 +230,52 @@ Json dump_towers(const TowerConfig& cfg) {
     Json towers = Json::object();
     for (u32 t = 0; t < kTowerTypeCount; ++t) {
         const auto type = static_cast<TowerType>(t);
-        const TowerRole role = tower_role(type);
-        const RoleBinding binding = role_binding(role);
+        const sim::SwarmerKind kind = tower_kind(type);
+        const KindBinding binding = kind_binding(kind);
 
         Json tiers = Json::array();
         for (u32 tier = 0; tier < 3; ++tier) {
             Json stats = Json::object();
             config::dump_struct(stats, kStatsSchema, &cfg.stats[t][tier]);
-            Json mechanics = Json::object();
-            config::dump_struct(mechanics, *binding.schema,
-                                mechanics_arm(cfg.mechanics[t][tier], role));
+            Json swarm = Json::object();
+            config::dump_struct(swarm, kSwarmSchema, &cfg.mechanics[t][tier].swarm);
+            Json payload = Json::object();
+            config::dump_struct(payload, *binding.schema,
+                                payload_arm(cfg.mechanics[t][tier], kind));
 
             Json row = Json::object();
             row["stats"] = std::move(stats);
-            row["mechanics"] = std::move(mechanics);
+            row["swarm"] = std::move(swarm);
+            row["payload"] = std::move(payload);
             tiers.push_back(std::move(row));
         }
 
         Json entry = Json::object();
-        entry["role"] = tower_role_name(role);
+        entry["kind"] = tower_kind_name(kind);
         entry["tiers"] = std::move(tiers);
         towers[tower_type_name(type)] = std::move(entry);
     }
     doc["towers"] = std::move(towers);
-
-    Json net = Json::object();
-    config::dump_struct(net, kNetSchema, &cfg.net);
-    doc["net_ability"] = std::move(net);
 
     return doc;
 }
 
 void bind_towers(config::Registry& registry, TowerConfig& cfg) {
     registry.bind("towers.globals", kGlobalsSchema, &cfg.globals);
-    registry.bind("towers.net_ability", kNetSchema, &cfg.net);
 
     for (u32 t = 0; t < kTowerTypeCount; ++t) {
         const auto type = static_cast<TowerType>(t);
-        const TowerRole role = tower_role(type);
-        const RoleBinding binding = role_binding(role);
+        const sim::SwarmerKind kind = tower_kind(type);
+        const KindBinding binding = kind_binding(kind);
         const std::string base = std::string("towers.") + tower_type_name(type) + ".";
         for (u32 tier = 0; tier < 3; ++tier) {
             // Tier is spelled 1..3 in a path, matching what the player and the
             // gym command see, not the 0-based array index.
             const std::string row = base + std::to_string(tier + 1) + ".";
             registry.bind(row + "stats", kStatsSchema, &cfg.stats[t][tier]);
-            registry.bind(row + "mechanics", *binding.schema,
-                          mechanics_arm(cfg.mechanics[t][tier], role));
+            registry.bind(row + "swarm", kSwarmSchema, &cfg.mechanics[t][tier].swarm);
+            registry.bind(row + "payload", *binding.schema,
+                          payload_arm(cfg.mechanics[t][tier], kind));
         }
     }
 }

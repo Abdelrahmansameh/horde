@@ -157,7 +157,7 @@ TEST_CASE("save/load round-trips every field including currency and loadout", "[
     MetaProgression meta;
     meta.reset_to_new_game();
     meta.credit(777);
-    meta.unlock_tower(TowerType::NKCell);
+    meta.unlock_tower(TowerType::GobletCell);
     meta.record_level_complete("capillary_01");
 
     const std::string json = R"JSON({

@@ -22,8 +22,10 @@
 //                             fanning out, riming over toward the far edge
 //     3 = Chain               Cytotoxic T discharge — crackling rings plus
 //                             radial filaments
-//     4 = Circle, PERSISTENT  NK Cell rotor disc — deliberately the quietest
-//                             thing in this file; see its branch
+//     4 = Circle, PERSISTENT  unclaimed (was the NK Cell rotor disc) —
+//                             deliberately the quietest thing in this file
+//     5 = Slow zone           Interferon slow circle (sim/zone/SlowZones.h):
+//                             a rimed disc of frost that agents wade through
 //
 // The tint arrives already set to the casting tower's identity hue (see
 // submit_fields), so nothing here picks a colour from scratch — the shapes only
@@ -207,18 +209,39 @@ void main() {
         rgb = mix(rgb, vec3(1.0), clamp(pore * 0.85, 0.0, 1.0));
         cap = 0.72;
 
+    } else if (v_shape_id == 5u) {
+        // ---------------------------------------------------------------
+        // INTERFERON SLOW ZONE. A circle a swarmer left on the ground, that
+        // slows what walks through it. It has to read as a PLACE — a patch of
+        // tissue that has gone cold and stays that way for a few seconds —
+        // rather than as an explosion, so nothing here flashes or expands.
+        //
+        // Cues: a crystalline rim (hexagonal-ish striations, because it is
+        // frost, not fog), a frosted fill that thickens toward the edge, and
+        // slow-drifting rime inside. The fill stays low so the slowed agents
+        // inside it remain legible; the rim carries the boundary.
+        // ---------------------------------------------------------------
+        float dist = length(v_local);
+        float t = clamp(dist / 0.5, 0.0, 1.0);
+        float edge = 1.0 - smoothstep(0.44, 0.52, dist);
+        float rim = 1.0 - smoothstep(0.0, 0.07, abs(dist - 0.44));
+        float ang = atan(v_local.y, v_local.x);
+        // Six-fold striation so the rim reads as crystal rather than as a
+        // drawn circle; slow drift so it is alive without ever "pulsing".
+        float crystal = 0.55 + 0.45 * pow(abs(sin(ang * 6.0 + dist * 14.0 - u_time * 0.8)), 2.0);
+        float rime = fbm2(v_local * 9.0 + vec2(u_time * 0.15, -u_time * 0.1));
+        float fill = mix(0.16, 0.34, rime) * (0.35 + 0.65 * smoothstep(0.0, 1.0, t));
+
+        alpha = edge * (fill + rim * 0.75 * crystal);
+        rgb = mix(rgb, vec3(1.0), clamp(rim * crystal * 0.55 + rime * 0.18, 0.0, 1.0));
+        cap = 0.62;
+
     } else if (v_shape_id == 4u) {
         // ---------------------------------------------------------------
-        // NK CELL ROTOR DISC — and the whole design problem here is that this
-        // field is REDUNDANT. The NK Cell's body is already drawn at exactly
-        // this radius, with blades sweeping the whole disc and glowing granules
-        // marking its boundary (entity.frag, sdf_nk_cell). A field painted at
-        // full strength on top of that is a second, dimmer copy of a silhouette
-        // the player is already reading, and it fogs the blades it sits under.
-        //
-        // So this is deliberately the quietest branch in the file: a boundary
-        // ring that reinforces where the kill zone stops, and barely any fill.
-        // The tower's own body is the star; this is its floor shadow.
+        // PERSISTENT CIRCLE, unclaimed since the NK Cell's rotor disc was
+        // retired. Deliberately the quietest branch in the file: a boundary
+        // ring that says where the disc stops, and barely any fill, so
+        // whatever body sits on top of it stays the star.
         // ---------------------------------------------------------------
         float dist = length(v_local);
         float rim = 1.0 - smoothstep(0.0, 0.045, abs(dist - 0.47));

@@ -55,12 +55,6 @@ namespace {
 
 constexpr f32 kSeparationEpsSq = 1e-8f;
 
-// DESIGN.md leaves the exact NET/snare slow factor as a feel-pass number (no
-// data table exists yet — Wave 2C owns tuning). This is the one clearly-named
-// constant standing in for it so kSlowed has an observable effect now instead
-// of silently doing nothing.
-constexpr f32 kSlowedSpeedMultiplier = 0.4f;
-
 /// Everything one agent learns about its neighbourhood, from ONE walk of the
 /// 3x3 cells around it.
 struct NeighbourSample {
@@ -614,6 +608,7 @@ ChaffUpdateStats ChaffSystem::update(ChaffBuffers& buffers, const FlowField& flo
     const u8* fam = buffers.family.data();
     const u8* flg = buffers.flags.data();
     const u16* sqid = buffers.squad_id.data();
+    const f32* slow_factor = buffers.slow_factor.data();
     const f32* old_px = old_pos_x_.data();
     const f32* old_py = old_pos_y_.data();
     const f32* old_vx = old_vel_x_.data();
@@ -676,7 +671,7 @@ ChaffUpdateStats ChaffSystem::update(ChaffBuffers& buffers, const FlowField& flo
             const bool hidden = (flags_i & chaff_flags::kHidden) != 0;
             if (hidden) {
                 // Burrowed: no flow, no separation, no jitter, no replication —
-                // reads as the agent going still while only NK Cells can find
+                // reads as the agent going still while nothing can target
                 // it (DESIGN.md §5). Zero velocity so pass B is a no-op integrate.
                 vx[i] = 0.0f;
                 vy[i] = 0.0f;
@@ -930,7 +925,10 @@ ChaffUpdateStats ChaffSystem::update(ChaffBuffers& buffers, const FlowField& flo
 
             vx[i] = v.x;
             vy[i] = v.y;
-            max_speed_scratch[i] = fp.max_speed * (slowed ? kSlowedSpeedMultiplier : 1.0f);
+            // The slow's strength is per agent (ChaffBuffers::slow_factor),
+            // written by whichever slow zone last touched it; its expiry is the
+            // zone system's job, not this kernel's.
+            max_speed_scratch[i] = fp.max_speed * (slowed ? slow_factor[i] : 1.0f);
 
             if (fp.replication_rate > 0.0f && local_rng.chance(fp.replication_rate * dt)) {
                 replicate_wanted[i] = 1u;

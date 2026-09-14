@@ -95,7 +95,7 @@ TEST_CASE("Fever Response relieves every placed tower's current cooldown, and on
     const auto e1 = registry.create();
     registry.emplace<comp::Tower>(e1, comp::Tower{TowerType::Macrophage, 1, 8.0f, 5.0f, 1.0f});
     const auto e2 = registry.create();
-    registry.emplace<comp::Tower>(e2, comp::Tower{TowerType::NKCell, 1, 8.0f, 1.0f, 1.0f});
+    registry.emplace<comp::Tower>(e2, comp::Tower{TowerType::GobletCell, 1, 8.0f, 1.0f, 1.0f});
 
     REQUIRE(world.damage().fields().empty());
     REQUIRE(abilities.cast(world, AbilityId::FeverResponse, Vec2{0.0f, 0.0f}));

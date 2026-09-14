@@ -47,7 +47,7 @@ enum class AiState : u8 {
     Advancing,     ///< Following the flow field.
     Telegraphing,  ///< Wind-up before an attack; UI shows the tell.
     Attacking,
-    Burrowed,      ///< Hidden; only detection towers (NK Cells) may target.
+    Burrowed,      ///< Hidden; no tower or swarmer may target it.
     Fleeing,
     Dying,
 };
@@ -76,19 +76,30 @@ struct Tower {
     TowerType type = TowerType::Macrophage;
     u8 tier = 1;              ///< 1..3 upgrade tier.
     f32 range = 8.0f;
-    f32 cooldown = 0.0f;      ///< Seconds until the next shot/pulse.
+    f32 cooldown = 0.0f;      ///< Seconds until the next volley.
     f32 fire_interval = 1.0f;
-    f32 ability_cooldown = 0.0f;
     EntityId current_target{};
 };
 
 /// The named-agent half of the weaken debuff (chaff_flags::kMarked is the chaff
-/// half). Currently applied only by the Goblet Cell (see system_hydro in
-/// game/towers/TowerSystem.cpp), which also owns decaying and removing it —
-/// this component carries no lifecycle of its own.
+/// half). Applied by the Goblet Cell's mucus splashes (SimWorld resolves the
+/// swarmer effect); decayed and removed by game/towers/TowerSystem.cpp's
+/// marked_upkeep — this component carries no lifecycle of its own.
 struct Marked {
     f32 remaining = 0.0f;
     f32 damage_multiplier = 1.5f;
+    EntityId source{};
+};
+
+/// The named-agent half of the slow debuff (chaff_flags::kSlowed plus
+/// ChaffBuffers::slow_remaining / slow_factor are the chaff half). Applied by
+/// the Interferon's slow zones (sim/zone/SlowZones.cpp), refreshed every tick
+/// the agent stays inside one; system_named_movement scales max speed by
+/// `factor` while `remaining` > 0. Same no-lifecycle arrangement as Marked:
+/// game/towers/TowerSystem.cpp's slowed_upkeep decays and removes it.
+struct Slowed {
+    f32 remaining = 0.0f;
+    f32 factor = 0.4f;
     EntityId source{};
 };
 

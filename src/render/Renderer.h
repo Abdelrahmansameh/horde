@@ -46,6 +46,7 @@ class TissueMask;
 class DistanceField;
 class ProjectileBuffers;
 class SwarmerBuffers;
+struct SlowZone;
 class FluidBuffers;
 struct DamageField;
 }
@@ -67,7 +68,7 @@ struct RendererDesc {
     u32 max_entity_instances = 4096;
     /// Live simulated rounds drawable in one frame.
     u32 max_projectile_instances = 16384;
-    /// Live Cytotoxic T granules. See sim/swarm/Swarmers.h for how the standing
+    /// Live swarmers across every tower. See sim/swarm/Swarmers.h for how the standing
     /// cloud size is set; this only has to clear the equilibrium a full board
     /// of maxed T-cells reaches.
     u32 max_swarmer_instances = 49152;
@@ -128,8 +129,8 @@ struct EntityInstance {
     u32 shape_id;      ///< procedural SDF shape selector
     f32 anim_phase;
     /// Extra per-shape parameter; its meaning is defined by `shape_id`, and it
-    /// is 0 for shapes that don't declare one. Today only the NK Cell body
-    /// (shape 21) reads it, as the blade count to draw. Was dead padding
+    /// is 0 for shapes that don't declare one. Every tower body reads it as
+    /// the tier, the clot bar as its aspect. Was dead padding
     /// before — the 32-byte layout is unchanged, so entity.vert's byte-for-byte
     /// contract still holds.
     f32 shape_param;
@@ -273,8 +274,12 @@ public:
     void submit_entities(const sim::EcsWorld& ecs);
 
     /// Damage/AoE fields as fluid shader effects (DESIGN.md §8.5): toxin clouds,
-    /// histamine blooms, antibody tides, complement lightning.
-    void submit_fields(const sim::DamageField* fields, usize count);
+    /// histamine blooms, antibody tides, complement lightning. The Interferon's
+    /// slow circles (sim/zone/SlowZones.h) ride the same pass as their own
+    /// shape, so pass them alongside; they share the instance buffer and the
+    /// draw call.
+    void submit_fields(const sim::DamageField* fields, usize count,
+                       const sim::SlowZone* zones = nullptr, usize zone_count = 0);
 
     /// The Goblet Cell's live mucus (sim/fluid/Fluid.h), surfaced as a real
     /// liquid rather than as a cloud of sprites.
@@ -305,10 +310,11 @@ public:
     /// that follow them are particles, submitted separately below.
     void submit_projectiles(const sim::ProjectileBuffers& projectiles);
 
-    /// The Cytotoxic T's live granules (sim/swarm/Swarmers.h). Its own pass
-    /// rather than part of submit_projectiles: a round is a streaked slug and a
-    /// granule is a wobbling body, and at swarm density the two looks cannot
-    /// share a shader without one of them losing.
+    /// Every tower's live swarmers (sim/swarm/Swarmers.h). Its own pass rather
+    /// than part of submit_projectiles: a round is a streaked slug and a
+    /// swarmer is a wobbling body, and at swarm density the two looks cannot
+    /// share a shader without one of them losing. Tinted by the tower that
+    /// released each one, sized by its profile.
     void submit_swarmers(const sim::SwarmerBuffers& swarmers);
 
     /// One instanced draw of an already-built particle instance span, for one

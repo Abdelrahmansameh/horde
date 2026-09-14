@@ -42,7 +42,8 @@ constexpr Field kCapacityFields[] = {
     IMMUNE_CONFIG_FIELD(SimCapacities, max_chaff, FieldKind::U32, "Chaff agent ceiling; reserved once at level load"),
     IMMUNE_CONFIG_FIELD(SimCapacities, max_damage_fields, FieldKind::U32, ""),
     IMMUNE_CONFIG_FIELD(SimCapacities, max_projectiles, FieldKind::U32, "Live Gunner rounds"),
-    IMMUNE_CONFIG_FIELD(SimCapacities, max_swarmers, FieldKind::U32, "Live Cytotoxic T granules"),
+    IMMUNE_CONFIG_FIELD(SimCapacities, max_swarmers, FieldKind::U32, "Live swarmers across every tower"),
+    IMMUNE_CONFIG_FIELD(SimCapacities, max_slow_zones, FieldKind::U32, "Live Interferon slow circles"),
     IMMUNE_CONFIG_FIELD(SimCapacities, max_fluid_particles, FieldKind::U32, "Live Goblet Cell mucus particles"),
     IMMUNE_CONFIG_FIELD(SimCapacities, max_combat_events, FieldKind::U32, "Per-tick VFX event capacity"),
     IMMUNE_CONFIG_FIELD(SimCapacities, max_chaff_death_events, FieldKind::U32, "Chaff death bursts raised per tick, out of the budget above"),
@@ -463,9 +464,6 @@ GameConfig default_game_config() {
     }
     fill_default_mechanics(cfg.towers);
     cfg.towers.globals = tower_globals();
-    cfg.towers.net = NetAbilityParams{3u,   0.5f, 1.5f, 0.3f, 3.0f,
-                                      Vec4{0.3f, 0.6f, 1.0f, 1.0f},
-                                      Vec4{0.2f, 0.8f, 0.9f, 0.5f}};
 
     // --- enemies: read out of the roster and the renderer's tables ---------
     {
@@ -553,6 +551,7 @@ GameConfig default_game_config() {
         cfg.sim.capacities = SimCapacities{
             static_cast<u32>(desc.max_chaff),           static_cast<u32>(desc.max_damage_fields),
             static_cast<u32>(desc.max_projectiles),     static_cast<u32>(desc.max_swarmers),
+            static_cast<u32>(desc.max_slow_zones),
             static_cast<u32>(desc.max_fluid_particles), static_cast<u32>(desc.max_combat_events),
             static_cast<u32>(desc.max_chaff_death_events)};
         cfg.sim.globals.spatial_cell_size = desc.spatial_cell_size;

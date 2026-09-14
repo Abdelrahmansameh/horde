@@ -3,413 +3,404 @@
     "refund_fraction": 0.7,
     "shape_base": 16
   },
-  "net_ability": {
-    "micro_lifetime": 1.5,
-    "micro_sprite_size": 0.3,
-    "micro_tint": [
-      0.3,
-      0.6,
-      1.0,
-      1.0
-    ],
-    "micro_units": 3,
-    "net_duration": 3.0,
-    "net_tint": [
-      0.2,
-      0.8,
-      0.9,
-      0.5
-    ],
-    "spread_jitter": 0.5
-  },
   "schema": 1,
   "towers": {
     "cytotoxic_t": {
-      "role": "tesla",
+      "kind": "latch",
       "tiers": [
         {
-          "mechanics": {
-            "attach_radius": 0.55,
-            "launch_spread": 0.85,
-            "release_per_shot": 30,
-            "search_radius": 9.0,
-            "swarmer_dps": 4.2,
-            "swarmer_lifetime": 4,
-            "swarmer_speed": 20.0
+          "payload": {
+            "dps": 4.2
           },
           "stats": {
-            "ability_cooldown": 0.0,
             "build_cost": 130,
-            "damage": 30.0,
             "family_mask": 255,
-            "fire_interval": 0.9,
+            "fire_interval": 0.5,
             "footprint_radius": 3.2,
-            "kill_rate": 60.0,
-            "range": 7.0,
             "upgrade_cost": 84
+          },
+          "swarm": {
+            "attach_radius": 0.55,
+            "launch_spread": 0.85,
+            "lifetime": 4.0,
+            "release_per_shot": 4,
+            "search_radius": 12.0,
+            "size": 0.705,
+            "speed": 20.0
           }
         },
         {
-          "mechanics": {
-            "attach_radius": 0.55,
-            "launch_spread": 0.85,
-            "release_per_shot": 57,
-            "search_radius": 11.0,
-            "swarmer_dps": 6.4,
-            "swarmer_lifetime": 7.6,
-            "swarmer_speed": 30.0
+          "payload": {
+            "dps": 6.4
           },
           "stats": {
-            "ability_cooldown": 0.0,
             "build_cost": 130,
-            "damage": 62.0,
             "family_mask": 255,
-            "fire_interval": 0.75,
+            "fire_interval": 0.4,
             "footprint_radius": 3.2,
-            "kill_rate": 135.0,
-            "range": 7.75,
             "upgrade_cost": 70
+          },
+          "swarm": {
+            "attach_radius": 0.55,
+            "launch_spread": 0.85,
+            "lifetime": 5.0,
+            "release_per_shot": 6,
+            "search_radius": 14.0,
+            "size": 0.81,
+            "speed": 30.0
           }
         },
         {
-          "mechanics": {
-            "attach_radius": 0.55,
-            "launch_spread": 0.85,
-            "release_per_shot": 78,
-            "search_radius": 13.0,
-            "swarmer_dps": 8.4,
-            "swarmer_lifetime": 8.4,
-            "swarmer_speed": 34.0
+          "payload": {
+            "dps": 8.4
           },
           "stats": {
-            "ability_cooldown": 0.0,
             "build_cost": 130,
-            "damage": 120.0,
             "family_mask": 255,
-            "fire_interval": 0.6,
+            "fire_interval": 0.35,
             "footprint_radius": 3.2,
-            "kill_rate": 210.0,
-            "range": 8.5,
             "upgrade_cost": 0
+          },
+          "swarm": {
+            "attach_radius": 0.55,
+            "launch_spread": 0.85,
+            "lifetime": 6.0,
+            "release_per_shot": 8,
+            "search_radius": 16.0,
+            "size": 0.915,
+            "speed": 34.0
           }
         }
       ]
     },
     "goblet_cell": {
-      "role": "hydro",
+      "kind": "mucus_bomber",
       "tiers": [
         {
-          "mechanics": {
-            "burst_seconds": 0.28,
-            "droplet_lifetime": 0.8,
-            "flow_scale": 1.0,
-            "jet_speed": 30.0,
+          "payload": {
+            "chase_seconds": 1.0,
+            "droplet_lifetime": 1.6,
+            "droplets": 20,
             "mark_seconds": 2.2,
-            "nozzle_radius": 0.45,
-            "spread": 0.02
+            "splash_dps": 14.0,
+            "splash_radius": 1.0,
+            "splash_speed": 6.0
           },
           "stats": {
-            "ability_cooldown": 0.0,
             "build_cost": 160,
-            "damage": 6.0,
             "family_mask": 255,
-            "fire_interval": 0.95,
+            "fire_interval": 1.6,
             "footprint_radius": 2.8,
-            "kill_rate": 14.0,
-            "range": 16.0,
             "upgrade_cost": 104
+          },
+          "swarm": {
+            "attach_radius": 0.7,
+            "launch_spread": 0.6,
+            "lifetime": 6.0,
+            "release_per_shot": 1,
+            "search_radius": 14.0,
+            "size": 1.8,
+            "speed": 16.0
           }
         },
         {
-          "mechanics": {
-            "burst_seconds": 0.34,
-            "droplet_lifetime": 0.8,
-            "flow_scale": 1.0,
-            "jet_speed": 34.0,
+          "payload": {
+            "chase_seconds": 1.0,
+            "droplet_lifetime": 1.9,
+            "droplets": 28,
             "mark_seconds": 2.6,
-            "nozzle_radius": 1.05,
-            "spread": 0.05
+            "splash_dps": 34.0,
+            "splash_radius": 1.2,
+            "splash_speed": 7.0
           },
           "stats": {
-            "ability_cooldown": 0.0,
             "build_cost": 160,
-            "damage": 13.0,
             "family_mask": 255,
-            "fire_interval": 0.88,
+            "fire_interval": 1.4,
             "footprint_radius": 2.8,
-            "kill_rate": 34.0,
-            "range": 18.0,
             "upgrade_cost": 88
+          },
+          "swarm": {
+            "attach_radius": 0.7,
+            "launch_spread": 0.6,
+            "lifetime": 6.0,
+            "release_per_shot": 2,
+            "search_radius": 16.0,
+            "size": 1.95,
+            "speed": 18.0
           }
         },
         {
-          "mechanics": {
-            "burst_seconds": 0.4,
-            "droplet_lifetime": 0.8,
-            "flow_scale": 1.0,
-            "jet_speed": 39.0,
+          "payload": {
+            "chase_seconds": 1.0,
+            "droplet_lifetime": 2.2,
+            "droplets": 36,
             "mark_seconds": 3.0,
-            "nozzle_radius": 1.3,
-            "spread": 0.05
+            "splash_dps": 62.0,
+            "splash_radius": 1.4,
+            "splash_speed": 8.0
           },
           "stats": {
-            "ability_cooldown": 0.0,
             "build_cost": 160,
-            "damage": 26.0,
             "family_mask": 255,
-            "fire_interval": 0.8,
+            "fire_interval": 1.2,
             "footprint_radius": 2.8,
-            "kill_rate": 62.0,
-            "range": 20.0,
             "upgrade_cost": 0
+          },
+          "swarm": {
+            "attach_radius": 0.7,
+            "launch_spread": 0.6,
+            "lifetime": 6.0,
+            "release_per_shot": 3,
+            "search_radius": 18.0,
+            "size": 2.1,
+            "speed": 20.0
           }
         }
       ]
     },
     "interferon": {
-      "role": "cryo",
+      "kind": "slow_bomber",
       "tiers": [
         {
-          "mechanics": {
-            "arc_radians": 0.6,
-            "cone_falloff": 0.5,
-            "inner_fraction": 0.55,
-            "max_freeze_events": 6
+          "payload": {
+            "chase_seconds": 1.0,
+            "slow_duration": 1.5,
+            "slow_factor": 0.5,
+            "zone_duration": 3.0,
+            "zone_radius": 3.0
           },
           "stats": {
-            "ability_cooldown": 0.0,
             "build_cost": 110,
-            "damage": 3.0,
             "family_mask": 255,
-            "fire_interval": 0.55,
+            "fire_interval": 2.0,
             "footprint_radius": 4.8,
-            "kill_rate": 2.0,
-            "range": 24.0,
             "upgrade_cost": 70
+          },
+          "swarm": {
+            "attach_radius": 0.7,
+            "launch_spread": 0.6,
+            "lifetime": 6.0,
+            "release_per_shot": 1,
+            "search_radius": 14.0,
+            "size": 1.8,
+            "speed": 16.0
           }
         },
         {
-          "mechanics": {
-            "arc_radians": 0.66,
-            "cone_falloff": 0.5,
-            "inner_fraction": 0.55,
-            "max_freeze_events": 6
+          "payload": {
+            "chase_seconds": 1.0,
+            "slow_duration": 2.0,
+            "slow_factor": 0.42,
+            "zone_duration": 3.5,
+            "zone_radius": 3.5
           },
           "stats": {
-            "ability_cooldown": 0.0,
             "build_cost": 110,
-            "damage": 7.0,
             "family_mask": 255,
-            "fire_interval": 0.5,
+            "fire_interval": 1.7,
             "footprint_radius": 4.8,
-            "kill_rate": 5.4,
-            "range": 27.0,
             "upgrade_cost": 60
+          },
+          "swarm": {
+            "attach_radius": 0.7,
+            "launch_spread": 0.6,
+            "lifetime": 6.0,
+            "release_per_shot": 2,
+            "search_radius": 16.0,
+            "size": 1.8,
+            "speed": 18.0
           }
         },
         {
-          "mechanics": {
-            "arc_radians": 0.72,
-            "cone_falloff": 0.5,
-            "inner_fraction": 0.55,
-            "max_freeze_events": 6
+          "payload": {
+            "chase_seconds": 1.0,
+            "slow_duration": 2.5,
+            "slow_factor": 0.35,
+            "zone_duration": 4.0,
+            "zone_radius": 4.0
           },
           "stats": {
-            "ability_cooldown": 0.0,
             "build_cost": 110,
-            "damage": 14.0,
             "family_mask": 255,
-            "fire_interval": 0.45,
+            "fire_interval": 1.4,
             "footprint_radius": 4.8,
-            "kill_rate": 10.5,
-            "range": 30.0,
             "upgrade_cost": 0
+          },
+          "swarm": {
+            "attach_radius": 0.7,
+            "launch_spread": 0.6,
+            "lifetime": 6.0,
+            "release_per_shot": 3,
+            "search_radius": 18.0,
+            "size": 1.8,
+            "speed": 20.0
           }
         }
       ]
     },
     "macrophage": {
-      "role": "mortar",
+      "kind": "bomber",
       "tiers": [
         {
-          "mechanics": {
+          "payload": {
+            "burst_damage": 12.0,
             "burst_falloff": 0.4,
-            "burst_radius": 5.0,
+            "burst_radius": 3.5,
             "burst_seconds": 0.3,
-            "marked_multiplier": 1.5
+            "chase_seconds": 1.0,
+            "named_damage": 20.0
           },
           "stats": {
-            "ability_cooldown": 0.0,
             "build_cost": 150,
-            "damage": 45.0,
             "family_mask": 255,
-            "fire_interval": 2.6,
+            "fire_interval": 1.5,
             "footprint_radius": 4.0,
-            "kill_rate": 62.0,
-            "range": 14.0,
             "upgrade_cost": 95
+          },
+          "swarm": {
+            "attach_radius": 0.7,
+            "launch_spread": 0.6,
+            "lifetime": 6.0,
+            "release_per_shot": 1,
+            "search_radius": 14.0,
+            "size": 2.1,
+            "speed": 14.0
           }
         },
         {
-          "mechanics": {
+          "payload": {
+            "burst_damage": 22.0,
             "burst_falloff": 0.4,
-            "burst_radius": 5.75,
+            "burst_radius": 4.0,
             "burst_seconds": 0.3,
-            "marked_multiplier": 1.5
+            "chase_seconds": 1.0,
+            "named_damage": 40.0
           },
           "stats": {
-            "ability_cooldown": 0.0,
             "build_cost": 150,
-            "damage": 95.0,
             "family_mask": 255,
-            "fire_interval": 2.3,
+            "fire_interval": 1.3,
             "footprint_radius": 4.0,
-            "kill_rate": 145.0,
-            "range": 15.5,
             "upgrade_cost": 80
+          },
+          "swarm": {
+            "attach_radius": 0.7,
+            "launch_spread": 0.6,
+            "lifetime": 6.5,
+            "release_per_shot": 2,
+            "search_radius": 16.0,
+            "size": 2.4,
+            "speed": 16.0
           }
         },
         {
-          "mechanics": {
+          "payload": {
+            "burst_damage": 38.0,
             "burst_falloff": 0.4,
-            "burst_radius": 6.5,
+            "burst_radius": 4.5,
             "burst_seconds": 0.3,
-            "marked_multiplier": 1.5
+            "chase_seconds": 1.0,
+            "named_damage": 70.0
           },
           "stats": {
-            "ability_cooldown": 0.0,
             "build_cost": 150,
-            "damage": 175.0,
             "family_mask": 255,
-            "fire_interval": 2.0,
+            "fire_interval": 1.1,
             "footprint_radius": 4.0,
-            "kill_rate": 240.0,
-            "range": 17.0,
             "upgrade_cost": 0
+          },
+          "swarm": {
+            "attach_radius": 0.7,
+            "launch_spread": 0.6,
+            "lifetime": 7.0,
+            "release_per_shot": 3,
+            "search_radius": 18.0,
+            "size": 2.7,
+            "speed": 18.0
           }
         }
       ]
     },
     "neutrophil": {
-      "role": "gunner",
+      "kind": "shooter",
       "tiers": [
         {
-          "mechanics": {
-            "hit_radius": 0.45,
-            "muzzle_arc_radians": 0.45,
-            "muzzle_radial_jitter": 0.45,
-            "round_speed": 45.0,
-            "spread": 0.11
-          },
-          "stats": {
-            "ability_cooldown": 6.0,
-            "build_cost": 70,
-            "damage": 1.9,
-            "family_mask": 255,
-            "fire_interval": 0.045,
-            "footprint_radius": 2.8,
-            "kill_rate": 0.0,
-            "range": 18.0,
-            "upgrade_cost": 45
-          }
-        },
-        {
-          "mechanics": {
-            "hit_radius": 0.45,
-            "muzzle_arc_radians": 0.35,
-            "muzzle_radial_jitter": 0.38,
-            "round_speed": 52.0,
-            "spread": 0.085
-          },
-          "stats": {
-            "ability_cooldown": 5.0,
-            "build_cost": 70,
-            "damage": 3.0,
-            "family_mask": 255,
-            "fire_interval": 0.0275,
-            "footprint_radius": 2.8,
-            "kill_rate": 0.0,
-            "range": 20.0,
-            "upgrade_cost": 38
-          }
-        },
-        {
-          "mechanics": {
-            "hit_radius": 0.45,
-            "muzzle_arc_radians": 0.26,
-            "muzzle_radial_jitter": 0.3,
-            "round_speed": 60.0,
-            "spread": 0.06
-          },
-          "stats": {
-            "ability_cooldown": 4.0,
-            "build_cost": 70,
-            "damage": 3.3,
-            "family_mask": 255,
-            "fire_interval": 0.015,
-            "footprint_radius": 2.8,
-            "kill_rate": 0.0,
-            "range": 22.0,
-            "upgrade_cost": 0
-          }
-        }
-      ]
-    },
-    "nk_cell": {
-      "role": "blade",
-      "tiers": [
-        {
-          "mechanics": {
-            "max_slash_events": 5,
-            "rotor_falloff": 0.0,
-            "spin_rad_per_sec": 9.0
-          },
-          "stats": {
-            "ability_cooldown": 0.0,
-            "build_cost": 90,
-            "damage": 5.0,
-            "family_mask": 255,
+          "payload": {
             "fire_interval": 0.18,
-            "footprint_radius": 3.2,
-            "kill_rate": 8.0,
-            "range": 16.0,
-            "upgrade_cost": 58
+            "formation_spacing": 3.6,
+            "round_damage": 1.9,
+            "round_hit_radius": 0.45,
+            "round_speed": 45.0,
+            "round_spread": 0.11
+          },
+          "stats": {
+            "build_cost": 70,
+            "family_mask": 255,
+            "fire_interval": 1.0,
+            "footprint_radius": 2.8,
+            "upgrade_cost": 45
+          },
+          "swarm": {
+            "attach_radius": 8.0,
+            "launch_spread": 0.7,
+            "lifetime": 6.0,
+            "release_per_shot": 2,
+            "search_radius": 14.0,
+            "size": 1.5,
+            "speed": 22.0
           }
         },
         {
-          "mechanics": {
-            "max_slash_events": 5,
-            "rotor_falloff": 0.0,
-            "spin_rad_per_sec": 9.0
+          "payload": {
+            "fire_interval": 0.15,
+            "formation_spacing": 3.96,
+            "round_damage": 3.0,
+            "round_hit_radius": 0.45,
+            "round_speed": 52.0,
+            "round_spread": 0.085
           },
           "stats": {
-            "ability_cooldown": 0.0,
-            "build_cost": 90,
-            "damage": 10.0,
+            "build_cost": 70,
             "family_mask": 255,
-            "fire_interval": 0.14,
-            "footprint_radius": 3.2,
-            "kill_rate": 21.0,
-            "range": 18.0,
-            "upgrade_cost": 49
+            "fire_interval": 0.85,
+            "footprint_radius": 2.8,
+            "upgrade_cost": 38
+          },
+          "swarm": {
+            "attach_radius": 9.0,
+            "launch_spread": 0.7,
+            "lifetime": 6.5,
+            "release_per_shot": 3,
+            "search_radius": 16.0,
+            "size": 1.65,
+            "speed": 25.0
           }
         },
         {
-          "mechanics": {
-            "max_slash_events": 5,
-            "rotor_falloff": 0.0,
-            "spin_rad_per_sec": 9.0
+          "payload": {
+            "fire_interval": 0.12,
+            "formation_spacing": 4.32,
+            "round_damage": 3.3,
+            "round_hit_radius": 0.45,
+            "round_speed": 60.0,
+            "round_spread": 0.06
           },
           "stats": {
-            "ability_cooldown": 0.0,
-            "build_cost": 90,
-            "damage": 20.0,
+            "build_cost": 70,
             "family_mask": 255,
-            "fire_interval": 0.1,
-            "footprint_radius": 3.2,
-            "kill_rate": 41.0,
-            "range": 20.0,
+            "fire_interval": 0.7,
+            "footprint_radius": 2.8,
             "upgrade_cost": 0
+          },
+          "swarm": {
+            "attach_radius": 10.0,
+            "launch_spread": 0.7,
+            "lifetime": 7.0,
+            "release_per_shot": 4,
+            "search_radius": 18.0,
+            "size": 1.8,
+            "speed": 28.0
           }
         }
       ]

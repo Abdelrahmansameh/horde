@@ -174,6 +174,34 @@ Every tower is classified along two independent axes so the roster reads as a co
 
 ### 5.2 Full roster
 
+> **Current roster (supersedes the table below for what ships).** The game
+> runs a five-tower roster, and every tower is a *spawner* with no range: for
+> as long as a round is on (never in the build phase between rounds) it
+> continuously releases small cells (swarmers) that fly out, pick a pathogen
+> inside their own aggro radius, chase it, and do the tower's work on contact
+> -- a horde answering a horde. Spawn cadence against swarmer lifetime bounds
+> each tower's standing cloud. The chassis (volley size, lifetime, speed,
+> aggro radius, contact radius, body size) is shared and tuned per tower and
+> tier in `assets/config/towers.json`; only the payload differs:
+>
+> | Cell | Swarmer kind | On contact |
+> |---|---|---|
+> | **Cytotoxic T** | Latch | latches onto the pathogen and drains it; moves on when it dies |
+> | **Neutrophil** | Shooter | holds a standoff and fires real rounds; chases if the target leaves |
+> | **Macrophage** | Bomber | detonates into a damaging burst around the point of contact |
+> | **Interferon** | Slow bomber | detonates into a timed circle on the ground that slows what walks through it (the slow lingers a little after leaving) |
+> | **Goblet Cell** | Mucus bomber | detonates into a splash of real mucus that weakens what it soaks |
+>
+> Bombers that run out of lifetime detonate where they stand. Shooters and
+> bombers stand their ground: a target that walks out of reach is swapped for
+> the nearest other one, and only chased when there is nothing else; latchers
+> always chase. Neutrophil shooters released together fight as a squad, in a
+> rank across their approach. Swarmers respect the vessel walls. Every swarmer
+> can go at named agents (elites, bosses) as well as chaff; burrowed enemies
+> are invisible to all of them. Towers have no active abilities of their own.
+> The NK Cell is retired. The table that follows is the original eight-cell
+> design and is kept for the fiction and the role vocabulary.
+
 | Cell | Role | Mechanic | Visual identity |
 |---|---|---|---|
 | **Macrophage** | Melee sink (Erosion) | High single-target DPS/HP, literally "eats" (consumes) elites over time | Chunky, slow, engulfing animation |

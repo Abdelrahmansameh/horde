@@ -56,6 +56,7 @@
 #include "core/JobSystem.h"
 #include "core/Math.h"
 #include "core/Rng.h"
+#include "sim/swarm/Swarmers.h"   // kSwarmerEventBit
 
 #include <cmath>
 
@@ -101,16 +102,17 @@ inline u32 pack_rgba(const Vec4& c) {
 inline Vec4 mix4(const Vec4& a, const Vec4& b, f32 t) { return a + (b - a) * t; }
 
 // ---------------------------------------------------------------------------
-// Palettes. Six towers, six clearly separable hues — the brief's requirement is
-// that a player glancing at the screen knows which tower is firing, and hue is
-// the only channel that survives a glance at 60 fps.
+// Palettes. Five towers, five clearly separable hues — the brief's requirement
+// is that a player glancing at the screen knows which tower's swarm this is,
+// and hue is the only channel that survives a glance at 60 fps. Mirrored by
+// swarmer_tint() in render/Renderer.cpp so the swarmers, their release and
+// what they leave behind are all one colour.
 //
-//   Neutrophil GUNNER  warm white-yellow
-//   Macrophage MORTAR  amber / orange (digestive, not fire — no reds)
-//   Interferon CRYO    blue-white / cyan
-//   CytotoxicT TESLA   violet-white
-//   GobletCell HYDRO   jade green (mucin)
-//   NKCell     BLADE   magenta-pink
+//   Neutrophil SHOOTER       warm white-yellow
+//   Macrophage BOMBER        amber / orange (digestive, not fire — no reds)
+//   Interferon SLOW BOMBER   blue-white / cyan
+//   CytotoxicT LATCH         violet-white
+//   GobletCell MUCUS BOMBER  jade green (mucin)
 // ---------------------------------------------------------------------------
 struct TowerPalette {
     Vec4 primary;  ///< The hue a player identifies the tower by.
@@ -124,7 +126,6 @@ TowerPalette palette_for(TowerType t) {
     case TowerType::Interferon: return {Vec4{0.52f, 0.84f, 1.00f, 1.0f}, Vec4{0.88f, 0.98f, 1.00f, 1.0f}};
     case TowerType::CytotoxicT: return {Vec4{0.76f, 0.66f, 1.00f, 1.0f}, Vec4{1.00f, 1.00f, 1.00f, 1.0f}};
     case TowerType::GobletCell: return {Vec4{0.55f, 0.98f, 0.74f, 1.0f}, Vec4{0.90f, 1.00f, 0.92f, 1.0f}};
-    case TowerType::NKCell:     return {Vec4{1.00f, 0.52f, 0.86f, 1.0f}, Vec4{1.00f, 0.92f, 0.98f, 1.0f}};
     case TowerType::Count:
     default:                    return {Vec4{0.88f, 0.90f, 0.96f, 1.0f}, Vec4{1.00f, 1.00f, 1.00f, 1.0f}};
     }
@@ -399,17 +400,21 @@ void ParticleSystem::build_instances(BlendMode blend, std::vector<ParticleInstan
 //
 //   type      what happened
 //   source    which tower — decides the palette and the whole vocabulary
-//   visual_id the tower's upgrade TIER, 1..5 (0 is treated as 1). The sim
-//             assigns it no meaning; this layer defines it as the escalation
-//             axis the brief asks for: more firing points, bigger blasts, more
-//             crystal branches, more receptor arms, more blades.
+//   visual_id the tower's upgrade TIER, 1..5 (0 is treated as 1), in the low
+//             byte. The sim assigns it no meaning; this layer defines it as
+//             the escalation axis the brief asks for: bigger releases, bigger
+//             blasts, more fragments. sim::kSwarmerEventBit on top says the
+//             event was raised by a SWARMER rather than by the tower itself —
+//             a shooter's round leaving, a latch landing, a bomber popping.
 //   magnitude "how big should this read" — used for the per-hop falloff on
 //             Tesla chains and the weight of an impact, so one event type can
 //             render at wildly different intensities.
 // ---------------------------------------------------------------------------
 
 void ParticleSystem::emit_for_event(const sim::CombatEvent& event) {
-    const u32 tier = math::clamp<u32>(event.visual_id == 0 ? 1u : event.visual_id, 1u, 5u);
+    const bool from_swarmer = (event.visual_id & sim::kSwarmerEventBit) != 0;
+    const u32 raw_tier = event.visual_id & 0xFFu;
+    const u32 tier = math::clamp<u32>(raw_tier == 0 ? 1u : raw_tier, 1u, 5u);
     const f32 tierf = static_cast<f32>(tier);
     const f32 mag = math::clamp(event.magnitude, 0.25f, 4.0f);
     const TowerPalette pal = palette_for(event.source);
@@ -437,287 +442,91 @@ void ParticleSystem::emit_for_event(const sim::CombatEvent& event) {
     switch (event.type) {
 
     // -----------------------------------------------------------------------
-    // MuzzleFlash — a tower fired. The Gunner raises this per round, so it must
-    // stay cheap per event and *accumulate* into a stream; the beam/cone/rotor
-    // towers raise it once per activation and can afford more.
+    // MuzzleFlash — two very different things arrive here:
+    //   * from a SWARMER (kSwarmerEventBit): a Neutrophil shooter fired one
+    //     round. Dozens per second across a cloud, so this is a single tracer
+    //     and nothing else.
+    //   * from a TOWER: a volley of swarmers left the cell's face. Once per
+    //     cooldown, so it can afford the whole exocytosis picture: the face
+    //     lighting up, a spray of plasma, and secreted matter at the mouth.
+    //     The swarmers THEMSELVES are not here — they are simulated entities
+    //     drawn from sim state, because they steer, choose targets, and do
+    //     damage. `event.origin` is ALREADY the release point, so nothing here
+    //     may add an offset of its own. `magnitude` carries the volley size.
     // -----------------------------------------------------------------------
     case sim::CombatEventType::MuzzleFlash: {
+        if (from_swarmer) {
+            ParticleSpawnParams t2;
+            t2.kind = ParticleKind::Tracer;
+            t2.blend = BlendMode::Additive;
+            t2.position = event.origin + dir * 0.15f;
+            t2.velocity = rotate_by(dir, pcg_range(rs, -0.08f, 0.08f)) * pcg_range(rs, 40.0f, 60.0f);
+            t2.color = mix4(pal.primary, pal.accent, pcg_f32(rs));
+            t2.size = pcg_range(rs, 0.08f, 0.13f);
+            t2.lifetime = pcg_range(rs, 0.10f, 0.16f);
+            t2.drag = 1.6f;
+            push(t2);
+            break;
+        }
+
+        const Vec2 tip = event.origin;
+        const f32 released = math::clamp(event.magnitude, 1.0f, 40.0f);
+
+        // The face lighting up.
         ParticleSpawnParams p;
-        p.position = event.origin;
+        p.kind = ParticleKind::Spark;
         p.blend = BlendMode::Additive;
+        p.position = tip;
+        p.color = mix4(pal.accent, Vec4{1.0f, 1.0f, 1.0f, 1.0f}, 0.3f);
+        p.size = 0.30f + 0.012f * released + 0.03f * tierf;
+        p.lifetime = 0.10f;
+        p.drag = 6.0f;
+        push(p);
 
-        switch (event.source) {
-        case TowerType::Neutrophil: {
-            // GUNNER. Tiny hot pop at the muzzle, then a fan of very fast
-            // tracers. Tier adds FIRING POINTS: the rounds leave from
-            // (1 + tier) laterally-offset barrels, which is what turns a high
-            // fire rate into a solid continuous stream rather than a dotted
-            // line.
-            p.kind = ParticleKind::Spark;
-            p.color = pal.accent;
-            p.size = 0.20f + 0.03f * tierf;
-            p.lifetime = 0.07f;
-            p.drag = 6.0f;
-            push(p);
-
-            const Vec2 side = perp(dir);
-            const u32 points = 1u + tier;
-            for (u32 b = 0; b < points; ++b) {
-                const f32 lateral = (static_cast<f32>(b) - static_cast<f32>(points - 1) * 0.5f) * 0.22f;
-                for (u32 k = 0; k < 2; ++k) {
-                    ParticleSpawnParams t2;
-                    t2.kind = ParticleKind::Tracer;
-                    t2.blend = BlendMode::Additive;
-                    t2.position = event.origin + side * lateral + dir * pcg_range(rs, 0.0f, 0.5f);
-                    const Vec2 jitter = rotate_by(dir, pcg_range(rs, -0.10f, 0.10f));
-                    t2.velocity = jitter * pcg_range(rs, 52.0f, 78.0f);
-                    t2.color = mix4(pal.primary, pal.accent, pcg_f32(rs));
-                    t2.size = pcg_range(rs, 0.09f, 0.15f);
-                    t2.lifetime = pcg_range(rs, 0.14f, 0.24f);
-                    t2.drag = 1.4f;
-                    push(t2);
-                }
-            }
-
-            // Tier 5: antibody bits ORBITING the cell before being fired.
-            if (tier >= 5) {
-                for (u32 o = 0; o < 8; ++o) {
-                    const f32 a = math::kTwoPi * static_cast<f32>(o) / 8.0f + pcg_range(rs, -0.2f, 0.2f);
-                    const Vec2 radial = Vec2{std::cos(a), std::sin(a)};
-                    ParticleSpawnParams t3;
-                    t3.kind = ParticleKind::Tracer;
-                    t3.blend = BlendMode::Additive;
-                    t3.position = event.origin + radial * pcg_range(rs, 0.7f, 1.0f);
-                    t3.velocity = perp(radial) * pcg_range(rs, 3.0f, 5.5f);
-                    t3.color = pal.primary;
-                    t3.size = 0.08f;
-                    t3.lifetime = pcg_range(rs, 0.25f, 0.40f);
-                    t3.drag = 0.6f;
-                    push(t3, pcg_range(rs, 0.0f, 0.05f));
-                }
-            }
-            break;
+        // Exocytosis spray, scaled by how much was actually released.
+        const u32 droplets = 3u + static_cast<u32>(released * 0.5f);
+        for (u32 k = 0; k < droplets; ++k) {
+            const Vec2 out = rotate_by(dir, pcg_range(rs, -0.55f, 0.55f));
+            ParticleSpawnParams t2;
+            t2.kind = ParticleKind::Tracer;
+            t2.blend = BlendMode::Additive;
+            t2.position = tip + perp(dir) * pcg_range(rs, -0.14f, 0.14f);
+            t2.velocity = out * pcg_range(rs, 5.0f, 12.0f);
+            t2.color = mix4(pal.primary, pal.accent, pcg_f32(rs));
+            t2.size = pcg_range(rs, 0.06f, 0.12f);
+            t2.lifetime = pcg_range(rs, 0.06f, 0.13f);
+            t2.drag = 7.0f;
+            push(t2, pcg_range(rs, 0.0f, 0.03f));
         }
 
-        case TowerType::Macrophage: {
-            // MORTAR. A soft biological "cough" as the vesicle is lobbed —
-            // deliberately low-energy so the *impact* owns all the drama.
-            p.kind = ParticleKind::Spark;
-            p.color = pal.accent;
-            p.size = 0.34f;
-            p.lifetime = 0.12f;
-            p.drag = 5.0f;
-            push(p);
-
-            const u32 puffs = 3u + tier;
-            for (u32 k = 0; k < puffs; ++k) {
-                ParticleSpawnParams m;
-                m.kind = ParticleKind::Mist;
-                m.blend = BlendMode::AlphaBlend;   // matter, not glow
-                m.position = event.origin + Vec2{pcg_signed(rs), pcg_signed(rs)} * 0.25f;
-                m.velocity = rotate_by(dir, pcg_range(rs, -0.7f, 0.7f)) * pcg_range(rs, 1.5f, 4.0f);
-                m.color = Vec4{pal.primary.r, pal.primary.g, pal.primary.b, 0.42f};
-                m.size = pcg_range(rs, 0.30f, 0.55f);
-                m.lifetime = pcg_range(rs, 0.30f, 0.55f);
-                m.drag = 2.6f;
-                m.buoyancy = 0.8f;
-                m.spin = pcg_signed(rs) * 1.5f;
-                push(m);
-            }
-            break;
-        }
-
-        case TowerType::Interferon: {
-            // CRYO. The cone itself is ConePulse and its standing field is the
-            // signal that reads as "this tower is active" — a round Spark here
-            // on top of it, fired every single cooldown tick, was a small blue
-            // circle popping at the tower non-stop. Nothing to draw: the rays
-            // fanning out of the body already carry the "it's working" read.
-            break;
-        }
-
-        case TowerType::CytotoxicT: {
-            // CYTOTOXIC T. The volley of lytic granules leaving the synapse.
-            // The granules THEMSELVES are not here — they are simulated
-            // entities (sim/swarm/Swarmers.h) drawn from sim state, because
-            // they steer, choose targets, and do damage. What this case draws
-            // is only the release: the flare at the electrode and the spray of
-            // plasma that goes with it.
-            //
-            // `event.origin` is ALREADY the electrode tip — system_swarm raises
-            // this event at the muzzle it launched from, not at the tower's
-            // centre — so nothing here may add an offset of its own. It used to,
-            // back when the tower fired from its middle, and adding both put the
-            // flash a full cell in front of the spike it is supposed to sit on.
-            //
-            // `magnitude` carries the granule count, so a tier-3 release reads
-            // as a bigger event than a tier-1 one without this layer having to
-            // re-derive the tower's tables.
-            const Vec2 tip = event.origin;
-            const f32 released = math::clamp(event.magnitude, 1.0f, 40.0f);
-
-            // The synapse lighting up.
-            p.kind = ParticleKind::Spark;
-            p.position = tip;
-            p.color = mix4(pal.accent, Vec4{1.0f, 1.0f, 1.0f, 1.0f}, 0.3f);
-            p.size = 0.30f + 0.012f * released;
-            p.lifetime = 0.10f;
-            p.drag = 6.0f;
-            push(p);
-
-            // Exocytosis spray, scaled by how much was actually released.
-            const u32 droplets = 3u + static_cast<u32>(released * 0.5f);
-            for (u32 k = 0; k < droplets; ++k) {
-                const Vec2 out = rotate_by(dir, pcg_range(rs, -0.55f, 0.55f));
-                ParticleSpawnParams t2;
-                t2.kind = ParticleKind::Tracer;
-                t2.blend = BlendMode::Additive;
-                t2.position = tip + perp(dir) * pcg_range(rs, -0.14f, 0.14f);
-                t2.velocity = out * pcg_range(rs, 5.0f, 12.0f);
-                t2.color = mix4(pal.primary, pal.accent, pcg_f32(rs));
-                t2.size = pcg_range(rs, 0.06f, 0.12f);
-                t2.lifetime = pcg_range(rs, 0.06f, 0.13f);
-                t2.drag = 7.0f;
-                push(t2, pcg_range(rs, 0.0f, 0.03f));
-            }
-
-            // Secreted plasma at the mouth of the electrode. AlphaBlend so it
-            // occludes: this is fluid being pushed out, not light.
-            for (u32 k = 0; k < 3u; ++k) {
-                ParticleSpawnParams m;
-                m.kind = ParticleKind::Mist;
-                m.blend = BlendMode::AlphaBlend;
-                m.position = tip + perp(dir) * pcg_range(rs, -0.16f, 0.16f);
-                m.velocity = dir * pcg_range(rs, 1.0f, 2.6f);
-                m.color = Vec4{pal.primary.r, pal.primary.g, pal.primary.b, 0.30f};
-                m.size = pcg_range(rs, 0.16f, 0.30f);
-                m.lifetime = pcg_range(rs, 0.12f, 0.22f);
-                m.drag = 5.0f;
-                m.spin = pcg_signed(rs) * 2.0f;
-                push(m);
-            }
-            break;
-        }
-
-        case TowerType::GobletCell: {
-            // HYDRO. Raised ONCE per burst, at the trigger pull. The jet itself
-            // is real fluid drawn from sim state, so there is nothing to fake
-            // here — this is only the wet cough at the nozzle that sells the
-            // moment the cell opens, and it must stay small or it hides the
-            // first slab of actual mucus leaving the mouth.
-            p.kind = ParticleKind::Spark;
-            p.color = pal.accent;
-            p.size = 0.34f;
-            p.lifetime = 0.09f;
-            p.drag = 6.0f;
-            push(p);
-
-            // A short backwash of mist thrown sideways off the mouth, like the
-            // spray shed by a nozzle under pressure.
-            for (u32 k = 0; k < 4u + tier; ++k) {
-                const f32 lateral = pcg_signed(rs);
-                ParticleSpawnParams m;
-                m.kind = ParticleKind::Mist;
-                m.blend = BlendMode::AlphaBlend;
-                m.position = event.origin + perp(dir) * (lateral * 0.28f);
-                m.velocity = dir * pcg_range(rs, 1.5f, 4.0f) + perp(dir) * (lateral * 3.2f);
-                m.color = Vec4{pal.primary.r, pal.primary.g, pal.primary.b, 0.34f};
-                m.size = pcg_range(rs, 0.22f, 0.42f);
-                m.lifetime = pcg_range(rs, 0.14f, 0.26f);
-                m.drag = 6.0f;
-                m.spin = pcg_signed(rs) * 1.6f;
-                push(m);
-            }
-            break;
-        }
-
-        case TowerType::NKCell: {
-            // BLADE. This event is "the rotor swept" — the trail, not a shot.
-            // (2 + tier) blades, each dropping three trail points along its
-            // length with tangential velocity. At the rotor's real spin rate
-            // these arrive fast enough that the trails perceptually merge into
-            // a glowing disk, which is exactly the brief.
-            //
-            // The count MUST match the arm count entity.frag draws for the NK
-            // body (shape 21, fed by EntityInstance::shape_param) or the solid
-            // blades and the trails they throw off disagree about how many arms
-            // the rotor has. Three is the floor: two arms 180 degrees apart
-            // fuse into a single S-curve rather than reading as a rotor.
-            const f32 reach = event.radius > 0.05f ? event.radius : 2.0f;
-            const u32 blades = 2u + tier;
-            for (u32 b = 0; b < blades; ++b) {
-                const f32 ang = math::kTwoPi * static_cast<f32>(b) / static_cast<f32>(blades);
-                const Vec2 arm = rotate_by(dir, ang);
-                for (u32 k = 0; k < 3; ++k) {
-                    const f32 frac = 0.45f + 0.275f * static_cast<f32>(k);
-                    ParticleSpawnParams t2;
-                    t2.kind = ParticleKind::Tracer;
-                    t2.blend = BlendMode::Additive;
-                    t2.position = event.origin + arm * (reach * frac);
-                    t2.velocity = perp(arm) * (reach * frac * 5.0f);
-                    t2.color = mix4(pal.primary, pal.accent, frac * 0.5f);
-                    t2.size = 0.13f + 0.05f * frac;
-                    t2.lifetime = pcg_range(rs, 0.12f, 0.20f);
-                    t2.drag = 3.0f;
-                    t2.rotation = ang;
-                    push(t2);
-                }
-            }
-            break;
-        }
-
-        case TowerType::Count:
-        default: {
-            p.kind = ParticleKind::Spark;
-            p.color = pal.accent;
-            p.size = 0.25f;
-            p.lifetime = 0.10f;
-            p.drag = 4.0f;
-            push(p);
-            break;
-        }
+        // Secreted plasma at the mouth. AlphaBlend so it occludes: this is
+        // fluid being pushed out, not light.
+        for (u32 k = 0; k < 3u; ++k) {
+            ParticleSpawnParams m;
+            m.kind = ParticleKind::Mist;
+            m.blend = BlendMode::AlphaBlend;
+            m.position = tip + perp(dir) * pcg_range(rs, -0.16f, 0.16f);
+            m.velocity = dir * pcg_range(rs, 1.0f, 2.6f);
+            m.color = Vec4{pal.primary.r, pal.primary.g, pal.primary.b, 0.30f};
+            m.size = pcg_range(rs, 0.16f, 0.30f);
+            m.lifetime = pcg_range(rs, 0.12f, 0.22f);
+            m.drag = 5.0f;
+            m.spin = pcg_signed(rs) * 2.0f;
+            push(m);
         }
         break;
     }
 
     // -----------------------------------------------------------------------
-    // ProjectileImpact — a round connected. Thousands per second at high Gunner
-    // fire rates, so the Gunner case in particular is kept to a handful of
-    // very short-lived particles.
+    // ProjectileImpact — a round connected, or a latch swarmer landed on its
+    // host. Thousands per second at a full board, so this is kept to a
+    // handful of very short-lived particles.
     // -----------------------------------------------------------------------
     case sim::CombatEventType::ProjectileImpact: {
         const f32 pop = (event.radius > 0.05f ? event.radius : 0.35f) * (0.7f + 0.3f * mag);
         const Vec4 debris = mix4(pal.primary, fam, kFamilyTintWeight);
 
-        if (event.source == TowerType::Macrophage) {
-            // MORTAR stage 1 of 3: the vesicle lands. Tiny. All the weight is
-            // in the Explosion event that follows.
-            ParticleSpawnParams s;
-            s.kind = ParticleKind::Spark;
-            s.blend = BlendMode::Additive;
-            s.position = event.origin;
-            s.color = pal.accent;
-            s.size = pop * 0.8f;
-            s.lifetime = 0.08f;
-            s.drag = 6.0f;
-            push(s);
-            for (u32 k = 0; k < 2; ++k) {
-                ParticleSpawnParams m;
-                m.kind = ParticleKind::Mist;
-                m.blend = BlendMode::AlphaBlend;
-                m.position = event.origin;
-                m.velocity = Vec2{pcg_signed(rs), pcg_signed(rs)} * 2.0f;
-                m.color = Vec4{pal.primary.r, pal.primary.g, pal.primary.b, 0.35f};
-                m.size = pop * 0.9f;
-                m.lifetime = 0.16f;
-                m.drag = 4.0f;
-                push(m);
-            }
-            break;
-        }
-
-        // GUNNER (and anything else with a projectile): a tiny white pop plus a
-        // few scattering bits. Cheap by design.
+        // A tiny white pop plus a few scattering bits. Cheap by design.
         ParticleSpawnParams s;
         s.kind = ParticleKind::Spark;
         s.blend = BlendMode::Additive;
@@ -767,17 +576,98 @@ void ParticleSystem::emit_for_event(const sim::CombatEvent& event) {
     }
 
     // -----------------------------------------------------------------------
-    // Explosion — the MORTAR's digestive burst. THREE STAGES, per the brief:
-    //   (1) t=0.00  the vesicle ruptures: tiny white core.
-    //   (2) t=0.00..0.055  the area "charges": matter is pulled inward.
-    //   (3) t=0.055 the burst: white centre, amber ring expanding to the full
-    //       radius, fragments thrown outward, all gone by ~0.22s.
-    // Staging is done with negative birth ages, so the update loop stays
-    // completely unaware that any of this is happening.
+    // Explosion — a bomber swarmer went off. What that looks like is the
+    // TOWER's, because what it leaves behind is:
+    //
+    //   Interferon   a slow circle. Frost: a cold ring settling outward and a
+    //                few crystal motes drifting down. No fragments, no heat —
+    //                nothing was damaged.
+    //   Goblet Cell  a mucus splash. The fluid itself is real and drawn from
+    //                sim state; this is only the wet spatter that a particle
+    //                surface cannot resolve, same job FluidSplash does.
+    //   Macrophage   the digestive burst. THREE STAGES, per the brief:
+    //     (1) t=0.00  the vesicle ruptures: tiny white core.
+    //     (2) t=0.00..0.055  the area "charges": matter is pulled inward.
+    //     (3) t=0.055 the burst: white centre, amber ring expanding to the
+    //         full radius, fragments thrown outward, all gone by ~0.22s.
+    //   Staging is done with negative birth ages, so the update loop stays
+    //   completely unaware that any of this is happening.
     // -----------------------------------------------------------------------
     case sim::CombatEventType::Explosion: {
         const f32 radius = math::max(event.radius, 1.5f);
         constexpr f32 kCharge = 0.055f;   // the ~0.05s pause the brief asks for
+
+        if (event.source == TowerType::Interferon) {
+            // The pop itself: small and cold.
+            ParticleSpawnParams s;
+            s.kind = ParticleKind::Spark;
+            s.blend = BlendMode::Additive;
+            s.position = event.origin;
+            s.color = pal.accent;
+            s.size = 0.45f;
+            s.lifetime = 0.10f;
+            s.drag = 6.0f;
+            push(s);
+            // One ring settling out to the zone's edge — slower than the
+            // mortar's shock so it reads as spreading cold, not a blast.
+            ParticleSpawnParams r;
+            r.kind = ParticleKind::Ring;
+            r.blend = BlendMode::Additive;
+            r.position = event.origin;
+            r.color = mix4(pal.primary, pal.accent, 0.4f);
+            r.size = radius;
+            r.lifetime = 0.34f;
+            push(r);
+            // Crystal motes drifting down inside the circle.
+            const u32 motes = 8u + 3u * tier;
+            for (u32 k = 0; k < motes; ++k) {
+                const f32 a = pcg_range(rs, 0.0f, math::kTwoPi);
+                const Vec2 radial{std::cos(a), std::sin(a)};
+                ParticleSpawnParams sh;
+                sh.kind = ParticleKind::Shard;
+                sh.blend = BlendMode::AlphaBlend;
+                sh.position = event.origin + radial * pcg_range(rs, 0.0f, radius * 0.8f);
+                sh.velocity = radial * pcg_range(rs, 0.4f, 1.4f);
+                sh.color = mix4(pal.primary, Vec4{1.0f, 1.0f, 1.0f, 1.0f}, 0.5f);
+                sh.size = pcg_range(rs, 0.08f, 0.16f);
+                sh.lifetime = pcg_range(rs, 0.30f, 0.55f);
+                sh.drag = 2.0f;
+                sh.rotation = a;
+                sh.spin = pcg_signed(rs) * 3.0f;
+                push(sh, pcg_range(rs, 0.0f, 0.12f));
+            }
+            break;
+        }
+
+        if (event.source == TowerType::GobletCell) {
+            ParticleSpawnParams s;
+            s.kind = ParticleKind::Spark;
+            s.blend = BlendMode::Additive;
+            s.position = event.origin;
+            s.color = pal.accent;
+            s.size = 0.40f;
+            s.lifetime = 0.08f;
+            s.drag = 6.0f;
+            push(s);
+            // Wet spatter thrown out past the splash radius, occluding.
+            const u32 drops = 6u + 2u * tier;
+            for (u32 k = 0; k < drops; ++k) {
+                const f32 a = pcg_range(rs, 0.0f, math::kTwoPi);
+                const Vec2 radial{std::cos(a), std::sin(a)};
+                ParticleSpawnParams m;
+                m.kind = ParticleKind::Mist;
+                m.blend = BlendMode::AlphaBlend;
+                m.position = event.origin + radial * pcg_range(rs, 0.0f, radius * 0.4f);
+                m.velocity = radial * pcg_range(rs, radius * 3.0f, radius * 6.0f);
+                m.color = Vec4{pal.primary.r, pal.primary.g, pal.primary.b, 0.40f};
+                m.size = pcg_range(rs, 0.14f, 0.28f);
+                m.lifetime = pcg_range(rs, 0.14f, 0.26f);
+                m.drag = 6.0f;
+                m.spin = pcg_signed(rs) * 2.0f;
+                push(m);
+            }
+            break;
+        }
 
         // --- stage 1: it lands.
         {

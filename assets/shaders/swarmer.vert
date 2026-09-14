@@ -1,14 +1,15 @@
 #version 450 core
-// Cytotoxic T swarmer pass — vertex stage.
+// Swarmer pass — vertex stage.
 //
-// One instanced quad per live granule in sim::SwarmerBuffers
-// (src/sim/swarm/Swarmers.h). Not a frozen contract: render::SwarmerGpuInstance
-// is a Renderer.cpp implementation detail mirrored only here, the same
-// arrangement projectile.vert and field.vert both have.
+// One instanced quad per live swarmer in sim::SwarmerBuffers
+// (src/sim/swarm/Swarmers.h), for every tower in the roster. Not a frozen
+// contract: render::SwarmerGpuInstance is a Renderer.cpp implementation detail
+// mirrored only here, the same arrangement projectile.vert and field.vert
+// both have.
 //
 // WHY THIS IS NOT THE PROJECTILE PASS
 // A round is a slug: it streaks along its velocity and reads as fired matter.
-// A granule is a small living thing — it should read as a body that swims, and
+// A swarmer is a small living thing — it should read as a body that swims, and
 // crucially it must stay legible when eighty of them are stacked on one lane.
 // So the quad here is axis-aligned and square rather than a velocity-stretched
 // capsule, and all of the motion lives in the fragment stage's wobble. A
@@ -21,7 +22,7 @@ layout(location = 2) in vec2  i_velocity;
 layout(location = 3) in float i_radius;
 layout(location = 4) in float i_phase;      // per-granule animation offset
 layout(location = 5) in vec4  i_tint;
-layout(location = 6) in uint  i_flags;      // bit 0: attached to a host
+layout(location = 6) in uint  i_flags;      // bit 0: engaged; bits 8..11: kind; 12..15: tier
 
 layout(location = 0) uniform mat4 u_view_projection;
 layout(location = 1) uniform float u_time;
@@ -45,7 +46,7 @@ void main() {
 
     v_local   = corner;
     v_tint    = i_tint;
-    // Each granule pulses on its own phase. Without the per-instance offset the
+    // Each swarmer pulses on its own phase. Without the per-instance offset the
     // whole cloud breathes in lockstep and instantly reads as one object.
     v_phase   = i_phase + u_time * 6.0;
     v_flags   = i_flags;
