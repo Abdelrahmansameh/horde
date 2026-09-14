@@ -47,7 +47,7 @@
 // can live -- the renderer cannot hold it, because compact() reshuffles indices
 // under it every tick.
 //
-// It obeys every rule the other nine do (parallel, reserved once, carried
+// It obeys every rule the other ten do (parallel, reserved once, carried
 // through the swap-remove) and exactly one they do not: NOTHING IN THE SIM
 // READS IT. Damage writes it, the movement kernel decays it, and it is absent
 // from SimWorld::state_hash(). That is what keeps a cosmetic stream from
@@ -104,6 +104,12 @@ struct ChaffSpawnParams {
     /// Squad this agent joins, or kNoSquad for an ungrouped agent (which steers
     /// exactly as chaff did before the squad layer existed).
     u16 squad_id = kNoSquad;
+    /// Purely visual replication split ramp. Its sign identifies the two
+    /// complementary halves; its magnitude starts at 1 and decays to zero.
+    f32 replication_pulse = 0.0f;
+    /// The parent's position at the instant it divided. Both descendants keep
+    /// it while the renderer pulls their visible halves apart from this point.
+    Vec2 replication_origin{0.0f, 0.0f};
 };
 
 /// The chaff store. One instance per sim world.
@@ -151,6 +157,15 @@ public:
     /// ramp an agent happened to start. Four bytes an agent is 64 KB at
     /// capacity, and the decay pass is the only thing that streams it.
     std::vector<f32> hit_flash;
+
+    /// Remaining signed 0..1 replication split animation. Like hit_flash this is
+    /// visual-only: movement and combat never read it, and state_hash omits it.
+    /// A parent and its daughter both receive 1 at the instant of a viral split
+    /// so the one body visibly becomes two newborn bodies instead of popping a
+    /// second full-size sprite into the crowd.
+    std::vector<f32> replication_pulse;
+    std::vector<f32> replication_origin_x;
+    std::vector<f32> replication_origin_y;
 
     /// Reserves every stream to `max_agents`. Call once at level load.
     void reserve(usize max_agents);

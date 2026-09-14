@@ -22,6 +22,7 @@ IMMUNE_CONFIG_SCHEMA_ASSERT(FamilyBehaviorParams);
 IMMUNE_CONFIG_SCHEMA_ASSERT(FamilyChaffParams);
 IMMUNE_CONFIG_SCHEMA_ASSERT(vfx::FamilyDeathVfx);
 IMMUNE_CONFIG_SCHEMA_ASSERT(sim::HitFlashParams);
+IMMUNE_CONFIG_SCHEMA_ASSERT(sim::ReplicationSplitParams);
 IMMUNE_CONFIG_SCHEMA_ASSERT(BaseAttackParams);
 IMMUNE_CONFIG_SCHEMA_ASSERT(EliteStatsParams);
 
@@ -117,6 +118,17 @@ constexpr Field kHitFlashFields[] = {
 };
 constexpr Schema kHitFlashSchema{"family_hit_flash", kHitFlashFields};
 
+constexpr Field kReplicationSplitFields[] = {
+    IMMUNE_CONFIG_FIELD(sim::ReplicationSplitParams, enabled, FieldKind::Bool, "False skips the parent-to-daughters split morph"),
+    IMMUNE_CONFIG_FIELD(sim::ReplicationSplitParams, duration, FieldKind::F32, "Seconds from one parent shell to two complete daughters"),
+    IMMUNE_CONFIG_FIELD(sim::ReplicationSplitParams, separation_distance, FieldKind::F32, "Final centre gap, as a multiple of contact spacing"),
+    IMMUNE_CONFIG_FIELD(sim::ReplicationSplitParams, pull_ease, FieldKind::F32, ">1 delays separation; <1 pulls outward early"),
+    IMMUNE_CONFIG_FIELD(sim::ReplicationSplitParams, reveal_distance, FieldKind::F32, "Local capsid distance that reveals each missing half"),
+    IMMUNE_CONFIG_FIELD(sim::ReplicationSplitParams, reveal_ease, FieldKind::F32, ">1 holds the seam longer; <1 completes daughters early"),
+    IMMUNE_CONFIG_FIELD(sim::ReplicationSplitParams, seam_softness, FieldKind::F32, "Local-SDF feathering for the split seam; 0 is hard"),
+};
+constexpr Schema kReplicationSplitSchema{"family_replication_split", kReplicationSplitFields};
+
 constexpr Field kBaseAttackFields[] = {
     IMMUNE_CONFIG_FIELD(BaseAttackParams, active, FieldKind::F32, "Seconds the strike is live"),
     IMMUNE_CONFIG_FIELD(BaseAttackParams, recovery, FieldKind::F32, "Seconds of recovery after a strike"),
@@ -158,7 +170,7 @@ const char* speed_tier_key(SpeedTier t) {
 }
 
 constexpr std::string_view kFamilyEntryKeys[] = {"speed_tier", "visual", "behavior", "chaff",
-                                                 "death_vfx", "hit_flash"};
+                                                 "death_vfx", "hit_flash", "replication_split"};
 constexpr std::string_view kEliteEntryKeys[] = {"id", "name", "family", "tier", "stats"};
 
 } // namespace
@@ -224,6 +236,11 @@ void parse_enemies(const Json& doc, EnemyConfig& out, config::Ctx& ctx) {
                 config::Ctx::Scope h(ctx, "hit_flash");
                 config::parse_struct(config::require_object(entry, "hit_flash", ctx),
                                      kHitFlashSchema, &fc.hit_flash, ctx);
+            }
+            {
+                config::Ctx::Scope r(ctx, "replication_split");
+                config::parse_struct(config::require_object(entry, "replication_split", ctx),
+                                     kReplicationSplitSchema, &fc.replication_split, ctx);
             }
         }
     }
@@ -293,6 +310,9 @@ Json dump_enemies(const EnemyConfig& cfg) {
         Json hit_flash = Json::object();
         config::dump_struct(hit_flash, kHitFlashSchema, &fc.hit_flash);
         entry["hit_flash"] = std::move(hit_flash);
+        Json replication_split = Json::object();
+        config::dump_struct(replication_split, kReplicationSplitSchema, &fc.replication_split);
+        entry["replication_split"] = std::move(replication_split);
         families[family_key(static_cast<PathogenFamily>(i))] = std::move(entry);
     }
     doc["families"] = std::move(families);
@@ -332,6 +352,8 @@ void bind_enemies(config::Registry& registry, EnemyConfig& cfg) {
         registry.bind(base + "chaff", kChaffSchema, &cfg.families[i].chaff);
         registry.bind(base + "death_vfx", kDeathVfxSchema, &cfg.families[i].death_vfx);
         registry.bind(base + "hit_flash", kHitFlashSchema, &cfg.families[i].hit_flash);
+        registry.bind(base + "replication_split", kReplicationSplitSchema,
+                      &cfg.families[i].replication_split);
     }
     registry.bind("enemies.base_attack", kBaseAttackSchema, &cfg.base_attack);
     for (EliteConfig& ec : cfg.elites) {

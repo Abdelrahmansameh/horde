@@ -734,6 +734,10 @@ Rect level_sim_bounds(const LevelDef& def) {
 
     Vec2 lo = def.world_bounds.min;
     Vec2 hi = def.world_bounds.max;
+    const auto include = [&lo, &hi](Vec2 p, f32 pad) {
+        lo = Vec2{math::min(lo.x, p.x - pad), math::min(lo.y, p.y - pad)};
+        hi = Vec2{math::max(hi.x, p.x + pad), math::max(hi.y, p.y + pad)};
+    };
     for (const SpawnPoint& p : def.spawn_points) {
         // The DISC, not the point: spawn_burst() scatters the wave across the
         // whole radius, so a disc that straddles the edge would lose its outer
@@ -741,8 +745,33 @@ Rect level_sim_bounds(const LevelDef& def) {
         // an agent on the very last cell of the grid has no tissue to steer
         // into and no flow field cell to read.
         const f32 pad = math::max(p.radius, 0.0f) + cell * 8.0f;
-        lo = Vec2{math::min(lo.x, p.position.x - pad), math::min(lo.y, p.position.y - pad)};
-        hi = Vec2{math::max(hi.x, p.position.x + pad), math::max(hi.y, p.position.y + pad)};
+        include(p.position, pad);
+    }
+    for (const Vessel& v : def.vessels) {
+        for (const VesselPoint& p : v.points) {
+            if (p.position.x >= def.world_bounds.min.x && p.position.x <= def.world_bounds.max.x &&
+                p.position.y >= def.world_bounds.min.y && p.position.y <= def.world_bounds.max.y) {
+                continue;
+            }
+            // A vessel is rendered and rasterized as a strip around its
+            // control points. Include its full end-cap, plus a few cells for
+            // the SDF/flow stencil, so an end may deliberately leave frame.
+            include(p.position, math::max(p.width * 0.5f, 0.0f) + cell * 4.0f);
+        }
+    }
+    for (const ObjectivePoint& o : def.objectives) {
+        if (o.position.x >= def.world_bounds.min.x && o.position.x <= def.world_bounds.max.x &&
+            o.position.y >= def.world_bounds.min.y && o.position.y <= def.world_bounds.max.y) {
+            continue;
+        }
+        // FlowField seeds the objective's full footprint, not only its centre.
+        // Keeping that footprint on-grid makes an off-frame organ behave just
+        // like an in-frame one while the camera remains clamped to the play
+        // rectangle.
+        const f32 hx = math::max(o.half_extents.x, 0.0f);
+        const f32 hy = math::max(o.half_extents.y, 0.0f);
+        // The radius covers the footprint even when the objective is rotated.
+        include(o.position, std::sqrt(hx * hx + hy * hy) + cell * 4.0f);
     }
     if (lo.x == def.world_bounds.min.x && lo.y == def.world_bounds.min.y &&
         hi.x == def.world_bounds.max.x && hi.y == def.world_bounds.max.y) {
@@ -752,10 +781,10 @@ Rect level_sim_bounds(const LevelDef& def) {
     // BACKSTOP. Every cell of this rect is allocated four times over (mask,
     // SDF, flow, lane ownership) and swept by the flow bake, so a mistyped
     // coordinate must not be able to ask for a grid the size of the address
-    // space. One world extent of growth per side is far more than any "walk in
-    // from off-screen" needs; a spawn point past it stays off the grid, and
-    // validate_level() reports it as an error rather than this quietly moving
-    // the spawn somewhere the author did not put it.
+    // space. One world extent of growth per side is far more than any
+    // off-screen lane, spawn, or objective needs; content past it stays off
+    // the grid, and validate_level() reports it rather than quietly moving
+    // something the author did not put there.
     lo = Vec2{math::max(lo.x, def.world_bounds.min.x - extent.x),
               math::max(lo.y, def.world_bounds.min.y - extent.y)};
     hi = Vec2{math::min(hi.x, def.world_bounds.max.x + extent.x),
@@ -776,7 +805,8 @@ Rect level_sim_bounds(const LevelDef& def) {
 
 LevelLoadResult LevelLoader::bake_geometry(const LevelDef& def, const GeometryBakeDesc& desc,
                                            sim::TissueMask& mask, sim::DistanceField& sdf,
-                                           sim::FlowField& flow, GeometryBakeStats* stats) const {
+                                           sim::FlowField& flow, GeometryBakeStats* stats,
+                                           RenderSdf* out_render_sdf) const {
     GeometryBakeStats scratch;
     GeometryBakeStats& st = stats ? *stats : scratch;
     st = GeometryBakeStats{};
@@ -816,6 +846,31 @@ LevelLoadResult LevelLoader::bake_geometry(const LevelDef& def, const GeometryBa
     // happens if these two calls are the other way round.
     carve_obstacles(mask, def.obstacles);
     st.carve_ms = stage.elapsed_ms();
+    stage = WallClock{};
+
+    // The drawn field, written back into walkability (see the header). Baked
+    // here rather than by the renderer's caller so that a mask and the picture
+    // of it can never come from two different bakes.
+    {
+        RenderSdf scratch;
+        RenderSdf& rs = out_render_sdf != nullptr ? *out_render_sdf : scratch;
+        rs = bake_render_sdf(def);
+        if (rs.valid()) {
+            for (i32 y = 0; y < mask.height(); ++y) {
+                for (i32 x = 0; x < mask.width(); ++x) {
+                    const bool open = rs.sample(mask.cell_to_world(x, y)) > 0.0f;
+                    if (open == mask.walkable(x, y)) continue;
+                    // Almost always a wall cell becoming lumen (a fillet, a
+                    // run-off). The other direction is a sub-texel sliver
+                    // the stamp happened to catch a cell centre in, which no
+                    // one drew and nothing should squeeze through.
+                    mask.set_walkable(x, y, open);
+                    if (open) mask.set_cost(x, y, 1.0f);
+                }
+            }
+        }
+    }
+    st.render_sdf_ms = stage.elapsed_ms();
     stage = WallClock{};
 
     // TissueMask -> DistanceField -> FlowField, per the pipeline in FlowField.h.
@@ -885,7 +940,8 @@ LevelLoadResult LevelLoader::bake_geometry(const LevelDef& def, const GeometryBa
     return LevelLoadResult{true, "", 0};
 }
 
-LevelLoadResult LevelLoader::instantiate(const LevelDef& def, sim::SimWorld& world) const {
+LevelLoadResult LevelLoader::instantiate(const LevelDef& def, sim::SimWorld& world,
+                                         RenderSdf* out_render_sdf) const {
     // The geometry half. Every SimDesc value the bake reads is forwarded here
     // and nowhere else, so the editor's standalone bake and this one cannot
     // silently disagree about wall cost or smoothing.
@@ -894,8 +950,8 @@ LevelLoadResult LevelLoader::instantiate(const LevelDef& def, sim::SimWorld& wor
     bake_desc.flow_wall_cost = world.desc().flow_wall_cost;
     bake_desc.flow_wall_falloff = world.desc().flow_wall_falloff;
     bake_desc.flow_wall_exponent = world.desc().flow_wall_exponent;
-    if (const LevelLoadResult r =
-            bake_geometry(def, bake_desc, world.tissue(), world.sdf(), world.flow());
+    if (const LevelLoadResult r = bake_geometry(def, bake_desc, world.tissue(), world.sdf(),
+                                                world.flow(), nullptr, out_render_sdf);
         !r.ok) {
         return r;
     }

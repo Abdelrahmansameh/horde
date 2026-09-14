@@ -315,8 +315,15 @@ std::vector<Issue> validate_level(const LevelDef& def, const BakedGeometry& bake
         if (o.integrity <= 0.0f) {
             rep.error_at("objective '" + o.id + "' has non-positive integrity", ref, o.position);
         }
-        if (extent.x > 0.0f && !inside(def.world_bounds, o.position)) {
-            rep.error_at("objective '" + o.id + "' lies outside the world bounds", ref, o.position);
+        if (extent.x > 0.0f && !inside(sim_rect, o.position)) {
+            rep.error_at("objective '" + o.id +
+                             "' is too far outside the world bounds to simulate -- the grid "
+                             "grows at most one world extent past each edge",
+                         ref, o.position);
+        } else if (extent.x > 0.0f && !inside(def.world_bounds, o.position)) {
+            rep.warn_at("objective '" + o.id +
+                            "' lies outside the world bounds -- it will remain off-screen during play",
+                        ref, o.position);
         }
     }
 

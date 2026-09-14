@@ -276,6 +276,7 @@ void apply_enemy_config(EnemyRoster& roster, const EnemyConfig& cfg) {
         // the damage path that writes it and the batcher that draws it can
         // reach it. See sim/chaff/HitFlash.h.
         sim::set_family_hit_flash(family, cfg.families[i].hit_flash);
+        sim::set_family_replication_split(family, cfg.families[i].replication_split);
     }
 
     roster.load_defaults();

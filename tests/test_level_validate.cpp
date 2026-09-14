@@ -208,10 +208,8 @@ TEST_CASE("dangling references are errors", "[level][validate]") {
     }
 }
 
-TEST_CASE("geometry outside the world is an error", "[level][validate]") {
-    SECTION("vessel point: a warning, the rasterizer clips it") {
-        // Vessels are checked against the SIMULATED rect, which is the world
-        // rect here because every spawn point is inside it.
+TEST_CASE("geometry outside the world is supported when safely simulated", "[level][validate]") {
+    SECTION("a far vessel point: a warning after the simulation cap") {
         LevelDef d = base_level();
         d.vessels[0].points[1].position = Vec2{999.0f, 16.0f};
         const std::vector<Issue> issues = validate_level(d);
@@ -221,7 +219,9 @@ TEST_CASE("geometry outside the world is an error", "[level][validate]") {
     SECTION("objective") {
         LevelDef d = base_level();
         d.objectives[0].position = Vec2{-5.0f, 16.0f};
-        REQUIRE(has_error(validate_level(d), "outside the world bounds"));
+        const std::vector<Issue> issues = validate_level(d);
+        REQUIRE(has_warning(issues, "outside the world bounds"));
+        REQUIRE_FALSE(has_error(issues, "outside the world bounds"));
     }
 }
 
@@ -260,6 +260,22 @@ TEST_CASE("level_sim_bounds grows to cover off-map spawn points", "[level][valid
         d.spawn_points[0].position = Vec2{-5000.0f, 16.0f};
         const Rect r = level_sim_bounds(d);
         REQUIRE(r.min.x >= d.world_bounds.min.x - d.world_bounds.size().x);
+    }
+    SECTION("an off-frame vessel end and objective grow the rect") {
+        LevelDef d = base_level();
+        d.vessels[0].points.back().position = Vec2{72.0f, 16.0f};
+        d.objectives[0].position = Vec2{70.0f, 16.0f};
+        const Rect r = level_sim_bounds(d);
+        REQUIRE(r.max.x > d.objectives[0].position.x + d.objectives[0].half_extents.x);
+        REQUIRE(r.max.x > d.vessels[0].points.back().position.x +
+                              d.vessels[0].points.back().width * 0.5f);
+        Baked b = bake(d);
+        const std::vector<Issue> issues = validate_level(d, b.view());
+        REQUIRE(has_warning(issues, "objective 'organ' lies outside the world bounds"));
+        REQUIRE_FALSE(has_error(issues, "outside the world bounds"));
+        REQUIRE_FALSE(has_warning(issues, "outside the simulated area"));
+        REQUIRE_FALSE(has_error(issues, "not on tissue"));
+        REQUIRE_FALSE(has_error(issues, "lane is sealed"));
     }
 }
 

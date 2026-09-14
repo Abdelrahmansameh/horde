@@ -547,6 +547,15 @@ struct Renderer::Impl {
     /// means a different level was loaded.
     Rect tissue_world{{0.0f, 0.0f}, {0.0f, 0.0f}};
 
+    // Smooth (analytic, rounded, padded) distance field, uploaded once per
+    // level and cached on the source pointer like the lane texture. When it
+    // is present the sim's own SDF is not uploaded at all.
+    gl::Texture2D tissue_smooth_tex;
+    const f32* smooth_src = nullptr;
+    i32 smooth_src_w = 0;
+    i32 smooth_src_h = 0;
+    bool smooth_tex_ready = false;
+
     // Flow texture: rebuilt every frame (the field reroutes whenever a tower
     // lands, and there is no version counter on FlowField to test against), but
     // capped at kFlowTexMax so that rebuild is a fixed small cost.
@@ -919,14 +928,8 @@ void Renderer::submit_tissue(const sim::TissueMask& mask, const sim::DistanceFie
     const i32 h = sdf.height();
     if (w <= 0 || h <= 0) return;
 
-    if (imp.tissue_tex_w != w || imp.tissue_tex_h != h) {
-        if (!imp.tissue_sdf_tex.create(w, h, GL_R32F, GL_LINEAR, GL_LINEAR, GL_CLAMP_TO_EDGE)) return;
-        imp.tissue_tex_w = w;
-        imp.tissue_tex_h = h;
-    }
-    imp.tissue_sdf_tex.upload(sdf.data(), GL_RED, GL_FLOAT);
-
     const Rect world = mask.world_bounds();
+
     // A new level can reuse the same grid dimensions as the old one, in which
     // case nothing else below would notice the swap. Bounds are what actually
     // identify the level's geometry, so they are the invalidation trigger.
@@ -936,6 +939,42 @@ void Renderer::submit_tissue(const sim::TissueMask& mask, const sim::DistanceFie
         imp.flow_tex_valid = false;
         imp.lane_src = nullptr;
         imp.lane_tex_ready = false;
+        imp.smooth_src = nullptr;
+        imp.smooth_tex_ready = false;
+    }
+
+    // ---- Which distance field to draw from --------------------------------
+    // The smooth field (game/level/RenderSdf.h) is the one the look is built
+    // on: analytic, corner-rounded, and padded past the level so lanes run off
+    // the screen. It is a pure function of the level file, so it is uploaded
+    // once and cached on its pointer. The sim's own SDF is the fallback for
+    // callers that have no level def (tests, the bench scenarios).
+    const bool want_smooth = decor != nullptr && decor->smooth_sdf != nullptr &&
+                             decor->smooth_width > 0 && decor->smooth_height > 0;
+    if (want_smooth && (decor->smooth_sdf != imp.smooth_src ||
+                        decor->smooth_width != imp.smooth_src_w ||
+                        decor->smooth_height != imp.smooth_src_h)) {
+        imp.smooth_tex_ready = imp.tissue_smooth_tex.create(
+            decor->smooth_width, decor->smooth_height, GL_R32F, GL_LINEAR, GL_LINEAR,
+            GL_CLAMP_TO_EDGE);
+        if (imp.smooth_tex_ready) {
+            imp.tissue_smooth_tex.upload(decor->smooth_sdf, GL_RED, GL_FLOAT);
+        }
+        imp.smooth_src = decor->smooth_sdf;
+        imp.smooth_src_w = decor->smooth_width;
+        imp.smooth_src_h = decor->smooth_height;
+    }
+    const bool use_smooth = want_smooth && imp.smooth_tex_ready;
+    Rect sdf_rect = world;
+    if (use_smooth) {
+        sdf_rect = decor->smooth_bounds;
+    } else {
+        if (imp.tissue_tex_w != w || imp.tissue_tex_h != h) {
+            if (!imp.tissue_sdf_tex.create(w, h, GL_R32F, GL_LINEAR, GL_LINEAR, GL_CLAMP_TO_EDGE)) return;
+            imp.tissue_tex_w = w;
+            imp.tissue_tex_h = h;
+        }
+        imp.tissue_sdf_tex.upload(sdf.data(), GL_RED, GL_FLOAT);
     }
 
     // ---- Flow texture ------------------------------------------------------
@@ -1351,8 +1390,12 @@ void Renderer::submit_tissue(const sim::TissueMask& mask, const sim::DistanceFie
     const Rect vis = imp.visible_bounds;
     glUniform2f(1, vis.min.x, vis.min.y);
     glUniform2f(2, vis.size().x, vis.size().y);
-    glUniform2f(3, world.min.x, world.min.y);
-    glUniform2f(4, world.size().x, world.size().y);
+    glUniform2f(3, sdf_rect.min.x, sdf_rect.min.y);
+    glUniform2f(4, sdf_rect.size().x, sdf_rect.size().y);
+    // The flow and lane textures are always on the mask's grid, which the
+    // smooth SDF's padded rect does not share; they get their own uv.
+    glUniform2f(9, world.min.x, world.min.y);
+    glUniform2f(10, world.size().x, world.size().y);
     // DESIGN.md §7.1/§9.1: "subtle heartbeat pulse" on the substrate layer.
     // tissue.frag already turns a phase into a low-amplitude brightness pulse
     // (`1.0 + 0.025*sin(phase)`); the current callers (app/Modes.cpp,
@@ -1369,10 +1412,14 @@ void Renderer::submit_tissue(const sim::TissueMask& mask, const sim::DistanceFie
     // the drifting corpuscles want a linear time, not something a caller may
     // have offset per-lane.
     glUniform1f(6, imp.time);
-    glUniform1f(7, have_flow ? 1.0f : 0.0f);
+    // Location 7 used to carry `have_flow`; tissue.frag no longer reads the
+    // flow texture, so nothing is set for it. The texture is still bound so
+    // a treatment that wants it back needs only the shader change.
     glUniform1f(8, have_lane ? 1.0f : 0.0f);
+    glUniform1f(11, decor != nullptr ? decor->pattern_scale : 1.0f);
 
-    imp.tissue_sdf_tex.bind_unit(0);
+    if (use_smooth) imp.tissue_smooth_tex.bind_unit(0);
+    else imp.tissue_sdf_tex.bind_unit(0);
     if (have_flow) imp.tissue_flow_tex.bind_unit(1);
     if (have_lane) imp.tissue_lane_tex.bind_unit(2);
     imp.screen_quad_vao.bind();
@@ -1557,10 +1604,15 @@ void Renderer::submit_chaff(const sim::ChaffBuffers& chaff, const sim::SpatialHa
         // 2..2+kFamilyCount-1, declared as an array in chaff.frag.
         {
             Vec4 flash_color[kFamilyCount];
+            Vec4 split_params[kFamilyCount];
             for (u32 f = 0; f < kFamilyCount; ++f) {
                 flash_color[f] = sim::family_hit_flash(static_cast<PathogenFamily>(f)).color;
+                const sim::ReplicationSplitParams& split =
+                    sim::family_replication_split(static_cast<PathogenFamily>(f));
+                split_params[f] = Vec4{split.reveal_distance, split.seam_softness, 0.0f, 0.0f};
             }
             glUniform4fv(2, static_cast<GLsizei>(kFamilyCount), glm::value_ptr(flash_color[0]));
+            glUniform4fv(4, static_cast<GLsizei>(kFamilyCount), glm::value_ptr(split_params[0]));
         }
         imp.chaff_vao.bind();
         const u32 region_base_instance = imp.chaff_region * kFamilyCount * per_family_cap;

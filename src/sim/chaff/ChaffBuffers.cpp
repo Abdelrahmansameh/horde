@@ -26,6 +26,9 @@ void ChaffBuffers::reserve(usize max_agents) {
     generation.assign(max_agents, 0u);
     squad_id.assign(max_agents, kNoSquad);
     hit_flash.assign(max_agents, 0.0f);
+    replication_pulse.assign(max_agents, 0.0f);
+    replication_origin_x.assign(max_agents, 0.0f);
+    replication_origin_y.assign(max_agents, 0.0f);
     next_generation_ = 1u;   // 0 is the reserved "invalid handle" generation.
     clear();
 }
@@ -40,6 +43,9 @@ void ChaffBuffers::clear() {
         generation[i] = 0;
         squad_id[i] = kNoSquad;
         hit_flash[i] = 0.0f;
+        replication_pulse[i] = 0.0f;
+        replication_origin_x[i] = 0.0f;
+        replication_origin_y[i] = 0.0f;
     }
     // Deliberately NOT resetting next_generation_: handles taken before a clear()
     // must not silently resolve to a freshly spawned agent.
@@ -60,6 +66,9 @@ ChaffHandle ChaffBuffers::spawn(const ChaffSpawnParams& p) {
     squad_id[i] = p.squad_id;
     // A recycled slot can still be carrying the flash of whatever died in it.
     hit_flash[i] = 0.0f;
+    replication_pulse[i] = p.replication_pulse;
+    replication_origin_x[i] = p.replication_origin.x;
+    replication_origin_y[i] = p.replication_origin.y;
     if (next_generation_ == 0u) next_generation_ = 1u;   // never hand out 0
     total_density_ += p.density;
     ++family_counts_[static_cast<u32>(p.family)];
@@ -124,12 +133,18 @@ usize ChaffBuffers::compact(u32* removed_by_family) {
             generation[i] = generation[last];
             squad_id[i] = squad_id[last];
             hit_flash[i] = hit_flash[last];
+            replication_pulse[i] = replication_pulse[last];
+            replication_origin_x[i] = replication_origin_x[last];
+            replication_origin_y[i] = replication_origin_y[last];
         }
         --count_;
         flags[count_] = 0;
         generation[count_] = 0;   // the retired id is never reissued
         squad_id[count_] = kNoSquad;
         hit_flash[count_] = 0.0f;
+        replication_pulse[count_] = 0.0f;
+        replication_origin_x[count_] = 0.0f;
+        replication_origin_y[count_] = 0.0f;
         // Do not advance i: the swapped-in agent must be tested too.
     }
     if (total_density_ < 0.0f) total_density_ = 0.0f;
@@ -163,6 +178,8 @@ void ChaffBuffers::assert_invariants() const {
     assert(flags.size() == capacity_ && generation.size() == capacity_);
     assert(squad_id.size() == capacity_);
     assert(hit_flash.size() == capacity_);
+    assert(replication_pulse.size() == capacity_);
+    assert(replication_origin_x.size() == capacity_ && replication_origin_y.size() == capacity_);
     for (usize i = 0; i < count_; ++i) {
         assert((flags[i] & chaff_flags::kAlive) != 0);               // I1
         assert((flags[i] & chaff_flags::kPendingKill) == 0);         // post-compact

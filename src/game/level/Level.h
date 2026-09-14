@@ -156,6 +156,7 @@
 #pragma once
 
 #include "core/Types.h"
+#include "game/level/RenderSdf.h"     // RenderSdf, the drawn field bake_geometry() also writes.
 #include "game/wave/WaveDirector.h"   // WaveDef, for optional authored waves.
 #include "sim/squad/Squads.h"         // SquadPath, produced by build_squad_paths().
 
@@ -405,16 +406,15 @@ struct LevelDef {
 /// The rect the SIMULATION covers, which is NOT always the rect the level is
 /// framed by. `world_bounds` is the play area: what the camera clamps to, what
 /// the editor draws as the level's edge, what a tower may be built inside. A
-/// spawn point is allowed to sit OUTSIDE it, so a lane can run off the edge and
-/// the horde can walk in from off-screen -- but the tissue mask, the flow
-/// field, the spatial hash and the out-of-bounds despawn test all have to reach
-/// that far or the burst appears on no grid at all and is retired on the tick
-/// it spawns.
+/// Spawn points, vessel ends, and objectives are allowed to sit OUTSIDE it for
+/// off-frame composition. The tissue mask, flow field, spatial hash, and
+/// out-of-bounds despawn test therefore have to reach that far or the geometry
+/// would be clipped and spawned agents could be retired on their first tick.
 ///
-/// So: world_bounds, grown to contain every spawn point's disc plus a margin,
-/// rounded out to whole cells. Equal to world_bounds for the (overwhelmingly
-/// common) level whose spawn points are all inside it, which is why nothing
-/// downstream needs a special case for the ordinary level.
+/// So: world_bounds, grown to contain each off-frame spawn disc, vessel end,
+/// and objective footprint plus a margin, rounded out to whole cells. Equal to
+/// world_bounds for the (overwhelmingly common) all-in-frame level, which is
+/// why nothing downstream needs a special case for ordinary content.
 Rect level_sim_bounds(const LevelDef& def);
 
 /// Coarse per-cell "which lane owns this point" grid, built by
@@ -480,6 +480,9 @@ struct GeometryBakeDesc {
 struct GeometryBakeStats {
     f64 rasterize_ms = 0.0;
     f64 carve_ms = 0.0;
+    /// The smooth field bake plus the walkability it writes back (see
+    /// bake_geometry()).
+    f64 render_sdf_ms = 0.0;
     f64 sdf_ms = 0.0;
     f64 wall_cost_ms = 0.0;
     f64 flow_ms = 0.0;
@@ -502,7 +505,10 @@ public:
     /// only path by which a SimWorld acquires geometry. Lanes share one
     /// TissueMask/FlowField (they are one walkable region overall); for
     /// per-lane attribution after the fact, see build_lane_ownership_map().
-    LevelLoadResult instantiate(const LevelDef& def, sim::SimWorld& world) const;
+    /// `out_render_sdf`, when given, receives the smooth field the tissue pass
+    /// draws the level from (see bake_geometry()).
+    LevelLoadResult instantiate(const LevelDef& def, sim::SimWorld& world,
+                                RenderSdf* out_render_sdf = nullptr) const;
 
     /// The geometry half of instantiate(), against caller-owned buffers:
     /// rasterize vessels -> carve obstacles -> bake SDF -> stamp wall-proximity
@@ -520,10 +526,25 @@ public:
     /// baked flow field and belongs to the caller (instantiate() and
     /// validate_level() both run it).
     /// `stats` is optional; pass one to find out where the time went.
+    ///
+    /// THE MASK IS THE PICTURE. After the splines are stamped and the
+    /// obstacles carved, the smooth field the renderer draws from
+    /// (game/level/RenderSdf.h: analytic, concave corners filleted, lanes
+    /// run off the world edge) is baked, and every cell it says is lumen is
+    /// made walkable. That is what keeps the horde pressed against exactly
+    /// the wall the player sees: the fillet at the inside of a bend is a
+    /// place agents can go, not a painted margin they stop short of. The
+    /// field is a superset of the stamped geometry by construction (it is
+    /// the same splines and solids, evaluated exactly rather than at cell
+    /// centres), so nothing an author drew is taken away; the only cells that
+    /// close are sub-texel slivers the stamp caught by accident.
+    /// `out_render_sdf` receives that field; pass one from any caller that
+    /// will draw.
     LevelLoadResult bake_geometry(const LevelDef& def, const GeometryBakeDesc& desc,
                                   sim::TissueMask& mask, sim::DistanceField& sdf,
                                   sim::FlowField& flow,
-                                  GeometryBakeStats* stats = nullptr) const;
+                                  GeometryBakeStats* stats = nullptr,
+                                  RenderSdf* out_render_sdf = nullptr) const;
 
     /// Resolves the level's squad routes (game/level SquadPathDef ->
     /// sim::SquadPath): resamples every authored path, DERIVES a spread of

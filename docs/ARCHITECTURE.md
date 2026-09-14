@@ -243,6 +243,20 @@ with the radius, with the old rate kept as the floor for sub-cell lumens. Same
 geometry to within a sub-cell edge wobble; 617 ms becomes 77 ms, which is what
 lets the level editor re-bake on every gesture.
 
+**The drawn field writes the mask (`game/level/RenderSdf.h`).** Between the
+carve and the `DistanceField` bake, `LevelLoader::bake_geometry()` bakes a
+second distance field straight off the level's geometry: the true distance to
+the swept capsules and carved solids, evaluated per texel rather than stamped
+at cell centres, with concave lumen corners filleted by a bounded morphological
+closing (thin septa and islands are found on the wall's medial axis and left
+alone) and lanes that reach the world edge run off the grid. That field is what
+`tissue.frag` draws from -- it is why a vessel wall is a clean curve and the
+inside of a bend a soft arc -- and its sign is written back into
+`TissueMask::walkable`, so the horde is pressed against exactly the wall the
+player sees. The sim's own `DistanceField` is still an EDT of the mask; only
+the mask's provenance changed. `tests/test_render_sdf.cpp` pins the agreement
+on every shipped level.
+
 10,000 agents cannot each run A*. Baking a vector field once turns an agent's
 entire pathfinding cost into one bilinear sample. Vessels get organic width and
 branching for free because the field comes from a rasterized mask, not a corridor

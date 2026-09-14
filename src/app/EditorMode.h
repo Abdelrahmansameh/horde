@@ -26,6 +26,7 @@
 #include "game/editor/LevelTemplates.h"
 #include "game/editor/LevelValidate.h"
 #include "game/level/Level.h"
+#include "game/level/RenderSdf.h"
 #include "sim/flowfield/FlowField.h"
 
 #include <string>
@@ -41,6 +42,9 @@ struct EditorBake {
     sim::DistanceField sdf;
     sim::FlowField flow;
     game::LaneOwnershipMap lanes;
+    /// The smooth field the viewport draws the vessels from, from the same
+    /// bake_geometry() call as the mask.
+    game::RenderSdf render_sdf;
     game::GeometryBakeStats stats;
     bool valid = false;
     std::string error;

@@ -110,7 +110,8 @@ void EditorMode::rebake() {
 
     game::LevelLoader loader;
     const game::LevelLoadResult r =
-        loader.bake_geometry(doc_.def(), desc, bake_.mask, bake_.sdf, bake_.flow, &bake_.stats);
+        loader.bake_geometry(doc_.def(), desc, bake_.mask, bake_.sdf, bake_.flow, &bake_.stats,
+                             &bake_.render_sdf);
     bake_.valid = r.ok;
     bake_.error = r.error;
     // The lane grid is what gives the tissue its per-lane hue in the viewport,

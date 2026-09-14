@@ -1246,11 +1246,10 @@ TEST_CASE("a daughter is born beside its parent, not inside it",
     REQUIRE(births > 20);        // replication really did run
     REQUIRE(coincident == 0);    // and never stacked two bodies on one point
 
-    // And the offset is HALF the contact distance, measured on a birth in
-    // isolation so the number is the spawn's and not the crowd's: a daughter
-    // starts overlapping its parent by the other half at most, which is a
-    // shallow overlap the contact pass takes in one ordinary step rather than a
-    // full-depth one arriving all at once.
+    // A split is symmetric: the parent becomes one daughter and the new agent
+    // becomes the other, a full contact distance apart. In isolation the
+    // contact solver has nothing left to unpick, so this catches a regression
+    // back to a clone merely appearing beside an unchanged parent.
     ChaffBuffers solo;
     solo.reserve(8);
     solo.spawn(seed);
@@ -1270,6 +1269,6 @@ TEST_CASE("a daughter is born beside its parent, not inside it",
     const f32 birth_gap = std::sqrt(dx * dx + dy * dy);
     INFO("parent-daughter gap at birth: " << birth_gap << " vs contact "
                                           << contact_radius);
-    REQUIRE(birth_gap > contact_radius * 0.4f);
-    REQUIRE(birth_gap < contact_radius * 0.75f);
+    REQUIRE(birth_gap > contact_radius * 0.9f);
+    REQUIRE(birth_gap < contact_radius * 1.1f);
 }

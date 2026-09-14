@@ -162,7 +162,35 @@ struct TissueDecor {
     u32 lane_count = 0;
     i32 lane_width = 0;
     i32 lane_height = 0;
+
+    /// game::RenderSdf::distance -- the analytic, corner-rounded, padded
+    /// distance field the substrate is actually drawn from when present
+    /// (game/level/RenderSdf.h). `smooth_width * smooth_height` floats,
+    /// row-major, world units, positive inside the lumen, covering
+    /// `smooth_bounds` (which is generally LARGER than the mask's bounds).
+    /// The renderer caches the texture it uploads on this pointer, so the
+    /// backing array must outlive the level. Null falls back to the sim's
+    /// own DistanceField, which is what every test and headless path passes.
+    const f32* smooth_sdf = nullptr;
+    i32 smooth_width = 0;
+    i32 smooth_height = 0;
+    Rect smooth_bounds;
+
+    /// World-unit size of the substrate's pattern features (cells, pebbles,
+    /// wall thickness) relative to the look's reference framing. Levels the
+    /// camera frames from further away pass a larger value so the pattern
+    /// keeps its on-screen size; see tissue_pattern_scale(). 1 = reference.
+    f32 pattern_scale = 1.0f;
 };
+
+/// The pattern scale for a level framed at `view_height` world units tall:
+/// the look was authored at a 143-unit framing.
+inline f32 tissue_pattern_scale(f32 view_height) {
+    constexpr f32 kReferenceViewHeight = 142.8f;
+    if (!(view_height > 0.0f)) return 1.0f;
+    const f32 s = view_height / kReferenceViewHeight;
+    return s < 0.25f ? 0.25f : (s > 12.0f ? 12.0f : s);
+}
 
 struct FrameStats {
     u32 draw_calls = 0;

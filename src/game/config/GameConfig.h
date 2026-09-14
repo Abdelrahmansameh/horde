@@ -24,6 +24,7 @@
 #include "game/enemies/EnemyRoster.h"
 #include "game/towers/TowerSystem.h"
 #include "sim/chaff/HitFlash.h"
+#include "sim/chaff/ReplicationSplit.h"
 #include "sim/fluid/Fluid.h"
 #include "sim/squad/Squads.h"
 #include "vfx/DeathVfx.h"
@@ -226,6 +227,8 @@ struct FamilyConfig {
     /// see sim/chaff/HitFlash.h for what each knob does and for why that struct
     /// lives one layer lower than the death burst's does.
     sim::HitFlashParams hit_flash{};
+    /// The continuous parent-shell-to-two-daughters replication morph.
+    sim::ReplicationSplitParams replication_split{};
 };
 
 /// Shared melee shape every elite starts from.

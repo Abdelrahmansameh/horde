@@ -83,6 +83,15 @@
         "scale_punch": 0.0,
         "strength": 0.9
       },
+      "replication_split": {
+        "duration": 0.22,
+        "enabled": true,
+        "pull_ease": 1.0,
+        "reveal_distance": 0.6,
+        "reveal_ease": 1.0,
+        "seam_softness": 0.035,
+        "separation_distance": 1.0
+      },
       "speed_tier": "normal",
       "visual": {
         "color": [
@@ -169,6 +178,15 @@
         "retrigger": "highest",
         "scale_punch": 0.0,
         "strength": 0.9
+      },
+      "replication_split": {
+        "duration": 0.22,
+        "enabled": true,
+        "pull_ease": 1.0,
+        "reveal_distance": 0.6,
+        "reveal_ease": 1.0,
+        "seam_softness": 0.035,
+        "separation_distance": 1.0
       },
       "speed_tier": "fast",
       "visual": {

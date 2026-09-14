@@ -26,6 +26,7 @@
 #include "render/Renderer.h"
 #include "sim/chaff/ChaffBuffers.h"
 #include "sim/chaff/HitFlash.h"
+#include "sim/chaff/ReplicationSplit.h"
 
 #include <cmath>
 #include <vector>
@@ -304,6 +305,9 @@ inline ChaffBatchResult build_chaff_batches(const sim::ChaffBuffers& chaff,
     const f32* den = chaff.density.data();
     const u32* gen = chaff.generation.data();
     const f32* flash = chaff.hit_flash.data();
+    const f32* replication_pulse = chaff.replication_pulse.data();
+    const f32* replication_origin_x = chaff.replication_origin_x.data();
+    const f32* replication_origin_y = chaff.replication_origin_y.data();
 
     // Per-family cursors into the fixed-stride destination regions.
     u32 cursor[kFamilyCount];
@@ -313,6 +317,7 @@ inline ChaffBatchResult build_chaff_batches(const sim::ChaffBuffers& chaff,
     Vec4 fam_color[kFamilyCount];
     FamilyVisual fam_vis[kFamilyCount];
     sim::HitFlashParams fam_flash[kFamilyCount];
+    sim::ReplicationSplitParams fam_split[kFamilyCount];
     // Reciprocal of the occupancy at which this family's sprites cover a
     // broadphase cell: cell area over the area of one silhouette disc. A virus
     // (1.53 across) fills a 4-unit cell at ~8.7 agents, a bacterium (2.25) at
@@ -324,6 +329,7 @@ inline ChaffBatchResult build_chaff_batches(const sim::ChaffBuffers& chaff,
         fam_color[f] = family_color(static_cast<PathogenFamily>(f));
         fam_vis[f] = family_visual(static_cast<PathogenFamily>(f));
         fam_flash[f] = sim::family_hit_flash(static_cast<PathogenFamily>(f));
+        fam_split[f] = sim::family_replication_split(static_cast<PathogenFamily>(f));
         const f32 s = math::max(fam_vis[f].silhouette, 0.01f);
         const f32 disc = 0.25f * math::kPi * s * s;
         inv_crowd_full[f] = disc / math::max(cell_area, disc);
@@ -390,8 +396,21 @@ inline ChaffBatchResult build_chaff_batches(const sim::ChaffBuffers& chaff,
                                      std::pow(ramp, flash_params.curve));
         }
 
-        inst.x = p.x;
-        inst.y = p.y;
+        const sim::ReplicationSplitParams& split_params = fam_split[f];
+        const f32 split_pulse = replication_pulse[i];
+        const bool splitting = split_params.enabled && std::fabs(split_pulse) > 0.0f;
+        const f32 split_base = math::smoothstep01(1.0f - math::saturate(std::fabs(split_pulse)));
+        const f32 split_t = std::pow(split_base, math::max(0.01f, split_params.pull_ease));
+        const f32 split_reveal =
+            std::pow(split_base, math::max(0.01f, split_params.reveal_ease));
+        const Vec2 split_origin{replication_origin_x[i], replication_origin_y[i]};
+        // Physics separates the pair immediately so neither blocks the other,
+        // while rendering begins both halves at their common source and eases
+        // them outward. This is the continuity the simulation alone cannot
+        // express in a fixed tick.
+        const Vec2 draw_p = splitting ? split_origin + (p - split_origin) * split_t : p;
+        inst.x = draw_p.x;
+        inst.y = draw_p.y;
         // Constant silhouette: damage does NOT shrink the sprite. A wounded
         // agent used to render smaller (the density term), which read as
         // "further away" rather than "hurt" and made a damaged horde look
@@ -401,8 +420,24 @@ inline ChaffBatchResult build_chaff_batches(const sim::ChaffBuffers& chaff,
         // The hit punch is the one exception and it is off by default -- see
         // HitFlashParams::scale_punch, which carries the argument for why a
         // transient puff does not violate the rule the paragraph above states.
+        // During a viral split the fragment shader draws each descendant as
+        // one complementary half of this full-sized silhouette, then reveals
+        // the missing half as it moves away. Keep a shared local frame so the
+        // two clipped halves meet as the original parent before separating.
+        Vec2 split_delta = p - split_origin;
+        const bool split_oriented = splitting && f == static_cast<u32>(PathogenFamily::Virus) &&
+                                    math::length_sq(split_delta) > math::kEpsilon;
+        // Both halves share one local frame while they overlap. Canonicalizing
+        // the axis is what lets their clipped silhouettes meet perfectly at
+        // the parent seam rather than appearing as two independently rotated
+        // sprites that happen to be on top of one another.
+        if (split_oriented && (split_delta.x < 0.0f ||
+                               (split_delta.x == 0.0f && split_delta.y < 0.0f))) {
+            split_delta = split_delta * -1.0f;
+        }
         inst.scale = vis.silhouette * (1.0f + flash_params.scale_punch * flash_k);
-        inst.rotation = std::atan2(vy[i], vx[i]);
+        inst.rotation = split_oriented ? std::atan2(split_delta.y, split_delta.x)
+                                       : std::atan2(vy[i], vx[i]);
         Vec4 tint = fam_color[f];
         tint.a = split.instance_alpha;
         inst.tint_rgba8 = pack_rgba8(tint);
@@ -448,14 +483,30 @@ inline ChaffBatchResult build_chaff_batches(const sim::ChaffBuffers& chaff,
         // thousand times. It goes up as u_hit_flash_color[] instead, indexed in
         // the fragment stage by the family id already in bits 8..15.
         // Mirrored by CHAFF_FLASH_SHIFT in chaff.frag.
-        const u32 flash_bits = static_cast<u32>(flash_k * 255.0f + 0.5f) << 24;
+        // The final byte carries a hit flash normally. A splitting virion gets
+        // priority for those few frames: it instead carries its 0..1 split
+        // reveal, while the two spare live-agent flag bits identify the effect
+        // and its complementary half in chaff.frag.
+        const u32 effect_byte = splitting
+                                    ? static_cast<u32>(split_reveal * 255.0f + 0.5f)
+                                    : static_cast<u32>(flash_k * 255.0f + 0.5f);
+        const u32 flash_bits = effect_byte << 24;
         // Counted off the PACKED byte, not off flash_k, so the tally means
         // "instances that will visibly flash" rather than "instances carrying a
         // float that rounds to nothing". The tail of a fade spends a tick or
         // two below half a quantization step, and those are not flashes.
         if (flash_bits != 0u) ++out.agents_flashing;
-        inst.flags = static_cast<u32>(flg[i]) | (f << 8) | crowd_bits | flash_bits;
-        inst.anim_phase = offset + params.time * vis.tempo * math::kTwoPi;
+        constexpr u32 kVisualSplitActive = 1u << 6;
+        constexpr u32 kVisualSplitNegativeHalf = 1u << 7;
+        const u32 split_bits = splitting ? kVisualSplitActive |
+                                          (split_pulse > 0.0f ? kVisualSplitNegativeHalf : 0u)
+                                         : 0u;
+        inst.flags = static_cast<u32>(flg[i]) | split_bits | (f << 8) | crowd_bits | flash_bits;
+        // A shared phase is as important as a shared local frame: at frame
+        // zero the two complementary masks must reconstruct ONE capsid, not
+        // two different spiky outlines drawn over each other.
+        inst.anim_phase = splitting ? params.time * vis.tempo * math::kTwoPi
+                                    : offset + params.time * vis.tempo * math::kTwoPi;
         inst.pad = vis.wobble;
     }
 

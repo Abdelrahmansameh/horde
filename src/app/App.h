@@ -25,6 +25,7 @@
 #include "game/enemies/EnemyRoster.h"
 #include "game/gym/GymCommands.h"
 #include "game/level/Level.h"
+#include "game/level/RenderSdf.h"
 #include "game/meta/MetaProgression.h"
 #include "game/towers/TowerSystem.h"
 #include "game/wave/WaveDirector.h"
@@ -156,6 +157,11 @@ private:
 
     game::TowerSystem towers_;
     game::LaneOwnershipMap lane_map_;
+    /// The smooth distance field the tissue pass draws the level from, as
+    /// instantiate() baked it (the same bake that wrote the sim's walkability,
+    /// so the picture and the mask agree). The renderer caches its upload on
+    /// the array's pointer.
+    game::RenderSdf render_sdf_;
     game::EnemyRoster enemies_;
     game::WaveDirector waves_;
     game::Economy economy_;

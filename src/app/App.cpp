@@ -348,7 +348,7 @@ bool App::load_level_def(const game::LevelDef& level, const std::string& source_
     }
     sim_.init(desc, jobs_.get());
 
-    const auto res = loader.instantiate(level, sim_);
+    const auto res = loader.instantiate(level, sim_, &render_sdf_);
     if (!res.ok) {
         last_level_load_error_ = res.error;
         IMMUNE_LOG_ERROR("level instantiation failed: %s", res.error.c_str());
@@ -967,6 +967,18 @@ void App::render_frame() {
                 decor.lane_width = b.lanes.width;
                 decor.lane_height = b.lanes.height;
             }
+            if (b.render_sdf.valid()) {
+                decor.smooth_sdf = b.render_sdf.distance.data();
+                decor.smooth_width = b.render_sdf.width;
+                decor.smooth_height = b.render_sdf.height;
+                decor.smooth_bounds = b.render_sdf.bounds;
+            }
+            // The level's own framing, not the editor's zoom, so the pattern
+            // holds still while the author zooms.
+            const game::LevelDef& edef = editor_.doc().def();
+            decor.pattern_scale = render::tissue_pattern_scale(
+                edef.camera.view_height > 0.0f ? edef.camera.view_height
+                                               : edef.world_bounds.size().y);
             renderer_.submit_tissue(b.mask, b.sdf, 0.0f, &decor);
             if (editor_canvas_.views().flow_arrows) renderer_.submit_flow_debug(b.flow);
         }
@@ -1032,6 +1044,15 @@ void App::render_frame() {
         decor.lane_width = lane_map_.width;
         decor.lane_height = lane_map_.height;
     }
+    if (render_sdf_.valid()) {
+        decor.smooth_sdf = render_sdf_.distance.data();
+        decor.smooth_width = render_sdf_.width;
+        decor.smooth_height = render_sdf_.height;
+        decor.smooth_bounds = render_sdf_.bounds;
+    }
+    decor.pattern_scale = render::tissue_pattern_scale(
+        current_level_def_.camera.view_height > 0.0f ? current_level_def_.camera.view_height
+                                                     : sim_.desc().world_bounds.size().y);
     renderer_.submit_tissue(sim_.tissue(), sim_.sdf(), 0.0f, &decor);
     renderer_.submit_chaff(sim_.chaff(), sim_.spatial());
     renderer_.submit_entities(sim_.ecs());

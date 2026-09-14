@@ -501,6 +501,7 @@ GameConfig default_game_config() {
             // to be the body's colour, but a flash is a light landing ON the
             // body and reads as an event precisely because it is not.
             fc.hit_flash = sim::family_hit_flash(family);
+            fc.replication_split = sim::family_replication_split(family);
 
             // The two size derivations come from the live enemy config so the
             // bootstrap cannot disagree with what apply_to_tuning() actually

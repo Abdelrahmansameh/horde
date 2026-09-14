@@ -43,6 +43,11 @@ out vec4 o_color;
 const uint FLAG_MARKED  = 1u << 1;
 const uint FLAG_SLOWED  = 1u << 2;
 const uint FLAG_HIDDEN  = 1u << 3;
+// Renderer-only live-agent bits. These never feed back into chaff simulation:
+// a replicating virus is drawn as complementary parent halves while this flag
+// is set, then as two ordinary whole viruses once its split timer finishes.
+const uint FLAG_SPLIT_ACTIVE  = 1u << 6;
+const uint FLAG_SPLIT_NEGATIVE_HALF = 1u << 7;
 
 // Family id packed into bits 8..15 by ChaffBatcher (see build_chaff_instances).
 const uint CHAFF_FAMILY_SHIFT = 8u;
@@ -53,8 +58,8 @@ const uint CHAFF_FAMILY_MASK  = 0xFFu;
 const uint CHAFF_CROWD_SHIFT = 16u;
 const uint CHAFF_CROWD_MASK  = 0xFFu;
 // Hit flash, 0..255, packed into the last free byte (24..31) by the same
-// batcher. See sim/chaff/HitFlash.h for what it is; see the flash block at the
-// bottom of main() for what this stage does with it.
+// batcher. While FLAG_SPLIT_ACTIVE is set this instead holds the split reveal
+// 0..255, and the flash is deferred for the tiny duration of that morph.
 const uint CHAFF_FLASH_SHIFT = 24u;
 const uint CHAFF_FLASH_MASK  = 0xFFu;
 // Mirrors PathogenFamily's declaration order in core/Types.h.
@@ -71,6 +76,9 @@ const uint FAM_COUNT    = 2u;   // == immune::kFamilyCount
 // five thousand times each and force a frozen 32-byte instance layout wider to
 // do it. Locations 0 and 1 belong to chaff.vert's view-projection and time.
 layout(location = 2) uniform vec4 u_hit_flash_color[FAM_COUNT];
+// x = local reveal distance, y = seam softness. Uploaded from each family's
+// replication_split config every frame so live config edits redraw immediately.
+layout(location = 4) uniform vec4 u_replication_split_params[FAM_COUNT];
 
 // ---------------------------------------------------------------------------
 // VIRUS — an icosahedral capsid ringed with receptor spikes.
@@ -177,6 +185,26 @@ void main() {
     float body_alpha = 1.0 - smoothstep(-0.06 * rim_scale, 0.0, body_d);
     body_alpha = max(body_alpha, flagellum);
 
+    // A replication begins as two complementary hemispheres occupying the
+    // parent's original position. Their local frame is shared, so opposite
+    // x halves give the two true pieces of one virion; revealing further
+    // inward while the instances pull apart completes them into daughter
+    // viruses. This keeps the parent on screen throughout the transformation.
+    float split_mask = 1.0;
+    bool splitting = (v_flags & FLAG_SPLIT_ACTIVE) != 0u && family == FAM_VIRUS;
+    float split_reveal = float((v_flags >> CHAFF_FLASH_SHIFT) & CHAFF_FLASH_MASK) *
+                         (1.0 / 255.0);
+    if (splitting) {
+        vec4 split_params = u_replication_split_params[min(family, FAM_COUNT - 1u)];
+        float reveal_distance = split_reveal * max(0.0, split_params.x);
+        // The two split instances share their local frame; one retains x <= 0
+        // and the other x >= 0 at the start, which recreates the parent shell.
+        float half_x = (v_flags & FLAG_SPLIT_NEGATIVE_HALF) != 0u ? -v_local.x : v_local.x;
+        float seam = max(0.0, split_params.y);
+        split_mask = smoothstep(-seam, seam, half_x + reveal_distance);
+        body_alpha *= split_mask;
+    }
+
     // How much of this sprite is being drawn at all. The LOD crossfade hands it
     // down in the tint alpha: an agent inside the blob band is drawn at partial
     // sprite alpha and deposits the complementary fraction of its mass into the
@@ -211,7 +239,7 @@ void main() {
     float crowd = float((v_flags >> CHAFF_CROWD_SHIFT) & CHAFF_CROWD_MASK) * (1.0 / 255.0);
     float shadow_d = length(v_local - v_shadow_offset) - 0.52;
     float shadow_alpha = (1.0 - smoothstep(-0.18, 0.02, shadow_d)) * 0.46 *
-                         mix(1.0, 0.18, crowd) * sprite_fade;
+                         mix(1.0, 0.18, crowd) * sprite_fade * split_mask;
 
     if (body_alpha <= 0.0 && shadow_alpha <= 0.0) discard;
 
@@ -259,7 +287,7 @@ void main() {
     // crossfade, which owns alpha and needs it to keep meaning exactly one
     // thing (render/ChaffBatcher.h's crossfade contract).
     float hit_flash = float((v_flags >> CHAFF_FLASH_SHIFT) & CHAFF_FLASH_MASK) * (1.0 / 255.0);
-    if (hit_flash > 0.0) {
+    if (!splitting && hit_flash > 0.0) {
         rgb = mix(rgb, u_hit_flash_color[min(family, FAM_COUNT - 1u)].rgb, hit_flash);
     }
 

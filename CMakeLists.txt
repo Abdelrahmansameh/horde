@@ -78,6 +78,7 @@ add_library(immune_sim STATIC
   src/sim/chaff/ChaffBuffers.cpp
   src/sim/chaff/ChaffSystem.cpp
   src/sim/chaff/HitFlash.cpp
+  src/sim/chaff/ReplicationSplit.cpp
   src/sim/damage/DamageField.cpp
   src/sim/ecs/AiStateMachine.cpp
   src/sim/ecs/EcsWorld.cpp
@@ -117,6 +118,7 @@ add_library(immune_game STATIC
   src/game/gym/GymCommands.cpp
   src/game/level/Level.cpp
   src/game/level/LevelWriter.cpp
+  src/game/level/RenderSdf.cpp
   src/game/meta/MetaProgression.cpp
   src/game/session/LevelSession.cpp
   src/game/telemetry/RunTelemetry.cpp

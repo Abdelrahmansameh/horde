@@ -42,6 +42,7 @@
 #include "core/Rng.h"
 #include "sim/chaff/ChaffBuffers.h"
 #include "sim/chaff/HitFlash.h"
+#include "sim/chaff/ReplicationSplit.h"
 #include "sim/flowfield/FlowField.h"
 #include "sim/spatial/SpatialHash.h"
 
@@ -953,7 +954,7 @@ ChaffUpdateStats ChaffSystem::update(ChaffBuffers& buffers, const FlowField& flo
     integrate_and_clamp(px, py, vx, vy, old_px, old_py, push_x, push_y,
                         max_speed_scratch, static_cast<u32>(count), dt);
 
-    // ---- Pass B3: hit-flash fade (serial, cosmetic) ------------------------
+    // ---- Pass B3: cosmetic ramps (serial) ----------------------------------
     // Placed after B for no reason other than that B is where the tick's
     // straight-line arithmetic lives; it reads and writes nothing any other
     // pass touches, and removing it entirely cannot move state_hash().
@@ -972,6 +973,27 @@ ChaffUpdateStats ChaffSystem::update(ChaffBuffers& buffers, const FlowField& flo
             flash_rate[f] = seconds > 0.0f ? 1.0f / seconds : (dt > 0.0f ? 1.0f / dt : 1.0f);
         }
         decay_hit_flash(buffers.hit_flash.data(), fam, flash_rate, static_cast<u32>(count), dt);
+    }
+
+    // A replication starts with two small newborn bodies and lets both grow
+    // over a short, fixed beat. This is intentionally a visual-only stream:
+    // it never informs movement, damage, or the deterministic state hash.
+    // Keeping the timer here beside hit_flash also means an agent compacted to
+    // another slot carries its in-flight split animation with it.
+    if (dt > 0.0f) {
+        f32* split = buffers.replication_pulse.data();
+        for (usize i = 0; i < count; ++i) {
+            const u32 f = fam[i] < kFamilyCount ? fam[i] : 0u;
+            const ReplicationSplitParams& look =
+                family_replication_split(static_cast<PathogenFamily>(f));
+            if (!look.enabled || look.duration <= 0.0f) {
+                split[i] = 0.0f;
+                continue;
+            }
+            const f32 decay = dt / look.duration;
+            split[i] = split[i] > 0.0f ? math::max(0.0f, split[i] - decay)
+                                       : math::min(0.0f, split[i] + decay);
+        }
     }
 
     // ---- Pass B2: wall contact (parallel, gather-light) ---------------------
@@ -1060,8 +1082,10 @@ ChaffUpdateStats ChaffSystem::update(ChaffBuffers& buffers, const FlowField& flo
         const u32 f = fam[i];
         const ChaffFamilyParams& fp = tuning.family[f < kFamilyCount ? f : 0];
         ChaffSpawnParams sp;
-        // Placed BESIDE the parent, at half its contact distance, in a
-        // direction drawn per daughter.
+        // The two descendants start on opposite sides of their old shared
+        // centre, one contact distance apart. That makes replication read as
+        // a division rather than a second sprite appearing beside an unchanged
+        // parent; the paired replication_pulse carries the configured morph.
         //
         // Spawning on the parent's exact position (what this did) is the one
         // input the contact solver cannot act on: two agents at zero distance
@@ -1074,24 +1098,31 @@ ChaffUpdateStats ChaffSystem::update(ChaffBuffers& buffers, const FlowField& flo
         // sparkles with them continuously; it is the artifact that reads as
         // "the viruses in particular are jittery".
         //
-        // Half the contact distance is the useful offset: far enough that the
-        // pair has a direction and a shallow, one-step overlap, close enough
-        // that a daughter is unmistakably born out of its parent. This is the
-        // same reasoning spawn_burst() applies to a whole wave with its
-        // phyllotaxis packing -- an agent should be clean the instant it
-        // appears, rather than handed to the contact pass as a knot to unpick.
+        // A full contact-distance gap is the useful split: it is far enough
+        // that the contact solver need not unpick a fresh overlap, but close
+        // enough that the two bodies still unmistakably came from one source.
         //
         // Drawn from the sim generator rather than a per-range fork because
         // this resolve pass is serial and runs in index order, so the draws
         // happen in the same sequence on any thread count.
         const f32 birth_angle = rng.range_f(0.0f, math::kTwoPi);
-        const f32 birth_offset = fp.radius * fp.contact_spacing * 0.5f;
-        sp.position = Vec2{px[i], py[i]} +
-                      Vec2{std::cos(birth_angle), std::sin(birth_angle)} * birth_offset;
+        const Vec2 split_dir{std::cos(birth_angle), std::sin(birth_angle)};
+        const ReplicationSplitParams& split_look =
+            family_replication_split(static_cast<PathogenFamily>(f < kFamilyCount ? f : 0u));
+        const f32 split_distance = fp.radius * fp.contact_spacing *
+                                   math::max(0.0f, split_look.separation_distance);
+        const Vec2 split_half = split_dir * (split_distance * 0.5f);
+        const Vec2 split_center{px[i], py[i]};
+        sp.position = split_center + split_half;
         sp.velocity = Vec2{vx[i], vy[i]};
         sp.family = static_cast<PathogenFamily>(f);
         sp.density = fp.base_density > 0.0f ? fp.base_density : 1.0f;
         sp.flags = chaff_flags::kReplicated;
+        // Opposite signs identify the two complementary visual halves. The
+        // renderer uses their common origin to pull them apart continuously,
+        // instead of showing an old virus disappear and two new ones pop in.
+        sp.replication_pulse = split_look.enabled && split_look.duration > 0.0f ? -1.0f : 0.0f;
+        sp.replication_origin = split_center;
         // A daughter joins its parent's squad while that squad has room. It is
         // spawned ON the parent, so no other squad is a coherent answer -- and
         // defaulting them all to kNoSquad (which this used to do) is the worst
@@ -1111,6 +1142,14 @@ ChaffUpdateStats ChaffSystem::update(ChaffBuffers& buffers, const FlowField& flo
         const bool inherit = squads.can_absorb(parent_squad, pending);
         sp.squad_id = inherit ? parent_squad : kNoSquad;
         if (buffers.spawn(sp).valid()) {
+            // The original agent becomes the other daughter. Moving it only
+            // after spawn succeeds preserves the old state on a full buffer.
+            px[i] = split_center.x - split_half.x;
+            py[i] = split_center.y - split_half.y;
+            buffers.replication_pulse[i] =
+                split_look.enabled && split_look.duration > 0.0f ? 1.0f : 0.0f;
+            buffers.replication_origin_x[i] = split_center.x;
+            buffers.replication_origin_y[i] = split_center.y;
             ++replicated;
             if (inherit) ++squad_growth_[parent_squad];
         }

@@ -158,6 +158,32 @@ TEST_CASE("build_chaff_batches culls agents outside the cull rect", "[render][ba
     REQUIRE(result.agents_culled == 3u);
 }
 
+TEST_CASE("replicating chaff carries a continuous split render state", "[render][batch][replication]") {
+    ChaffBuffers chaff = make_chaff(4);
+    ChaffSpawnParams p;
+    p.family = PathogenFamily::Virus;
+    p.position = Vec2{10.0f, 10.0f};
+    p.replication_pulse = 1.0f;
+    p.replication_origin = p.position;
+    chaff.spawn(p);
+
+    OccupancyGrid occ = flat_grid(Rect{Vec2{0.0f, 0.0f}, Vec2{100.0f, 100.0f}});
+    ChaffBatchParams params;
+    params.per_family_capacity = 4;
+    std::vector<ChaffInstance> dest(kFamilyCount * params.per_family_capacity);
+    build_chaff_batches(chaff, occ, params, dest.data(), nullptr);
+
+    constexpr u32 kVisualSplitActive = 1u << 6;
+    constexpr u32 kVisualSplitNegativeHalf = 1u << 7;
+    REQUIRE((dest[0].flags & kVisualSplitActive) != 0u);
+    REQUIRE((dest[0].flags & kVisualSplitNegativeHalf) != 0u);
+    const f32 split_scale = dest[0].scale;
+    chaff.replication_pulse[0] = 0.0f;
+    build_chaff_batches(chaff, occ, params, dest.data(), nullptr);
+    REQUIRE((dest[0].flags & kVisualSplitActive) == 0u);
+    REQUIRE(split_scale == Approx(dest[0].scale).margin(1e-4f));
+}
+
 TEST_CASE("family_visual assigns distinct silhouette/tempo per family", "[render][batch][readability]") {
     // DESIGN.md §6: colour = family, silhouette = threat tier, tempo = speed
     // tier. Enforce structurally: no two families should accidentally share

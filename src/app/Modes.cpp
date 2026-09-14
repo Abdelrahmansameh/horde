@@ -12,6 +12,7 @@
 #include "game/enemies/EnemyRoster.h"
 #include "game/gym/GymCommands.h"
 #include "game/level/Level.h"
+#include "game/level/RenderSdf.h"
 #include "game/enemies/EnemyConfigApply.h"
 #include "game/towers/TowerMechanics.h"
 #include "game/towers/TowerSystem.h"
@@ -46,7 +47,8 @@ using json = nlohmann::json;
 /// no use for it and should not pay to build it.
 bool build_world(sim::SimWorld& world, const Options& opt, usize max_chaff,
                  JobSystem* jobs, std::string& error,
-                 game::LaneOwnershipMap* out_lane_map = nullptr) {
+                 game::LaneOwnershipMap* out_lane_map = nullptr,
+                 game::RenderSdf* out_render_sdf = nullptr) {
     game::LevelDef level;
     game::LevelLoader loader;
 
@@ -114,7 +116,7 @@ bool build_world(sim::SimWorld& world, const Options& opt, usize max_chaff,
     }
     world.init(desc, jobs);
 
-    const auto res = loader.instantiate(level, world);
+    const auto res = loader.instantiate(level, world, out_render_sdf);
     if (!res.ok) {
         error = res.error;
         return false;
@@ -132,15 +134,25 @@ bool build_world(sim::SimWorld& world, const Options& opt, usize max_chaff,
 /// view of them. Mirrors what App::render does for the interactive path, so a
 /// --screenshot capture frames the same substrate the player sees.
 render::TissueDecor tissue_decor(const sim::SimWorld& world,
-                                 const game::LaneOwnershipMap& lanes) {
+                                 const game::LaneOwnershipMap& lanes,
+                                 const game::RenderSdf* render_sdf = nullptr,
+                                 f32 level_view_height = 0.0f) {
     render::TissueDecor decor;
     decor.flow = &world.flow();
+    decor.pattern_scale = render::tissue_pattern_scale(
+        level_view_height > 0.0f ? level_view_height : world.desc().world_bounds.size().y);
     if (!lanes.owner.empty() && !lanes.lane_types.empty()) {
         decor.lane_owner = lanes.owner.data();
         decor.lane_type = reinterpret_cast<const u8*>(lanes.lane_types.data());
         decor.lane_count = static_cast<u32>(lanes.lane_types.size());
         decor.lane_width = lanes.width;
         decor.lane_height = lanes.height;
+    }
+    if (render_sdf != nullptr && render_sdf->valid()) {
+        decor.smooth_sdf = render_sdf->distance.data();
+        decor.smooth_width = render_sdf->width;
+        decor.smooth_height = render_sdf->height;
+        decor.smooth_bounds = render_sdf->bounds;
     }
     return decor;
 }
@@ -695,7 +707,8 @@ int run_screenshot(const Options& opt) {
     sim::SimWorld world;
     std::string error;
     game::LaneOwnershipMap lanes;
-    if (!build_world(world, opt, 16384, jobs.get(), error, &lanes)) {
+    game::RenderSdf render_sdf;
+    if (!build_world(world, opt, 16384, jobs.get(), error, &lanes, &render_sdf)) {
         IMMUNE_LOG_ERROR("screenshot setup failed: %s", error.c_str());
         return 1;
     }
@@ -871,7 +884,7 @@ int run_screenshot(const Options& opt) {
     }
 
     renderer.begin_frame(camera, 0.0f);
-    const render::TissueDecor decor = tissue_decor(world, lanes);
+    const render::TissueDecor decor = tissue_decor(world, lanes, &render_sdf);
     renderer.submit_tissue(world.tissue(), world.sdf(), 0.0f, &decor);
     renderer.submit_chaff(world.chaff(), world.spatial());
     renderer.submit_entities(world.ecs());
