@@ -138,7 +138,8 @@ void step_combat(SimWorld& world) {
                                      &world.combat_events());
     world.build_named_targets();
     world.swarmer_system().update(world.swarmers(), world.chaff(), world.spatial(),
-                                  world.named_targets(), &world.sdf(), world.desc().world_bounds,
+                                  world.named_targets(), &world.sdf(), &world.flow(),
+                                  world.desc().world_bounds,
                                   world.rng(), kFixedDt, &world.combat_events());
     world.apply_swarmer_effects();
     world.slow_zones().update(world.chaff(), world.spatial(), kFixedDt);
@@ -1253,7 +1254,19 @@ TEST_CASE("every tower stamps its own TowerType and tier onto the events it rais
             ready_now(world, tower);
             spawn_chaff_cluster(world, kRoomCenterLeft + Vec2{5.0f, 0.0f}, 30, 20.0f, 0.3f);
 
-            for (int i = 0; i < 5; ++i) step_combat(world);
+            // The swarmers carry the same tier, so what they raise later
+            // escalates with the tower too. Read it off the first unit as
+            // soon as one exists: a bomber released this close to the
+            // cluster meets it, and goes off, within a few ticks.
+            u16 swarmer_visual = 0;
+            bool saw_swarmer = false;
+            for (int i = 0; i < 5; ++i) {
+                step_combat(world);
+                if (!saw_swarmer && world.swarmers().count() > 0) {
+                    saw_swarmer = true;
+                    swarmer_visual = world.swarmers().visual_id[0];
+                }
+            }
 
             const CombatEvent* e = first_event(world, CombatEventType::MuzzleFlash, type);
             REQUIRE(e != nullptr);
@@ -1261,10 +1274,8 @@ TEST_CASE("every tower stamps its own TowerType and tier onto the events it rais
             // 3 data tiers spread across the VFX layer's 1..5 escalation axis.
             const u16 expected_visual = tier >= 3 ? 5 : (tier == 2 ? 3 : 1);
             REQUIRE(e->visual_id == expected_visual);
-            // The swarmers carry the same tier, so what they raise later
-            // escalates with the tower too.
-            REQUIRE(world.swarmers().count() > 0);
-            REQUIRE(world.swarmers().visual_id[0] == expected_visual);
+            REQUIRE(saw_swarmer);
+            REQUIRE(swarmer_visual == expected_visual);
         }
     }
 }

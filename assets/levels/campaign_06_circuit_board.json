@@ -4,6 +4,7 @@
   "display_name": "Circuit Board",
   "description": "Eleven breaches feed a grid of thin channels that all drain toward one corner.",
   "difficulty": 6,
+  "economy": { "starting_atp": 1800 },
   "tags": ["campaign"],
   "region": "lymphatic",
   "world": { "min": [0, 0], "max": [496.4, 489.6], "cell_size": 1 },

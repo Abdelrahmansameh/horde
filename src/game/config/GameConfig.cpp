@@ -123,6 +123,19 @@ constexpr Field kSquadFields[] = {
 };
 constexpr Schema kSquadSchema{"squads", kSquadFields};
 
+IMMUNE_CONFIG_SCHEMA_ASSERT(sim::SwarmerCollisionTuning);
+constexpr Field kSwarmerCollisionFields[] = {
+    IMMUNE_CONFIG_FIELD(sim::SwarmerCollisionTuning, enabled, FieldKind::Bool, "Master switch; off reproduces the pre-collision swarm exactly"),
+    IMMUNE_CONFIG_FIELD(sim::SwarmerCollisionTuning, friendly_spacing_mult, FieldKind::F32, "Swarmer-swarmer contact distance as a multiple of (size_a + size_b)"),
+    IMMUNE_CONFIG_FIELD(sim::SwarmerCollisionTuning, friendly_stiffness, FieldKind::F32, "Fraction of a swarmer-swarmer overlap corrected per tick (half each side)"),
+    IMMUNE_CONFIG_FIELD(sim::SwarmerCollisionTuning, enemy_spacing_mult, FieldKind::F32, "Swarmer-pathogen contact distance as a multiple of (size + pathogen radius)"),
+    IMMUNE_CONFIG_FIELD(sim::SwarmerCollisionTuning, enemy_stiffness, FieldKind::F32, "Fraction of a swarmer-pathogen overlap the swarmer resolves per tick; the pathogen never moves"),
+    IMMUNE_CONFIG_FIELD(sim::SwarmerCollisionTuning, max_push_mult, FieldKind::F32, "Cap on one swarmer's displacement per tick, as a multiple of its size"),
+    IMMUNE_CONFIG_FIELD(sim::SwarmerCollisionTuning, max_neighbours, FieldKind::U32, "Neighbours one swarmer inspects in each hash walk per tick"),
+    IMMUNE_CONFIG_FIELD(sim::SwarmerCollisionTuning, bomber_contact_mult, FieldKind::F32, "A bomber detonates when any enemy is inside (size + enemy radius) * this"),
+};
+constexpr Schema kSwarmerCollisionSchema{"swarmer_collision", kSwarmerCollisionFields};
+
 constexpr Field kEconomyFields[] = {
     IMMUNE_CONFIG_FIELD(EconomyConfig, starting_atp, FieldKind::U32, "ATP at level start"),
     IMMUNE_CONFIG_FIELD(EconomyConfig, passive_income_per_second, FieldKind::F32, ""),
@@ -152,8 +165,8 @@ constexpr Field kMetaFields[] = {
 };
 constexpr Schema kMetaSchema{"meta", kMetaFields};
 
-constexpr std::string_view kSimKeys[] = {"schema",   "capacities", "globals",
-                                        "swarmers", "fluid",      "squads"};
+constexpr std::string_view kSimKeys[] = {"schema", "capacities", "globals", "swarmers",
+                                        "fluid",  "squads",     "swarmer_collision"};
 constexpr std::string_view kAbilitiesKeys[] = {"schema", "complement_cascade_burst",
                                                "histamine_flare", "fever_response",
                                                "fibrin_clot"};
@@ -210,6 +223,11 @@ void parse_sim(const Json& doc, SimConfig& out, config::Ctx& ctx) {
         config::parse_struct(config::require_object(doc, "squads", ctx), kSquadSchema,
                              &out.squads, ctx);
     }
+    {
+        config::Ctx::Scope s(ctx, "swarmer_collision");
+        config::parse_struct(config::require_object(doc, "swarmer_collision", ctx),
+                             kSwarmerCollisionSchema, &out.swarmer_collision, ctx);
+    }
 }
 
 Json dump_sim(const SimConfig& cfg) {
@@ -230,6 +248,9 @@ Json dump_sim(const SimConfig& cfg) {
     Json squads = Json::object();
     config::dump_struct(squads, kSquadSchema, &cfg.squads);
     doc["squads"] = std::move(squads);
+    Json swarmer_collision = Json::object();
+    config::dump_struct(swarmer_collision, kSwarmerCollisionSchema, &cfg.swarmer_collision);
+    doc["swarmer_collision"] = std::move(swarmer_collision);
     return doc;
 }
 
@@ -239,6 +260,7 @@ void bind_sim(config::Registry& registry, SimConfig& cfg) {
     registry.bind("sim.swarmers", kSwarmerSchema, &cfg.swarmers);
     registry.bind("sim.fluid", kFluidSchema, &cfg.fluid);
     registry.bind("sim.squads", kSquadSchema, &cfg.squads);
+    registry.bind("sim.swarmer_collision", kSwarmerCollisionSchema, &cfg.swarmer_collision);
 }
 
 // --- economy.json ------------------------------------------------------
@@ -570,6 +592,7 @@ GameConfig default_game_config() {
         cfg.sim.swarmers = SwarmerGlobals{1.5f, 0.45f, 0.6f, 9.0f};
         cfg.sim.fluid = desc.fluid_tuning;
         cfg.sim.squads = desc.squad_tuning;
+        cfg.sim.swarmer_collision = desc.swarmer_collision;
     }
 
     cfg.economy = EconomyConfig{};

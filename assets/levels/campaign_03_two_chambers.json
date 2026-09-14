@@ -4,6 +4,7 @@
   "display_name": "Two Chambers",
   "description": "A long S-route through two open chambers, each with islands to build around.",
   "difficulty": 3,
+  "economy": { "starting_atp": 900 },
   "tags": ["campaign"],
   "region": "lymphatic",
   "world": { "min": [0, 0], "max": [481.4, 249.4], "cell_size": 0.75 },

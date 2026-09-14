@@ -66,6 +66,16 @@
     "squad_radius_scale": 0.75,
     "target_squad_size": 60
   },
+  "swarmer_collision": {
+    "bomber_contact_mult": 1.0,
+    "enabled": true,
+    "enemy_spacing_mult": 1.0,
+    "enemy_stiffness": 0.6,
+    "friendly_spacing_mult": 1.0,
+    "friendly_stiffness": 1.0,
+    "max_neighbours": 16,
+    "max_push_mult": 1.0
+  },
   "swarmers": {
     "damp": 1.5,
     "ring_offset_fraction": 0.6,

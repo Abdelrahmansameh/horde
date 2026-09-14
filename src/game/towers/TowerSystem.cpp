@@ -138,8 +138,8 @@ void init_mechanics_once() {
             constexpr u32 kRelease[3] = {2u, 3u, 4u};
             constexpr f32 kLife[3] = {6.0f, 6.5f, 7.0f};
             constexpr f32 kSpeed[3] = {22.0f, 25.0f, 28.0f};
-            constexpr f32 kSearch[3] = {14.0f, 16.0f, 18.0f};
-            constexpr f32 kStandoff[3] = {8.0f, 9.0f, 10.0f};
+            constexpr f32 kSearch[3] = {28.0f, 32.0f, 36.0f};
+            constexpr f32 kStandoff[3] = {16.0f, 18.0f, 20.0f};
             constexpr f32 kSize[3] = {1.50f, 1.65f, 1.80f};
             m.swarm = SwarmParams{kRelease[tier], kLife[tier], kSpeed[tier], kSearch[tier],
                                   kStandoff[tier], 0.70f, kSize[tier]};
@@ -148,7 +148,7 @@ void init_mechanics_once() {
             constexpr f32 kRoundSpeed[3] = {45.0f, 52.0f, 60.0f};
             constexpr f32 kSpread[3] = {0.11f, 0.085f, 0.06f};
             m.shooter = ShooterParams{kFire[tier], kDamage[tier], kRoundSpeed[tier], 0.45f, kSpread[tier],
-                                      kSize[tier] * 2.4f};
+                                      kSize[tier] * 2.4f, 0.75f, 1.0f, 1.5f};
         }
         // BOMBER -- Macrophage. Slow, fat swarmers; each one is a shell.
         {
@@ -935,6 +935,9 @@ sim::SwarmerProfile swarmer_profile(TowerType type, u8 tier) {
     p.round_hit_radius = m.shooter.round_hit_radius;
     p.round_spread = m.shooter.round_spread;
     p.formation_spacing = m.shooter.formation_spacing;
+    p.kite_fraction = m.shooter.kite_fraction;
+    p.kite_flow_weight = m.shooter.kite_flow_weight;
+    p.kite_speed_mult = m.shooter.kite_speed_mult;
 
     switch (p.kind) {
     case sim::SwarmerKind::Bomber:      p.chase_seconds = m.bomber.chase_seconds; break;

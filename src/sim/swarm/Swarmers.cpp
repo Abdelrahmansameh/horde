@@ -20,7 +20,9 @@
 //                  Latch rides and drains, Shooter holds and fires, a bomber
 //                  detonates and is gone.
 // A swarmer can traverse 2 -> 3 -> 4 in a single tick, and drops from 4 back
-// to 2 the tick after its target dies.
+// to 2 the tick after its target dies. After the pass, two positional
+// corrections run over everyone that moved: BODIES (resolve_bodies, contact
+// against other swarmers and against pathogens) and then WALLS.
 //
 // WHY THE WANDER IS NOT FROM THE SHARED Rng
 // Swarmers.h explains the determinism reason. The visual reason is just as
@@ -317,11 +319,22 @@ SearchHit search_nearest(const ChaffBuffers& chaff, const SpatialHash& hash,
 
 } // namespace
 
+SwarmerSystem::SwarmerSystem() {
+    for (u32 f = 0; f < kFamilyCount; ++f) chaff_radius_[f] = 0.5f;
+}
+
+void SwarmerSystem::set_chaff_radii(const f32* radii, usize count) {
+    if (radii == nullptr) return;
+    const usize n = count < kFamilyCount ? count : kFamilyCount;
+    for (usize f = 0; f < n; ++f) chaff_radius_[f] = math::max(radii[f], 0.0f);
+}
+
 SwarmerStats SwarmerSystem::update(SwarmerBuffers& sw,
                                    ChaffBuffers& chaff,
                                    const SpatialHash& hash,
                                    NamedTargetList& named,
                                    const DistanceField* sdf,
+                                   const FlowField* flow,
                                    const Rect& world_bounds,
                                    Rng& rng,
                                    f32 dt,
@@ -681,20 +694,77 @@ SwarmerStats SwarmerSystem::update(SwarmerBuffers& sw,
                 sw.flags[i] |= swarmer_flags::kAttached;
                 ++stats.attached;
 
-                // Hold the rank: steer to the squad line's slot for this unit
-                // (see the pre-pass), which sits at ~80% of reach from the
-                // target, with the wander on top so the rank reads as cells
-                // jostling rather than a frozen grid.
                 u32 s = sw.seed[i];
                 const Vec2 wander{signed_unit(s), signed_unit(s)};
                 sw.seed[i] = s;
-                const Vec2 slot_pos = formation_slot(sw, i, pr, target_pos, reach * 0.8f);
-                const Vec2 to_slot = slot_pos - p;
-                const f32 slot_dist = math::length(to_slot);
-                const Vec2 arrive = slot_dist > math::kEpsilon
-                                        ? to_slot * (math::min(slot_dist * 3.0f, pr.speed) / slot_dist)
-                                        : Vec2{0.0f, 0.0f};
-                const Vec2 desired = arrive + wander * (pr.speed * 0.15f);
+
+                // KITING (file header). Anything inside the kite radius --
+                // the target or a stranger walking through the rank -- and
+                // the shooter backs off, still firing. The search is
+                // measured to the rim, like every other reach here, so a
+                // boss is "too close" where its body starts.
+                Vec2 desired{0.0f, 0.0f};
+                bool kiting = false;
+                if (pr.kite_fraction > 0.0f) {
+                    const f32 kite_r = pr.attach_radius * pr.kite_fraction;
+                    const SearchHit threat = search_nearest(chaff, hash, named, scratch_, p, kite_r, mask,
+                                                            ChaffBuffers::npos, NamedTargetList::npos);
+                    if (threat.found) {
+                        const bool threat_named = threat.named_index != NamedTargetList::npos;
+                        const Vec2 threat_pos =
+                            threat_named ? named.items[threat.named_index].position
+                                         : Vec2{chaff.pos_x[threat.chaff_index], chaff.pos_y[threat.chaff_index]};
+                        const f32 threat_rim = threat_named ? named.items[threat.named_index].radius : 0.0f;
+                        const f32 gap = math::max(std::sqrt(threat.d2) - threat_rim, 0.0f);
+
+                        // Away from the threat, bent toward where the horde is
+                        // heading. The flow is zero off the field (a pocket, a
+                        // wall), which simply leaves "away" -- and if even that
+                        // is degenerate (standing on the threat), away from the
+                        // target it is shooting at.
+                        //
+                        // The flow may only BEND the retreat, never point it
+                        // back at the threat: a shooter that has ended up
+                        // upstream of the crowd (behind it, looking down the
+                        // lane) reads a flow that runs straight into the thing
+                        // it is fleeing, and summing that with "away" cancelled
+                        // to a sideways shuffle into the nearest wall. So the
+                        // component of the flow along -away is dropped and only
+                        // what is left -- across or ahead -- gets a vote.
+                        Vec2 away = math::normalize_safe(p - threat_pos);
+                        if (away.x == 0.0f && away.y == 0.0f) away = -dir;
+                        Vec2 downstream = flow != nullptr ? flow->sample(p) : Vec2{0.0f, 0.0f};
+                        const f32 into = downstream.x * away.x + downstream.y * away.y;
+                        if (into < 0.0f) downstream -= away * into;
+                        Vec2 retreat = math::normalize_safe(away + downstream * pr.kite_flow_weight);
+                        if (retreat.x == 0.0f && retreat.y == 0.0f) retreat = away;
+
+                        // Full retreat speed with the threat two thirds of the
+                        // way in, fading to a stop at the edge: the shooter
+                        // settles on the kite circle instead of bouncing off
+                        // it, and a horde walking at it meets a wall of ground
+                        // being given up faster than it can take it.
+                        const f32 urgency = math::saturate(3.0f * (1.0f - gap / math::max(kite_r, 0.01f)));
+                        desired = retreat * (pr.speed * pr.kite_speed_mult * urgency) +
+                                  wander * (pr.speed * 0.15f);
+                        kiting = true;
+                        ++stats.kiting;
+                    }
+                }
+
+                // Otherwise hold the rank: steer to the squad line's slot for
+                // this unit (see the pre-pass), which sits at ~80% of reach
+                // from the target, with the wander on top so the rank reads
+                // as cells jostling rather than a frozen grid.
+                if (!kiting) {
+                    const Vec2 slot_pos = formation_slot(sw, i, pr, target_pos, reach * 0.8f);
+                    const Vec2 to_slot = slot_pos - p;
+                    const f32 slot_dist = math::length(to_slot);
+                    const Vec2 arrive = slot_dist > math::kEpsilon
+                                            ? to_slot * (math::min(slot_dist * 3.0f, pr.speed) / slot_dist)
+                                            : Vec2{0.0f, 0.0f};
+                    desired = arrive + wander * (pr.speed * 0.15f);
+                }
                 const f32 turn = math::saturate(6.0f * dt);
                 sw.vel_x[i] += (desired.x - sw.vel_x[i]) * turn;
                 sw.vel_y[i] += (desired.y - sw.vel_y[i]) * turn;
@@ -719,9 +789,13 @@ SwarmerStats SwarmerSystem::update(SwarmerBuffers& sw,
                 shot.velocity = aim * pr.round_speed;
                 shot.damage = pr.round_damage;
                 shot.hit_radius = pr.round_hit_radius;
-                // Just enough to cross the standoff and a little more; a round
-                // that outlives its usefulness is a store slot another wanted.
-                shot.lifetime = (reach + 2.0f) / math::max(pr.round_speed, 1.0f);
+                // Twice the standoff and a little more. A shooter fires from
+                // its kite band at a target that may be out near the standoff
+                // edge and still closing, so a round that could only just
+                // cross the standoff fell short of the crowd behind the target;
+                // one that outlives its usefulness is merely a store slot
+                // another wanted.
+                shot.lifetime = (reach * 2.0f + 2.0f) / math::max(pr.round_speed, 1.0f);
                 shot.family_mask = mask;
                 shot.owner = sw.owner[i];
                 shot.source = pr.source;
@@ -814,6 +888,25 @@ SwarmerStats SwarmerSystem::update(SwarmerBuffers& sw,
         }
     }
 
+    // ---- BODIES. Contact resolution against other swarmers (symmetric) and
+    // against pathogens (one-way), off the post-steering positions, so the
+    // wall projection below is the last word on where a unit ends up. A
+    // bomber the pass finds touching an enemy goes off here, at the spot it
+    // touched -- it has not been pushed anywhere first.
+    if (collision_.enabled) {
+        resolve_bodies(sw, chaff, hash, named, stats);
+        for (const ContactBoom& boom : contact_booms_) {
+            const usize i = boom.index;
+            const SwarmerProfile& pr = sw.profile_of(i);
+            const Vec2 p{sw.pos_x[i], sw.pos_y[i]};
+            Vec2 dir = math::normalize_safe(boom.at - p);
+            if (dir.x == 0.0f && dir.y == 0.0f) dir = math::normalize_safe(Vec2{sw.vel_x[i], sw.vel_y[i]});
+            if (dir.x == 0.0f && dir.y == 0.0f) dir = Vec2{1.0f, 0.0f};
+            ++stats.contact_detonations;
+            detonate(i, pr, boom.at, dir);
+        }
+    }
+
     // ---- WALLS. Every unit that moved under its own steering is projected
     // back onto the tissue: a swarmer is a cell, not a ghost, and a volley
     // that clipped through the vessel wall would land in the next lane over.
@@ -853,6 +946,206 @@ SwarmerStats SwarmerSystem::update(SwarmerBuffers& sw,
     stats.live = static_cast<u32>(sw.count());
     last_ = stats;
     return last_;
+}
+
+/// One 3x3 cell walk of `hash` around `p`, calling `visit(j)` for every index
+/// found, own cell first (see gather_neighbours in ChaffSystem.cpp for why
+/// own-cell-first matters when the walk is capped). Stops after `budget`
+/// visits. Returns false if the walk was cut short.
+template <typename Visit>
+static void walk_cells(const SpatialHash& hash, Vec2 p, u32 budget, Visit&& visit) {
+    static constexpr i32 kCellOrder[9][2] = {
+        {0, 0}, {-1, 0}, {1, 0}, {0, -1}, {0, 1}, {-1, -1}, {1, -1}, {-1, 1}, {1, 1},
+    };
+    const IVec2 c = hash.cell_coord(p);
+    const IVec2 dims = hash.grid_dims();
+    const u32* indices = hash.indices();
+    u32 visited = 0;
+    for (const auto& off : kCellOrder) {
+        const i32 cx = c.x + off[0];
+        const i32 cy = c.y + off[1];
+        if (cx < 0 || cy < 0 || cx >= dims.x || cy >= dims.y) continue;
+        u32 begin, end;
+        hash.cell_range(static_cast<u32>(cy) * static_cast<u32>(dims.x) + static_cast<u32>(cx),
+                        begin, end);
+        for (u32 k = begin; k < end; ++k) {
+            if (visited++ >= budget) return;
+            visit(indices[k]);
+        }
+    }
+}
+
+/// The BODIES pass. Two Jacobi half-steps: every swarmer reads the positions
+/// as they stand after steering and writes ONLY its own displacement, then
+/// all displacements land at once. A friendly pair therefore sees each other
+/// at the same distance and takes the same half-overlap each, whichever order
+/// the store happens to hold them in.
+///
+/// Both walks are capped (SwarmerCollisionTuning::max_neighbours). Truncating
+/// in CSR order is a pure function of positions, so a capped walk is still
+/// deterministic; and contact is self-limiting anyway -- geometry bounds how
+/// many bodies can overlap one unit once they are no longer allowed to
+/// interpenetrate.
+void SwarmerSystem::resolve_bodies(SwarmerBuffers& sw, const ChaffBuffers& chaff,
+                                   const SpatialHash& hash, const NamedTargetList& named,
+                                   SwarmerStats& stats) {
+    const usize n = sw.count();
+    contact_booms_.clear();
+    if (n == 0) return;
+
+    // The swarmer-only broadphase mirrors the chaff hash's grid, so one 3x3
+    // walk reaches the same distance in both. Reconfigured only when the
+    // chaff hash changed shape (a level load), never per tick.
+    {
+        const Rect& b = hash.bounds();
+        const Rect& mine = swarmer_hash_.bounds();
+        if (mine.min.x != b.min.x || mine.min.y != b.min.y || mine.max.x != b.max.x ||
+            mine.max.y != b.max.y || swarmer_hash_.cell_size() != hash.cell_size() ||
+            swarmer_hash_.grid_dims().x == 0) {
+            SpatialHashDesc d;
+            d.bounds = b;
+            d.cell_size = hash.cell_size();
+            swarmer_hash_.configure(d);
+        }
+    }
+    swarmer_hash_.rebuild(sw.pos_x.data(), sw.pos_y.data(), n, nullptr);
+
+    if (push_x_.size() < n) {
+        push_x_.resize(n);
+        push_y_.resize(n);
+    }
+
+    const SwarmerCollisionTuning& ct = collision_;
+    const f32* px = sw.pos_x.data();
+    const f32* py = sw.pos_y.data();
+    constexpr f32 kEpsSq = 1e-8f;
+
+    // Which swarmers have a body at all. Latch units never do (file header),
+    // and a unit already retiring this tick is not solid to anyone.
+    const auto solid = [&](usize j) {
+        if ((sw.flags[j] & swarmer_flags::kPendingKill) != 0) return false;
+        return sw.profile_of(j).kind != SwarmerKind::Latch;
+    };
+    // A pathogen with a body: alive, not already dying, and not burrowed --
+    // a burrowed agent is under the tissue, so nothing can stand on it.
+    const auto solid_chaff = [&](u32 j) {
+        const u8 f = chaff.flags[j];
+        return (f & chaff_flags::kAlive) != 0 && (f & chaff_flags::kPendingKill) == 0 &&
+               (f & chaff_flags::kHidden) == 0;
+    };
+
+    for (usize i = 0; i < n; ++i) {
+        push_x_[i] = 0.0f;
+        push_y_[i] = 0.0f;
+        if (!solid(i)) continue;
+
+        const SwarmerProfile& pr = sw.profile_of(i);
+        const Vec2 p{px[i], py[i]};
+        const f32 size = pr.size * kWallContactFraction;
+        const bool bomber = swarmer_kind_detonates(pr.kind);
+        const f32 boom_mult = bomber ? ct.bomber_contact_mult : 0.0f;
+        const u8 mask = sw.family_mask[i];
+
+        Vec2 correction{0.0f, 0.0f};
+        u32 contacts = 0;
+        bool boom = false;
+        Vec2 boom_at = p;
+        // The touch point on this unit's membrane, toward an enemy at `to_me`
+        // away (a vector from the enemy to us). A bomber sitting exactly on
+        // an enemy has no direction to offer; it goes off where it is.
+        const auto membrane_toward = [&](Vec2 to_me, f32 d2) {
+            if (d2 < kEpsSq) return p;
+            return p - to_me * (size / std::sqrt(d2));
+        };
+
+        // ---- Friendlies: half the overlap each. The neighbour computes and
+        // applies the other half on its own turn.
+        walk_cells(swarmer_hash_, p, ct.max_neighbours, [&](u32 j) {
+            if (j == i || !solid(j)) return;
+            const f32 dx = p.x - px[j];
+            const f32 dy = p.y - py[j];
+            const f32 d2 = dx * dx + dy * dy;
+            const f32 contact =
+                (size + sw.profile_of(j).size * kWallContactFraction) * ct.friendly_spacing_mult;
+            if (d2 >= contact * contact || d2 < kEpsSq) return;
+            const f32 d = std::sqrt(d2);
+            const f32 c = (contact - d) * 0.5f * ct.friendly_stiffness / d;
+            correction.x += dx * c;
+            correction.y += dy * c;
+            ++contacts;
+        });
+        stats.friendly_contacts += contacts;
+
+        // ---- Pathogens: the whole overlap, ours to resolve. A bomber inside
+        // any enemy's contact circle is done -- record it and skip the push,
+        // it is detonating where it stands.
+        u32 enemy_contacts = 0;
+        walk_cells(hash, p, ct.max_neighbours, [&](u32 j) {
+            if (boom || !solid_chaff(j)) return;
+            const f32 dx = p.x - chaff.pos_x[j];
+            const f32 dy = p.y - chaff.pos_y[j];
+            const f32 d2 = dx * dx + dy * dy;
+            const f32 body = size + chaff_radius_[chaff.family[j] < kFamilyCount ? chaff.family[j] : 0u];
+            if (bomber && family_matches(mask, chaff.family[j])) {
+                const f32 fuse = body * boom_mult;
+                if (d2 < fuse * fuse) {
+                    boom = true;
+                    boom_at = membrane_toward(Vec2{dx, dy}, d2);
+                    return;
+                }
+            }
+            const f32 contact = body * ct.enemy_spacing_mult;
+            if (d2 >= contact * contact || d2 < kEpsSq) return;
+            const f32 d = std::sqrt(d2);
+            const f32 c = (contact - d) * ct.enemy_stiffness / d;
+            correction.x += dx * c;
+            correction.y += dy * c;
+            ++enemy_contacts;
+        });
+        for (usize k = 0; k < named.items.size() && !boom; ++k) {
+            const NamedTarget& t = named.items[k];
+            const Vec2 to_me = p - t.position;
+            const f32 d2 = math::length_sq(to_me);
+            const f32 body = size + t.radius;
+            if (bomber && family_matches(mask, t.family)) {
+                const f32 fuse = body * boom_mult;
+                if (d2 < fuse * fuse) {
+                    boom = true;
+                    boom_at = membrane_toward(to_me, d2);
+                    break;
+                }
+            }
+            const f32 contact = body * ct.enemy_spacing_mult;
+            if (d2 >= contact * contact || d2 < kEpsSq) continue;
+            const f32 d = std::sqrt(d2);
+            const f32 c = (contact - d) * ct.enemy_stiffness / d;
+            correction += to_me * c;
+            ++enemy_contacts;
+        }
+        if (boom) {
+            contact_booms_.push_back(ContactBoom{static_cast<u32>(i), boom_at});
+            continue;
+        }
+        stats.enemy_contacts += enemy_contacts;
+        contacts += enemy_contacts;
+        if (contacts == 0) continue;
+
+        // Averaged over the contacts, not summed, so a unit buried in a jam
+        // takes one sensible step and not n of them (the argument is spelled
+        // out on NeighbourSample::contact_push in ChaffSystem.cpp), and capped
+        // so a unit can never be launched.
+        Vec2 total = correction / static_cast<f32>(contacts);
+        const f32 cap = size * ct.max_push_mult;
+        const f32 len2 = math::length_sq(total);
+        if (cap > 0.0f && len2 > cap * cap) total *= cap / std::sqrt(len2);
+        push_x_[i] = total.x;
+        push_y_[i] = total.y;
+    }
+
+    for (usize i = 0; i < n; ++i) {
+        sw.pos_x[i] += push_x_[i];
+        sw.pos_y[i] += push_y_[i];
+    }
 }
 
 /// The point in the squad's rank that shooter `i` should occupy, given the

@@ -329,6 +329,9 @@
           "payload": {
             "fire_interval": 0.18,
             "formation_spacing": 3.6,
+            "kite_flow_weight": 1.0,
+            "kite_fraction": 0.75,
+            "kite_speed_mult": 1.5,
             "round_damage": 5.7,
             "round_hit_radius": 0.45,
             "round_speed": 45.0,
@@ -342,11 +345,11 @@
             "upgrade_cost": 45
           },
           "swarm": {
-            "attach_radius": 10.0,
+            "attach_radius": 20.0,
             "launch_spread": 0.7,
             "lifetime": 10.0,
             "release_per_shot": 2,
-            "search_radius": 14.0,
+            "search_radius": 28.0,
             "size": 1.5,
             "speed": 22.0
           }
@@ -355,6 +358,9 @@
           "payload": {
             "fire_interval": 0.15,
             "formation_spacing": 3.96,
+            "kite_flow_weight": 1.0,
+            "kite_fraction": 0.75,
+            "kite_speed_mult": 1.5,
             "round_damage": 9.0,
             "round_hit_radius": 0.45,
             "round_speed": 52.0,
@@ -368,11 +374,11 @@
             "upgrade_cost": 38
           },
           "swarm": {
-            "attach_radius": 10.0,
+            "attach_radius": 20.0,
             "launch_spread": 0.7,
             "lifetime": 15.0,
             "release_per_shot": 3,
-            "search_radius": 16.0,
+            "search_radius": 32.0,
             "size": 1.65,
             "speed": 25.0
           }
@@ -381,6 +387,9 @@
           "payload": {
             "fire_interval": 0.12,
             "formation_spacing": 4.32,
+            "kite_flow_weight": 1.0,
+            "kite_fraction": 0.75,
+            "kite_speed_mult": 1.5,
             "round_damage": 9.9,
             "round_hit_radius": 0.45,
             "round_speed": 60.0,
@@ -394,11 +403,11 @@
             "upgrade_cost": 0
           },
           "swarm": {
-            "attach_radius": 15.0,
+            "attach_radius": 30.0,
             "launch_spread": 0.7,
             "lifetime": 15.0,
             "release_per_shot": 4,
-            "search_radius": 18.0,
+            "search_radius": 36.0,
             "size": 1.8,
             "speed": 28.0
           }

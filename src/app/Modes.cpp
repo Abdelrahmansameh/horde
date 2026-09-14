@@ -96,6 +96,7 @@ bool build_world(sim::SimWorld& world, const Options& opt, usize max_chaff,
             desc.max_chaff_death_events = cfg.sim.capacities.max_chaff_death_events;
             desc.fluid_tuning = cfg.sim.fluid;
             desc.squad_tuning = cfg.sim.squads;
+            desc.swarmer_collision = cfg.sim.swarmer_collision;
             desc.spatial_cell_size = cfg.sim.globals.spatial_cell_size;
             desc.flow_rebake_budget_ms = cfg.sim.globals.flow_rebake_budget_ms;
             desc.flow_smoothing_radius = cfg.sim.globals.flow_smoothing_radius;

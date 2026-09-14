@@ -154,6 +154,9 @@ struct SimDesc {
     /// with a plain SimDesc gets squads as soon as a level installs paths, and
     /// gets the pre-squad kernel until then.
     SquadTuning squad_tuning{};
+    /// Swarmer body collision (sim/swarm/Swarmers.h, BODIES). Defaults are
+    /// live, same as squads above.
+    SwarmerCollisionTuning swarmer_collision{};
 };
 
 /// One vessel spawn point, captured from the level at load time by

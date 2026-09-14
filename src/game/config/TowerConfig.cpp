@@ -78,6 +78,9 @@ constexpr Field kShooterFields[] = {
     IMMUNE_CONFIG_FIELD(ShooterParams, round_hit_radius, FieldKind::F32, "Projectile hit radius"),
     IMMUNE_CONFIG_FIELD(ShooterParams, round_spread, FieldKind::F32, "Aim jitter half-angle, radians"),
     IMMUNE_CONFIG_FIELD(ShooterParams, formation_spacing, FieldKind::F32, "Distance between squad-mates along the rank"),
+    IMMUNE_CONFIG_FIELD(ShooterParams, kite_fraction, FieldKind::F32, "Kite radius as a fraction of the standoff; an enemy inside it makes the shooter back away while firing (0 disables)"),
+    IMMUNE_CONFIG_FIELD(ShooterParams, kite_flow_weight, FieldKind::F32, "How much the flow field bends the retreat toward where the horde is heading (0 = straight away from the threat)"),
+    IMMUNE_CONFIG_FIELD(ShooterParams, kite_speed_mult, FieldKind::F32, "Retreat speed as a multiple of the swarm speed"),
 };
 constexpr Schema kShooterSchema{"shooter", kShooterFields};
 

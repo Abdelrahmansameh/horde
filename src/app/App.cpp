@@ -331,6 +331,7 @@ bool App::load_level_def(const game::LevelDef& level, const std::string& source_
     desc.max_chaff_death_events = config_.sim.capacities.max_chaff_death_events;
     desc.fluid_tuning = config_.sim.fluid;
     desc.squad_tuning = config_.sim.squads;
+    desc.swarmer_collision = config_.sim.swarmer_collision;
     desc.spatial_cell_size = config_.sim.globals.spatial_cell_size;
     desc.flow_rebake_budget_ms = config_.sim.globals.flow_rebake_budget_ms;
     desc.flow_smoothing_radius = config_.sim.globals.flow_smoothing_radius;

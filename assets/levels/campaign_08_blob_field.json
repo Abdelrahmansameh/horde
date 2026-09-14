@@ -4,6 +4,7 @@
   "display_name": "Blob Field",
   "description": "A wide open floodplain strewn with islands. No walls to lean on -- build your own maze.",
   "difficulty": 8,
+  "economy": { "starting_atp": 2400 },
   "tags": ["campaign"],
   "region": "floodplain",
   "world": { "min": [0, 0], "max": [828, 552], "cell_size": 1.25 },

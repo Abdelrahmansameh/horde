@@ -4,6 +4,7 @@
   "display_name": "Ring Road",
   "description": "A ring around a core with loops on every side. Block one road and the horde takes another.",
   "difficulty": 5,
+  "economy": { "starting_atp": 1500 },
   "tags": ["campaign"],
   "region": "organ_chamber",
   "world": { "min": [0, 0], "max": [396.8, 396.8], "cell_size": 0.75 },

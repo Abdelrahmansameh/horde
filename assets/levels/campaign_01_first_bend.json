@@ -4,6 +4,7 @@
   "display_name": "First Bend",
   "description": "One vessel, two corners. Learn where a bend slows the horde down.",
   "difficulty": 1,
+  "economy": { "starting_atp": 300 },
   "tags": ["campaign"],
   "region": "capillary",
   "world": { "min": [0, 0], "max": [146.2, 142.8] },

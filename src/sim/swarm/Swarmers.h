@@ -38,9 +38,38 @@
 // march and hold as one rank, a line across their approach, each in its own
 // slot (SwarmerSpawnParams::group / slot).
 //
+// KITING. A shooter is ranged and soft, and a horde walks. So a shooter that
+// finds ANY enemy inside its kite radius (SwarmerProfile::kite_fraction of
+// its standoff) backs away while it keeps firing: straight away from the
+// nearest threat, bent by the flow field -- the direction the horde is about
+// to move through this very spot -- so it retreats AHEAD of the crowd rather
+// than sideways into the next rank of it. The retreat fades to nothing at
+// the kite edge, so a shooter settles in the band between kite radius and
+// standoff: in range, out of reach. Costs one search per engaged shooter per
+// tick, the same price a targetless swarmer pays.
+//
 // WALLS. Swarmers are cells, not ghosts: every unit moving under its own
 // steering is projected back onto the tissue against the distance field, the
 // same way the fluid is, so a volley cannot clip through a vessel wall.
+//
+// BODIES. Swarmers also collide (SwarmerCollisionTuning), body against body,
+// where a body is `size * kWallContactFraction` -- the drawn membrane, the
+// same edge the wall projection honours. Asymmetrically:
+//   - friendly vs friendly is a symmetric contact push, half the overlap each,
+//     the same displacement model the chaff crowd uses;
+//   - friendly vs enemy is ONE-WAY. The swarmer is pushed out of the pathogen,
+//     the pathogen never moves for a swarmer. That is what makes the horde
+//     read as heavy -- a cloud of units can never body-block a lane, and a
+//     charging squad shoves the rank in front of it aside -- and it is also
+//     why the chaff kernel knows nothing about this layer;
+//   - a bomber that so much as touches ANY enemy goes off there and then,
+//     whether or not it was the enemy it had picked, and the payload leaves
+//     from the point of contact on its membrane rather than from its centre.
+//     A shell that grazes the front of a horde does not get to fly through it.
+// Latch units (Cytotoxic T) take no part in any of it: a latcher's whole job
+// is to sit ON a pathogen, and a clump of them on one host is the intended
+// read. The pass costs every non-Latch swarmer one 3x3 walk of a swarmer-only
+// hash and one of the chaff hash, both walk-capped, plus the named list.
 //
 // WHY THIS IS NOT A DamageField, AND NOT A ProjectileBuffer
 // DamageField.h is right that area weapons must never test pairs. A round is
@@ -93,6 +122,7 @@
 #include "core/Types.h"
 #include "sim/Attribution.h"
 #include "sim/chaff/ChaffBuffers.h"
+#include "sim/spatial/SpatialHash.h"
 
 #include <vector>
 
@@ -100,9 +130,9 @@ namespace immune { class Rng; }
 
 namespace immune::sim {
 
-class SpatialHash;
 class CombatEventSink;
 class DistanceField;
+class FlowField;
 
 namespace swarmer_flags {
 inline constexpr u8 kAlive       = 1u << 0; ///< Slot occupied.
@@ -169,6 +199,16 @@ struct SwarmerProfile {
     f32 round_spread = 0.1f;   ///< Aim jitter half-angle, radians.
     /// Distance between squad-mates along the rank.
     f32 formation_spacing = 1.5f;
+    /// Kite radius as a fraction of the standoff (attach_radius): an enemy
+    /// inside it makes the shooter back away. 0 disables kiting. Keep it
+    /// below 1 or the shooter can never hold still inside its own standoff.
+    f32 kite_fraction = 0.75f;
+    /// How much the flow field bends the retreat. 0 backs straight away from
+    /// the nearest threat; 1 weighs "where the horde is going" equally.
+    f32 kite_flow_weight = 1.0f;
+    /// Retreat speed as a multiple of `speed`. Above 1 a shooter backs off
+    /// faster than it advances -- a horde walks, a neutrophil bolts.
+    f32 kite_speed_mult = 1.5f;
 
     // ---- every detonating kind ----
     /// Seconds a bomber will chase one target before giving up and going off
@@ -204,6 +244,47 @@ struct SwarmerProfile {
 /// vessel. The drawn body edge sits at ~0.84 of `size` (swarmer.frag), so this
 /// is "the membrane touches the wall".
 inline constexpr f32 kWallContactFraction = 0.8f;
+
+/// Body collision for the non-Latch kinds. See BODIES in the file header for
+/// the model. A swarmer's BODY here is `size * kWallContactFraction` -- the
+/// same membrane the wall projection keeps off the vessel, and where the
+/// renderer draws the edge -- and a pathogen's is its family radius. Every
+/// number below is a plain multiplier on those, so the block reads the same
+/// for a tiny interferon granule and a fat macrophage.
+struct SwarmerCollisionTuning {
+    /// Master switch; off reproduces the pre-collision swarm exactly.
+    bool enabled = true;
+
+    /// Two swarmers are in contact inside (body_a + body_b) * this.
+    f32 friendly_spacing_mult = 1.0f;
+    /// Fraction of a friendly-friendly overlap corrected per tick, 0..1. Each
+    /// side takes half, so 1.0 resolves a lone pair exactly in one step.
+    f32 friendly_stiffness = 1.0f;
+
+    /// A swarmer is in contact with a pathogen inside
+    /// (body + pathogen radius) * this.
+    f32 enemy_spacing_mult = 1.0f;
+    /// Fraction of a swarmer-pathogen overlap corrected per tick, 0..1. The
+    /// swarmer takes ALL of it (the pathogen does not move), so 1.0 pops it
+    /// clean out; lower values let a charging horde carry units a little way
+    /// before they squeeze out, which reads as being shoved.
+    f32 enemy_stiffness = 0.6f;
+
+    /// Hard cap on the total displacement one swarmer takes per tick, as a
+    /// multiple of its body. Keeps a unit buried in a jam from being launched.
+    f32 max_push_mult = 1.0f;
+    /// Neighbours one swarmer will inspect in EACH of its two hash walks.
+    /// Truncating in CSR order keeps the pass deterministic.
+    u32 max_neighbours = 16;
+
+    /// A detonating kind goes off when any enemy is inside
+    /// (body + enemy radius) * this, independent of its target's
+    /// attach_radius -- and it goes off AT THE POINT OF CONTACT, on its own
+    /// membrane, not at its centre. A macrophage is several pathogens wide;
+    /// a payload released from its middle would land short of the thing it
+    /// touched, and a Goblet Cell's splash is smaller than the cell.
+    f32 bomber_contact_mult = 1.0f;
+};
 
 /// Profile slots. One per tower type and tier, plus spares for tests and for
 /// scripted hazards that want a swarmer of their own.
@@ -422,13 +503,19 @@ struct SwarmerStats {
     u32 shots_fired = 0;
     u32 hosts_finished = 0;    ///< Targets that died under an engaged swarmer.
     u32 retargeted = 0;        ///< Stood their ground and picked a closer target.
+    u32 kiting = 0;            ///< Shooters backing away from a too-close enemy this tick.
     u32 wall_contacts = 0;     ///< Units pushed back onto the tissue this tick.
+    u32 friendly_contacts = 0; ///< Swarmer-swarmer overlaps resolved this tick (both sides counted).
+    u32 enemy_contacts = 0;    ///< Swarmer-pathogen overlaps a swarmer was pushed out of this tick.
+    u32 contact_detonations = 0; ///< Of `detonated`, the ones that went off on touching a non-target enemy.
     f32 density_removed = 0.0f;
     f32 named_damage = 0.0f;   ///< Hit points queued against named agents.
 };
 
 class SwarmerSystem {
 public:
+    SwarmerSystem();
+
     /// One tick: resolve targets, acquire new ones for the targetless, steer,
     /// integrate, drain / fire / detonate, retire the expired, compact.
     ///
@@ -437,7 +524,9 @@ public:
     /// here — SimWorld owns the ECS and applies it after.
     ///
     /// `sdf` is the level's clearance field, for the wall projection; null
-    /// (or unbaked) means no walls, which is what a bare test wants.
+    /// (or unbaked) means no walls, which is what a bare test wants. `flow`
+    /// is the level's flow field, which a kiting shooter reads to retreat
+    /// ahead of the horde; null means it backs straight away instead.
     ///
     /// `events` may be null. When present, latches, shots and detonations are
     /// reported so the VFX layer can pop; the sim's behaviour must be
@@ -452,6 +541,7 @@ public:
                         const SpatialHash& hash,
                         NamedTargetList& named,
                         const DistanceField* sdf,
+                        const FlowField* flow,
                         const Rect& world_bounds,
                         Rng& rng,
                         f32 dt,
@@ -465,6 +555,16 @@ public:
 
     /// Per-owner accounting sink, null by default. See sim/Attribution.h.
     void set_attribution(DamageAttribution* sink) { attribution_ = sink; }
+
+    /// Body collision knobs. Defaults are live; see SwarmerCollisionTuning.
+    void set_collision(const SwarmerCollisionTuning& t) { collision_ = t; }
+    const SwarmerCollisionTuning& collision() const { return collision_; }
+
+    /// Pathogen body radius per family, for the swarmer-pathogen contact
+    /// distance. The chaff store carries no radius stream (it lives on
+    /// ChaffFamilyParams), so the caller hands the table over once per level.
+    /// `count` entries are read; the rest keep their previous value (0.5).
+    void set_chaff_radii(const f32* radii, usize count);
 
 private:
     Vec2 formation_slot(const SwarmerBuffers& sw, usize i, const SwarmerProfile& pr,
@@ -489,6 +589,33 @@ private:
     std::vector<u32> squad_size_;
     std::vector<f32> squad_cx_;
     std::vector<f32> squad_cy_;
+
+    SwarmerCollisionTuning collision_{};
+    f32 chaff_radius_[kFamilyCount]{};   // 0.5 each until set_chaff_radii(); see the ctor
+    /// A swarmer-only broadphase for the friendly-friendly contact walk,
+    /// rebuilt every tick from post-steering positions. Configured lazily to
+    /// mirror the chaff hash's bounds and cell size so a 3x3 walk covers the
+    /// same reach in both. Owned here rather than by SimWorld so the kernel
+    /// stays testable with a chaff store and one hash, as promised above.
+    SpatialHash swarmer_hash_;
+    /// Jacobi scratch: the contact pass reads every position and writes only
+    /// its own slot's displacement, then applies all of them at once, so the
+    /// result is a pure function of positions and not of store order.
+    std::vector<f32> push_x_;
+    std::vector<f32> push_y_;
+    /// Bombers the contact pass found touching an enemy, and where on their
+    /// membrane the touch was. update() detonates them there after the pass,
+    /// in index order.
+    struct ContactBoom {
+        u32 index;
+        Vec2 at;
+    };
+    std::vector<ContactBoom> contact_booms_;
+
+    /// The BODIES pass (file header): fills push_*_ and contact_booms_ from the
+    /// current positions, then applies the pushes. Detonates nothing itself.
+    void resolve_bodies(SwarmerBuffers& sw, const ChaffBuffers& chaff, const SpatialHash& hash,
+                        const NamedTargetList& named, SwarmerStats& stats);
 };
 
 } // namespace immune::sim

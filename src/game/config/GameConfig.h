@@ -80,6 +80,14 @@ struct ShooterParams {
     f32 round_spread = 0.10f;
     /// Distance between squad-mates along the rank a volley holds.
     f32 formation_spacing = 3.5f;
+    /// Kite radius as a fraction of the standoff; an enemy inside it makes
+    /// the shooter back away while firing. 0 disables.
+    f32 kite_fraction = 0.75f;
+    /// How much the flow field bends the retreat toward "where the horde is
+    /// going" (0 = straight away from the nearest threat).
+    f32 kite_flow_weight = 1.0f;
+    /// Retreat speed as a multiple of the swarm speed.
+    f32 kite_speed_mult = 1.5f;
 };
 
 struct BomberParams {
@@ -313,6 +321,9 @@ struct SimConfig {
     /// actually reads. See sim/squad/Squads.h for what each knob does and why
     /// the follow weight must stay below 1.
     sim::SquadTuning squads{};
+    /// Swarmer body collision, reused verbatim from sim/swarm for the same
+    /// reason. See SwarmerCollisionTuning for what each knob does.
+    sim::SwarmerCollisionTuning swarmer_collision{};
     /// The fluid solver's own constants, reused verbatim from sim/fluid so the
     /// config cannot drift from the struct the solver actually reads. It sits
     /// in sim.json rather than towers.json because there is exactly ONE solver

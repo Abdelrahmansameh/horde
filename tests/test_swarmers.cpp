@@ -12,12 +12,15 @@
 #include "core/Rng.h"
 #include "sim/CombatEvents.h"
 #include "sim/chaff/ChaffBuffers.h"
+#include "sim/flowfield/FlowField.h"
 #include "sim/spatial/SpatialHash.h"
 #include "sim/swarm/Swarmers.h"
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
+#include <chrono>
+#include <cstdio>
 #include <utility>
 #include <vector>
 
@@ -42,6 +45,9 @@ struct Fixture {
     SpatialHash hash;
     NamedTargetList named;
     Rng rng{4242};
+    /// Null by default: a kiting shooter then backs straight away. Tests
+    /// that want the flow to bend the retreat point this at one.
+    const FlowField* flow = nullptr;
 
     Fixture() {
         chaff.reserve(4096);
@@ -138,7 +144,7 @@ struct Fixture {
                 for (const NamedTarget& t : *agents) if (t.health > 0.0f) named.add(t);
                 named.sort();
             }
-            system.update(swarm, chaff, hash, named, nullptr, kBounds, rng, kDt, sink);
+            system.update(swarm, chaff, hash, named, nullptr, flow, kBounds, rng, kDt, sink);
             if (agents) {
                 for (NamedTarget& t : *agents) {
                     const usize k = named.find(t.id);
@@ -156,6 +162,10 @@ struct Fixture {
         return false;
     }
 };
+
+Vec2 f_pos(const Fixture& f, usize chaff_index) {
+    return Vec2{f.chaff.pos_x[chaff_index], f.chaff.pos_y[chaff_index]};
+}
 
 } // namespace
 
@@ -584,6 +594,377 @@ TEST_CASE("hidden chaff is invisible to a swarmer", "[swarm][sim][hidden]") {
     REQUIRE(f.chaff.density[hidden] == 500.0f);
     // Every tick it was searching, and never found anything.
     REQUIRE(f.system.last_stats().searching == 1);
+}
+
+// ---------------------------------------------------------------------------
+// Kiting
+// ---------------------------------------------------------------------------
+
+/// An open field whose flow runs everywhere toward `goal`.
+FlowField make_flow_toward(Vec2 goal) {
+    TissueMask mask;
+    const i32 w = static_cast<i32>(kBounds.size().x);
+    const i32 h = static_cast<i32>(kBounds.size().y);
+    mask.resize(w, h, 1.0f, kBounds.min);
+    for (i32 y = 0; y < h; ++y)
+        for (i32 x = 0; x < w; ++x) mask.set_walkable(x, y, true);
+    FlowField flow;
+    FlowFieldBakeDesc desc;
+    desc.goals = {FlowGoal{mask.world_to_cell(goal)}};
+    flow.bake(mask, desc);
+    return flow;
+}
+
+TEST_CASE("a shooter backs away from a target that closes inside its kite radius, still firing",
+          "[swarm][sim][shooter][kite]") {
+    Fixture f;
+    // Standoff 4, kite radius 3. The target sits 3.6 out: in range, not too
+    // close. The shooter holds there and shoots.
+    const usize host = f.add_chaff(Vec2{43.6f, 40.0f}, 1.0e6f);
+    f.add_swarmer(Vec2{40.0f, 40.0f}, Vec2{0.0f, 0.0f}, kShooter);
+    u32 shots_holding = 0;
+    for (int t = 0; t < 30; ++t) {
+        f.step(1);
+        REQUIRE(f.system.last_stats().kiting == 0);
+        shots_holding += f.system.last_stats().shots_fired;
+    }
+    REQUIRE(f.any_attached());
+    REQUIRE(shots_holding > 0);
+
+    // Walk the target onto it. The shooter gives ground, keeps firing, and
+    // settles with the target no closer than the kite circle and no further
+    // than the standoff.
+    u32 shots_while_kiting = 0;
+    u32 kite_ticks = 0;
+    for (int t = 0; t < 90; ++t) {
+        f.chaff.pos_x[host] -= 6.0f * kDt;
+        f.step(1);
+        if (f.system.last_stats().kiting > 0) {
+            ++kite_ticks;
+            shots_while_kiting += f.system.last_stats().shots_fired;
+        }
+    }
+    REQUIRE(kite_ticks > 0);
+    REQUIRE(shots_while_kiting > 0);
+    const f32 gap = f.chaff.pos_x[host] - f.swarm.pos_x[0];
+    // Gave ground. The retreat ramps to full speed two thirds of the way in,
+    // so against a target closing at 6 u/s it settles a little inside the
+    // 3.0 circle -- matching the pace, not fleeing.
+    REQUIRE(gap > 2.4f);
+    REQUIRE(gap <= 4.0f);    // and never lost it out of the standoff
+    REQUIRE(f.swarm.pos_x[0] < 40.0f);   // retreated straight back, away from it
+}
+
+TEST_CASE("a stranger walking through the rank also drives a shooter back", "[swarm][sim][shooter][kite]") {
+    Fixture f;
+    const usize host = f.add_chaff(Vec2{43.7f, 40.0f}, 1.0e6f);
+    f.add_swarmer(Vec2{40.0f, 40.0f}, Vec2{0.0f, 0.0f}, kShooter);
+    f.step(30);
+    REQUIRE(f.swarm.target_index[0] == host);
+    REQUIRE(f.system.last_stats().kiting == 0);
+    // Not its target, but inside the kite radius, off to the side.
+    f.add_chaff(Vec2{40.0f, 41.5f}, 1.0e6f);
+    f.step(1);
+    REQUIRE(f.system.last_stats().kiting == 1);
+    f.step(20);
+    // Pushed away from the stranger (downward), and still on its target.
+    REQUIRE(f.swarm.pos_y[0] < 39.5f);
+}
+
+TEST_CASE("the flow field bends a retreat toward where the horde is going", "[swarm][sim][shooter][kite][flow]") {
+    // Two identical set-ups: the threat is directly to the shooter's left, so
+    // "away" is +x. With a flow that runs +y everywhere, the retreat is the
+    // diagonal; without, it is straight +x.
+    auto run = [](const FlowField* flow) {
+        Fixture f;
+        f.flow = flow;
+        f.add_chaff(Vec2{38.5f, 40.0f}, 1.0e6f);
+        f.add_swarmer(Vec2{40.0f, 40.0f}, Vec2{0.0f, 0.0f}, kShooter);
+        f.step(12);
+        return Vec2{f.swarm.pos_x[0], f.swarm.pos_y[0]};
+    };
+    const FlowField flow = make_flow_toward(Vec2{40.0f, 120.0f});
+    const Vec2 straight = run(nullptr);
+    const Vec2 bent = run(&flow);
+    REQUIRE(straight.x > 40.5f);
+    REQUIRE(std::abs(straight.y - 40.0f) < 0.4f);
+    REQUIRE(bent.x > 40.3f);
+    REQUIRE(bent.y > 40.5f);
+    // Same speed budget, split between the two directions.
+    REQUIRE(bent.y > bent.x - 40.0f - 0.6f);
+}
+
+TEST_CASE("kite_speed_mult makes a shooter give ground faster than it takes it", "[swarm][sim][shooter][kite]") {
+    // Threat parked well inside the kite radius: full urgency from tick one.
+    // The retreat stops at the kite edge by design, so what the multiplier
+    // buys is TIME to get there, not distance.
+    auto ticks_to_clear = [](f32 mult) {
+        Fixture f;
+        SwarmerProfile pr = f.swarm.profile_at(kShooter);
+        pr.kite_speed_mult = mult;
+        f.swarm.set_profile(kShooter, pr);
+        f.add_chaff(Vec2{39.5f, 40.0f}, 1.0e6f);
+        f.add_swarmer(Vec2{40.0f, 40.0f}, Vec2{0.0f, 0.0f}, kShooter);
+        for (int t = 1; t <= 120; ++t) {
+            f.step(1);
+            if (f.swarm.pos_x[0] - 39.5f > 2.5f) return t;
+        }
+        return 999;
+    };
+    const int plain = ticks_to_clear(1.0f);
+    const int bolt = ticks_to_clear(1.5f);
+    REQUIRE(plain < 999);
+    REQUIRE(bolt < plain);
+}
+
+TEST_CASE("the flow may bend a retreat but never point it back at the threat", "[swarm][sim][shooter][kite][flow]") {
+    // The shooter is UPSTREAM of the threat: the flow runs from it straight
+    // into the thing it is fleeing. It must still back off along -x, not
+    // shuffle sideways.
+    Fixture f;
+    const FlowField flow = make_flow_toward(Vec2{120.0f, 40.0f});
+    f.flow = &flow;
+    f.add_chaff(Vec2{41.5f, 40.0f}, 1.0e6f);
+    f.add_swarmer(Vec2{40.0f, 40.0f}, Vec2{0.0f, 0.0f}, kShooter);
+    f.step(12);
+    REQUIRE(f.swarm.pos_x[0] < 39.0f);
+    REQUIRE(std::abs(f.swarm.pos_y[0] - 40.0f) < 0.5f);
+}
+
+TEST_CASE("kite_fraction 0 disables kiting: the shooter holds its slot however close the target gets",
+          "[swarm][sim][shooter][kite]") {
+    Fixture f;
+    SwarmerProfile brave = f.swarm.profile_at(kShooter);
+    brave.kite_fraction = 0.0f;
+    f.swarm.set_profile(kShooter, brave);
+    const usize host = f.add_chaff(Vec2{43.0f, 40.0f}, 1.0e6f);
+    f.add_swarmer(Vec2{40.0f, 40.0f}, Vec2{0.0f, 0.0f}, kShooter);
+    f.step(30);
+    for (int t = 0; t < 60; ++t) {
+        f.chaff.pos_x[host] -= 6.0f * kDt;
+        f.step(1);
+        REQUIRE(f.system.last_stats().kiting == 0);
+    }
+    // The slot logic alone: it re-forms the rank at 80% of standoff on the
+    // approach side, which is a slower, arrive-limited backpedal.
+    REQUIRE(f.system.last_stats().attached == 1);
+}
+
+// ---------------------------------------------------------------------------
+// Bodies (SwarmerCollisionTuning)
+// ---------------------------------------------------------------------------
+
+TEST_CASE("two overlapping swarmers push apart, half the overlap each", "[swarm][sim][bodies]") {
+    Fixture f;
+    // Shooters with nothing to shoot: no target, no steering, only bodies.
+    f.add_swarmer(Vec2{40.0f, 40.0f}, Vec2{0.0f, 0.0f}, kShooter);
+    f.add_swarmer(Vec2{40.4f, 40.0f}, Vec2{0.0f, 0.0f}, kShooter);
+    f.step(1);
+    // size 0.5 -> body 0.4 each (kWallContactFraction): contact at 0.8, so
+    // 0.4 of overlap, 0.2 a side.
+    REQUIRE(f.swarm.pos_x[0] == Catch::Approx(39.8f).margin(1e-4f));
+    REQUIRE(f.swarm.pos_x[1] == Catch::Approx(40.6f).margin(1e-4f));
+    REQUIRE(f.swarm.pos_y[0] == Catch::Approx(40.0f).margin(1e-4f));
+    REQUIRE(f.system.last_stats().friendly_contacts == 2);
+    // Settled: nothing left to resolve next tick.
+    f.step(1);
+    REQUIRE(f.swarm.pos_x[0] == Catch::Approx(39.8f).margin(1e-4f));
+    REQUIRE(f.system.last_stats().friendly_contacts == 0);
+}
+
+TEST_CASE("the master switch reproduces the pre-collision swarm", "[swarm][sim][bodies]") {
+    Fixture f;
+    SwarmerCollisionTuning off;
+    off.enabled = false;
+    f.system.set_collision(off);
+    f.add_swarmer(Vec2{40.0f, 40.0f}, Vec2{0.0f, 0.0f}, kShooter);
+    f.add_swarmer(Vec2{40.4f, 40.0f}, Vec2{0.0f, 0.0f}, kShooter);
+    f.step(5);
+    REQUIRE(f.swarm.pos_x[0] == 40.0f);
+    REQUIRE(f.swarm.pos_x[1] == 40.4f);
+    REQUIRE(f.system.last_stats().friendly_contacts == 0);
+}
+
+TEST_CASE("latchers have no body: they stack, and nothing pushes off them", "[swarm][sim][bodies][latch]") {
+    Fixture f;
+    f.add_swarmer(Vec2{40.0f, 40.0f}, Vec2{0.0f, 0.0f}, kLatch);
+    f.add_swarmer(Vec2{40.4f, 40.0f}, Vec2{0.0f, 0.0f}, kLatch);
+    f.add_swarmer(Vec2{40.2f, 40.0f}, Vec2{0.0f, 0.0f}, kShooter);
+    f.step(1);
+    REQUIRE(f.swarm.pos_x[0] == 40.0f);
+    REQUIRE(f.swarm.pos_x[1] == 40.4f);
+    REQUIRE(f.swarm.pos_x[2] == 40.2f);
+    REQUIRE(f.system.last_stats().friendly_contacts == 0);
+}
+
+TEST_CASE("a swarmer is pushed out of a pathogen, and the pathogen does not move", "[swarm][sim][bodies]") {
+    Fixture f;
+    const usize c = f.add_chaff(Vec2{40.0f, 40.0f}, 100.0f);
+    f.add_swarmer(Vec2{40.3f, 40.0f}, Vec2{0.0f, 0.0f}, kShooter);
+    // Not a target for it, so the only thing moving the unit is the contact.
+    f.swarm.family_mask[0] = 0;
+    f.step(1);
+    // Contact at body 0.4 + radius 0.5 = 0.9; overlap 0.6 at stiffness 0.6
+    // is 0.36, within the 0.4 cap. The pathogen's slot is untouched.
+    REQUIRE(f.swarm.pos_x[0] == Catch::Approx(40.66f).margin(1e-4f));
+    REQUIRE(f.chaff.pos_x[c] == 40.0f);
+    REQUIRE(f.system.last_stats().enemy_contacts == 1);
+    REQUIRE(f.system.last_stats().friendly_contacts == 0);
+    // Keeps squeezing out, converging on the rim: at 0.6 a tick the overlap
+    // decays geometrically, so it is clear for every purpose but never
+    // exactly zero.
+    f.step(10);
+    REQUIRE(f.swarm.pos_x[0] >= 40.0f + 0.9f - 1e-2f);
+    REQUIRE(f.swarm.pos_x[0] <= 40.0f + 0.9f);
+}
+
+TEST_CASE("the family radius table sets the pathogen contact distance", "[swarm][sim][bodies]") {
+    Fixture f;
+    const f32 radii[kFamilyCount] = {2.0f, 2.0f};
+    f.system.set_chaff_radii(radii, kFamilyCount);
+    f.add_chaff(Vec2{40.0f, 40.0f}, 100.0f);
+    f.add_swarmer(Vec2{41.5f, 40.0f}, Vec2{0.0f, 0.0f}, kShooter);
+    f.swarm.family_mask[0] = 0;
+    f.step(1);
+    // Contact is now 0.4 + 2.0 = 2.4; the unit at 1.5 is inside and gets pushed.
+    REQUIRE(f.swarm.pos_x[0] > 41.5f);
+    REQUIRE(f.system.last_stats().enemy_contacts == 1);
+}
+
+TEST_CASE("a bomber that touches an enemy it was not chasing goes off there", "[swarm][sim][bodies][bomber]") {
+    Fixture f;
+    // Adopt a far target first, alone in the world.
+    f.add_chaff(Vec2{50.0f, 40.0f}, 1.0e6f);
+    f.add_swarmer(Vec2{40.0f, 40.0f}, Vec2{14.0f, 0.0f}, kBomber);
+    f.step(1);
+    REQUIRE(f.swarm.target(0).valid());
+    REQUIRE(f.swarm.target_index[0] == 0);
+    // Now drop a stranger straight in its path. It is nearer than the target
+    // but the bomber keeps its target (the leash is the search radius) -- and
+    // still goes off the moment its body meets the stranger's.
+    const usize stranger = f.add_chaff(Vec2{43.0f, 40.0f}, 1.0e6f);
+    bool detonated = false;
+    Vec2 where{};
+    for (int i = 0; i < 60 && !detonated; ++i) {
+        f.step(1);
+        if (!f.system.effects().bursts.empty()) {
+            detonated = true;
+            where = f.system.effects().bursts[0].origin;
+        }
+    }
+    REQUIRE(detonated);
+    REQUIRE(f.system.last_stats().contact_detonations == 1);
+    REQUIRE(f.system.last_stats().detonated == 1);
+    REQUIRE(f.swarm.count() == 0);
+    // At the point of contact -- on the stranger's rim, not at the target
+    // and not at the bomber's own centre.
+    REQUIRE(math::length(where - f_pos(f, stranger)) <= 0.5f + 0.15f);
+    REQUIRE(where.x < 45.0f);
+}
+
+TEST_CASE("a contact detonation lands on the membrane, toward the enemy", "[swarm][sim][bodies][bomber]") {
+    Fixture f;
+    // A fat bomber (body 1.6) parked with a pathogen just inside its fuse,
+    // off to its upper right. No target adopted yet, so nothing steers it.
+    SwarmerProfile fat = f.swarm.profile_at(kBomber);
+    fat.size = 2.0f;
+    fat.search_radius = 0.0f;
+    f.swarm.set_profile(kBomber, fat);
+    f.add_chaff(Vec2{41.2f, 41.2f}, 100.0f);
+    f.add_swarmer(Vec2{40.0f, 40.0f}, Vec2{0.0f, 0.0f}, kBomber);
+    f.step(1);
+    REQUIRE(f.system.last_stats().contact_detonations == 1);
+    REQUIRE(f.system.effects().bursts.size() == 1);
+    const Vec2 at = f.system.effects().bursts[0].origin;
+    // 1.6 along the diagonal from the centre: (40 + 1.131, 40 + 1.131).
+    REQUIRE(at.x == Catch::Approx(41.1314f).margin(1e-3f));
+    REQUIRE(at.y == Catch::Approx(41.1314f).margin(1e-3f));
+}
+
+TEST_CASE("a bomber ignores the bodies of pathogens outside its family mask", "[swarm][sim][bodies][bomber]") {
+    Fixture f;
+    f.add_chaff(Vec2{40.3f, 40.0f}, 100.0f);
+    f.add_swarmer(Vec2{40.0f, 40.0f}, Vec2{0.0f, 0.0f}, kBomber);
+    f.swarm.family_mask[0] = 0;
+    f.step(1);
+    // Pushed, not popped: it cannot hurt this family so it does not spend
+    // itself on it.
+    REQUIRE(f.swarm.count() == 1);
+    REQUIRE(f.system.last_stats().contact_detonations == 0);
+    REQUIRE(f.system.last_stats().enemy_contacts == 1);
+    REQUIRE(f.swarm.pos_x[0] < 40.0f);
+}
+
+TEST_CASE("a swarmer is pushed off a named agent's rim", "[swarm][sim][bodies][named]") {
+    Fixture f;
+    std::vector<NamedTarget> agents{f.make_named(11u, Vec2{40.0f, 40.0f}, 1000.0f)};
+    f.add_swarmer(Vec2{40.8f, 40.0f}, Vec2{0.0f, 0.0f}, kShooter);
+    f.swarm.family_mask[0] = 0;
+    f.step(1, nullptr, &agents);
+    // Contact at body 0.4 + radius 1.0 = 1.4; overlap 0.6 at 0.6 is 0.36.
+    REQUIRE(f.swarm.pos_x[0] == Catch::Approx(41.16f).margin(1e-4f));
+    REQUIRE(f.system.last_stats().enemy_contacts == 1);
+}
+
+TEST_CASE("the bodies pass is linear in swarmer count and bounded per unit", "[swarm][sim][bodies][perf]") {
+    // The cost claim from the file header, measured: one capped walk of each
+    // hash per non-Latch unit. A pessimistic layout -- shooters packed at
+    // their own contact spacing, on top of a chaff crowd packed the same way,
+    // so every walk is full and every unit is in contact on both sides.
+    auto measure = [](usize n_swarm, int n_chaff, bool enabled) {
+        Fixture f;
+        SwarmerCollisionTuning t;
+        t.enabled = enabled;
+        f.system.set_collision(t);
+        Rng r(4242);
+        for (int i = 0; i < n_chaff; ++i) {
+            f.add_chaff(Vec2{r.range_f(20.0f, 100.0f), r.range_f(20.0f, 60.0f)}, 1.0e9f);
+        }
+        for (usize i = 0; i < n_swarm; ++i) {
+            f.add_swarmer(Vec2{r.range_f(20.0f, 100.0f), r.range_f(20.0f, 60.0f)}, Vec2{0.0f, 0.0f},
+                          kShooter);
+            // Standing off, not steering: a shooter with no valid family has
+            // no target, so the pass is the only thing moving it.
+            f.swarm.family_mask[i] = 0;
+        }
+        f64 best = 1.0e30;
+        for (int k = 0; k < 30; ++k) {
+            const auto t0 = std::chrono::steady_clock::now();
+            f.step(1);
+            const auto t1 = std::chrono::steady_clock::now();
+            best = math::min(best, std::chrono::duration<f64, std::milli>(t1 - t0).count());
+        }
+        REQUIRE(f.swarm.count() == n_swarm);
+        return best;
+    };
+
+    // The fixture's stores hold 4096 of each; the ratios are what matter.
+    // Every unit here is targetless and so pays the search every tick as
+    // well, which is why each size is measured with the pass off too: the
+    // difference is the pass.
+    struct Row { const char* label; usize units; int chaff; f64 off; f64 on; };
+    Row rows[] = {
+        {"1000 units / 1000 chaff", 1000, 1000, 0.0, 0.0},
+        {"1000 units / 4000 chaff", 1000, 4000, 0.0, 0.0},
+        {"3000 units / 1000 chaff", 3000, 1000, 0.0, 0.0},
+        {"4000 units / 4000 chaff", 4000, 4000, 0.0, 0.0},
+    };
+    for (Row& r : rows) {
+        r.off = measure(r.units, r.chaff, false);
+        r.on = measure(r.units, r.chaff, true);
+        std::printf("[swarm bodies] %s : off %.4f  on %.4f  pass %.4f ms/tick\n", r.label, r.off,
+                    r.on, r.on - r.off);
+    }
+    const f64 a = math::max(rows[0].on - rows[0].off, 0.0);
+    const f64 b = math::max(rows[1].on - rows[1].off, 0.0);
+    const f64 c = math::max(rows[2].on - rows[2].off, 0.0);
+    // Three times the units is at most ~three times the cost: the walk per
+    // unit is capped, so the pass is linear in units. Wide margins, the same
+    // as the fluid test: what is being ruled out is a pair sweep.
+    REQUIRE(c < a * 6.0 + 0.1);
+    // Four times the chaff makes each unit's chaff walk denser but no longer
+    // than its cap, so it must not cost a multiple either.
+    REQUIRE(b < a * 3.0 + 0.1);
 }
 
 // ---------------------------------------------------------------------------

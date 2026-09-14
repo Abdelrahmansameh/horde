@@ -4,6 +4,7 @@
   "display_name": "Island Climb",
   "description": "A diagonal climb around a long island. The lane splits and rejoins; so must your defence.",
   "difficulty": 2,
+  "economy": { "starting_atp": 600 },
   "tags": ["campaign"],
   "region": "capillary",
   "world": { "min": [0, 0], "max": [197.4, 193.2] },

@@ -120,6 +120,12 @@ void SimWorld::init(const SimDesc& desc, JobSystem* jobs) {
     projectiles_.reserve(desc.max_projectiles);
     swarmers_.reserve(desc.max_swarmers);
     swarmer_system_.effects().reserve(1024);
+    swarmer_system_.set_collision(desc.swarmer_collision);
+    {
+        f32 radii[kFamilyCount];
+        for (u32 f = 0; f < kFamilyCount; ++f) radii[f] = desc.chaff_tuning.family[f].radius;
+        swarmer_system_.set_chaff_radii(radii, kFamilyCount);
+    }
     named_targets_.items.reserve(256);
     named_targets_.damage.reserve(256);
     slow_zones_.reserve(desc.max_slow_zones);
@@ -213,7 +219,7 @@ void SimWorld::tick(Profiler* profiler) {
     // fluid by the time the fluid solver below runs.
     build_named_targets();
     const SwarmerStats swarmer_stats =
-        swarmer_system_.update(swarmers_, chaff_, spatial_, named_targets_, &sdf_, desc_.sim_bounds,
+        swarmer_system_.update(swarmers_, chaff_, spatial_, named_targets_, &sdf_, &flow_, desc_.sim_bounds,
                                rng_, kFixedDt, &combat_events_);
     apply_swarmer_effects();
 

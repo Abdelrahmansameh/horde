@@ -4,6 +4,7 @@
   "display_name": "The Funnel",
   "description": "Three breaches along the top pour into a V of walls that narrows onto the organ.",
   "difficulty": 9,
+  "economy": { "starting_atp": 2700 },
   "tags": ["campaign"],
   "region": "skin",
   "world": { "min": [0, 0], "max": [864, 595.2], "cell_size": 1.5 },
