@@ -26,7 +26,7 @@
             "release_per_shot": 4,
             "search_radius": 12.0,
             "size": 0.705,
-            "speed": 20.0
+            "speed": 30.0
           }
         },
         {
@@ -68,7 +68,7 @@
             "release_per_shot": 8,
             "search_radius": 16.0,
             "size": 0.915,
-            "speed": 34.0
+            "speed": 40.0
           }
         }
       ]
@@ -84,7 +84,7 @@
             "mark_seconds": 2.2,
             "splash_dps": 14.0,
             "splash_radius": 1.0,
-            "splash_speed": 6.0
+            "splash_speed": 2.0
           },
           "stats": {
             "build_cost": 160,
@@ -100,7 +100,7 @@
             "release_per_shot": 1,
             "search_radius": 14.0,
             "size": 1.8,
-            "speed": 16.0
+            "speed": 25.0
           }
         },
         {
@@ -111,7 +111,7 @@
             "mark_seconds": 2.6,
             "splash_dps": 34.0,
             "splash_radius": 1.2,
-            "splash_speed": 7.0
+            "splash_speed": 2.4
           },
           "stats": {
             "build_cost": 160,
@@ -127,7 +127,7 @@
             "release_per_shot": 2,
             "search_radius": 16.0,
             "size": 1.95,
-            "speed": 18.0
+            "speed": 25.0
           }
         },
         {
@@ -138,7 +138,7 @@
             "mark_seconds": 3.0,
             "splash_dps": 62.0,
             "splash_radius": 1.4,
-            "splash_speed": 8.0
+            "splash_speed": 2.8
           },
           "stats": {
             "build_cost": 160,
@@ -154,7 +154,7 @@
             "release_per_shot": 3,
             "search_radius": 18.0,
             "size": 2.1,
-            "speed": 20.0
+            "speed": 30.0
           }
         }
       ]
@@ -184,7 +184,7 @@
             "release_per_shot": 1,
             "search_radius": 14.0,
             "size": 1.8,
-            "speed": 16.0
+            "speed": 25.0
           }
         },
         {
@@ -209,7 +209,7 @@
             "release_per_shot": 2,
             "search_radius": 16.0,
             "size": 1.8,
-            "speed": 18.0
+            "speed": 25.0
           }
         },
         {
@@ -234,7 +234,7 @@
             "release_per_shot": 3,
             "search_radius": 18.0,
             "size": 1.8,
-            "speed": 20.0
+            "speed": 30.0
           }
         }
       ]
@@ -265,7 +265,7 @@
             "release_per_shot": 1,
             "search_radius": 14.0,
             "size": 2.1,
-            "speed": 14.0
+            "speed": 30.0
           }
         },
         {
@@ -291,7 +291,7 @@
             "release_per_shot": 2,
             "search_radius": 16.0,
             "size": 2.4,
-            "speed": 16.0
+            "speed": 30.0
           }
         },
         {
@@ -317,7 +317,7 @@
             "release_per_shot": 3,
             "search_radius": 18.0,
             "size": 2.7,
-            "speed": 18.0
+            "speed": 30.0
           }
         }
       ]
@@ -329,7 +329,7 @@
           "payload": {
             "fire_interval": 0.18,
             "formation_spacing": 3.6,
-            "round_damage": 1.9,
+            "round_damage": 5.7,
             "round_hit_radius": 0.45,
             "round_speed": 45.0,
             "round_spread": 0.11
@@ -342,9 +342,9 @@
             "upgrade_cost": 45
           },
           "swarm": {
-            "attach_radius": 8.0,
+            "attach_radius": 10.0,
             "launch_spread": 0.7,
-            "lifetime": 6.0,
+            "lifetime": 10.0,
             "release_per_shot": 2,
             "search_radius": 14.0,
             "size": 1.5,
@@ -355,7 +355,7 @@
           "payload": {
             "fire_interval": 0.15,
             "formation_spacing": 3.96,
-            "round_damage": 3.0,
+            "round_damage": 9.0,
             "round_hit_radius": 0.45,
             "round_speed": 52.0,
             "round_spread": 0.085
@@ -368,9 +368,9 @@
             "upgrade_cost": 38
           },
           "swarm": {
-            "attach_radius": 9.0,
+            "attach_radius": 10.0,
             "launch_spread": 0.7,
-            "lifetime": 6.5,
+            "lifetime": 15.0,
             "release_per_shot": 3,
             "search_radius": 16.0,
             "size": 1.65,
@@ -381,7 +381,7 @@
           "payload": {
             "fire_interval": 0.12,
             "formation_spacing": 4.32,
-            "round_damage": 3.3,
+            "round_damage": 9.9,
             "round_hit_radius": 0.45,
             "round_speed": 60.0,
             "round_spread": 0.06
@@ -394,9 +394,9 @@
             "upgrade_cost": 0
           },
           "swarm": {
-            "attach_radius": 10.0,
+            "attach_radius": 15.0,
             "launch_spread": 0.7,
-            "lifetime": 7.0,
+            "lifetime": 15.0,
             "release_per_shot": 4,
             "search_radius": 18.0,
             "size": 1.8,

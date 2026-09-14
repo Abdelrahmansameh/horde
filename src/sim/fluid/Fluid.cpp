@@ -308,9 +308,11 @@ u32 FluidSystem::splash(FluidBuffers& fluid, const FluidJetParams& jet, Vec2 ori
         const Vec2 radial{std::cos(ang), std::sin(ang)};
         const Vec2 p = origin + radial * (t * r);
         const u32 h = hash_u32(jet.seed * 2654435761u + n * 40503u);
-        // Rim droplets fly, centre droplets settle: the blob bursts outward
-        // from a wet middle rather than every droplet leaving at once.
-        const f32 launch = speed * (0.35f + 0.65f * t) * (0.9f + 0.2f * hash_unit(h));
+        // A very light explosion from the centre: launch speed grows linearly
+        // with distance from the origin, so the wet middle barely moves and the
+        // rim drifts outward. A small jitter keeps the ring from reading as a
+        // perfect circle.
+        const f32 launch = speed * t * (0.85f + 0.3f * hash_unit(h));
         if (!fluid.spawn(p, radial * launch, jet)) break;   // store full; drop the rest
         ++emitted;
     }
