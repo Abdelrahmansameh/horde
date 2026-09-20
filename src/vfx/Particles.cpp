@@ -46,7 +46,7 @@
 // integrator is untouched by this (age simply ticks up through zero, and the
 // retire test `age >= lifetime` still works), and build_instances() skips
 // anything with age < 0. That gives free, branch-free-in-the-hot-loop staging,
-// which is what the Mortar's three-stage impact needs: land, ~0.05 s charge,
+// which is what a staged burst impact needs: land, ~0.05 s charge,
 // then the big ring. Nothing in the update loop knows about it.
 #include "vfx/Particles.h"
 
@@ -109,10 +109,11 @@ inline Vec4 mix4(const Vec4& a, const Vec4& b, f32 t) { return a + (b - a) * t; 
 // what they leave behind are all one colour.
 //
 //   Neutrophil SHOOTER       warm white-yellow
-//   Macrophage BOMBER        amber / orange (digestive, not fire — no reds)
+//   Macrophage ARBOR GRABBER rose / magenta (digestive, not fire — no reds)
 //   Interferon SLOW BOMBER   blue-white / cyan
 //   CytotoxicT LATCH         violet-white
 //   GobletCell MUCUS BOMBER  jade green (mucin)
+//   Fibroblast BUILDER       salmon / dusty rose (collagen)
 // ---------------------------------------------------------------------------
 struct TowerPalette {
     Vec4 primary;  ///< The hue a player identifies the tower by.
@@ -122,10 +123,11 @@ struct TowerPalette {
 TowerPalette palette_for(TowerType t) {
     switch (t) {
     case TowerType::Neutrophil: return {Vec4{1.00f, 0.96f, 0.68f, 1.0f}, Vec4{1.00f, 1.00f, 0.94f, 1.0f}};
-    case TowerType::Macrophage: return {Vec4{1.00f, 0.66f, 0.24f, 1.0f}, Vec4{1.00f, 0.95f, 0.80f, 1.0f}};
+    case TowerType::Macrophage: return {Vec4{0.98f, 0.42f, 0.58f, 1.0f}, Vec4{1.00f, 0.91f, 0.95f, 1.0f}};
     case TowerType::Interferon: return {Vec4{0.52f, 0.84f, 1.00f, 1.0f}, Vec4{0.88f, 0.98f, 1.00f, 1.0f}};
     case TowerType::CytotoxicT: return {Vec4{0.76f, 0.66f, 1.00f, 1.0f}, Vec4{1.00f, 1.00f, 1.00f, 1.0f}};
     case TowerType::GobletCell: return {Vec4{0.55f, 0.98f, 0.74f, 1.0f}, Vec4{0.90f, 1.00f, 0.92f, 1.0f}};
+    case TowerType::Fibroblast: return {Vec4{1.00f, 0.72f, 0.64f, 1.0f}, Vec4{1.00f, 0.94f, 0.90f, 1.0f}};
     case TowerType::Count:
     default:                    return {Vec4{0.88f, 0.90f, 0.96f, 1.0f}, Vec4{1.00f, 1.00f, 1.00f, 1.0f}};
     }
@@ -447,8 +449,7 @@ void ParticleSystem::emit_for_event(const sim::CombatEvent& event) {
     //     round. Dozens per second across a cloud, so this is a single tracer
     //     and nothing else.
     //   * from a TOWER: a volley of swarmers left the cell's face. Once per
-    //     cooldown, so it can afford the whole exocytosis picture: the face
-    //     lighting up, a spray of plasma, and secreted matter at the mouth.
+    //     cooldown, so it can afford a visible activation pulse.
     //     The swarmers THEMSELVES are not here — they are simulated entities
     //     drawn from sim state, because they steer, choose targets, and do
     //     damage. `event.origin` is ALREADY the release point, so nothing here
@@ -518,20 +519,63 @@ void ParticleSystem::emit_for_event(const sim::CombatEvent& event) {
     }
 
     // -----------------------------------------------------------------------
-    // ProjectileImpact — a round connected, or a latch swarmer landed on its
-    // host. Thousands per second at a full board, so this is kept to a
-    // handful of very short-lived particles.
+    // ProjectileImpact — a round connected, a latch swarmer landed on its
+    // host, or a Macrophage finished engulfing a captive. Ordinary
+    // impacts stay tiny; absorption gets its own inward digestive pulse.
     // -----------------------------------------------------------------------
     case sim::CombatEventType::ProjectileImpact: {
+        if (event.source == TowerType::Macrophage) {
+            const f32 absorbed = math::clamp(event.magnitude, 1.0f, 24.0f);
+            ParticleSpawnParams core;
+            core.kind = ParticleKind::Spark;
+            core.blend = BlendMode::Additive;
+            core.position = event.origin;
+            core.color = pal.accent;
+            core.size = 0.42f + 0.025f * absorbed;
+            core.lifetime = 0.13f;
+            core.drag = 8.0f;
+            push(core);
+
+            ParticleSpawnParams ring;
+            ring.kind = ParticleKind::Ring;
+            ring.blend = BlendMode::Additive;
+            ring.position = event.origin;
+            ring.color = Vec4{pal.primary.r, pal.primary.g, pal.primary.b, 0.78f};
+            ring.size = math::max(1.4f, event.radius * 0.55f);
+            ring.lifetime = 0.18f;
+            push(ring);
+
+            const u32 motes = 4u + tier + static_cast<u32>(absorbed / 6.0f);
+            for (u32 k = 0; k < motes; ++k) {
+                const f32 a = pcg_range(rs, 0.0f, math::kTwoPi);
+                const Vec2 radial{std::cos(a), std::sin(a)};
+                ParticleSpawnParams mote;
+                mote.kind = ParticleKind::Tracer;
+                mote.blend = BlendMode::Additive;
+                mote.position = event.origin + radial * pcg_range(rs, 0.8f, 2.0f);
+                mote.velocity = -radial * pcg_range(rs, 7.0f, 13.0f);
+                mote.color = mix4(pal.primary, pal.accent, pcg_f32(rs) * 0.55f);
+                mote.size = pcg_range(rs, 0.07f, 0.13f);
+                mote.lifetime = pcg_range(rs, 0.10f, 0.17f);
+                mote.drag = 4.0f;
+                push(mote);
+            }
+            break;
+        }
+
         const f32 pop = (event.radius > 0.05f ? event.radius : 0.35f) * (0.7f + 0.3f * mag);
-        const Vec4 debris = mix4(pal.primary, fam, kFamilyTintWeight);
+        // A wall has no pathogen-family tint, so its debris stays exactly the
+        // projectile's own hue. Agent impacts retain their subtle family shift.
+        const Vec4 debris = event.target_family == PathogenFamily::Count
+                                ? pal.primary
+                                : mix4(pal.primary, fam, kFamilyTintWeight);
 
         // A tiny white pop plus a few scattering bits. Cheap by design.
         ParticleSpawnParams s;
         s.kind = ParticleKind::Spark;
         s.blend = BlendMode::Additive;
         s.position = event.origin;
-        s.color = pal.accent;
+        s.color = event.target_family == PathogenFamily::Count ? pal.primary : pal.accent;
         s.size = pop;
         s.lifetime = pcg_range(rs, 0.07f, 0.11f);
         s.drag = 7.0f;
@@ -585,7 +629,7 @@ void ParticleSystem::emit_for_event(const sim::CombatEvent& event) {
     //   Goblet Cell  a mucus splash. The fluid itself is real and drawn from
     //                sim state; this is only the wet spatter that a particle
     //                surface cannot resolve, same job FluidSplash does.
-    //   Macrophage   the digestive burst. THREE STAGES, per the brief:
+    //   Generic Bomber   a digestive burst in three stages:
     //     (1) t=0.00  the vesicle ruptures: tiny white core.
     //     (2) t=0.00..0.055  the area "charges": matter is pulled inward.
     //     (3) t=0.055 the burst: white centre, amber ring expanding to the
@@ -609,7 +653,7 @@ void ParticleSystem::emit_for_event(const sim::CombatEvent& event) {
             s.drag = 6.0f;
             push(s);
             // One ring settling out to the zone's edge — slower than the
-            // mortar's shock so it reads as spreading cold, not a blast.
+            // generic burst's shock so it reads as spreading cold, not a blast.
             ParticleSpawnParams r;
             r.kind = ParticleKind::Ring;
             r.blend = BlendMode::Additive;
@@ -715,7 +759,7 @@ void ParticleSystem::emit_for_event(const sim::CombatEvent& event) {
             push(core, kCharge);
 
             // Yellow/orange rings expanding outward. Tier adds concentric
-            // rings on a short stagger, which is what makes a tier-5 mortar
+            // rings on a short stagger, which is what makes a high-tier burst
             // read as a bigger *event*, not just a bigger circle.
             const u32 rings = 1u + tier / 2u;
             for (u32 k = 0; k < rings; ++k) {
@@ -1384,6 +1428,234 @@ void ParticleSystem::emit_for_event(const sim::CombatEvent& event) {
             m.buoyancy = look.bloom_rise;
             m.spin = pcg_signed(rs) * 1.5f;
             push(m);
+        }
+        break;
+    }
+
+    // -----------------------------------------------------------------------
+    // PathogenLatch — a virus grabbed a tower or a swarmer (sim/hostile). A
+    // small, wet event in the PATHOGEN's colour, not the host's: what the
+    // player has to read is "something is on my cell", and the thing on it
+    // is the enemy. `origin` is the grab point on the host's membrane and
+    // `direction` points outward from the host's centre, so the spatter
+    // squirts away from the cell rather than into it. Capped per tick by the
+    // sim, so a horde swarming a tower reads as a ripple of these, not a wall.
+    // -----------------------------------------------------------------------
+    case sim::CombatEventType::PathogenLatch: {
+        ParticleSpawnParams s;
+        s.kind = ParticleKind::Spark;
+        s.blend = BlendMode::Additive;
+        s.position = event.origin;
+        s.color = mix4(fam, Vec4{1.0f, 1.0f, 1.0f, 1.0f}, 0.35f);
+        s.size = math::max(event.radius * 0.6f, 0.25f);
+        s.lifetime = 0.12f;
+        s.drag = 6.0f;
+        push(s);
+        for (u32 k = 0; k < 4; ++k) {
+            ParticleSpawnParams m;
+            m.kind = ParticleKind::Mist;
+            m.blend = BlendMode::AlphaBlend;
+            m.position = event.origin + Vec2{pcg_signed(rs), pcg_signed(rs)} * (event.radius * 0.3f);
+            m.velocity = rotate_by(dir, pcg_range(rs, -0.7f, 0.7f)) * pcg_range(rs, 1.5f, 4.0f);
+            m.color = Vec4{fam.r, fam.g, fam.b, 0.45f};
+            m.size = pcg_range(rs, 0.15f, 0.30f) * math::max(event.radius, 0.5f);
+            m.lifetime = pcg_range(rs, 0.25f, 0.45f);
+            m.drag = 4.0f;
+            push(m, 0.015f * static_cast<f32>(k));
+        }
+        break;
+    }
+
+    // -----------------------------------------------------------------------
+    // SwarmerDeath — a unit was eaten (sim/hostile), as opposed to running out
+    // (ProjectileExpired). It has to read as the unit COMING APART rather than
+    // fizzling: a flash of the tower's colour, then the body's worth of
+    // fragments thrown outward and a little mist left hanging. Scaled by the
+    // unit's body radius so a granule pops small and a macrophage pops big.
+    // -----------------------------------------------------------------------
+    case sim::CombatEventType::SwarmerDeath: {
+        const f32 body = math::max(event.radius, 0.4f);
+        ParticleSpawnParams core;
+        core.kind = ParticleKind::Spark;
+        core.blend = BlendMode::Additive;
+        core.position = event.origin;
+        core.color = mix4(pal.primary, Vec4{1.0f, 1.0f, 1.0f, 1.0f}, 0.6f);
+        core.size = body * 0.9f;
+        core.lifetime = 0.09f;
+        core.drag = 5.0f;
+        push(core);
+        const u32 shards = 5u + static_cast<u32>(body * 3.0f);
+        for (u32 k = 0; k < shards; ++k) {
+            const f32 a = pcg_range(rs, 0.0f, math::kTwoPi);
+            const Vec2 radial{std::cos(a), std::sin(a)};
+            ParticleSpawnParams sh;
+            sh.kind = ParticleKind::Shard;
+            sh.blend = BlendMode::AlphaBlend;
+            sh.position = event.origin + radial * (body * pcg_range(rs, 0.1f, 0.5f));
+            sh.velocity = radial * pcg_range(rs, 4.0f, 11.0f) + dir * 1.5f;
+            sh.color = mix4(pal.primary, pal.accent, pcg_f32(rs));
+            sh.size = body * pcg_range(rs, 0.12f, 0.24f);
+            sh.lifetime = pcg_range(rs, 0.22f, 0.40f);
+            sh.drag = 5.0f;
+            sh.rotation = a;
+            sh.spin = pcg_signed(rs) * 6.0f;
+            push(sh);
+        }
+        for (u32 k = 0; k < 3; ++k) {
+            ParticleSpawnParams m;
+            m.kind = ParticleKind::Mist;
+            m.blend = BlendMode::AlphaBlend;
+            m.position = event.origin + Vec2{pcg_signed(rs), pcg_signed(rs)} * (body * 0.4f);
+            m.velocity = Vec2{pcg_signed(rs), pcg_signed(rs)} * 1.2f;
+            m.color = Vec4{pal.primary.r, pal.primary.g, pal.primary.b, 0.30f};
+            m.size = body * pcg_range(rs, 0.6f, 1.0f);
+            m.lifetime = pcg_range(rs, 0.35f, 0.6f);
+            m.drag = 2.5f;
+            push(m, 0.02f * static_cast<f32>(k));
+        }
+        break;
+    }
+
+    // -----------------------------------------------------------------------
+    // TowerDestroyed — the horde emptied a tower's integrity and the cell was
+    // torn down (game/towers). The loudest thing in this file that is NOT
+    // good news, so it earns a full picture: a white core, a shock ring the
+    // size of the footprint, a lot of fragments in the tower's own colours,
+    // and a slow cloud that hangs where the cell stood for a moment so the
+    // player's eye lands on the gap. `radius` is the footprint.
+    // -----------------------------------------------------------------------
+    case sim::CombatEventType::TowerDestroyed: {
+        const f32 radius = math::max(event.radius, 1.0f);
+        ParticleSpawnParams core;
+        core.kind = ParticleKind::Spark;
+        core.blend = BlendMode::Additive;
+        core.position = event.origin;
+        core.color = Vec4{1.0f, 1.0f, 1.0f, 1.0f};
+        core.size = radius * 1.2f;
+        core.lifetime = 0.14f;
+        core.drag = 4.0f;
+        push(core);
+        ParticleSpawnParams ring;
+        ring.kind = ParticleKind::Ring;
+        ring.blend = BlendMode::Additive;
+        ring.position = event.origin;
+        ring.color = mix4(pal.primary, Vec4{1.0f, 1.0f, 1.0f, 1.0f}, 0.3f);
+        ring.size = radius * 2.2f;
+        ring.lifetime = 0.30f;
+        push(ring, 0.03f);
+        const u32 shards = 18u + 4u * tier;
+        for (u32 k = 0; k < shards; ++k) {
+            const f32 a = pcg_range(rs, 0.0f, math::kTwoPi);
+            const Vec2 radial{std::cos(a), std::sin(a)};
+            ParticleSpawnParams sh;
+            sh.kind = ParticleKind::Shard;
+            sh.blend = BlendMode::AlphaBlend;
+            sh.position = event.origin + radial * (radius * pcg_range(rs, 0.0f, 0.7f));
+            sh.velocity = radial * pcg_range(rs, 6.0f, 18.0f);
+            sh.color = mix4(pal.primary, pal.accent, pcg_f32(rs));
+            sh.size = radius * pcg_range(rs, 0.10f, 0.22f);
+            sh.lifetime = pcg_range(rs, 0.35f, 0.70f);
+            sh.drag = 3.5f;
+            sh.rotation = a;
+            sh.spin = pcg_signed(rs) * 5.0f;
+            push(sh, pcg_range(rs, 0.0f, 0.05f));
+        }
+        for (u32 k = 0; k < 6; ++k) {
+            ParticleSpawnParams m;
+            m.kind = ParticleKind::Mist;
+            m.blend = BlendMode::AlphaBlend;
+            m.position = event.origin + Vec2{pcg_signed(rs), pcg_signed(rs)} * (radius * 0.5f);
+            m.velocity = Vec2{pcg_signed(rs), pcg_signed(rs)} * 1.5f;
+            m.color = Vec4{pal.primary.r, pal.primary.g, pal.primary.b, 0.35f};
+            m.size = radius * pcg_range(rs, 0.7f, 1.3f);
+            m.lifetime = pcg_range(rs, 0.7f, 1.2f);
+            m.drag = 1.5f;
+            push(m, 0.03f * static_cast<f32>(k));
+        }
+        break;
+    }
+
+    // -----------------------------------------------------------------------
+    // ScarBuilt / ScarDestroyed — a Fibroblast's collagen wall went down or
+    // came down (sim/scar). `direction` runs along the bar, `radius` is its
+    // half-length and `magnitude` its half-width (on ScarBuilt; on
+    // ScarDestroyed magnitude is 1 for chewed through, 0 for dissolved).
+    // Both are drawn ALONG the bar rather than from its centre: a wall is a
+    // line, and a burst from its middle would read as something else
+    // happening at that point. The build is quiet -- fibres settling into
+    // place -- and the loss is a scatter of collagen across the lane.
+    // -----------------------------------------------------------------------
+    case sim::CombatEventType::ScarBuilt: {
+        const Vec2 along = math::normalize_safe(event.direction);
+        const Vec2 across = perp(along);
+        const f32 half_len = math::max(event.radius, 0.5f);
+        const f32 half_wid = math::max(event.magnitude, 0.2f);
+        const u32 fibres = 6u + static_cast<u32>(half_len * 2.0f);
+        for (u32 k = 0; k < fibres; ++k) {
+            const f32 u = pcg_range(rs, -1.0f, 1.0f);
+            ParticleSpawnParams sh;
+            sh.kind = ParticleKind::Shard;
+            sh.blend = BlendMode::AlphaBlend;
+            sh.position = event.origin + along * (u * half_len) +
+                          across * pcg_range(rs, -half_wid, half_wid) * 2.5f;
+            sh.velocity = across * (-pcg_signed(rs) * 2.0f) + along * pcg_signed(rs) * 0.8f;
+            sh.color = mix4(pal.primary, pal.accent, pcg_f32(rs));
+            sh.size = pcg_range(rs, 0.18f, 0.34f);
+            sh.lifetime = pcg_range(rs, 0.35f, 0.65f);
+            sh.drag = 4.0f;
+            sh.rotation = std::atan2(along.y, along.x) + pcg_signed(rs) * 0.25f;
+            sh.spin = pcg_signed(rs) * 1.5f;
+            push(sh, pcg_range(rs, 0.0f, 0.12f));
+        }
+        for (u32 k = 0; k < 4; ++k) {
+            ParticleSpawnParams m;
+            m.kind = ParticleKind::Mist;
+            m.blend = BlendMode::AlphaBlend;
+            m.position = event.origin + along * pcg_range(rs, -half_len, half_len) * 0.8f;
+            m.velocity = across * pcg_signed(rs) * 0.6f;
+            m.color = Vec4{pal.primary.r, pal.primary.g, pal.primary.b, 0.22f};
+            m.size = half_wid * pcg_range(rs, 2.0f, 3.2f);
+            m.lifetime = pcg_range(rs, 0.5f, 0.9f);
+            m.drag = 2.0f;
+            push(m, 0.03f * static_cast<f32>(k));
+        }
+        break;
+    }
+    case sim::CombatEventType::ScarDestroyed: {
+        const Vec2 along = math::normalize_safe(event.direction);
+        const Vec2 across = perp(along);
+        const f32 half_len = math::max(event.radius, 0.5f);
+        const bool chewed = event.magnitude > 0.5f;
+        const u32 shards = 10u + static_cast<u32>(half_len * 3.0f);
+        for (u32 k = 0; k < shards; ++k) {
+            const f32 u = pcg_range(rs, -1.0f, 1.0f);
+            const f32 side = pcg_signed(rs) >= 0.0f ? 1.0f : -1.0f;
+            ParticleSpawnParams sh;
+            sh.kind = ParticleKind::Shard;
+            sh.blend = BlendMode::AlphaBlend;
+            sh.position = event.origin + along * (u * half_len);
+            sh.velocity = across * (side * pcg_range(rs, chewed ? 5.0f : 1.5f, chewed ? 14.0f : 4.0f)) +
+                          along * pcg_signed(rs) * 2.0f;
+            sh.color = mix4(pal.primary, pal.accent, pcg_f32(rs));
+            sh.size = pcg_range(rs, 0.16f, 0.32f);
+            sh.lifetime = pcg_range(rs, 0.35f, 0.75f);
+            sh.drag = 3.5f;
+            sh.rotation = pcg_range(rs, 0.0f, math::kTwoPi);
+            sh.spin = pcg_signed(rs) * 5.0f;
+            push(sh, pcg_range(rs, 0.0f, 0.05f));
+        }
+        const u32 puffs = 3u + static_cast<u32>(half_len);
+        for (u32 k = 0; k < puffs; ++k) {
+            ParticleSpawnParams m;
+            m.kind = ParticleKind::Mist;
+            m.blend = BlendMode::AlphaBlend;
+            m.position = event.origin + along * pcg_range(rs, -half_len, half_len);
+            m.velocity = across * pcg_signed(rs) * 1.5f;
+            m.color = Vec4{pal.primary.r, pal.primary.g, pal.primary.b, 0.32f};
+            m.size = pcg_range(rs, 1.2f, 2.2f);
+            m.lifetime = pcg_range(rs, 0.6f, 1.1f);
+            m.drag = 1.5f;
+            push(m, 0.03f * static_cast<f32>(k));
         }
         break;
     }

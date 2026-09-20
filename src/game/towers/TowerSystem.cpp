@@ -44,11 +44,15 @@
 #include "sim/ecs/Components.h"
 #include "sim/ecs/EcsWorld.h"
 #include "sim/flowfield/FlowField.h"
+#include "sim/flowfield/LaneConnectivity.h"
+#include "sim/flowfield/RuntimeBlock.h"
+#include "sim/scar/Scars.h"
 #include "sim/swarm/Swarmers.h"
 #include "sim/spatial/SpatialHash.h"
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <utility>
 #include <vector>
 
@@ -68,10 +72,11 @@ namespace {
 // Order must match TowerType's declaration order exactly.
 constexpr const char* kTowerNames[kTowerTypeCount] = {
     "neutrophil",   // SHOOTER
-    "macrophage",   // BOMBER
+    "macrophage",   // ARBOR GRABBER
     "interferon",   // SLOW BOMBER
     "cytotoxic_t",  // LATCH
-    "goblet_cell"}; // MUCUS BOMBER
+    "goblet_cell",  // MUCUS BOMBER
+    "fibroblast"};  // BUILDER
 
 // ---------------------------------------------------------------------------
 // Private auxiliary ECS components (see file header comment).
@@ -93,13 +98,14 @@ Rect footprint_rect(Vec2 pos, f32 radius) { return Rect{pos - Vec2{radius, radiu
 // ---------------------------------------------------------------------------
 
 TowerStats make_stats(f32 fire_interval, f32 footprint_radius, u32 build_cost,
-                      u32 upgrade_cost) {
+                      u32 upgrade_cost, f32 max_health) {
     TowerStats s;
     s.fire_interval = fire_interval;
     s.footprint_radius = footprint_radius;
     s.build_cost = build_cost;
     s.upgrade_cost = upgrade_cost;
     s.family_mask = 0xFF; // every tower can affect every family
+    s.max_health = max_health;
     return s;
 }
 
@@ -150,20 +156,29 @@ void init_mechanics_once() {
             m.shooter = ShooterParams{kFire[tier], kDamage[tier], kRoundSpeed[tier], 0.45f, kSpread[tier],
                                       kSize[tier] * 2.4f, 0.75f, 1.0f, 1.5f};
         }
-        // BOMBER -- Macrophage. Slow, fat swarmers; each one is a shell.
+        // ARBOR GRABBER -- Macrophage. A smaller number of heavier cells
+        // throw several independent branching pseudopods in every direction.
+        // Each arm catches one target, but the arm slots cycle concurrently.
         {
             TowerMechanics& m = g_mechanics[static_cast<u32>(TowerType::Macrophage)][tier];
-            constexpr u32 kRelease[3] = {1u, 2u, 3u};
-            constexpr f32 kLife[3] = {6.0f, 6.5f, 7.0f};
-            constexpr f32 kSpeed[3] = {14.0f, 16.0f, 18.0f};
-            constexpr f32 kSearch[3] = {14.0f, 16.0f, 18.0f};
-            constexpr f32 kSize[3] = {2.10f, 2.40f, 2.70f};
+            constexpr u32 kRelease[3] = {1u, 1u, 2u};
+            constexpr f32 kLife[3] = {9.0f, 10.0f, 11.0f};
+            constexpr f32 kSpeed[3] = {12.0f, 14.0f, 16.0f};
+            constexpr f32 kSearch[3] = {26.0f, 30.0f, 34.0f};
+            constexpr f32 kSize[3] = {2.60f, 2.85f, 3.10f};
+            constexpr f32 kReach[3] = {7.5f, 8.5f, 9.5f};
+            constexpr f32 kHealth[3] = {120.0f, 160.0f, 210.0f};
+            constexpr u32 kArms[3] = {2u, 3u, 3u};
+            constexpr f32 kExtend[3] = {0.14f, 0.11f, 0.085f};
+            constexpr f32 kLatch[3] = {0.050f, 0.040f, 0.030f};
+            constexpr f32 kPull[3] = {0.28f, 0.23f, 0.18f};
+            constexpr f32 kRecover[3] = {0.080f, 0.060f, 0.040f};
+            constexpr f32 kFakeMass[3] = {0.60f, 0.70f, 0.80f};
             m.swarm = SwarmParams{kRelease[tier], kLife[tier], kSpeed[tier], kSearch[tier],
-                                  0.70f, 0.60f, kSize[tier]};
-            constexpr f32 kRadius[3] = {3.5f, 4.0f, 4.5f};
-            constexpr f32 kDamage[3] = {12.0f, 22.0f, 38.0f};
-            constexpr f32 kNamed[3] = {20.0f, 40.0f, 70.0f};
-            m.bomber = BomberParams{1.0f, kRadius[tier], kDamage[tier], 0.30f, 0.4f, kNamed[tier]};
+                                  kReach[tier], 0.75f, kSize[tier], kHealth[tier]};
+            m.arbor_grabber = ArborGrabberParams{kArms[tier], kExtend[tier], kLatch[tier],
+                                                  kPull[tier], kRecover[tier], kFakeMass[tier],
+                                                  0.0f, 1.0f, 1.1f, 4.5f, 0.9f};
         }
         // SLOW BOMBER -- Interferon. No damage at all; the swarmers pop into
         // circles that slow, and the circles are what the tower is for.
@@ -215,6 +230,28 @@ void init_mechanics_once() {
             m.mucus_bomber = MucusBomberParams{1.0f, kDroplets[tier], kRadius[tier], kSplashSpeed[tier],
                                                kDropLife[tier], kDps[tier], kMark[tier]};
         }
+        // BUILDER -- Fibroblast. One builder at a time, walking out to lay a
+        // collagen scar across the lane (sim/scar). search_radius doubles as
+        // the build reach the HUD ring shows; attach_radius is how close to
+        // its site a builder has to get. Tier buys longer, tougher walls and
+        // more of them, not more builders.
+        {
+            TowerMechanics& m = g_mechanics[static_cast<u32>(TowerType::Fibroblast)][tier];
+            constexpr f32 kSpeed[3] = {12.0f, 13.0f, 14.0f};
+            constexpr f32 kReach[3] = {14.0f, 16.0f, 18.0f};
+            // Tough for a swarmer: a builder has to survive a walk through the
+            // crowd to a site behind its front, with viruses climbing on the
+            // whole way.
+            constexpr f32 kUnitHealth[3] = {60.0f, 80.0f, 100.0f};
+            m.swarm = SwarmParams{1u, 8.0f, kSpeed[tier], kReach[tier], 0.8f, 0.60f, 1.60f, kUnitHealth[tier]};
+            constexpr f32 kHalfLength[3] = {4.0f, 5.0f, 6.0f};
+            constexpr f32 kHalfWidth[3] = {0.8f, 0.9f, 1.0f};
+            constexpr f32 kHealth[3] = {220.0f, 320.0f, 450.0f};
+            constexpr f32 kReinforce[3] = {50.0f, 70.0f, 90.0f};
+            constexpr u32 kMaxScars[3] = {3u, 4u, 5u};
+            m.builder = BuilderParams{kReach[tier], 4.0f, 1.0f, 12u, kHalfLength[tier], kHalfWidth[tier], 0.2f,
+                                      kHealth[tier], kReinforce[tier], 6.0f, kMaxScars[tier], 0.0f, 0.0f};
+        }
     }
     g_globals = TowerGlobals{0.7f, 16u};
 }
@@ -234,37 +271,51 @@ const TowerMechanics& mech(TowerType type, u8 tier) { return tower_mechanics(typ
 // tower_output() is that derivation and proves the claim numerically.
 // ---------------------------------------------------------------------------
 
+// Integrity (max_health) climbs with tier, so the upgrade the economy already
+// favours is also the repair: a tower that has been chewed on and is then
+// upgraded comes back whole and tougher. The Macrophage is the tank of the
+// roster and sits mid-lane by design; the Neutrophil is the cheap one and
+// dies like it.
 void load_default_stats(TowerSystem& self) {
     // SHOOTER -- cheapest, steady single-target pressure.
-    self.set_stats(TowerType::Neutrophil, 1, make_stats(1.00f, 1.4f, 70, 45));
-    self.set_stats(TowerType::Neutrophil, 2, make_stats(0.85f, 1.4f, 70, 38));
-    self.set_stats(TowerType::Neutrophil, 3, make_stats(0.70f, 1.4f, 70, 0));
-
-    // BOMBER -- the slowest cadence and the biggest single answer to a clump.
-    self.set_stats(TowerType::Macrophage, 1, make_stats(1.50f, 2.0f, 150, 95));
-    self.set_stats(TowerType::Macrophage, 2, make_stats(1.30f, 2.0f, 150, 80));
-    self.set_stats(TowerType::Macrophage, 3, make_stats(1.10f, 2.0f, 150, 0));
+    self.set_stats(TowerType::Neutrophil, 1, make_stats(1.00f, 1.4f, 70, 45, 220.0f));
+    self.set_stats(TowerType::Neutrophil, 2, make_stats(0.85f, 1.4f, 70, 38, 300.0f));
+    self.set_stats(TowerType::Neutrophil, 3, make_stats(0.70f, 1.4f, 70, 0, 400.0f));
 
     // SLOW BOMBER -- crowd control only. Its whole output is the circles.
-    self.set_stats(TowerType::Interferon, 1, make_stats(2.00f, 2.4f, 110, 70));
-    self.set_stats(TowerType::Interferon, 2, make_stats(1.70f, 2.4f, 110, 60));
-    self.set_stats(TowerType::Interferon, 3, make_stats(1.40f, 2.4f, 110, 0));
+    self.set_stats(TowerType::Interferon, 1, make_stats(2.00f, 2.4f, 110, 70, 260.0f));
+    self.set_stats(TowerType::Interferon, 2, make_stats(1.70f, 2.4f, 110, 60, 360.0f));
+    self.set_stats(TowerType::Interferon, 3, make_stats(1.40f, 2.4f, 110, 0, 480.0f));
 
     // LATCH -- the fastest cadence: a steady trickle of granules.
-    self.set_stats(TowerType::CytotoxicT, 1, make_stats(0.50f, 1.6f, 130, 84));
-    self.set_stats(TowerType::CytotoxicT, 2, make_stats(0.40f, 1.6f, 130, 70));
-    self.set_stats(TowerType::CytotoxicT, 3, make_stats(0.35f, 1.6f, 130, 0));
+    self.set_stats(TowerType::CytotoxicT, 1, make_stats(0.50f, 1.6f, 130, 84, 280.0f));
+    self.set_stats(TowerType::CytotoxicT, 2, make_stats(0.40f, 1.6f, 130, 70, 380.0f));
+    self.set_stats(TowerType::CytotoxicT, 3, make_stats(0.35f, 1.6f, 130, 0, 500.0f));
 
     // MUCUS BOMBER -- area denial that lingers and weakens. Expensive.
-    self.set_stats(TowerType::GobletCell, 1, make_stats(1.60f, 1.4f, 160, 104));
-    self.set_stats(TowerType::GobletCell, 2, make_stats(1.40f, 1.4f, 160, 88));
-    self.set_stats(TowerType::GobletCell, 3, make_stats(1.20f, 1.4f, 160, 0));
+    self.set_stats(TowerType::GobletCell, 1, make_stats(1.60f, 1.4f, 160, 104, 300.0f));
+    self.set_stats(TowerType::GobletCell, 2, make_stats(1.40f, 1.4f, 160, 88, 420.0f));
+    self.set_stats(TowerType::GobletCell, 3, make_stats(1.20f, 1.4f, 160, 0, 560.0f));
+
+    // BUILDER -- no damage at all; its output is walls. Slow cadence: one
+    // builder every few seconds is a wall every few seconds, and the cap on
+    // live scars is what actually bounds it.
+    self.set_stats(TowerType::Fibroblast, 1, make_stats(3.00f, 1.5f, 120, 78, 260.0f));
+    self.set_stats(TowerType::Fibroblast, 2, make_stats(2.60f, 1.5f, 120, 66, 360.0f));
+    self.set_stats(TowerType::Fibroblast, 3, make_stats(2.20f, 1.5f, 120, 0, 480.0f));
+
+    // ARBOR GRABBER -- Macrophage. Multi-target control with the broadest
+    // living silhouette and deepest integrity pool in the roster.
+    self.set_stats(TowerType::Macrophage, 1, make_stats(1.70f, 5.0f, 180, 115, 720.0f));
+    self.set_stats(TowerType::Macrophage, 2, make_stats(1.40f, 5.0f, 180, 95, 960.0f));
+    self.set_stats(TowerType::Macrophage, 3, make_stats(1.10f, 5.0f, 180, 0, 1250.0f));
 }
 
 bool same_stats(const TowerStats& a, const TowerStats& b) {
     return a.fire_interval == b.fire_interval &&
            a.footprint_radius == b.footprint_radius && a.build_cost == b.build_cost &&
-           a.upgrade_cost == b.upgrade_cost && a.family_mask == b.family_mask;
+           a.upgrade_cost == b.upgrade_cost && a.family_mask == b.family_mask &&
+           a.max_health == b.max_health;
 }
 
 /// There is no constructor hook to populate `stats_` once per instance, so
@@ -413,6 +464,106 @@ bool acquire_aim_point(TowerSystem& self, sim::SystemContext& ctx, Vec2 origin, 
 }
 
 // ---------------------------------------------------------------------------
+// Where a Fibroblast sends a builder.
+//
+// A builder is released with a SITE (SwarmerSpawnParams::goal) and walks
+// there; the wall goes down where the site is, so the site has to be a place
+// a wall can stand. Chosen here, at release, rather than by the unit on
+// arrival, because everything that decides it -- the tissue mask, the flow
+// field, the scars already standing, the towers -- is reachable from the
+// game layer and none of it from the swarmer kernel. The scar system checks
+// again when the wall goes down (another builder may have got there first);
+// a site that has meanwhile been taken becomes a reinforcement.
+//
+// Random sites in the annulus [build_min_radius, build_radius] around the
+// tower, `build_candidates` tries; a site must be on walkable tissue, carry
+// a flow direction (be in a lane the horde uses), have the profile's SDF
+// clearance, keep scar_spacing from every live scar, stay clear of every
+// tower's footprint, and -- the expensive test, last -- not seal the lane.
+// The draws come from the builder's own seed stream, never the shared sim
+// Rng, for the same reason the volley scatter does.
+//
+// With the owner at max_scars, or no site found and something to reinforce,
+// the builder is sent to a standing scar instead and lays collagen on it.
+// Nothing at all to do means no builder: the volley is skipped.
+// ---------------------------------------------------------------------------
+template <typename Draw>
+bool pick_scar_site(const sim::SimWorld& world, const std::vector<EntityId>& placed, EntityId owner,
+                    Vec2 tower_pos, const sim::SwarmerProfile& pr, Draw&& draw, Vec2& out) {
+    const sim::ScarSystem& scars = world.scars();
+    const sim::TissueMask& mask = world.tissue();
+    const sim::FlowField& flow = world.flow();
+    if (mask.width() <= 0 || mask.height() <= 0) return false;
+
+    const f32 reach = math::max(pr.build_radius, 0.0f);
+    const auto send_to_reinforce = [&]() {
+        if (pr.scar_reinforce <= 0.0f) return false;
+        const EntityId target = scars.nearest(world, tower_pos, reach, EntityId{});
+        if (!target.valid()) return false;
+        const entt::entity e = world.ecs().from_id(target);
+        if (!world.ecs().registry().valid(e)) return false;
+        out = world.ecs().registry().get<comp::Transform>(e).position;
+        return true;
+    };
+
+    if (pr.max_scars > 0 && scars.count_owned(world, owner) >= pr.max_scars) return send_to_reinforce();
+
+    const f32 r_min = math::clamp(pr.build_min_radius, 0.0f, reach);
+    const Vec2 he{math::max(pr.scar_half_length, 0.0f), math::max(pr.scar_half_width, 0.0f)};
+    const Rect& play = world.desc().world_bounds;
+    const entt::registry& registry = world.ecs().registry();
+
+    for (u32 c = 0; c < pr.build_candidates; ++c) {
+        // Uniform over the annulus' AREA, not its radius, so sites do not
+        // bunch up near the tower.
+        const f32 r = std::sqrt(math::lerp(r_min * r_min, reach * reach, draw()));
+        const f32 a = draw() * math::kTwoPi;
+        const Vec2 p = tower_pos + Vec2{std::cos(a), std::sin(a)} * r;
+
+        if (!play.contains(p)) continue;
+        const IVec2 cell = mask.world_to_cell(p);
+        if (!mask.walkable(cell.x, cell.y)) continue;
+        const Vec2 f = flow.sample(p);
+        if (f.x == 0.0f && f.y == 0.0f) continue;
+        if (world.sdf().sample(p) < pr.build_min_clearance) continue;
+        if (pr.scar_spacing > 0.0f && scars.nearest(world, p, pr.scar_spacing).valid()) continue;
+
+        bool on_tower = false;
+        for (const EntityId id : placed) {
+            const entt::entity te = world.ecs().from_id(id);
+            if (!registry.valid(te) || !registry.all_of<comp::Transform, comp::Sprite>(te)) continue;
+            const f32 body = registry.get<comp::Sprite>(te).size * 0.5f + he.y;
+            if (math::length_sq(registry.get<comp::Transform>(te).position - p) < body * body) {
+                on_tower = true;
+                break;
+            }
+        }
+        if (on_tower) continue;
+
+        // The same bar the scar system will lay on arrival, tilt included,
+        // or the sever check answers for a different wall.
+        sim::Bar bar;
+        bar.center = p;
+        bar.half_extents = he;
+        bar.rotation = sim::scar_rotation(flow, p, owner, pr.scar_tilt);
+
+        // scar_spacing above only rejected sites near another scar's CENTER;
+        // a long wall's far end reaches well past that, so check the actual
+        // bar geometry too before this one gets laid on top of it.
+        if (scars.overlaps(world, bar)) continue;
+
+        const bool sever = sim::would_sever_lane(mask, flow, bar.bounds(), [&](i32 x, i32 y) {
+            return bar.contains(mask.cell_to_world(x, y));
+        });
+        if (sever) continue;
+
+        out = p;
+        return true;
+    }
+    return send_to_reinforce();
+}
+
+// ---------------------------------------------------------------------------
 // THE ONE COMBAT SYSTEM. Every tower: face the horde, and on cooldown release
 // a volley of swarmers from the cell's face -- continuously, for as long as
 // the round is on.
@@ -466,6 +617,8 @@ void system_spawner(TowerSystem& self, sim::SystemContext& ctx) {
         swarm.set_profile(slot, swarmer_profile(tw.type, tw.tier));
 
         const EntityId owner = ctx.world.ecs().to_id(e);
+        const sim::SwarmerProfile& profile = swarm.profile_at(slot);
+        u32 released = 0;
         for (u32 k = 0; k < release; ++k) {
             // Swarmer identity. Everything stochastic about this release is
             // derived from this one word rather than drawn from the shared sim
@@ -508,8 +661,26 @@ void system_spawner(TowerSystem& self, sim::SystemContext& ctx) {
             // tick names it and k orders the rank.
             p.group = static_cast<u32>(ctx.tick);
             p.slot = static_cast<u16>(k);
-            swarm.spawn(p);
+            // A builder needs somewhere to build. Nowhere means no builder:
+            // a unit released to drift and dissolve is a slot wasted and a
+            // tower that visibly does nothing for no reason.
+            if (profile.kind == sim::SwarmerKind::Builder) {
+                Vec2 site;
+                if (!pick_scar_site(ctx.world, self.placed_towers(), owner, tf.position, profile, draw, site)) {
+                    continue;
+                }
+                p.goal = site;
+                p.has_goal = true;
+                // Leave toward the site rather than down the aim cone.
+                const Vec2 to_site = math::normalize_safe(site - origin);
+                if (to_site.x != 0.0f || to_site.y != 0.0f) p.velocity = to_site * (swarm_params.speed * jitter);
+            }
+            if (swarm.spawn(p)) ++released;
         }
+
+        // A tower with nothing to release (a Fibroblast with nowhere to build)
+        // holds its cooldown and tries again next tick, and announces nothing.
+        if (released == 0 && profile.kind == sim::SwarmerKind::Builder) continue;
 
         // One release event for the VFX layer: the secretion at the face. The
         // swarmers themselves are simulated and drawn from sim state, so there
@@ -517,7 +688,7 @@ void system_spawner(TowerSystem& self, sim::SystemContext& ctx) {
         sim::CombatEvent fired =
             tower_event(sim::CombatEventType::MuzzleFlash, tw.type, tw.tier, muzzle);
         fired.direction = facing;
-        fired.magnitude = static_cast<f32>(release);
+        fired.magnitude = static_cast<f32>(released);
         ctx.world.combat_events().push(fired);
 
         tw.cooldown = st.fire_interval;
@@ -561,6 +732,46 @@ void system_slowed_upkeep(sim::SystemContext& ctx) {
         if (sl.remaining <= 0.0f) expired.push_back(e);
     }
     for (entt::entity e : expired) ctx.registry.remove<comp::Slowed>(e);
+}
+
+/// PreUpdate, first of all: tears down every tower the horde has emptied.
+///
+/// Damage lands on comp::Health from SimWorld::apply_hostile_effects, at the
+/// end of the previous tick; this runs before the spawner so a dead tower
+/// never releases a farewell volley. The entity is destroyed here rather
+/// than in sim/ because TowerSystem owns placed_towers(), and a stale id in
+/// that list makes validate() report Overlapping on empty tissue (the same
+/// reason register_systems() clears it). No refund: a tower the horde ate
+/// is gone, and the ATP with it -- that is what makes mid-lane placement a
+/// real bet rather than a free one.
+void system_tower_death(TowerSystem& self, std::vector<EntityId>& towers, u32& destroyed,
+                        sim::SystemContext& ctx) {
+    static thread_local std::vector<entt::entity> dead;
+    dead.clear();
+    auto view = ctx.registry.view<const comp::Tower, const comp::Health>();
+    for (auto e : view) {
+        if (view.get<const comp::Health>(e).dead()) dead.push_back(e);
+    }
+    if (dead.empty()) return;
+    // Sorted so the events -- and therefore the VFX RNG draws -- come out in
+    // an order that does not depend on EnTT's pool layout.
+    std::sort(dead.begin(), dead.end());
+    for (entt::entity e : dead) {
+        const comp::Tower& tw = ctx.registry.get<comp::Tower>(e);
+        const TowerStats& st = self.stats(tw.type, tw.tier);
+        Vec2 origin{0.0f, 0.0f};
+        if (const auto* tf = ctx.registry.try_get<comp::Transform>(e)) origin = tf->position;
+
+        sim::CombatEvent gone = tower_event(sim::CombatEventType::TowerDestroyed, tw.type, tw.tier, origin);
+        gone.radius = st.footprint_radius;
+        gone.magnitude = st.max_health;
+        ctx.world.combat_events().push(gone);
+
+        const EntityId id = ctx.world.ecs().to_id(e);
+        towers.erase(std::remove(towers.begin(), towers.end(), id), towers.end());
+        ctx.registry.destroy(e);
+        ++destroyed;
+    }
 }
 
 /// PreUpdate: decays comp::Tower's own cooldown timers.
@@ -680,6 +891,23 @@ PlacementQuery TowerSystem::validate(const sim::SimWorld& world, TowerType type,
             }
         }
     }
+    // A collagen scar (sim/scar, comp::Scar) is the same obstruction, for
+    // the same reason, and it can stand for the rest of the level.
+    {
+        auto scars = world.ecs().registry().view<const comp::Scar, const comp::Transform>();
+        for (auto e : scars) {
+            const comp::Scar& sc = scars.get<const comp::Scar>(e);
+            const comp::Transform& stf = scars.get<const comp::Transform>(e);
+            sim::Bar bar;
+            bar.center = stf.position;
+            bar.half_extents = sc.half_extents;
+            bar.rotation = stf.rotation;
+            if (bar.distance_sq(pos) < st.footprint_radius * st.footprint_radius) {
+                q.result = PlacementResult::Overlapping;
+                return q;
+            }
+        }
+    }
 
     if (available_atp < st.build_cost) {
         q.result = PlacementResult::CannotAfford;
@@ -766,6 +994,10 @@ EntityId TowerSystem::place(sim::SimWorld& world, TowerType type, Vec2 world_pos
     tw.cooldown = st.fire_interval;
     tw.fire_interval = st.fire_interval;
     registry.emplace<comp::Tower>(e, tw);
+    // What the horde chews on (sim/hostile). Armor stays 0: a tower's
+    // resilience is expressed as more integrity, not as a per-bite floor,
+    // so a single virus is still worth scraping off.
+    registry.emplace<comp::Health>(e, comp::Health{st.max_health, st.max_health, 0.0f});
     // Shape ids start at kTowerShapeBase so tower and overlay id spaces cannot
     // collide.
     //
@@ -791,6 +1023,10 @@ u8 TowerSystem::upgrade(sim::SimWorld& world, EntityId tower) {
 
     comp::Tower& tw = registry.get<comp::Tower>(e);
     if (tw.tier >= 3) return 0;
+    // Emptied by the horde and waiting for the next tick's sweep: an upgrade
+    // would heal it back to life through the one-tick window before the
+    // sweep runs, which is a resurrection nobody paid for.
+    if (const auto* hp = registry.try_get<comp::Health>(e); hp != nullptr && hp->dead()) return 0;
 
     const TowerStats& cur = stats_[static_cast<u32>(tw.type)][tw.tier - 1];
     const u8 next_tier = static_cast<u8>(tw.tier + 1);
@@ -799,6 +1035,15 @@ u8 TowerSystem::upgrade(sim::SimWorld& world, EntityId tower) {
     tw.tier = next_tier;
     tw.range = tower_mechanics(tw.type, next_tier).swarm.search_radius;
     tw.fire_interval = next.fire_interval;
+
+    // The tier is a rebuild: whatever the horde had chewed off is restored,
+    // and the new tier's integrity is the new ceiling. This is deliberately
+    // the only repair in the game, so "upgrade what you have" (DESIGN.md
+    // §7.1) is also the answer to a tower under attack.
+    if (auto* hp = registry.try_get<comp::Health>(e)) {
+        hp->max = next.max_health;
+        hp->current = next.max_health;
+    }
 
     // Keep the body sprite in step with the new tier's stats. Every shipped
     // tower has a tier-invariant footprint, so this re-sizes to the value it
@@ -819,6 +1064,7 @@ u32 TowerSystem::upgrade_cost(const sim::SimWorld& world, EntityId tower) const 
     if (!registry.valid(e) || !registry.all_of<comp::Tower>(e)) return 0;
     const comp::Tower& tw = registry.get<comp::Tower>(e);
     if (tw.tier >= 3) return 0;
+    if (const auto* hp = registry.try_get<comp::Health>(e); hp != nullptr && hp->dead()) return 0;
     // The CURRENT tier's upgrade_cost is the price of leaving it, which is the
     // same field upgrade() adds to invested_atp -- so what the player pays and
     // what a sell refunds are computed from one number, not two.
@@ -888,10 +1134,15 @@ void TowerSystem::register_systems(sim::SimWorld& world) {
     // hands straight back out to its own entities, which is enough to make
     // placement report Overlapping on empty tissue.
     towers_.clear();
-
+    destroyed_ = 0;
+    // Death first, then cooldowns: see system_tower_death.
+    ecs.add_system(sim::SystemPhase::PreUpdate, "tower_death", 0,
+                   [this](sim::SystemContext& ctx) {
+                       system_tower_death(*this, towers_, destroyed_, ctx);
+                   });
     ecs.add_system(sim::SystemPhase::PreUpdate, "tower_cooldowns", 20, &system_tower_cooldowns);
 
-    // One Combat system for the whole roster. Fixed sort keys are a
+    // One spawner system for the whole roster. Fixed sort keys are a
     // determinism requirement, not a preference.
     ecs.add_system(sim::SystemPhase::Combat, "tower_spawner", 0,
                    [this](sim::SystemContext& ctx) { system_spawner(*this, ctx); });
@@ -926,8 +1177,11 @@ sim::SwarmerProfile swarmer_profile(TowerType type, u8 tier) {
     p.search_radius = m.swarm.search_radius;
     p.attach_radius = m.swarm.attach_radius;
     p.size = m.swarm.size;
+    p.max_health = m.swarm.max_health;
 
     p.dps = m.latch.dps;
+    p.attach_seconds = m.latch.attach_seconds;
+    p.attach_steps = m.latch.attach_steps;
 
     p.fire_interval = m.shooter.fire_interval;
     p.round_damage = m.shooter.round_damage;
@@ -943,6 +1197,7 @@ sim::SwarmerProfile swarmer_profile(TowerType type, u8 tier) {
     case sim::SwarmerKind::Bomber:      p.chase_seconds = m.bomber.chase_seconds; break;
     case sim::SwarmerKind::SlowBomber:  p.chase_seconds = m.slow_bomber.chase_seconds; break;
     case sim::SwarmerKind::MucusBomber: p.chase_seconds = m.mucus_bomber.chase_seconds; break;
+    case sim::SwarmerKind::ArborGrabber:p.chase_seconds = 0.0f; break;
     default:                            p.chase_seconds = 0.0f; break;
     }
 
@@ -963,6 +1218,38 @@ sim::SwarmerProfile swarmer_profile(TowerType type, u8 tier) {
     p.splash_lifetime = m.mucus_bomber.droplet_lifetime;
     p.splash_dps = m.mucus_bomber.splash_dps;
     p.mark_seconds = m.mucus_bomber.mark_seconds;
+
+    p.arbor_arm_count = math::min<u32>(m.arbor_grabber.arm_count, sim::kArborMaxArms);
+    p.arbor_extend_seconds = m.arbor_grabber.extend_seconds;
+    p.arbor_latch_seconds = m.arbor_grabber.latch_seconds;
+    p.arbor_pull_seconds = m.arbor_grabber.pull_seconds;
+    p.arbor_recover_seconds = m.arbor_grabber.recover_seconds;
+    p.arbor_fake_mass = math::saturate(m.arbor_grabber.fake_mass);
+    // The kite_* fields are one set on the profile; an arbor grabber's body
+    // reads its own tuning through them.
+    if (p.kind == sim::SwarmerKind::ArborGrabber) {
+        p.kite_fraction = m.arbor_grabber.kite_fraction;
+        p.kite_flow_weight = m.arbor_grabber.kite_flow_weight;
+        p.kite_speed_mult = m.arbor_grabber.kite_speed_mult;
+        // The LANE WALL: the rank's spacing rides the shooter's formation
+        // field, and the body pushes the horde back instead of yielding.
+        p.formation_spacing = m.arbor_grabber.wall_spacing;
+        p.body_block = math::saturate(m.arbor_grabber.body_block);
+    }
+
+    p.scar_half_length = m.builder.scar_half_length;
+    p.scar_half_width = m.builder.scar_half_width;
+    p.scar_tilt = m.builder.scar_tilt;
+    p.scar_health = m.builder.scar_health;
+    p.scar_reinforce = m.builder.scar_reinforce;
+    p.scar_spacing = m.builder.scar_spacing;
+    p.max_scars = m.builder.max_scars;
+    p.scar_lifetime = m.builder.scar_lifetime;
+    p.build_radius = m.builder.build_radius;
+    p.build_min_radius = m.builder.build_min_radius;
+    p.build_min_clearance = m.builder.build_min_clearance;
+    p.build_candidates = m.builder.build_candidates;
+    p.builder_crowd_push = m.builder.crowd_push;
     return p;
 }
 

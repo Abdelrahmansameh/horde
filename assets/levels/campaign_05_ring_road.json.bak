@@ -4,11 +4,11 @@
   "display_name": "Ring Road",
   "description": "A ring around a core with loops on every side. Block one road and the horde takes another.",
   "difficulty": 5,
+  "economy": { "starting_atp": 1500 },
   "tags": ["campaign"],
   "region": "organ_chamber",
   "world": { "min": [0, 0], "max": [396.8, 396.8], "cell_size": 0.75 },
   "camera": { "view_height": 396.8 },
-  "economy": { "starting_atp": 1500 },
   "vessels": [
     {
       "id": "ring",
@@ -29,7 +29,7 @@
     {
       "id": "inlet",
       "points": [
-        { "p": [-163.44, 194.4], "w": 37.2 },
+        { "p": [-7.44, 198.4], "w": 37.2 },
         { "p": [55.8, 198.4], "w": 37.2 },
         { "p": [112.84, 189.72], "w": 37.2 }
       ]
@@ -111,7 +111,7 @@
     }
   ],
   "spawn_points": [
-    { "id": "p0", "pos": [-159.44, 194.4], "radius": 16.12, "lane_id": "inlet" }
+    { "id": "p0", "pos": [-7.44, 198.4], "radius": 16.12, "lane_id": "inlet" }
   ],
   "objectives": [
     { "id": "organ", "pos": [204.6, 369.52], "half_extents": [18.6, 6.2] }

@@ -51,6 +51,9 @@ namespace {
 struct FamilyTables {
     Vec4 color[kFamilyCount];
     FamilyVisual visual[kFamilyCount];
+    /// The feeding animation of a latched agent (render/LatchThrob.h). The
+    /// struct's own defaults are the compiled-in look, so nothing to set here.
+    LatchThrobParams latch_throb[kFamilyCount];
 
     FamilyTables() {
         // Retuned when the substrate went vivid red. §9.3 fixes the family
@@ -101,6 +104,14 @@ const FamilyVisual& family_visual(PathogenFamily family) {
 
 void set_family_visual(PathogenFamily family, const FamilyVisual& visual) {
     family_tables().visual[family_slot(family)] = visual;
+}
+
+const LatchThrobParams& family_latch_throb(PathogenFamily family) {
+    return family_tables().latch_throb[family_slot(family)];
+}
+
+void set_family_latch_throb(PathogenFamily family, const LatchThrobParams& params) {
+    family_tables().latch_throb[family_slot(family)] = params;
 }
 
 u32 pack_rgba8(Vec4 c) {
@@ -172,10 +183,16 @@ struct SwarmerGpuInstance {
     f32 radius;
     f32 phase;
     f32 r, g, b, a;
-    /// bit 0: engaged with a target; bits 8..11: sim::SwarmerKind; bits
-    /// 12..15: tier 1..3. Mirrors swarmer.frag.
+    /// bit 0: engaged; bits 8..11: kind; bits 12..15: tier. Mirrors
+    /// swarmer.frag.
     u32 flags;
+    /// ArborGrabber: each row is {reach, relative_angle, grip, phase}.
+    /// Mirrors swarmer.vert / swarmer.frag.
+    f32 arm[3][4];
 };
+
+/// Fraction of a round's hit radius it is drawn at. See submit_projectiles.
+constexpr f32 kRoundDrawScale = 0.75f;
 
 /// The identity hue of each tower, for its swarmers. Mirrors palette_for()'s
 /// `primary` in vfx/Particles.cpp entry for entry, so a tower's body, its
@@ -183,10 +200,11 @@ struct SwarmerGpuInstance {
 Vec4 swarmer_tint(TowerType source) {
     switch (source) {
     case TowerType::Neutrophil: return Vec4{1.00f, 0.96f, 0.68f, 1.0f};
-    case TowerType::Macrophage: return Vec4{1.00f, 0.66f, 0.24f, 1.0f};
+    case TowerType::Macrophage: return Vec4{0.98f, 0.42f, 0.58f, 1.0f};
     case TowerType::Interferon: return Vec4{0.52f, 0.84f, 1.00f, 1.0f};
     case TowerType::CytotoxicT: return Vec4{0.78f, 0.68f, 1.00f, 1.0f};
     case TowerType::GobletCell: return Vec4{0.55f, 0.98f, 0.74f, 1.0f};
+    case TowerType::Fibroblast: return Vec4{1.00f, 0.72f, 0.64f, 1.0f};
     case TowerType::Count: break;
     }
     return Vec4{1.0f, 1.0f, 1.0f, 1.0f};
@@ -247,9 +265,8 @@ constexpr f32 kClotDissolveFraction = 0.25f;
 /// longer than every one of them. Because intensity is remaining/window, a
 /// field whose ENTIRE life is under the window starts already faded and only
 /// gets dimmer: the Tesla's chain (kTeslaArcSeconds, 0.12s) peaked at 34%
-/// brightness and the Macrophage's shell (kMortarBurstSeconds, 0.30s) at 86%,
-/// so the roster's two burst towers were the two whose AoE you could barely
-/// see. At 0.10s both hold full brightness for most of their life and spend
+/// brightness and a 0.30s authored burst at 86%, so short AoE effects were
+/// the ones you could barely see. At 0.10s both hold full brightness for most of their life and spend
 /// only the last hundred milliseconds fading, which is what the curve was for.
 constexpr f32 kFieldBurstFadeWindow = 0.10f;
 
@@ -779,6 +796,9 @@ bool Renderer::init(const RendererDesc& desc) {
     imp.swarmer_vao.attrib_float(4, 1, 1, GL_FLOAT, false, offsetof(SwarmerGpuInstance, phase));
     imp.swarmer_vao.attrib_float(5, 1, 4, GL_FLOAT, false, offsetof(SwarmerGpuInstance, r));
     imp.swarmer_vao.attrib_int(6, 1, 1, GL_UNSIGNED_INT, offsetof(SwarmerGpuInstance, flags));
+    imp.swarmer_vao.attrib_float(7, 1, 4, GL_FLOAT, false, offsetof(SwarmerGpuInstance, arm) + 0 * sizeof(f32) * 4);
+    imp.swarmer_vao.attrib_float(8, 1, 4, GL_FLOAT, false, offsetof(SwarmerGpuInstance, arm) + 1 * sizeof(f32) * 4);
+    imp.swarmer_vao.attrib_float(9, 1, 4, GL_FLOAT, false, offsetof(SwarmerGpuInstance, arm) + 2 * sizeof(f32) * 4);
 
     // ---- Fluid pass. Attribute locations mirror fluid.vert. ---------------
     // Sized from the swarmer cap rather than given its own knob: both are
@@ -1623,15 +1643,28 @@ void Renderer::submit_chaff(const sim::ChaffBuffers& chaff, const sim::SpatialHa
         {
             Vec4 flash_color[kFamilyCount];
             Vec4 split_params[kFamilyCount];
+            // The latch throb's amplitudes (render/LatchThrob.h), two vec4s a
+            // family: the batcher only sends the bit and the clock.
+            Vec4 throb_shape[kFamilyCount];
+            Vec4 throb_skin[kFamilyCount];
+            Vec4 throb_pump[kFamilyCount];
             for (u32 f = 0; f < kFamilyCount; ++f) {
                 flash_color[f] = sim::family_hit_flash(static_cast<PathogenFamily>(f)).color;
                 const sim::ReplicationSplitParams& split =
                     sim::family_replication_split(static_cast<PathogenFamily>(f));
                 split_params[f] = Vec4{split.reveal_distance, split.seam_softness, 0.0f, 0.0f};
+                const LatchThrobParams& throb = family_latch_throb(static_cast<PathogenFamily>(f));
+                throb_shape[f] = Vec4{throb.throb, throb.slosh, throb.wave, throb.wave_count};
+                throb_skin[f] = Vec4{throb.ripple, throb.stream, throb.squash, throb.probe};
+                throb_pump[f] = Vec4{throb.glow, 0.0f, 0.0f, 0.0f};
             }
             glUniform4fv(2, static_cast<GLsizei>(kFamilyCount), glm::value_ptr(flash_color[0]));
             glUniform4fv(4, static_cast<GLsizei>(kFamilyCount), glm::value_ptr(split_params[0]));
+            glUniform4fv(6, static_cast<GLsizei>(kFamilyCount), glm::value_ptr(throb_shape[0]));
+            glUniform4fv(8, static_cast<GLsizei>(kFamilyCount), glm::value_ptr(throb_skin[0]));
+            glUniform4fv(10, static_cast<GLsizei>(kFamilyCount), glm::value_ptr(throb_pump[0]));
         }
+        glUniform1f(12, kShadowsEnabled ? 1.0f : 0.0f);
         imp.chaff_vao.bind();
         const u32 region_base_instance = imp.chaff_region * kFamilyCount * per_family_cap;
         for (u32 f = 0; f < kFamilyCount; ++f) {
@@ -1700,6 +1733,7 @@ void Renderer::submit_entities(const sim::EcsWorld& ecs) {
             tempo = family_visual(na->family).tempo;
         }
 
+        if (count >= cap) return;
         EntityInstance& inst = region_base[count++];
         inst.x = t.position.x;
         inst.y = t.position.y;
@@ -1732,6 +1766,19 @@ void Renderer::submit_entities(const sim::EcsWorld& ecs) {
         // sprite at upgrade time, for the same no-drift reason.
         if (const auto* tower = registry.try_get<const sim::comp::Tower>(entity)) {
             inst.shape_param = static_cast<f32>(tower->tier);
+            // Integrity, read as the body going dull and bruised: the horde
+            // chews on towers now (sim/hostile), and a tower at a third of
+            // its integrity has to look like one BEFORE the player opens its
+            // panel. Towers are never translucent, so the tint's ALPHA channel
+            // is repurposed to carry the remaining integrity fraction (1 =
+            // whole) and entity.frag's wounded() paints the damage from it --
+            // the tower bodies mix their tint at 0.18 or less, so a colour sent
+            // through the RGB would not show. Sourced every frame from
+            // comp::Health for the same no-drift reason as the tier.
+            if (const auto* hp = registry.try_get<const sim::comp::Health>(entity)) {
+                const f32 frac = hp->max > 0.0f ? math::saturate(hp->current / hp->max) : 1.0f;
+                inst.tint_rgba8 = pack_rgba8(Vec4{sp.tint.r, sp.tint.g, sp.tint.b, frac});
+            }
         }
 
         // Fibrin Clot (game/abilities): the quad is square and sized to the
@@ -1746,6 +1793,25 @@ void Renderer::submit_entities(const sim::EcsWorld& ecs) {
             const f32 life = barrier->duration > 0.0f ? barrier->remaining / barrier->duration : 0.0f;
             const f32 fade = math::saturate(life / kClotDissolveFraction);
             inst.tint_rgba8 = pack_rgba8(Vec4{sp.tint.r, sp.tint.g, sp.tint.b, sp.tint.a * fade});
+        }
+
+        // Collagen scar (sim/scar): the same squashed bar as the clot (shape
+        // 6 reads shape_param the same way), but what runs down is its
+        // INTEGRITY, not a clock -- the alpha carries the remaining health
+        // fraction, the way a tower's does, and the shader spends it on
+        // fraying and thinning the wall where the horde has chewed it. A
+        // scar on a lifetime fades over its last stretch as well.
+        if (const auto* scar = registry.try_get<const sim::comp::Scar>(entity)) {
+            inst.shape_param = scar->half_extents.x / math::max(scar->half_extents.y, 1e-3f);
+            f32 frac = 1.0f;
+            if (const auto* hp = registry.try_get<const sim::comp::Health>(entity)) {
+                frac = hp->max > 0.0f ? math::saturate(hp->current / hp->max) : 1.0f;
+            }
+            if (scar->duration > 0.0f) {
+                const f32 life = scar->remaining / scar->duration;
+                frac = math::min(frac, math::saturate(life / kClotDissolveFraction));
+            }
+            inst.tint_rgba8 = pack_rgba8(Vec4{sp.tint.r, sp.tint.g, sp.tint.b, frac});
         }
 
         // Elite death burst (DESIGN.md §9.5 tier 2: "individual pop/burst
@@ -1838,6 +1904,7 @@ void Renderer::submit_entities(const sim::EcsWorld& ecs) {
     if (prog.valid() && count > 0) {
         glUseProgram(prog.gl_id);
         glUniformMatrix4fv(0, 1, GL_FALSE, glm::value_ptr(imp.view_projection));
+        glUniform1f(1, kShadowsEnabled ? 1.0f : 0.0f);
         imp.entity_vao.bind();
         const u32 base_instance = imp.entity_region * cap;
         glDrawArraysInstancedBaseInstance(GL_TRIANGLE_FAN, 0, 4, static_cast<GLsizei>(count),
@@ -1898,7 +1965,7 @@ void Renderer::submit_fields(const sim::DamageField* fields, usize count,
     // ABILITY also resolves through Chain, and reading as a T-Cell discharge is
     // the right answer there — it is the same mechanism fired by the player).
     // Circle is the one genuine ambiguity and is split below by lifetime.
-    const Vec4 kMortarTint{1.00f, 0.66f, 0.24f, 1.0f};  // Macrophage — amber
+    const Vec4 kTimedBurstTint{1.00f, 0.66f, 0.24f, 1.0f};
     // No tower casts a persistent Circle any more (the NK Cell's rotor is
     // retired). Kept so a scripted persistent circle still renders as
     // something distinct from a shell landing.
@@ -1966,13 +2033,9 @@ void Renderer::submit_fields(const sim::DamageField* fields, usize count,
             inst.scale_y = diameter;
             inst.rotation = 0.0f;
             inst.arc_cos = -1.0f;
-            // Circle is the one shape two towers share, so it splits by
-            // lifetime — the only thing that distinguishes them here, and it
-            // happens to distinguish them cleanly. A PERSISTENT circle is the
-            // NK Cell's rotor disc, permanently on and pinned to a tower; a
-            // TIMED one is a Macrophage shell landing (or a Histamine Flare,
-            // which is a nova and should read like one). Drawing both as the
-            // same steady toxin cloud was why a mortar hit had no punch.
+            // Circle fields split by lifetime. A persistent circle is a steady
+            // aura; a timed one is a Histamine Flare or authored burst and
+            // should read like a brief nova.
             inst.shape_id = (f.lifetime <= 0.0f) ? 4u : 0u;
             break;
         }
@@ -2001,7 +2064,7 @@ void Renderer::submit_fields(const sim::DamageField* fields, usize count,
             inst.intensity = math::saturate(f.lifetime / kFieldBurstFadeWindow);
         }
 
-        Vec4 tint = kMortarTint;
+        Vec4 tint = kTimedBurstTint;
         switch (f.shape) {
         case sim::FieldShape::Rect:  tint = kRectTint;  break;
         case sim::FieldShape::Cone:  tint = kConeTint;  break;
@@ -2009,7 +2072,7 @@ void Renderer::submit_fields(const sim::DamageField* fields, usize count,
         case sim::FieldShape::Circle:
         default:
             // Same persistent-vs-timed split the shape id above makes.
-            tint = (f.lifetime <= 0.0f) ? kBladeTint : kMortarTint;
+            tint = (f.lifetime <= 0.0f) ? kBladeTint : kTimedBurstTint;
             break;
         }
         if (f.friendly_fire) tint = kFriendlyFireTint;
@@ -2085,7 +2148,10 @@ void Renderer::submit_projectiles(const sim::ProjectileBuffers& projectiles) {
         inst.y = projectiles.pos_y[i];
         inst.vx = projectiles.vel_x[i];
         inst.vy = projectiles.vel_y[i];
-        inst.radius = math::max(projectiles.hit_radius[i], 0.12f);
+        // Drawn well under the hit radius: the hit test is a generous
+        // proximity check (Projectiles.h), and a round drawn at that size
+        // reads as a pellet rather than a shot. Cosmetic only.
+        inst.radius = math::max(projectiles.hit_radius[i] * kRoundDrawScale, 0.08f);
         // Hashed off the slot so rounds don't shimmer in lockstep, same
         // rationale as ChaffInstance::anim_phase.
         const u32 h = (i * 2654435761u) ^ 0x85EBCA6Bu;
@@ -2140,7 +2206,22 @@ void Renderer::submit_swarmers(const sim::SwarmerBuffers& swarmers) {
         inst.y = swarmers.pos_y[i];
         inst.vx = swarmers.vel_x[i];
         inst.vy = swarmers.vel_y[i];
+        if (pr.kind == sim::SwarmerKind::ArborGrabber) {
+            inst.vx = swarmers.arbor_grabber[i].heading.x;
+            inst.vy = swarmers.arbor_grabber[i].heading.y;
+        }
         inst.radius = math::max(pr.size, 0.05f);
+
+        // A latcher entering its host shrinks to nothing over the profile's
+        // attach_seconds (Swarmers.h, attach stream) and is not drawn once it
+        // is all the way in. The stream is reset the tick the flag drops, so
+        // the unit is back at full size on the very frame its host dies.
+        const bool engaged = (swarmers.flags[i] & sim::swarmer_flags::kAttached) != 0;
+        f32 entry = 0.0f;
+        if (engaged && pr.kind == sim::SwarmerKind::Latch && pr.attach_seconds > 0.0f) {
+            entry = math::saturate(swarmers.attach[i] / pr.attach_seconds);
+        }
+        inst.radius *= 1.0f - entry;
 
         // Hashed off the slot so the cloud does not pulse in lockstep, same
         // rationale as ChaffInstance::anim_phase and the projectile pass.
@@ -2155,13 +2236,28 @@ void Renderer::submit_swarmers(const sim::SwarmerBuffers& swarmers) {
         const f32 fade = detonates ? 1.0f : math::saturate(swarmers.life[i] * 2.0f);
         const Vec4 tint = swarmer_tint(pr.source);
         inst.r = tint.r; inst.g = tint.g; inst.b = tint.b;
-        inst.a = 0.55f + 0.45f * fade;
+        inst.a = entry >= 1.0f ? 0.0f : 0.55f + 0.45f * fade;
 
         // visual_id carries the VFX tier (1/3/5); the body shaders want the
         // data tier (1..3), and the bomber spends it on phagosome count.
         const u32 data_tier = math::clamp<u32>((static_cast<u32>(swarmers.visual_id[i] & 0xFFu) + 1u) / 2u, 1u, 3u);
-        inst.flags = ((swarmers.flags[i] & sim::swarmer_flags::kAttached) != 0 ? 1u : 0u) |
-                     (static_cast<u32>(pr.kind) << 8) | (data_tier << 12);
+        const u32 fake_mass = static_cast<u32>(math::clamp(pr.arbor_fake_mass, 0.0f, 1.0f) * 255.0f + 0.5f);
+        inst.flags = (engaged ? 1u : 0u) | (static_cast<u32>(pr.kind) << 8) |
+                     (data_tier << 12) | (fake_mass << 16);
+
+        if (pr.kind == sim::SwarmerKind::ArborGrabber) {
+            const sim::ArborGrabberState& arbor = swarmers.arbor_grabber[i];
+            const Vec2 facing = math::normalize_safe(arbor.heading);
+            for (u32 a = 0; a < sim::kArborMaxArms; ++a) {
+                const sim::ArborArmState& arm = arbor.arms[a];
+                const f32 cross = facing.x * arm.heading.y - facing.y * arm.heading.x;
+                const f32 dot = facing.x * arm.heading.x + facing.y * arm.heading.y;
+                inst.arm[a][0] = arm.reach;
+                inst.arm[a][1] = std::atan2(cross, dot);
+                inst.arm[a][2] = arm.grip;
+                inst.arm[a][3] = static_cast<f32>(arm.phase);
+            }
+        }
         base[i] = inst;
     }
 
@@ -2170,6 +2266,7 @@ void Renderer::submit_swarmers(const sim::SwarmerBuffers& swarmers) {
         glUseProgram(prog.gl_id);
         glUniformMatrix4fv(0, 1, GL_FALSE, glm::value_ptr(imp.view_projection));
         glUniform1f(1, imp.time);
+        glUniform1f(2, kShadowsEnabled ? 1.0f : 0.0f);
         glEnable(GL_BLEND);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
         imp.swarmer_vao.bind();

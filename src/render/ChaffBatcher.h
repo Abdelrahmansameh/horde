@@ -23,6 +23,7 @@
 
 #include "core/Math.h"
 #include "core/Types.h"
+#include "render/LatchThrob.h"
 #include "render/Renderer.h"
 #include "sim/chaff/ChaffBuffers.h"
 #include "sim/chaff/HitFlash.h"
@@ -308,6 +309,7 @@ inline ChaffBatchResult build_chaff_batches(const sim::ChaffBuffers& chaff,
     const f32* replication_pulse = chaff.replication_pulse.data();
     const f32* replication_origin_x = chaff.replication_origin_x.data();
     const f32* replication_origin_y = chaff.replication_origin_y.data();
+    const f32* latch_heading = chaff.latch_heading.data();
 
     // Per-family cursors into the fixed-stride destination regions.
     u32 cursor[kFamilyCount];
@@ -318,6 +320,7 @@ inline ChaffBatchResult build_chaff_batches(const sim::ChaffBuffers& chaff,
     FamilyVisual fam_vis[kFamilyCount];
     sim::HitFlashParams fam_flash[kFamilyCount];
     sim::ReplicationSplitParams fam_split[kFamilyCount];
+    LatchThrobParams fam_throb[kFamilyCount];
     // Reciprocal of the occupancy at which this family's sprites cover a
     // broadphase cell: cell area over the area of one silhouette disc. A virus
     // (1.53 across) fills a 4-unit cell at ~8.7 agents, a bacterium (2.25) at
@@ -330,6 +333,7 @@ inline ChaffBatchResult build_chaff_batches(const sim::ChaffBuffers& chaff,
         fam_vis[f] = family_visual(static_cast<PathogenFamily>(f));
         fam_flash[f] = sim::family_hit_flash(static_cast<PathogenFamily>(f));
         fam_split[f] = sim::family_replication_split(static_cast<PathogenFamily>(f));
+        fam_throb[f] = family_latch_throb(static_cast<PathogenFamily>(f));
         const f32 s = math::max(fam_vis[f].silhouette, 0.01f);
         const f32 disc = 0.25f * math::kPi * s * s;
         inv_crowd_full[f] = disc / math::max(cell_area, disc);
@@ -396,9 +400,18 @@ inline ChaffBatchResult build_chaff_batches(const sim::ChaffBuffers& chaff,
                                      std::pow(ramp, flash_params.curve));
         }
 
+        // Riding a host (sim/hostile). The sprite is turned to face the host
+        // and told so, and chaff.frag animates it feeding (render/LatchThrob.h).
+        // A passenger that was still mid-split when it grabbed on abandons the
+        // morph: the split owns the rotation (the seam axis) and so does this,
+        // and a virion planted on a cell is a whole virion.
+        const LatchThrobParams& throb_params = fam_throb[f];
+        const bool latched =
+            throb_params.enabled && (flg[i] & sim::chaff_flags::kLatched) != 0;
         const sim::ReplicationSplitParams& split_params = fam_split[f];
         const f32 split_pulse = replication_pulse[i];
-        const bool splitting = split_params.enabled && std::fabs(split_pulse) > 0.0f;
+        const bool splitting =
+            !latched && split_params.enabled && std::fabs(split_pulse) > 0.0f;
         const f32 split_base = math::smoothstep01(1.0f - math::saturate(std::fabs(split_pulse)));
         const f32 split_t = std::pow(split_base, math::max(0.01f, split_params.pull_ease));
         const f32 split_reveal =
@@ -436,8 +449,11 @@ inline ChaffBatchResult build_chaff_batches(const sim::ChaffBuffers& chaff,
             split_delta = split_delta * -1.0f;
         }
         inst.scale = vis.silhouette * (1.0f + flash_params.scale_punch * flash_k);
-        inst.rotation = split_oriented ? std::atan2(split_delta.y, split_delta.x)
-                                       : std::atan2(vy[i], vx[i]);
+        // A passenger faces its host (local +x points into the cell) rather
+        // than its velocity, which is the host's and says nothing about it.
+        inst.rotation = latched         ? latch_heading[i]
+                        : split_oriented ? std::atan2(split_delta.y, split_delta.x)
+                                         : std::atan2(vy[i], vx[i]);
         Vec4 tint = fam_color[f];
         tint.a = split.instance_alpha;
         inst.tint_rgba8 = pack_rgba8(tint);
@@ -501,13 +517,33 @@ inline ChaffBatchResult build_chaff_batches(const sim::ChaffBuffers& chaff,
         const u32 split_bits = splitting ? kVisualSplitActive |
                                           (split_pulse > 0.0f ? kVisualSplitNegativeHalf : 0u)
                                          : 0u;
-        inst.flags = static_cast<u32>(flg[i]) | split_bits | (f << 8) | crowd_bits | flash_bits;
+        // Bits 6 and 7 of the instance word are the renderer's own (the split
+        // morph above; chaff.frag mirrors them), but bits 6 and 7 of the SIM
+        // byte are chaff_flags::kLatched and kPendingKill, and they must not
+        // leak through: a latched virus that carried its bit into the shader
+        // was drawn as one clipped half of a dividing virion, sliced along
+        // whichever axis its velocity happened to give it. The low six sim
+        // bits pass as they always did.
+        constexpr u32 kRendererOwnedBits = kVisualSplitActive | kVisualSplitNegativeHalf;
+        // The latched bit goes back in at bit 15, the top of the family byte,
+        // which kFamilyCount (2) leaves empty: the family mask in chaff.frag
+        // (CHAFF_FAMILY_MASK) stops short of it. Mirrored by FLAG_LATCHED.
+        constexpr u32 kVisualLatched = 1u << 15;
+        inst.flags = (static_cast<u32>(flg[i]) & ~kRendererOwnedBits) | split_bits | (f << 8) |
+                     crowd_bits | flash_bits | (latched ? kVisualLatched : 0u);
         // A shared phase is as important as a shared local frame: at frame
         // zero the two complementary masks must reconstruct ONE capsid, not
         // two different spiky outlines drawn over each other.
         inst.anim_phase = splitting ? params.time * vis.tempo * math::kTwoPi
                                     : offset + params.time * vis.tempo * math::kTwoPi;
-        inst.pad = vis.wobble;
+        // The pad carries the family wobble -- or, for a passenger, the throb
+        // clock: 2*pi per stroke at the family's rate, offset per agent so a
+        // cell wearing a dozen of them is not wearing a chorus line. It can
+        // not ride in anim_phase, whose rate is the family tempo (SPEED tier,
+        // and zero for a family that does not pulse in the lane), and the
+        // fragment stage has no way to separate the two rates once summed.
+        inst.pad = latched ? offset + params.time * throb_params.rate * math::kTwoPi
+                           : vis.wobble;
     }
 
     for (u32 f = 0; f < kFamilyCount; ++f) {

@@ -6,20 +6,19 @@
 //   1. Three straight-line loops integrate pos_x, pos_y and decrement life over
 //      [0, count). Every slot in that range is alive (invariant P1), so there is
 //      no branch inside them and MSVC auto-vectorizes all three.
-//   2. One pass per round resolves expiry, out-of-bounds, and collision. This is
-//      the branchy pass and it is kept separate from (1) on purpose: mixing the
-//      cell lookup into the integration loop would kill vectorization of the
-//      part that is trivially vectorizable.
+//   2. One pass per round resolves expiry, swept wall collision, out-of-bounds,
+//      and agent collision. This is the branchy pass and it is kept separate
+//      from (1) on purpose: mixing the lookups into the integration loop would
+//      kill vectorization of the part that is trivially vectorizable.
 //   3. compact() swap-removes the retired rounds.
 //
 // WHY COLLISION LOOKS "WRONG" AND IS NOT
-// Projectiles.h states the design decision: a round tests ONLY the spatial-hash
-// cell it currently occupies, and damages at most ONE agent per tick. Do not
-// "fix" this into a 3x3 neighbourhood, a swept segment, or a nearest-candidate
-// search. The cost model is the point — one cell lookup per live round per
-// tick, so the Gunner's cost tracks round count and is independent of the 10k
-// chaff around it. At 60 Hz the player reads a stream of impacts; the missed
-// grazes are invisible and the budget is not.
+// Projectiles.h states the design decision: for AGENTS a round tests ONLY the
+// spatial-hash cell it currently occupies, and damages at most ONE per tick.
+// Do not "fix" this into a 3x3 neighbourhood or nearest-candidate search. Walls
+// are different: the tissue grid is traversed along the round's tick segment,
+// which is still independent of the 10k chaff around it and prevents obvious
+// tunnelling through thin obstacles.
 //
 // Consequences accepted by that decision, spelled out so they are not read as
 // bugs later:
@@ -51,9 +50,12 @@
 #include "core/Rng.h"
 #include "sim/CombatEvents.h"
 #include "sim/chaff/ChaffBuffers.h"
+#include "sim/flowfield/FlowField.h"
 #include "sim/spatial/SpatialHash.h"
 
 #include <cassert>
+#include <cmath>
+#include <limits>
 
 namespace immune::sim {
 
@@ -61,6 +63,61 @@ namespace {
 
 bool family_matches(u8 mask, u8 family) {
     return (mask & static_cast<u8>(1u << family)) != 0;
+}
+
+/// Walks a round's centre line through the tissue grid and returns the first
+/// wall crossing. This is a grid DDA rather than an endpoint test so a fast
+/// round cannot skip across a one-cell obstacle between ticks. An unconfigured
+/// mask is the headless/test convention for "no walls".
+///
+/// AUTHORED walls only (TissueMask::authored_wall): a vessel boundary or a
+/// level obstacle stops a round; a runtime block the player laid -- a Fibrin
+/// Clot, a Fibroblast's collagen scar -- does not. Those are walls to the
+/// horde and to nothing on the player's side (sim/flowfield/RuntimeBlock.h),
+/// and a Neutrophil firing over its own team's wall is the point of having
+/// one.
+bool first_wall_hit(const TissueMask& tissue, Vec2 from, Vec2 to, Vec2& hit) {
+    if (tissue.width() <= 0 || tissue.height() <= 0) return false;
+
+    IVec2 cell = tissue.world_to_cell(from);
+    const IVec2 end = tissue.world_to_cell(to);
+    if (tissue.authored_wall(cell.x, cell.y)) {
+        hit = from;
+        return true;
+    }
+
+    const Vec2 delta = to - from;
+    const i32 step_x = delta.x > 0.0f ? 1 : (delta.x < 0.0f ? -1 : 0);
+    const i32 step_y = delta.y > 0.0f ? 1 : (delta.y < 0.0f ? -1 : 0);
+    const f32 inf = std::numeric_limits<f32>::infinity();
+    const f32 cell_size = tissue.cell_size();
+    const Vec2 origin = tissue.world_origin();
+
+    const f32 next_x = origin.x + static_cast<f32>(cell.x + (step_x > 0 ? 1 : 0)) * cell_size;
+    const f32 next_y = origin.y + static_cast<f32>(cell.y + (step_y > 0 ? 1 : 0)) * cell_size;
+    f32 t_max_x = step_x == 0 ? inf : (next_x - from.x) / delta.x;
+    f32 t_max_y = step_y == 0 ? inf : (next_y - from.y) / delta.y;
+    const f32 t_delta_x = step_x == 0 ? inf : cell_size / std::abs(delta.x);
+    const f32 t_delta_y = step_y == 0 ? inf : cell_size / std::abs(delta.y);
+
+    while (cell.x != end.x || cell.y != end.y) {
+        f32 t = 0.0f;
+        if (t_max_x < t_max_y) {
+            cell.x += step_x;
+            t = t_max_x;
+            t_max_x += t_delta_x;
+        } else {
+            cell.y += step_y;
+            t = t_max_y;
+            t_max_y += t_delta_y;
+        }
+        if (t > 1.0f) break;
+        if (tissue.authored_wall(cell.x, cell.y)) {
+            hit = from + delta * math::clamp(t, 0.0f, 1.0f);
+            return true;
+        }
+    }
+    return false;
 }
 
 /// Fills the fields every projectile-raised event shares. `source` stays at
@@ -72,7 +129,10 @@ CombatEvent make_event(CombatEventType type, Vec2 pos, Vec2 vel, u16 visual_id, 
     CombatEvent e;
     e.type = type;
     e.visual_id = visual_id;
-    e.source = TowerType::Count;
+    // Neutrophil shooters are the only source of real projectiles. Carrying
+    // that identity makes impacts and fizzles use the same warm yellow as the
+    // bullet renderer rather than the environmental-event fallback palette.
+    e.source = TowerType::Neutrophil;
     e.target_family = PathogenFamily::Count;
     e.origin = pos;
     e.secondary = pos;
@@ -169,6 +229,7 @@ void ProjectileBuffers::assert_invariants() const {
 ProjectileStats ProjectileSystem::update(ProjectileBuffers& projectiles,
                                          ChaffBuffers& chaff,
                                          const SpatialHash& hash,
+                                         const TissueMask& tissue,
                                          const Rect& world_bounds,
                                          Rng& rng,
                                          f32 dt,
@@ -228,15 +289,47 @@ ProjectileStats ProjectileSystem::update(ProjectileBuffers& projectiles,
     for (usize i = 0; i < entry_count; ++i) {
         const Vec2 p{px[i], py[i]};
 
-        // Timeout and "left the world" are the same outcome to the sim and the
-        // same event to the VFX layer; both retire the round without a hit.
-        if (life[i] <= 0.0f || !world_bounds.contains(p)) {
+        // Timeout retires before collision: a round with no life left cannot
+        // land a hit on the same tick.
+        if (life[i] <= 0.0f) {
             pflags[i] |= projectile_flags::kPendingKill;
             ++stats.expired;
             if (events) {
                 CombatEvent e = make_event(CombatEventType::ProjectileExpired, p,
                                            Vec2{vx[i], vy[i]}, pvisual[i], pradius[i]);
                 e.magnitude = pdamage[i];   // the damage this round never delivered
+                events->push(e);
+            }
+            continue;
+        }
+
+        // Vessel boundaries and authored obstacles stop a round; the player's
+        // own runtime blocks (clots, scars) do not -- see first_wall_hit.
+        // Sweep from the previous position so a round cannot tunnel through
+        // a thin wall.
+        Vec2 wall_hit;
+        const Vec2 previous = p - Vec2{vx[i], vy[i]} * dt;
+        if (first_wall_hit(tissue, previous, p, wall_hit)) {
+            pflags[i] |= projectile_flags::kPendingKill;
+            ++stats.wall_impacts;
+            if (events) {
+                CombatEvent e = make_event(CombatEventType::ProjectileImpact, wall_hit,
+                                           Vec2{vx[i], vy[i]}, pvisual[i], pradius[i]);
+                e.magnitude = 1.0f;
+                events->push(e);
+            }
+            continue;
+        }
+
+        // Leaving the simulation rectangle is still an expiry, unless the
+        // swept path met a tissue wall first (handled above).
+        if (!world_bounds.contains(p)) {
+            pflags[i] |= projectile_flags::kPendingKill;
+            ++stats.expired;
+            if (events) {
+                CombatEvent e = make_event(CombatEventType::ProjectileExpired, p,
+                                           Vec2{vx[i], vy[i]}, pvisual[i], pradius[i]);
+                e.magnitude = pdamage[i];
                 events->push(e);
             }
             continue;

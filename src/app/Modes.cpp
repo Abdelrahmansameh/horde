@@ -97,6 +97,7 @@ bool build_world(sim::SimWorld& world, const Options& opt, usize max_chaff,
             desc.fluid_tuning = cfg.sim.fluid;
             desc.squad_tuning = cfg.sim.squads;
             desc.swarmer_collision = cfg.sim.swarmer_collision;
+            desc.hostile_tuning = game::hostile_tuning(cfg.sim.hostile);
             desc.spatial_cell_size = cfg.sim.globals.spatial_cell_size;
             desc.flow_rebake_budget_ms = cfg.sim.globals.flow_rebake_budget_ms;
             desc.flow_smoothing_radius = cfg.sim.globals.flow_smoothing_radius;
@@ -222,6 +223,12 @@ json snapshot_to_json(const sim::SimSnapshot& s) {
     j["objective_integrity"] = s.objective_integrity;
     j["chaff_killed_total"] = s.chaff_killed_total;
     j["chaff_leaked_total"] = s.chaff_leaked_total;
+    j["chaff_latched"] = s.chaff_latched;
+    j["swarmers_killed_total"] = s.swarmers_killed_total;
+    j["towers_lost_total"] = s.towers_lost_total;
+    j["scars_live"] = s.scars_live;
+    j["scars_built_total"] = s.scars_built_total;
+    j["scars_lost_total"] = s.scars_lost_total;
     // Per family. `killed` here means killed by damage; leaks and
     // out-of-bounds despawns are broken out separately, unlike
     // chaff_killed_total, which has always counted all three together.
@@ -250,6 +257,12 @@ bool read_metric(const sim::SimWorld& world, const std::string& metric, f64& out
     if (metric == "chaff_leaked_total")   { out = static_cast<f64>(s.chaff_leaked_total); return true; }
     if (metric == "tick")                 { out = static_cast<f64>(s.tick); return true; }
     if (metric == "active_squads")        { out = static_cast<f64>(s.active_squads); return true; }
+    if (metric == "chaff_latched")        { out = static_cast<f64>(s.chaff_latched); return true; }
+    if (metric == "swarmers_killed_total"){ out = static_cast<f64>(s.swarmers_killed_total); return true; }
+    if (metric == "towers_lost_total")    { out = static_cast<f64>(s.towers_lost_total); return true; }
+    if (metric == "scars_live")           { out = static_cast<f64>(s.scars_live); return true; }
+    if (metric == "scars_built_total")    { out = static_cast<f64>(s.scars_built_total); return true; }
+    if (metric == "scars_lost_total")     { out = static_cast<f64>(s.scars_lost_total); return true; }
     if (metric == "state_hash")           { out = static_cast<f64>(world.state_hash()); return true; }
 
     // Per-family forms: "<counter>.<family>", e.g. "chaff_leaked.virus". Worth
@@ -575,7 +588,7 @@ int run_sim_test(const Options& opt) {
             out = err;
             return false;
         };
-        gym.config_set = [registry, &tuning, &towers, &roster, &economy, &abilities](
+        gym.config_set = [registry, &tuning, &towers, &roster, &economy, &abilities, &world](
                              const std::string& path, const std::string& value, std::string& err) {
             if (!registry->set(path, value, err)) return false;
             // Push the change through to the live systems, or `config set`
@@ -585,6 +598,7 @@ int run_sim_test(const Options& opt) {
             game::apply_enemy_config(roster, cfg.enemies);
             economy.configure(cfg.economy);
             game::apply_ability_config(abilities, cfg.abilities);
+            world.hostile().set_tuning(game::hostile_tuning(cfg.sim.hostile));
             return true;
         };
         gym.config_paths = [registry]() { return registry->field_paths(); };

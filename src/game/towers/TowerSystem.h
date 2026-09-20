@@ -21,7 +21,7 @@
 #include <vector>
 
 namespace immune { class Rng; }
-namespace immune::sim { class SimWorld; }
+namespace immune::sim { class SimWorld; struct SystemContext; }
 
 namespace immune::game {
 
@@ -37,6 +37,13 @@ struct TowerStats {
     u32 build_cost = 100;
     u32 upgrade_cost = 150;
     u8 family_mask = 0xFF;       ///< Which pathogen families it can affect.
+    /// Integrity the tower is placed with (comp::Health::max). The horde
+    /// spends it -- viruses latch on and feed, bacteria burn it from inside
+    /// their aura (sim/hostile/HostileAttacks.h) -- and at zero the tower is
+    /// torn down (TowerSystem's death system) with no refund. An upgrade
+    /// restores it in full: the tier is a rebuild. Additive to this frozen
+    /// header; every other field keeps its meaning.
+    f32 max_health = 300.0f;
 };
 
 enum class PlacementResult : u8 {
@@ -62,8 +69,15 @@ struct PlacementQuery {
 
 class TowerSystem {
 public:
-    /// Registers the tower ECS systems with the world's scheduler.
+    /// Registers the tower ECS systems with the world's scheduler: the
+    /// spawner, the debuff upkeep, and the death sweep that removes any
+    /// tower whose Health the horde has emptied (sim/hostile). Destroyed
+    /// towers leave placed_towers() and raise CombatEventType::TowerDestroyed.
     void register_systems(sim::SimWorld& world);
+
+    /// Towers the horde has destroyed since register_systems(). Sold towers
+    /// do not count.
+    u32 towers_destroyed() const { return destroyed_; }
 
     const TowerStats& stats(TowerType type, u8 tier) const;
     void set_stats(TowerType type, u8 tier, const TowerStats& stats);
@@ -128,6 +142,7 @@ public:
 private:
     TowerStats stats_[kTowerTypeCount][3]{};
     std::vector<EntityId> towers_;
+    u32 destroyed_ = 0;
     bool releasing_ = true;
     /// Bitmask over TowerType; 0 = unrestricted. See set_allowed_towers().
     u32 allowed_mask_ = 0;

@@ -148,7 +148,11 @@ Everything a tick touches hangs off `SimWorld`, and the tick order is fixed:
 4. damage fields apply
 4b. projectiles
 4c. swarmers, then what they asked for (bursts -> fields, slow circles ->
-    slow zones, splashes -> fluid, rounds -> projectiles), then slow zones
+    slow zones, splashes -> fluid, rounds -> projectiles, builds -> scars),
+    then slow zones
+4c''. hostile pass: pathogens vs towers, scars and swarmers (sim/hostile),
+    then tower damage landed on the ECS, then the scar sweep (sim/scar)
+    tears down what the pass emptied      [prof: hostile_update]
 4d. fluid
 5. chaff compact + kill accounting
 6. flow-field incremental rebake pump (budgeted)
@@ -156,8 +160,8 @@ Everything a tick touches hangs off `SimWorld`, and the tick order is fixed:
 ```
 
 Changing this order is a contract change. `state_hash()` is an FNV-1a over the
-chaff streams (including the slow timers), the swarmer positions and targets,
-the fluid positions, plus counters; `--sim-test` asserts on it to catch
+chaff streams (including the slow timers), the swarmer positions, targets and
+health, the fluid positions, plus counters; `--sim-test` asserts on it to catch
 determinism regressions that don't show up in aggregate counts.
 
 `SimSnapshot` also carries per-family lifetime tallies —
@@ -287,7 +291,9 @@ must treat zero as **"no guidance"**, not as "standing still is fine".
 footprint; `footprint_radius` only spaces towers apart and sizes the sprite, and
 the renderer emits towers last in the entity pass so they draw over whatever is
 standing in them. The only runtime mask edits are the Fibrin Clot (an active
-ability) and scripted collapses.
+ability), the Fibroblast's collagen scars (`sim/scar`, §4.5d) and scripted
+collapses; the first two share one carve/restore helper,
+`sim/flowfield/RuntimeBlock.h`.
 
 **Walls: the mask and the SDF disagree, deliberately.** `resolve_wall_contact`
 does the ordinary wall response off the `DistanceField`, but the SDF is *not*
@@ -327,9 +333,10 @@ switch and the feel pass picks by playing:
 Field shape supports Circle / Rect / Cone / Chain (the Complement Cascade
 resolves to a sequence of circle links at evaluation time). `family_mask`
 restricts a field to some pathogen families. `friendly_fire` marks fields that
-damage the player's own units/objective. Since the swarmer roster, the only
-tower-originated field is the Macrophage bomber's timed Circle burst; the
-Complement Cascade ability and scripted hazards are the other casters.
+damage the player's own units/objective. The Macrophage's arbor-grabber arms
+capture and consume their targets directly in the swarmer kernel, so tower
+combat no longer submits its former timed Circle burst. Complement Cascade
+and scripted hazards remain field casters.
 
 Removed density is attributed to the owning tower and to the economy via
 `DamageStats`. **Nothing may infer kills by diffing agent counts** — under
@@ -344,9 +351,9 @@ tick. That is right for the sim and wrong for the screen: a persistent field
 tick as permanently absent. `rendered_fields()` is the snapshot taken just
 before that cull.
 
-### 4.5b `sim/swarm` and `sim/zone` — the towers' own horde
+### 4.5b `sim/swarm`, `sim/zone`, and the Macrophage arbor grabber
 
-Every tower is a **spawner** with no range of its own. On each cooldown,
+Every tower is a **spawner** with no range or attack of its own. On each cooldown,
 for as long as the round is on (`TowerSystem::set_releasing`, driven from the
 wave phase by `game/session/LevelSession.cpp`; off in Prep), it releases a
 volley of swarmers (`sim/swarm/Swarmers.h`) from its face -- toward the
@@ -362,9 +369,30 @@ about it comes from a `SwarmerProfile` the tower registers per type and tier
 |---|---|---|
 | Cytotoxic T | Latch | latches on, drains, moves on when the host dies |
 | Neutrophil | Shooter | holds a standoff and fires real rounds into `sim/projectile` |
-| Macrophage | Bomber | detonates into a timed Circle `DamageField` |
+| Macrophage | ArborGrabber | up to three independent branching pseudopods extend, latch a target each, and pull them into the body to kill them; the squad's rank forms a wall across the lane |
 | Interferon | SlowBomber | detonates into a timed slow circle (`sim/zone/SlowZones.h`) |
 | Goblet Cell | MucusBomber | detonates into a splash of real fluid (`sim/fluid`) |
+| Fibroblast | Builder | hunts nothing: walks to the site it was released with and lays a collagen scar there (`sim/scar`) |
+
+The placed Macrophage is only a factory. Each released ArborGrabber in
+`SwarmerBuffers` owns one `ArborGrabberState`: up to `kArborMaxArms` (3)
+independent `ArborArmState` slots, each with its own phase (idle, extending,
+latching, pulling, recovering), reach, grip, and one `GrabberCaptive`. Idle
+slots pick their own nearest still-unclaimed target and grow toward it; on
+reaching full reach the terminal fingers latch, then the captive is pulled
+into the body and killed, and the arm recovers before it can grow again --
+arms cycle independently, so a three-arm unit can be extending one target,
+pulling another, and idle on the third all in the same tick. Every live
+ArborGrabber a tower owns stands as one squad (the LANE WALL): the rank is
+built perpendicular to the flow field at the squad's centroid rather than
+along its approach, spaced by `formation_spacing` (clamped to the lane's SDF
+clearance), and `body_block` gives the unit's body precedence over a
+pathogen's in contact resolution instead of yielding to it. Captured chaff
+are temporarily hidden from targeting, moved inward as an arm pulls, and
+removed only once fully in. An interrupted or destroyed unit releases every
+live captive safely. The renderer receives each arm's reach, relative angle,
+grip, and phase and draws the three independent pseudopod trees. The cycle
+uses fixed storage and performs no allocation per tick.
 
 Bombers whose lifetime runs out detonate where they stand; latchers and
 shooters dissolve. Shooters and bombers **stand their ground**: a target that
@@ -384,6 +412,106 @@ keeps the kernel testable with a chaff store and a spatial hash alone.
 streams on `ChaffBuffers`, refreshed every tick an agent stands in a zone and
 cleared by the zone system when the clock runs out. Named agents get the same
 through `comp::Slowed`.
+
+### 4.5c `sim/hostile` — the horde fights back
+
+Until this layer existed nothing the player placed could be lost: towers sat
+in the lane forever and swarmers only died of old age. `sim/hostile/
+HostileAttacks.h` gives each pathogen family a way of killing the player's
+cells, as **data on the family** (`HostileFamilyParams`, authored in
+`enemies.json` under `attack`), not as code keyed on the family id:
+
+| Attack | Shipped on | What it does |
+|---|---|---|
+| **Latch** (`latch_dps`) | Virus | An agent that touches a tower or a swarmer grabs on, rides it and feeds until the host dies. It stops walking the lane: `chaff_flags::kLatched` makes the chaff kernel freeze it (exactly as `kHidden` does) and the hostile pass owns its position: it lunges to its spot on the host's membrane (`latch_speed`, full speed from the first tick, with a `latch_ease_power` ease-out inside `latch_ease_distance`) and is carried with the host from then on. A host carries at most `latch_cap_*` passengers. |
+| **Aura** (`aura_dps`) | Bacteria | Burns every friendly whose body is inside `aura_radius`, continuously. No state, no target. |
+
+**Cost model.** The pass iterates *friendlies*, not pathogens: every live
+swarmer and every tower queries the chaff hash once around itself (a capped,
+nearest-cell-first walk), which is the same direction the swarmer BODIES pass
+already walks and is independent of total chaff count. Passengers are one
+serial flag-test walk of the chaff store.
+
+**What it touches.** `ChaffBuffers` gains the `kLatched` flag bit (the last
+free one) and three host streams (`host_index`, `host_generation`,
+`host_kind`), read by nothing in the movement kernel. `SwarmerBuffers` gains
+`health` (from `SwarmerProfile::max_health`) and `generation` (a globally
+unique unit id, like chaff's). Towers get `comp::Health` at placement
+(`TowerStats::max_health`); the pass queues damage into a `FriendlyTowerList`
+that `SimWorld` rebuilds from the ECS each tick and lands afterwards, the same
+arrangement the swarmer kernel has with `NamedTargetList`. Tearing a dead tower
+down is the game layer's job (`TowerSystem`'s `tower_death` PreUpdate system,
+which owns the placed list); an upgrade restores integrity in full.
+
+Three additive `CombatEventType`s feed the VFX: `SwarmerDeath`,
+`TowerDestroyed`, `PathogenLatch`. `SimSnapshot` gains `chaff_latched`,
+`swarmers_killed_total`, `towers_lost_total`. A bare `SimDesc` ships the pass
+**off** with every family harmless, so a world built without a game config is
+the pre-hostile world; `game::hostile_tuning()` turns it on from `enemies.json`
+plus `sim.json`'s `hostile` block.
+
+**How a passenger is drawn.** A latched virion is not a still sprite parked on
+a cell: it feeds. The pass writes one purely cosmetic stream, `latch_heading`
+(the direction into the host, under the same rules as `hit_flash`: nothing in
+the sim reads it, `state_hash()` omits it), the chaff batcher turns the sprite
+by it and raises a renderer-only bit (`FLAG_LATCHED`, bit 15 of the instance
+word, with the family mask stopping short of it), and `chaff.frag` runs the
+*latch throb* on it: one irregular pump stroke driving a bellows squash toward
+the host, a front-to-back slosh, peristaltic swells rolling round the outline,
+a probe reaching into the cell with cargo beading down it, and a glow on the
+push. The knobs are `render::LatchThrobParams` (`render/LatchThrob.h`), a
+per-family table like `FamilyVisual`, authored as `latch_throb` in
+`enemies.json`; the table lives in `render/` rather than beside `HitFlash`
+because it is the one family look with no sim consumer at all.
+
+### 4.5d `sim/scar` — collagen scars, the Fibroblast's walls
+
+A **scar** is a runtime block: an oriented bar carved out of the `TissueMask`
+and laid *across* the local flow -- square to the arrow the field draws at the
+site (`RuntimeBlock.h::across_flow_rotation`), plus a random tilt of up to
+`scar_tilt` radians hashed off the site and owner (`scar_rotation`, a pure
+function so release and build agree) -- so it stands as a dam the horde has
+to go round -- the flow field is marked dirty
+and reroutes, and the mask containment (`RuntimeBlock.h::contain_to_walkable`,
+run by the chaff kernel and by named-agent movement alike) will not let a
+pathogen step into it. Nothing on the player's side is stopped: swarmers only
+ever read the SDF, which never learns about runtime blocks, and rounds test
+`TissueMask::authored_wall()` -- every carved cell is flagged as a
+`runtime_block`, a second plane beside `walkable`, precisely so a Neutrophil
+can fire over its own team's wall. The clot gets the same treatment for free.
+That asymmetry is load-bearing: a scar is a wall for pathogens and nothing
+else.
+
+Where the clot is on a clock, a scar is on a **Health**: it is an ECS entity
+(`comp::Scar` + `comp::Transform` + `comp::Health` + `comp::Sprite`, shape 6)
+that `SimWorld::build_friendly_towers()` lists to the hostile pass as a
+*bar host* (`FriendlyTower::half_extents`), so viruses latch along its faces
+(their perimeter spot rides in the otherwise-unused `host_generation` word)
+and bacteria burn it from their aura; the bar is walked in segments along
+its length so a wall buried in a crowd is eaten at its ends too.
+`ScarSystem::upkeep()` runs right after the hostile damage lands: at zero
+integrity (or past an optional `scar_lifetime`) the cells go back to the mask,
+the flow is marked dirty again, and `ScarDestroyed` is raised.
+
+A scar comes from a **Builder** swarmer reaching its site: the swarmer kernel
+records a `SwarmerBuild`, `apply_swarmer_effects()` hands it to
+`ScarSystem::build()` with the wall's numbers read off the unit's profile.
+`build()` may refuse -- a bar that would seal the lane (`LaneConnectivity.h`)
+is never laid -- and a request inside `scar_spacing` of a live scar, or from
+an owner at `max_scars`, **reinforces** that scar (adds `scar_reinforce` hit
+points, capped) instead of stacking a second wall. Sites are chosen by the
+game layer at release (`pick_scar_site` in `TowerSystem.cpp`: a random point
+in the annulus around the tower that is on tissue, in a lane, clear of scars
+and towers, and passes the sever check), because everything that decides a
+site is reachable from there and none of it from the kernel; a builder is
+released with `SwarmerSpawnParams::goal` and a tower with nowhere to build
+releases nothing. Builders take only `crowd_push` of the horde's shove in the
+BODIES pass (shipped 0: a fibroblast crawls through the matrix), so they can
+reach a site behind the horde's front; they are still latched and burned on
+the way, which is why their `max_health` is an order of magnitude above the
+other kinds'. Every number is per tier in `towers.json` (`builder` payload
+plus the shared `swarm` chassis). `SimSnapshot` gains `scars_live`,
+`scars_built_total`, `scars_lost_total`.
 
 ### 4.6 `sim/ecs` — the small half
 
@@ -549,12 +677,19 @@ previous working program**, so a typo never blanks the screen.
 
 **Tower art lives in three shaders, and they have to agree.** A tower's *body* is
 a procedural SDF in `entity.frag`, selected by `shape_id = 16 + TowerType` (16
-Neutrophil, 17 Macrophage, 18 Interferon, 19 Cytotoxic T, 20 Goblet Cell); its
-*attack* is its swarmers, drawn from sim state by `swarmer.frag` (tinted by the
-releasing tower, silhouette varied by kind), plus whatever they leave behind:
-the Macrophage's burst and the Interferon's slow circle go through `field.frag`
-(shapes 0 and 5), the Goblet Cell's mucus through the fluid pass (see
-`sim/fluid/Fluid.h`), the Neutrophil's rounds through the projectile pass.
+Neutrophil, 17 Macrophage, 18 Interferon, 19 Cytotoxic T, 20 Goblet Cell, 21
+Fibroblast); its
+  *attack* is normally its swarmers, drawn from sim state by `swarmer.frag`
+  (tinted by the releasing tower, silhouette varied by kind), plus whatever
+  they leave behind. The Macrophage's own body (shape 17) previews its
+  released unit's silhouette: roots that fork into fine branching fingers
+  reaching in every direction, the same `sdf_macrophage` used (at unit scale)
+  by `swarmer.frag`'s `sdf_arbor_macrophage`.
+  The Interferon's slow circle goes through `field.frag` (shape 5), the Goblet
+  Cell's mucus through the fluid pass (see
+`sim/fluid/Fluid.h`), the Neutrophil's rounds through the projectile pass, the
+Fibroblast's scars through the entity pass as shape 6 (a bar whose `v_tint.a`
+is its remaining integrity, spent on bites and cracks).
 Three rules hold body and attack together:
 
 - **Identity hue is one colour per tower, everywhere.** `palette_for()` in
@@ -563,18 +698,18 @@ Three rules hold body and attack together:
   survives a glance at 60 fps (DESIGN.md §9.3), so a tower must never say two
   different things in two places.
 - **Silhouette is the fallback channel, so no two bodies share one.** Most are
-  amoeboid blobs; the Interferon is deliberately the hard-edged crystal and the
-  Goblet Cell the only vessel-shaped one.
+  amoeboid blobs; the Interferon is deliberately the hard-edged crystal, the
+  Goblet Cell the only vessel-shaped one, and the Fibroblast the only spindle.
   Each also carries a *directional* feature aligned to local +x — the
-  Macrophage's maw, the Cytotoxic T's flattened synapse face, the Goblet Cell's
-  open apical mouth — which `entity.vert` has already rotated onto the aim.
+  Cytotoxic T's flattened synapse face, the Goblet Cell's open apical mouth —
+  which `entity.vert` has already rotated onto the aim.
 - **Tier is spent on something countable.** `EntityInstance::shape_param` carries
   the raw tier, and each body turns it into phagosomes / crystal reach /
   lytic granules / mucin granules, so an upgrade shows in the silhouette
   rather than only in the stat panel.
 
-Circle fields split by lifetime in `field.frag`: timed is a Macrophage burst or
-a Histamine nova, persistent is unclaimed since the NK Cell's rotor was retired.
+Circle fields split by lifetime in `field.frag`: timed includes the Histamine
+nova; persistent is unclaimed since the NK Cell's rotor was retired.
 
 `Screenshot` writes PNGs via `stb_image_write` and handles the GL bottom-up →
 PNG top-down flip. This is the project's primary visual verification channel.

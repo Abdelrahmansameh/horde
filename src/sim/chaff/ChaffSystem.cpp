@@ -44,6 +44,7 @@
 #include "sim/chaff/HitFlash.h"
 #include "sim/chaff/ReplicationSplit.h"
 #include "sim/flowfield/FlowField.h"
+#include "sim/flowfield/RuntimeBlock.h"
 #include "sim/spatial/SpatialHash.h"
 
 #include <atomic>
@@ -469,40 +470,16 @@ void resolve_wall_contact(const DistanceField& sdf, f32& px, f32& py,
 /// bisection above does not want one. X before Y is arbitrary but fixed, so the
 /// result stays deterministic and thread-order-independent like the rest of the
 /// kernel.
+///
+/// The kernel itself lives in sim/flowfield/RuntimeBlock.h
+/// (contain_to_walkable) so the named-agent movement system runs the very
+/// same one: a wall the horde cannot press through is one an elite cannot
+/// walk through either.
 void contain_to_tissue(const TissueMask& mask, f32& px, f32& py, f32 ox, f32 oy) {
-    auto walkable = [&mask](f32 x, f32 y) {
-        const IVec2 c = mask.world_to_cell(Vec2{x, y});
-        return mask.walkable(c.x, c.y);
-    };
-    if (walkable(px, py)) return;       // ended legal; nothing to do
-    if (!walkable(ox, oy)) return;      // started illegal too; pass A's SDF-gradient
-                                        // recovery owns this agent, not us
-
-    const f32 dx = px - ox;
-    const f32 dy = py - oy;
-
-    f32 good = 0.0f;   // fraction along [old -> new] known walkable
-    f32 bad = 1.0f;    // known blocked
-    for (u32 k = 0; k < 6; ++k) {   // 6 halvings: within ~1.5% of the step
-        const f32 mid = 0.5f * (good + bad);
-        if (walkable(ox + dx * mid, oy + dy * mid)) {
-            good = mid;
-        } else {
-            bad = mid;
-        }
-    }
-    f32 cx = ox + dx * good;
-    f32 cy = oy + dy * good;
-
-    // Spend what is left of the step along whichever axis is still open.
-    const f32 rest = 1.0f - good;
-    const f32 rx = dx * rest;
-    const f32 ry = dy * rest;
-    if (rx != 0.0f && walkable(cx + rx, cy)) cx += rx;
-    if (ry != 0.0f && walkable(cx, cy + ry)) cy += ry;
-
-    px = cx;
-    py = cy;
+    Vec2 p{px, py};
+    contain_to_walkable(mask, p, Vec2{ox, oy});
+    px = p.x;
+    py = p.y;
 }
 
 /// Pass B: branch-free clamp_length + p += v*dt over six contiguous streams.
@@ -668,11 +645,15 @@ ChaffUpdateStats ChaffSystem::update(ChaffBuffers& buffers, const FlowField& flo
             const u32 f = fam[i];
             const ChaffFamilyParams& fp = tuning.family[f < kFamilyCount ? f : 0];
 
-            const bool hidden = (flags_i & chaff_flags::kHidden) != 0;
+            // Burrowed, or latched onto a friendly host (sim/hostile). Same
+            // treatment for both: no flow, no separation, no jitter, no
+            // replication -- reads as the agent going still. Zero velocity so
+            // pass B is a no-op integrate. A latched agent's position belongs
+            // to the hostile pass, which rides it on its host after this
+            // kernel has run; anything this kernel did to it would be
+            // overwritten, so doing nothing is the honest option.
+            const bool hidden = (flags_i & (chaff_flags::kHidden | chaff_flags::kLatched)) != 0;
             if (hidden) {
-                // Burrowed: no flow, no separation, no jitter, no replication —
-                // reads as the agent going still while nothing can target
-                // it (DESIGN.md §5). Zero velocity so pass B is a no-op integrate.
                 vx[i] = 0.0f;
                 vy[i] = 0.0f;
                 max_speed_scratch[i] = 0.0f;
@@ -1012,7 +993,10 @@ ChaffUpdateStats ChaffSystem::update(ChaffBuffers& buffers, const FlowField& flo
     if (has_sdf || has_mask) {
         auto resolve_range = [&](usize begin, usize end, u32) {
             for (usize i = begin; i < end; ++i) {
-                if ((flg[i] & chaff_flags::kHidden) != 0) continue;   // burrowed: not in the world
+                // Burrowed: not in the world. Latched: on a host that is on
+                // tissue already, and the mask containment would pull it off
+                // that host toward wherever it stood last tick.
+                if ((flg[i] & (chaff_flags::kHidden | chaff_flags::kLatched)) != 0) continue;
                 const u32 f = fam[i];
                 const ChaffFamilyParams& fp = tuning.family[f < kFamilyCount ? f : 0];
                 if (has_sdf) {

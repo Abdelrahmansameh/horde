@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "name": "the_horde_walks_past_a_tower_placed_off_the_lane",
+  "seed": 20260914,
+  "ticks": 600,
+  "max_chaff": 20000,
+  "actions": [
+    { "tick": 0,  "type": "place_tower", "tower": "macrophage", "pos": [120, 90] },
+    { "tick": 1,  "type": "spawn_chaff", "family": "virus", "count": 300, "pos": [40, 55], "radius": 6 }
+  ],
+  "assertions": [
+    { "tick": 600, "metric": "towers_lost_total", "op": "==", "value": 0 },
+    { "tick": 600, "metric": "chaff_latched",     "op": "==", "value": 0 }
+  ]
+}

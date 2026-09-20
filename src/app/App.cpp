@@ -6,12 +6,14 @@
 #include "game/towers/TowerMechanics.h"
 
 #include "core/Log.h"
+#include "core/Math.h"
 #include "game/level/Level.h"
 #include "game/session/LevelSession.h"
 #include "platform/FileIO.h"
 #include "render/Screenshot.h"
 
 #include <algorithm>
+#include <cmath>
 
 namespace immune::app {
 
@@ -243,6 +245,9 @@ void App::apply_tuning_config() {
     game::apply_enemy_config(enemies_, config_.enemies);
     economy_.configure(config_.economy);
     game::apply_ability_config(abilities_, config_.abilities);
+    // The hostile pass reads its tuning off the world, not off a SimDesc, so
+    // a reload of a family's latch or aura reaches the running level too.
+    sim_.hostile().set_tuning(game::hostile_tuning(config_.sim.hostile));
 
     // The loaded level gets the LAST word. Folded in here rather than called
     // beside every apply_tuning_config() site, because there are five of them
@@ -332,6 +337,7 @@ bool App::load_level_def(const game::LevelDef& level, const std::string& source_
     desc.fluid_tuning = config_.sim.fluid;
     desc.squad_tuning = config_.sim.squads;
     desc.swarmer_collision = config_.sim.swarmer_collision;
+    desc.hostile_tuning = game::hostile_tuning(config_.sim.hostile);
     desc.spatial_cell_size = config_.sim.globals.spatial_cell_size;
     desc.flow_rebake_budget_ms = config_.sim.globals.flow_rebake_budget_ms;
     desc.flow_smoothing_radius = config_.sim.globals.flow_smoothing_radius;
@@ -401,6 +407,8 @@ bool App::load_level_def(const game::LevelDef& level, const std::string& source_
                                 ? level.camera.view_height
                                 : sim_.desc().world_bounds.size().y);
     camera_.clamp_to_bounds();
+    // This framing is also the zoom-out limit for update_level_camera().
+    level_view_height_ = camera_.view_height();
 
     // A fresh level must not inherit the previous one's sparks, nor a stale
     // economy/ability state from a run that already ended.
@@ -726,6 +734,51 @@ void App::handle_input() {
     }
     if (input_.action_pressed(platform::Action::ToggleDebugOverlay)) {
         hud_.set_debug_overlay_visible(!hud_.debug_overlay_visible());
+    }
+    if (state_.current() == GameStateId::InLevel) update_level_camera();
+}
+
+void App::update_level_camera() {
+    // How far in the player can zoom, as a multiple of the level's framing.
+    // 4x puts a 90-unit level at ~22 units tall, which is a single tower and
+    // its range ring filling the window -- any closer and the sprites go soft.
+    constexpr f32 kMaxZoomIn = 4.0f;
+    if (level_view_height_ <= 0.0f) return;
+    // ui_capture_mouse is last frame's ImGui state, same as the keyboard guard
+    // above; a wheel over the build bar scrolls the bar, not the world.
+    if (input_.ui_capture_mouse()) return;
+
+    // Pan: middle-drag. Through the camera rather than a fixed pixel scale so
+    // the world tracks the cursor exactly at any zoom (same as the editor).
+    //
+    // The clamp is pinned to level_view_height_ (the resting, fully-zoomed-
+    // out framing) as its reference edge: zoomed in, the player can still
+    // pan all the way out to whatever edge that resting framing reaches
+    // (which may overshoot bounds() a little, aspect-ratio letterboxing), not
+    // just to bounds() itself the way a live-zoom clamp would once the view
+    // shrinks below it.
+    if (input_.mouse_down(platform::MouseButton::Middle)) {
+        const Vec2 d = input_.mouse_delta();
+        if (math::length_sq(d) > 0.0f) {
+            const Vec2 a = camera_.screen_to_world(input_.mouse_pos());
+            const Vec2 b = camera_.screen_to_world(input_.mouse_pos() - d);
+            camera_.set_center(camera_.clamp_center_to_reference(
+                camera_.center() + (b - a), camera_.view_height(), level_view_height_));
+        }
+    }
+
+    // Zoom to cursor: the world point under the pointer must not move, except
+    // where the bounds clamp overrides that at the edge of the level.
+    const f32 wheel = input_.wheel();
+    if (std::fabs(wheel) > 1e-4f) {
+        const Vec2 before = camera_.screen_to_world(input_.mouse_pos());
+        const f32 factor = std::pow(0.85f, wheel);
+        camera_.set_view_height(math::clamp(camera_.view_height() * factor,
+                                            level_view_height_ / kMaxZoomIn,
+                                            level_view_height_));
+        const Vec2 after = camera_.screen_to_world(input_.mouse_pos());
+        camera_.set_center(camera_.clamp_center_to_reference(
+            camera_.center() + (before - after), camera_.view_height(), level_view_height_));
     }
 }
 

@@ -78,6 +78,7 @@ void TissueMask::resize(i32 width, i32 height, f32 cell_size, Vec2 world_origin)
     origin_ = world_origin;
     const usize n = static_cast<usize>(width_) * static_cast<usize>(height_);
     walkable_.assign(n, 0u);
+    block_.assign(n, 0u);
     cost_.assign(n, 1.0f);
 }
 

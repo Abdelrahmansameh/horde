@@ -237,6 +237,39 @@ EnemyConfig& mutable_enemy_config() {
             SpeedProfileParams{16.875f, 63.0f, 0.45f};
         seed.speed_tiers[static_cast<u32>(SpeedTier::Erratic)] =
             SpeedProfileParams{12.375f, 45.0f, 1.00f};
+
+        // How each family fights back (sim/hostile). The virus is the
+        // grappler: cheap, replicating, and every one that touches a cell
+        // hangs on and feeds -- weak alone, lethal by the dozen, which is what
+        // a replicating family should be. The bacterium is the big slow one,
+        // and it burns: nothing has to touch it, standing near it is enough,
+        // so a lane full of them is a lane the player's units cannot
+        // loiter in. Neither is meant to erase a tower on its own; both are
+        // meant to make "in the lane" a bet.
+        {
+            sim::HostileFamilyParams& virus = seed.families[static_cast<u32>(PathogenFamily::Virus)].attack;
+            virus.latch_dps = 2.0f;
+            virus.latch_reach = 0.4f;
+            virus.latch_cap_swarmer = 3u;
+            virus.latch_cap_tower = 16u;
+            virus.latch_cap_scar = 40u;
+            virus.latch_speed = 30.0f;
+            virus.latch_ease_distance = 1.2f;
+            virus.latch_ease_power = 3.0f;
+            virus.aura_dps = 0.0f;
+            virus.aura_radius = 0.0f;
+            sim::HostileFamilyParams& bacteria = seed.families[static_cast<u32>(PathogenFamily::Bacteria)].attack;
+            bacteria.latch_dps = 0.0f;
+            bacteria.latch_reach = 0.0f;
+            bacteria.latch_cap_swarmer = 0u;
+            bacteria.latch_cap_tower = 0u;
+            bacteria.latch_cap_scar = 0u;
+            bacteria.latch_speed = 0.0f;
+            bacteria.latch_ease_distance = 0.0f;
+            bacteria.latch_ease_power = 0.0f;
+            bacteria.aura_dps = 3.0f;
+            bacteria.aura_radius = 4.0f;
+        }
         return seed;
     }();
     return cfg;
@@ -249,6 +282,16 @@ bool g_enemy_config_applied = false;
 const EnemyConfig& enemy_config() { return mutable_enemy_config(); }
 
 bool enemy_config_applied() { return g_enemy_config_applied; }
+
+sim::HostileTuning hostile_tuning(const HostileGlobals& globals) {
+    sim::HostileTuning t;
+    const EnemyConfig& cfg = mutable_enemy_config();
+    for (u32 i = 0; i < kFamilyCount; ++i) t.family[i] = cfg.families[i].attack;
+    t.enabled = globals.enabled;
+    t.max_attackers = globals.max_attackers;
+    t.max_latch_events = globals.max_latch_events;
+    return t;
+}
 
 const SpeedProfileParams& enemy_speed_profile(SpeedTier tier) {
     const u32 i = static_cast<u32>(tier);
@@ -277,6 +320,9 @@ void apply_enemy_config(EnemyRoster& roster, const EnemyConfig& cfg) {
         // reach it. See sim/chaff/HitFlash.h.
         sim::set_family_hit_flash(family, cfg.families[i].hit_flash);
         sim::set_family_replication_split(family, cfg.families[i].replication_split);
+        // Back up to render/ for the feeding animation, which nothing in sim
+        // consumes. See render/LatchThrob.h.
+        render::set_family_latch_throb(family, cfg.families[i].latch_throb);
     }
 
     roster.load_defaults();

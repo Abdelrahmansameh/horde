@@ -14,7 +14,7 @@
 // the generic radial glow every shape used to share:
 //
 //   shape_id (see field.vert / render::FieldGpuInstance in Renderer.cpp):
-//     0 = Circle, TIMED       Macrophage shell / Histamine nova — roiling
+//     0 = Circle, TIMED       Histamine nova / authored burst — roiling
 //                             digestive burst behind a hard shock rim
 //     1 = Rect                B-Cell beam — hot centreline with antibody
 //                             packets running down it
@@ -54,7 +54,7 @@ layout(location = 1) uniform float u_time;
 const float kTau = 6.28318530;
 
 // Two octaves only. This pass can cover a large fraction of the screen when a
-// mortar lands, so it is fill-rate bound in a way entity.frag never is — the
+// timed burst lands, so it is fill-rate bound in a way entity.frag never is — the
 // four-octave fbm that file can afford would be paid for here on every pixel of
 // a 13-world-unit disc.
 float hash21(vec2 p) {
@@ -252,7 +252,7 @@ void main() {
 
     } else {
         // ---------------------------------------------------------------
-        // MACROPHAGE SHELL / HISTAMINE NOVA (Circle, timed).
+        // HISTAMINE NOVA / AUTHORED BURST (Circle, timed).
         //
         // The Macrophage is the roster's "consequential answer to a clump", and
         // a soft radial gradient does not read as consequence. Two changes make

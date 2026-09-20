@@ -85,7 +85,9 @@ add_library(immune_sim STATIC
   src/sim/ecs/NamedAgents.cpp
   src/sim/flowfield/FlowField.cpp
   src/sim/fluid/Fluid.cpp
+  src/sim/hostile/HostileAttacks.cpp
   src/sim/projectile/Projectiles.cpp
+  src/sim/scar/Scars.cpp
   src/sim/swarm/Swarmers.cpp
   src/sim/spatial/SpatialHash.cpp
   src/sim/squad/Squads.cpp

@@ -40,7 +40,7 @@ enum class CombatEventType : u8 {
     ProjectileImpact = 1,
     /// A projectile timed out or left the world without hitting anything.
     ProjectileExpired = 2,
-    /// Mortar's digestive burst. `radius` = the full expanding ring radius.
+    /// Timed burst effects such as slow-bomber and mucus impacts.
     Explosion = 3,
     /// Laser sweep. `origin` -> `secondary` is the full beam segment.
     BeamFired = 4,
@@ -88,7 +88,34 @@ enum class CombatEventType : u8 {
     /// agents on one tick, and letting that flood the shared sink would starve
     /// every tower's own effect at exactly the moment the screen is busiest.
     ChaffDeath = 11,
-    Count = 12,
+    /// A swarmer was killed by the horde (sim/hostile/HostileAttacks.h):
+    /// drained by latched viruses or burned by a bacterial aura. `origin` =
+    /// where it dissolved, `radius` = its body radius, `source` = the tower
+    /// type that released it, `visual_id` = its tier with kSwarmerEventBit.
+    /// Distinct from ProjectileExpired (a unit that simply ran out) so the
+    /// VFX can make being eaten look like being eaten.
+    SwarmerDeath = 12,
+    /// A tower's integrity reached zero and it was torn down
+    /// (game/towers/TowerSystem.cpp). `origin` = its centre, `radius` = its
+    /// footprint, `source` = its type, `visual_id` = its tier.
+    TowerDestroyed = 13,
+    /// A virus latched onto a friendly host and started feeding. `origin` =
+    /// the point on the host's membrane it grabbed, `direction` = outward
+    /// from the host's centre, `target_family` = the pathogen's family,
+    /// `source` = the host tower's type (TowerType::Count for a host swarmer
+    /// is not used: swarmer hosts carry their releasing tower's type too).
+    /// Capped per tick by the hostile pass so a horde flooding a tower does
+    /// not starve the sink.
+    PathogenLatch = 14,
+    /// A collagen scar went down (sim/scar/Scars.h). `origin` = its centre,
+    /// `direction` = along the bar, `radius` = its half-length, `magnitude`
+    /// = its half-width, `source` = the tower type whose builder laid it,
+    /// `visual_id` = that tower's tier visual.
+    ScarBuilt = 15,
+    /// A scar came down. Same fields as ScarBuilt; `magnitude` is 1 when the
+    /// horde chewed it through and 0 when it ran out its own lifetime.
+    ScarDestroyed = 16,
+    Count = 17,
 };
 
 /// One instantaneous combat happening. Trivially copyable, kept small and flat

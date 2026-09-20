@@ -54,6 +54,20 @@ public:
     bool walkable(i32 x, i32 y) const { return in_range(x, y) && walkable_[index(x, y)] != 0; }
     void set_walkable(i32 x, i32 y, bool v) { if (in_range(x, y)) walkable_[index(x, y)] = v ? u8{1} : u8{0}; }
 
+    /// A cell the PLAYER closed at runtime -- a Fibrin Clot, a Fibroblast's
+    /// scar (sim/flowfield/RuntimeBlock.h) -- as opposed to one the level
+    /// authored solid. Such a cell is non-walkable to the horde like any
+    /// other, but it is not a wall to the player's own side: swarmers walk
+    /// through it (they only ever read the SDF) and rounds fly through it
+    /// (Projectiles.cpp asks authored_wall(), not walkable()). Kept as a
+    /// second plane rather than a bit in walkable_ so every reader of
+    /// walkable_data() keeps its exact meaning.
+    bool runtime_block(i32 x, i32 y) const { return in_range(x, y) && block_[index(x, y)] != 0; }
+    void set_runtime_block(i32 x, i32 y, bool v) { if (in_range(x, y)) block_[index(x, y)] = v ? u8{1} : u8{0}; }
+    /// Solid to everything, friend or foe: non-walkable and not a runtime
+    /// block. Off the grid counts as wall, as it always has.
+    bool authored_wall(i32 x, i32 y) const { return !walkable(x, y) && !runtime_block(x, y); }
+
     /// Per-cell traversal cost multiplier (>= 1). Sludge and NETs raise it;
     /// the flow field routes around expensive cells automatically.
     f32 cost(i32 x, i32 y) const { return in_range(x, y) ? cost_[index(x, y)] : 1.0f; }
@@ -70,6 +84,7 @@ private:
     f32 cell_size_ = 1.0f;
     Vec2 origin_{0.0f, 0.0f};
     std::vector<u8> walkable_;
+    std::vector<u8> block_;
     std::vector<f32> cost_;
 };
 

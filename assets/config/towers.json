@@ -10,6 +10,8 @@
       "tiers": [
         {
           "payload": {
+            "attach_seconds": 0.1,
+            "attach_steps": 4,
             "dps": 4.2
           },
           "stats": {
@@ -17,12 +19,14 @@
             "family_mask": 255,
             "fire_interval": 0.5,
             "footprint_radius": 3.2,
+            "max_health": 280.0,
             "upgrade_cost": 84
           },
           "swarm": {
             "attach_radius": 0.55,
             "launch_spread": 0.85,
             "lifetime": 4.0,
+            "max_health": 10.0,
             "release_per_shot": 4,
             "search_radius": 12.0,
             "size": 0.705,
@@ -31,6 +35,8 @@
         },
         {
           "payload": {
+            "attach_seconds": 0.1,
+            "attach_steps": 4,
             "dps": 6.4
           },
           "stats": {
@@ -38,12 +44,14 @@
             "family_mask": 255,
             "fire_interval": 0.4,
             "footprint_radius": 3.2,
+            "max_health": 380.0,
             "upgrade_cost": 70
           },
           "swarm": {
             "attach_radius": 0.55,
             "launch_spread": 0.85,
             "lifetime": 5.0,
+            "max_health": 10.0,
             "release_per_shot": 6,
             "search_radius": 14.0,
             "size": 0.81,
@@ -52,6 +60,8 @@
         },
         {
           "payload": {
+            "attach_seconds": 0.1,
+            "attach_steps": 4,
             "dps": 8.4
           },
           "stats": {
@@ -59,16 +69,128 @@
             "family_mask": 255,
             "fire_interval": 0.35,
             "footprint_radius": 3.2,
+            "max_health": 500.0,
             "upgrade_cost": 0
           },
           "swarm": {
             "attach_radius": 0.55,
             "launch_spread": 0.85,
             "lifetime": 6.0,
+            "max_health": 10.0,
             "release_per_shot": 8,
             "search_radius": 16.0,
             "size": 0.915,
             "speed": 40.0
+          }
+        }
+      ]
+    },
+    "fibroblast": {
+      "kind": "builder",
+      "tiers": [
+        {
+          "payload": {
+            "build_candidates": 12,
+            "build_min_clearance": 1.0,
+            "build_min_radius": 4.0,
+            "build_radius": 18.0,
+            "crowd_push": 0.0,
+            "max_scars": 3,
+            "scar_half_length": 6.0,
+            "scar_half_width": 1,
+            "scar_health": 220.0,
+            "scar_lifetime": 0.0,
+            "scar_reinforce": 50.0,
+            "scar_spacing": 6.0,
+            "scar_tilt": 0.2
+          },
+          "stats": {
+            "build_cost": 120,
+            "family_mask": 255,
+            "fire_interval": 3.0,
+            "footprint_radius": 3.0,
+            "max_health": 260.0,
+            "upgrade_cost": 78
+          },
+          "swarm": {
+            "attach_radius": 0.8,
+            "launch_spread": 0.6,
+            "lifetime": 8.0,
+            "max_health": 60.0,
+            "release_per_shot": 1,
+            "search_radius": 14.0,
+            "size": 1.6,
+            "speed": 12.0
+          }
+        },
+        {
+          "payload": {
+            "build_candidates": 12,
+            "build_min_clearance": 1.0,
+            "build_min_radius": 4.0,
+            "build_radius": 20.0,
+            "crowd_push": 0.0,
+            "max_scars": 4,
+            "scar_half_length": 9.0,
+            "scar_half_width": 1.0,
+            "scar_health": 320.0,
+            "scar_lifetime": 0.0,
+            "scar_reinforce": 70.0,
+            "scar_spacing": 6.0,
+            "scar_tilt": 0.2
+          },
+          "stats": {
+            "build_cost": 120,
+            "family_mask": 255,
+            "fire_interval": 2.6,
+            "footprint_radius": 3.0,
+            "max_health": 360.0,
+            "upgrade_cost": 66
+          },
+          "swarm": {
+            "attach_radius": 0.8,
+            "launch_spread": 0.6,
+            "lifetime": 8.0,
+            "max_health": 80.0,
+            "release_per_shot": 1,
+            "search_radius": 16.0,
+            "size": 1.6,
+            "speed": 13.0
+          }
+        },
+        {
+          "payload": {
+            "build_candidates": 12,
+            "build_min_clearance": 1.0,
+            "build_min_radius": 4.0,
+            "build_radius": 22.0,
+            "crowd_push": 0.0,
+            "max_scars": 5,
+            "scar_half_length": 13.0,
+            "scar_half_width": 1.5,
+            "scar_health": 450.0,
+            "scar_lifetime": 0.0,
+            "scar_reinforce": 90.0,
+            "scar_spacing": 6.0,
+            "scar_tilt": 0.2
+          },
+          "stats": {
+            "build_cost": 120,
+            "family_mask": 255,
+            "fire_interval": 2.2,
+            "footprint_radius": 3.0,
+            "max_health": 480.0,
+            "upgrade_cost": 0
+          },
+          "swarm": {
+            "attach_radius": 0.8,
+            "launch_spread": 0.6,
+            "lifetime": 8.0,
+            "max_health": 100.0,
+            "release_per_shot": 1,
+            "search_radius": 18.0,
+            "size": 1.6,
+            "speed": 14.0
           }
         }
       ]
@@ -91,12 +213,14 @@
             "family_mask": 255,
             "fire_interval": 1.6,
             "footprint_radius": 2.8,
+            "max_health": 300.0,
             "upgrade_cost": 104
           },
           "swarm": {
             "attach_radius": 0.7,
             "launch_spread": 0.6,
             "lifetime": 6.0,
+            "max_health": 10.0,
             "release_per_shot": 1,
             "search_radius": 14.0,
             "size": 1.8,
@@ -118,12 +242,14 @@
             "family_mask": 255,
             "fire_interval": 1.4,
             "footprint_radius": 2.8,
+            "max_health": 420.0,
             "upgrade_cost": 88
           },
           "swarm": {
             "attach_radius": 0.7,
             "launch_spread": 0.6,
             "lifetime": 6.0,
+            "max_health": 10.0,
             "release_per_shot": 2,
             "search_radius": 16.0,
             "size": 1.95,
@@ -145,12 +271,14 @@
             "family_mask": 255,
             "fire_interval": 1.2,
             "footprint_radius": 2.8,
+            "max_health": 560.0,
             "upgrade_cost": 0
           },
           "swarm": {
             "attach_radius": 0.7,
             "launch_spread": 0.6,
             "lifetime": 6.0,
+            "max_health": 10.0,
             "release_per_shot": 3,
             "search_radius": 18.0,
             "size": 2.1,
@@ -175,12 +303,14 @@
             "family_mask": 255,
             "fire_interval": 2.0,
             "footprint_radius": 4.8,
+            "max_health": 260.0,
             "upgrade_cost": 70
           },
           "swarm": {
             "attach_radius": 0.7,
             "launch_spread": 0.6,
             "lifetime": 6.0,
+            "max_health": 10.0,
             "release_per_shot": 1,
             "search_radius": 14.0,
             "size": 1.8,
@@ -200,12 +330,14 @@
             "family_mask": 255,
             "fire_interval": 1.7,
             "footprint_radius": 4.8,
+            "max_health": 360.0,
             "upgrade_cost": 60
           },
           "swarm": {
             "attach_radius": 0.7,
             "launch_spread": 0.6,
             "lifetime": 6.0,
+            "max_health": 10.0,
             "release_per_shot": 2,
             "search_radius": 16.0,
             "size": 1.8,
@@ -225,12 +357,14 @@
             "family_mask": 255,
             "fire_interval": 1.4,
             "footprint_radius": 4.8,
+            "max_health": 480.0,
             "upgrade_cost": 0
           },
           "swarm": {
             "attach_radius": 0.7,
             "launch_spread": 0.6,
             "lifetime": 6.0,
+            "max_health": 10.0,
             "release_per_shot": 3,
             "search_radius": 18.0,
             "size": 1.8,
@@ -240,84 +374,105 @@
       ]
     },
     "macrophage": {
-      "kind": "bomber",
+      "kind": "arbor_grabber",
       "tiers": [
         {
           "payload": {
-            "burst_damage": 12.0,
-            "burst_falloff": 0.4,
-            "burst_radius": 3.5,
-            "burst_seconds": 0.3,
-            "chase_seconds": 1.0,
-            "named_damage": 20.0
+            "arm_count": 4,
+            "body_block": 0.9,
+            "extend_seconds": 0.14,
+            "fake_mass": 1000.5,
+            "kite_flow_weight": 1.0,
+            "kite_fraction": 0.4075,
+            "kite_speed_mult": 1.5,
+            "latch_seconds": 0.05,
+            "pull_seconds": 0.1,
+            "recover_seconds": 0.017,
+            "wall_spacing": 4.5
           },
           "stats": {
-            "build_cost": 150,
+            "build_cost": 180,
             "family_mask": 255,
-            "fire_interval": 1.5,
-            "footprint_radius": 4.0,
+            "fire_interval": 1.7,
+            "footprint_radius": 2.9,
+            "max_health": 720.0,
+            "upgrade_cost": 115
+          },
+          "swarm": {
+            "attach_radius": 15,
+            "launch_spread": 1,
+            "lifetime": 9.0,
+            "max_health": 120.0,
+            "release_per_shot": 3,
+            "search_radius": 26.0,
+            "size": 2.6,
+            "speed": 15.0
+          }
+        },
+        {
+          "payload": {
+            "arm_count": 3,
+            "body_block": 0.9,
+            "extend_seconds": 0.11,
+            "fake_mass": 0.7,
+            "kite_flow_weight": 1.0,
+            "kite_fraction": 0.5075,
+            "kite_speed_mult": 1.1,
+            "latch_seconds": 0.04,
+            "pull_seconds": 0.23,
+            "recover_seconds": 0.06,
+            "wall_spacing": 4.5
+          },
+          "stats": {
+            "build_cost": 180,
+            "family_mask": 255,
+            "fire_interval": 1.4,
+            "footprint_radius": 2.9,
+            "max_health": 960.0,
             "upgrade_cost": 95
           },
           "swarm": {
-            "attach_radius": 0.7,
-            "launch_spread": 0.6,
-            "lifetime": 6.0,
+            "attach_radius": 8.5,
+            "launch_spread": 0.75,
+            "lifetime": 10.0,
+            "max_health": 160.0,
             "release_per_shot": 1,
-            "search_radius": 14.0,
-            "size": 2.1,
-            "speed": 30.0
+            "search_radius": 30.0,
+            "size": 2.85,
+            "speed": 14.0
           }
         },
         {
           "payload": {
-            "burst_damage": 22.0,
-            "burst_falloff": 0.4,
-            "burst_radius": 4.0,
-            "burst_seconds": 0.3,
-            "chase_seconds": 1.0,
-            "named_damage": 40.0
+            "arm_count": 3,
+            "body_block": 0.9,
+            "extend_seconds": 0.085,
+            "fake_mass": 0.8,
+            "kite_flow_weight": 1.0,
+            "kite_fraction": 0.4075,
+            "kite_speed_mult": 1.1,
+            "latch_seconds": 0.03,
+            "pull_seconds": 0.18,
+            "recover_seconds": 0.04,
+            "wall_spacing": 4.5
           },
           "stats": {
-            "build_cost": 150,
-            "family_mask": 255,
-            "fire_interval": 1.3,
-            "footprint_radius": 4.0,
-            "upgrade_cost": 80
-          },
-          "swarm": {
-            "attach_radius": 0.7,
-            "launch_spread": 0.6,
-            "lifetime": 6.5,
-            "release_per_shot": 2,
-            "search_radius": 16.0,
-            "size": 2.4,
-            "speed": 30.0
-          }
-        },
-        {
-          "payload": {
-            "burst_damage": 38.0,
-            "burst_falloff": 0.4,
-            "burst_radius": 4.5,
-            "burst_seconds": 0.3,
-            "chase_seconds": 1.0,
-            "named_damage": 70.0
-          },
-          "stats": {
-            "build_cost": 150,
+            "build_cost": 180,
             "family_mask": 255,
             "fire_interval": 1.1,
-            "footprint_radius": 4.0,
+            "footprint_radius": 2.9,
+            "max_health": 1250.0,
             "upgrade_cost": 0
           },
           "swarm": {
-            "attach_radius": 0.7,
-            "launch_spread": 0.6,
-            "lifetime": 7.0,
-            "release_per_shot": 3,
-            "search_radius": 18.0,
-            "size": 2.7,
-            "speed": 30.0
+            "attach_radius": 9.5,
+            "launch_spread": 0.75,
+            "lifetime": 11.0,
+            "max_health": 210.0,
+            "release_per_shot": 2,
+            "search_radius": 34.0,
+            "size": 3.1,
+            "speed": 16.0
           }
         }
       ]
@@ -342,12 +497,14 @@
             "family_mask": 255,
             "fire_interval": 1.0,
             "footprint_radius": 2.8,
+            "max_health": 220.0,
             "upgrade_cost": 45
           },
           "swarm": {
             "attach_radius": 20.0,
             "launch_spread": 0.7,
             "lifetime": 10.0,
+            "max_health": 10.0,
             "release_per_shot": 2,
             "search_radius": 28.0,
             "size": 1.5,
@@ -371,12 +528,14 @@
             "family_mask": 255,
             "fire_interval": 0.85,
             "footprint_radius": 2.8,
+            "max_health": 300.0,
             "upgrade_cost": 38
           },
           "swarm": {
             "attach_radius": 20.0,
             "launch_spread": 0.7,
             "lifetime": 15.0,
+            "max_health": 10.0,
             "release_per_shot": 3,
             "search_radius": 32.0,
             "size": 1.65,
@@ -400,12 +559,14 @@
             "family_mask": 255,
             "fire_interval": 0.7,
             "footprint_radius": 2.8,
+            "max_health": 400.0,
             "upgrade_cost": 0
           },
           "swarm": {
             "attach_radius": 30.0,
             "launch_spread": 0.7,
             "lifetime": 15.0,
+            "max_health": 10.0,
             "release_per_shot": 4,
             "search_radius": 36.0,
             "size": 1.8,

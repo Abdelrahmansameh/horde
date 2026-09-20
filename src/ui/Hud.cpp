@@ -380,6 +380,26 @@ void Hud::build(const sim::SimWorld& world, const game::Economy& economy,
                     ImGui::Text("Aggro %.1f  Volley %u every %.2fs", mech.swarm.search_radius,
                                 mech.swarm.release_per_shot, tstats.fire_interval);
                 }
+                // Integrity: what the horde has left to chew through
+                // (sim/hostile). Red once it is low, and a note on how many
+                // viruses are riding it right now -- the count comes from the
+                // hostile pass's own tower list, so the HUD never walks the
+                // chaff store. An upgrade restores it in full, which the
+                // Upgrade button below is silently also for.
+                if (const auto* hp = registry.try_get<sim::comp::Health>(e)) {
+                    const f32 frac = hp->max > 0.0f ? hp->current / hp->max : 1.0f;
+                    const ImVec4 col = frac < 0.34f ? ImVec4(1.0f, 0.35f, 0.35f, 1.0f)
+                                     : frac < 0.67f ? ImVec4(1.0f, 0.80f, 0.35f, 1.0f)
+                                                    : ImVec4(0.65f, 1.0f, 0.65f, 1.0f);
+                    ImGui::TextColored(col, "Integrity %.0f / %.0f", hp->current, hp->max);
+                    const sim::FriendlyTowerList& friendlies = world.friendly_towers();
+                    const usize k = friendlies.find(g_selected_tower);
+                    if (k != sim::FriendlyTowerList::npos && friendlies.passengers[k] > 0) {
+                        ImGui::SameLine();
+                        ImGui::TextColored(ImVec4(1.0f, 0.55f, 0.55f, 1.0f), "  %u latched on",
+                                           friendlies.passengers[k]);
+                    }
+                }
 
                 if (tower.tier < 3) {
                     const bool affordable = economy.can_afford(tstats.upgrade_cost);
@@ -449,11 +469,11 @@ void Hud::build(const sim::SimWorld& world, const game::Economy& economy,
 
     // ---- Number-key shortcuts arm the same build cursor as clicking a button.
     using platform::Action;
-    // Sized to the roster, not to the 8 available key bindings: SelectTower6-8
-    // still exist as actions but no longer map to a tower.
+    // Sized to the roster, not to the 8 available key bindings: SelectTower8
+    // remains available for a future roster slot.
     static constexpr Action kSelectActions[kTowerTypeCount] = {
         Action::SelectTower1, Action::SelectTower2, Action::SelectTower3,
-        Action::SelectTower4, Action::SelectTower5,
+        Action::SelectTower4, Action::SelectTower5, Action::SelectTower6,
     };
     if (!input.ui_capture_keyboard()) {
         for (u32 i = 0; i < kTowerTypeCount; ++i) {
@@ -482,6 +502,8 @@ void Hud::build(const sim::SimWorld& world, const game::Economy& economy,
 
     // ---- Click-to-place: only when the cursor is armed and the click wasn't
     // consumed by an ImGui widget (build menu buttons already fired above).
+    // The cursor stays armed after a placement so the same tower type can be
+    // dropped repeatedly; right-click / Escape disarm it.
     if (build_cursor_active_ && !input.ui_capture_mouse() &&
         input.mouse_pressed(platform::MouseButton::Left)) {
         const Vec2 world_pos = camera.screen_to_world(input.mouse_pos());
@@ -490,7 +512,6 @@ void Hud::build(const sim::SimWorld& world, const game::Economy& economy,
         intent.tower_type = build_cursor_type_;
         intent.world_position = world_pos;
         out_intents.push_back(intent);
-        clear_build_cursor();
     }
     if (build_cursor_active_ && !input.ui_capture_mouse() &&
         input.mouse_pressed(platform::MouseButton::Right)) {

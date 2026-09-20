@@ -23,6 +23,9 @@ namespace prof_key {
 inline constexpr const char* kChaffUpdate   = "chaff_update";
 inline constexpr const char* kSpatialHash   = "spatial_hash";
 inline constexpr const char* kSquadUpdate   = "squad_update";
+/// The pathogen-vs-friendly pass (sim/hostile). An extra, like squad_update:
+/// emitted after the five canonical keys, never in their place.
+inline constexpr const char* kHostile       = "hostile_update";
 inline constexpr const char* kEcsTick       = "ecs_tick";
 inline constexpr const char* kRenderSubmit  = "render_submit";
 inline constexpr const char* kFrameTotal    = "frame_total";

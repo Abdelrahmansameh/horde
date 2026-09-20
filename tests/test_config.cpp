@@ -446,10 +446,11 @@ TEST_CASE("every config field is addressable from the registry", "[config][game]
     std::string err;
 
     REQUIRE(registry.get("towers.macrophage.3.stats.build_cost", value, err));
-    REQUIRE(value == "150");
+    REQUIRE(value == "180");
     REQUIRE(registry.set("towers.macrophage.3.stats.fire_interval", "2", err));
     REQUIRE(cfg.towers.stats[static_cast<u32>(TowerType::Macrophage)][2].fire_interval == 2.0f);
-    REQUIRE(registry.get("towers.macrophage.3.payload.burst_radius", value, err));
+    REQUIRE(registry.get("towers.macrophage.3.payload.arm_count", value, err));
+    REQUIRE(value == "3");
     REQUIRE(registry.set("towers.cytotoxic_t.1.swarm.release_per_shot", "12", err));
     REQUIRE(cfg.towers.mechanics[static_cast<u32>(TowerType::CytotoxicT)][0].swarm.release_per_shot == 12u);
 

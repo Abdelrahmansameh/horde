@@ -12,17 +12,57 @@ void Camera::set_tilt_degrees(f32 degrees) {
     tilt_degrees_ = math::clamp(degrees, 0.0f, 45.0f);
 }
 
-void Camera::clamp_to_bounds() {
+namespace {
+/// World-space half-width/half-height visible at `view_height`, independent
+/// of center -- the shared piece of visible_bounds() and the pan clamps.
+Vec2 half_extent_at(f32 view_height, IVec2 viewport, f32 tilt_degrees) {
+    const f32 cos_tilt = std::cos(glm::radians(tilt_degrees));
+    const f32 half_h = view_height * 0.5f;
+    const f32 aspect = viewport.y > 0
+        ? static_cast<f32>(viewport.x) / static_cast<f32>(viewport.y)
+        : 1.0f;
+    const f32 half_w = half_h * aspect;
+    const f32 world_half_h = cos_tilt > math::kEpsilon ? half_h / cos_tilt : half_h;
+    return Vec2{half_w, world_half_h};
+}
+} // namespace
+
+Vec2 Camera::clamp_center_at(Vec2 center, f32 view_height) const {
     const Vec2 extent = bounds_.size();
-    if (extent.x <= 0.0f || extent.y <= 0.0f) return;
-    const Rect vis = visible_bounds();
-    const Vec2 half = vis.size() * 0.5f;
-    Vec2 c = center_;
+    if (extent.x <= 0.0f || extent.y <= 0.0f) return center;
+    const Vec2 half = half_extent_at(view_height, viewport_, tilt_degrees_);
+    Vec2 c = center;
     if (half.x * 2.0f >= extent.x) c.x = bounds_.center().x;
     else c.x = math::clamp(c.x, bounds_.min.x + half.x, bounds_.max.x - half.x);
     if (half.y * 2.0f >= extent.y) c.y = bounds_.center().y;
     else c.y = math::clamp(c.y, bounds_.min.y + half.y, bounds_.max.y - half.y);
-    center_ = c;
+    return c;
+}
+
+void Camera::clamp_to_bounds() {
+    center_ = clamp_center_at(center_, view_height_);
+}
+
+Vec2 Camera::clamp_center_to_reference(Vec2 center, f32 view_height,
+                                        f32 reference_view_height) const {
+    const Vec2 extent = bounds_.size();
+    if (extent.x <= 0.0f || extent.y <= 0.0f) return center;
+    const Vec2 half = half_extent_at(view_height, viewport_, tilt_degrees_);
+    const Vec2 ref_half = half_extent_at(reference_view_height, viewport_, tilt_degrees_);
+    // The edge the reference zoom reaches: bounds() itself, unless the
+    // reference is already wide enough to spill past it, in which case the
+    // reference's own (center-locked) visible edge is as far out as any zoom
+    // is allowed to go.
+    const f32 lo_x = ref_half.x * 2.0f >= extent.x ? bounds_.center().x - ref_half.x : bounds_.min.x;
+    const f32 hi_x = ref_half.x * 2.0f >= extent.x ? bounds_.center().x + ref_half.x : bounds_.max.x;
+    const f32 lo_y = ref_half.y * 2.0f >= extent.y ? bounds_.center().y - ref_half.y : bounds_.min.y;
+    const f32 hi_y = ref_half.y * 2.0f >= extent.y ? bounds_.center().y + ref_half.y : bounds_.max.y;
+    Vec2 c = center;
+    c.x = (hi_x - lo_x <= half.x * 2.0f) ? (lo_x + hi_x) * 0.5f
+                                          : math::clamp(c.x, lo_x + half.x, hi_x - half.x);
+    c.y = (hi_y - lo_y <= half.y * 2.0f) ? (lo_y + hi_y) * 0.5f
+                                          : math::clamp(c.y, lo_y + half.y, hi_y - half.y);
+    return c;
 }
 
 glm::mat4 Camera::view_projection() const {

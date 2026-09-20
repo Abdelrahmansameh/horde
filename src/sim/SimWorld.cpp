@@ -76,6 +76,8 @@ void SimWorld::init(const SimDesc& desc, JobSystem* jobs) {
     tick_ = 0;
     killed_total_ = 0;
     leaked_total_ = 0;
+    swarmers_killed_total_ = 0;
+    towers_lost_total_ = 0;
     for (u32 f = 0; f < kFamilyCount; ++f) {
         killed_by_family_[f] = 0;
         leaked_by_family_[f] = 0;
@@ -125,7 +127,13 @@ void SimWorld::init(const SimDesc& desc, JobSystem* jobs) {
         f32 radii[kFamilyCount];
         for (u32 f = 0; f < kFamilyCount; ++f) radii[f] = desc.chaff_tuning.family[f].radius;
         swarmer_system_.set_chaff_radii(radii, kFamilyCount);
+        hostile_.set_chaff_radii(radii, kFamilyCount);
     }
+    hostile_.set_tuning(desc.hostile_tuning);
+    scars_.reset();
+    friendly_towers_.items.reserve(256);
+    friendly_towers_.damage.reserve(256);
+    friendly_towers_.passengers.reserve(256);
     named_targets_.items.reserve(256);
     named_targets_.damage.reserve(256);
     slow_zones_.reserve(desc.max_slow_zones);
@@ -206,7 +214,7 @@ void SimWorld::tick(Profiler* profiler) {
     // has applied. Running it here also means a round and a field that kill the
     // same agent on the same tick both get their damage counted.
     const ProjectileStats projectile_stats =
-        projectile_system_.update(projectiles_, chaff_, spatial_, desc_.sim_bounds,
+        projectile_system_.update(projectiles_, chaff_, spatial_, tissue_, desc_.sim_bounds,
                                   rng_, kFixedDt, &combat_events_);
 
     // 4c. Swarmers. Same placement rule and the same reason as projectiles
@@ -227,6 +235,29 @@ void SimWorld::tick(Profiler* profiler) {
     // slowing on the tick it lands; before the fluid because the fluid brakes
     // against the crowd's velocities and should see the slowed ones.
     slow_zones_.update(chaff_, spatial_, kFixedDt);
+
+    // 4c''. The horde fights back (sim/hostile/HostileAttacks.h): viruses
+    // latch onto towers and swarmers and feed, bacteria burn whatever stands
+    // in their aura. After the swarmer update so passengers are planted on
+    // this tick's positions and a unit killed here has had its last say;
+    // before compaction so a virus that died while latched retires in the
+    // same pass as everything else. Tower damage lands on the ECS straight
+    // after, the way swarmer hits on named agents do.
+    {
+        WallClock t;
+        build_friendly_towers();
+        const HostileStats hostile_stats = hostile_.update(
+            chaff_, spatial_, swarmers_, friendly_towers_, tissue_, kFixedDt, &combat_events_);
+        swarmers_killed_total_ += hostile_stats.swarmers_killed;
+        apply_hostile_effects();
+        // Scars the pass just emptied come down now, in the same tick, so
+        // the tissue is handed back before the flow pump below and the
+        // passengers riding them are let go on the next pass (their host
+        // id no longer resolves). Towers are torn down by the game layer
+        // instead (game/towers), because it owns the placed-tower list.
+        scars_.upkeep(*this, kFixedDt, &combat_events_);
+        if (profiler) profiler->record(prof_key::kHostile, t.elapsed_ms());
+    }
 
     // 4d. Fluid. Same placement rule and the same reason again -- after the ECS
     // tick so this tick's freshly emitted jet exists, and before the single
@@ -306,6 +337,12 @@ SimSnapshot SimWorld::snapshot() const {
     s.chaff_killed_total = killed_total_;
     s.active_squads = squads_.active_count();
     s.chaff_leaked_total = leaked_total_;
+    s.chaff_latched = hostile_.last_stats().latched;
+    s.swarmers_killed_total = swarmers_killed_total_;
+    s.towers_lost_total = towers_lost_total_;
+    s.scars_live = scars_.stats().live;
+    s.scars_built_total = scars_.stats().built_total;
+    s.scars_lost_total = scars_.stats().lost_total;
     for (u32 f = 0; f < kFamilyCount; ++f) {
         s.chaff_by_family[f] = chaff_.family_count(static_cast<PathogenFamily>(f));
         s.chaff_spawned_by_family[f] = chaff_.spawned_by_family()[f];
@@ -351,6 +388,30 @@ u64 SimWorld::state_hash() const {
         mix(swarmers_.target_generation.data(), sn * sizeof(u32));
         mix(swarmers_.life.data(), sn * sizeof(f32));
         mix(swarmers_.group.data(), sn * sizeof(u32));
+        // Health decides when a unit dissolves, and the horde is what spends
+        // it: two worlds whose units have been bitten differently diverge the
+        // tick one of them dies.
+        mix(swarmers_.health.data(), sn * sizeof(f32));
+        // An ArborGrabber's arm cycles and captive handles decide which
+        // agents are currently removed from the flow and when they are
+        // swallowed. Hash only initialized fields, never struct padding.
+        for (usize i = 0; i < sn; ++i) {
+            if (swarmers_.profile_of(i).kind != SwarmerKind::ArborGrabber) continue;
+            const ArborGrabberState& arbor = swarmers_.arbor_grabber[i];
+            mix(&arbor.heading, sizeof(arbor.heading));
+            for (const ArborArmState& arm : arbor.arms) {
+                mix(&arm.heading, sizeof(arm.heading));
+                const u8 phase = static_cast<u8>(arm.phase);
+                mix(&phase, sizeof(phase));
+                mix(&arm.time, sizeof(arm.time));
+                mix(&arm.reach, sizeof(arm.reach));
+                mix(&arm.grip, sizeof(arm.grip));
+                mix(&arm.captive.chaff.index, sizeof(arm.captive.chaff.index));
+                mix(&arm.captive.chaff.generation, sizeof(arm.captive.chaff.generation));
+                mix(&arm.captive.named.value, sizeof(arm.captive.named.value));
+                mix(&arm.captive.offset, sizeof(arm.captive.offset));
+            }
+        }
     }
     // The fluid is gameplay state -- it damages, it slows, and where it lands
     // decides both -- so it belongs in the hash. Positions only: velocity and
@@ -369,7 +430,69 @@ u64 SimWorld::state_hash() const {
     mix(&squad_h, sizeof(squad_h));
     mix(&killed_total_, sizeof(killed_total_));
     mix(&leaked_total_, sizeof(leaked_total_));
+    mix(&swarmers_killed_total_, sizeof(swarmers_killed_total_));
+    mix(&towers_lost_total_, sizeof(towers_lost_total_));
     return h;
+}
+
+void SimWorld::build_friendly_towers() {
+    friendly_towers_.clear();
+    const entt::registry& registry = ecs_.registry();
+    auto view = registry.view<const comp::Tower, const comp::Transform, const comp::Health>();
+    for (auto e : view) {
+        const comp::Health& hp = view.get<const comp::Health>(e);
+        // Already at zero: waiting for the game layer to tear it down. Not a
+        // host any more -- its passengers drop off this tick -- and not worth
+        // burning further.
+        if (hp.dead()) continue;
+        FriendlyTower t;
+        t.id = ecs_.to_id(e);
+        t.position = view.get<const comp::Transform>(e).position;
+        const comp::Tower& tw = view.get<const comp::Tower>(e);
+        t.type = tw.type;
+        t.visual_id = tw.tier;
+        // Body radius from the sprite, which is the footprint drawn at
+        // diameter 2 * footprint_radius (game/towers): half its size.
+        if (const auto* sp = registry.try_get<comp::Sprite>(e)) t.radius = math::max(sp->size * 0.5f, 0.0f);
+        t.health = hp.current;
+        friendly_towers_.add(t);
+    }
+    // Scars (sim/scar) are hosts too, as bars: the pass measures to their
+    // faces and latches along them. `radius` is the bounding radius so the
+    // walk around the centre still reaches every part of the wall.
+    auto scars = registry.view<const comp::Scar, const comp::Transform, const comp::Health>();
+    for (auto e : scars) {
+        const comp::Health& hp = scars.get<const comp::Health>(e);
+        if (hp.dead()) continue;
+        const comp::Scar& sc = scars.get<const comp::Scar>(e);
+        const comp::Transform& tf = scars.get<const comp::Transform>(e);
+        FriendlyTower t;
+        t.id = ecs_.to_id(e);
+        t.position = tf.position;
+        t.rotation = tf.rotation;
+        t.half_extents = sc.half_extents;
+        t.radius = math::length(sc.half_extents);
+        t.health = hp.current;
+        t.type = sc.source;
+        t.visual_id = sc.visual_id;
+        friendly_towers_.add(t);
+    }
+    friendly_towers_.sort();
+}
+
+void SimWorld::apply_hostile_effects() {
+    entt::registry& registry = ecs_.registry();
+    for (usize k = 0; k < friendly_towers_.items.size(); ++k) {
+        const f32 amount = friendly_towers_.damage[k];
+        if (amount <= 0.0f) continue;
+        const entt::entity e = ecs_.from_id(friendly_towers_.items[k].id);
+        if (!registry.valid(e) || !registry.all_of<comp::Health>(e)) continue;
+        comp::Health& hp = registry.get<comp::Health>(e);
+        const bool was_alive = !hp.dead();
+        hp.current -= amount;
+        // Scars are in the list too; their losses are the scar system's count.
+        if (was_alive && hp.dead() && registry.all_of<comp::Tower>(e)) ++towers_lost_total_;
+    }
 }
 
 void SimWorld::build_named_targets() {
@@ -516,6 +639,19 @@ void SimWorld::apply_swarmer_effects() {
             mk.damage_multiplier = chaff_flags::kMarkedDamageMultiplier;
             mk.source = s.owner;
         }
+    }
+
+    // ---- Builds: a Fibroblast's builder reached its site. The scar system
+    // decides what that means -- a new wall carved out of the tissue, a
+    // reinforcement of one already there, or nothing (it would seal the
+    // lane) -- with the wall's numbers read off the unit's profile.
+    for (const SwarmerBuild& b : fx.builds) {
+        ScarDesc d = scar_desc_from_profile(swarmers_.profile_at(b.profile));
+        d.center = b.origin;
+        d.owner = b.owner;
+        d.source = b.source;
+        d.visual_id = b.visual_id;
+        scars_.build(*this, d, nullptr, &combat_events_);
     }
 
     // ---- Rounds: straight into the projectile store. They integrate from

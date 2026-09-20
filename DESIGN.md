@@ -22,7 +22,7 @@ The structural and moment-to-moment design backbone is **classic fixed-lane towe
 - **Fixed, discrete, designed lanes**, not an open field or a procedurally-organic mesh. A level is a hand-authored layout you can read at a glance before the first wave.
 - **Route bends and intersections are the real strategic geography.** The single biggest lesson pulled directly from *Orc Problem*: good TD play is about **concentrating overlapping firepower at the few points where enemies stay longest in range** (a bend, a switchback, a fork), not spreading towers evenly across the map. IMMUNE's level design should actively manufacture these moments — see §4.3.
 - **An in-run economy that rewards upgrading what you have over endlessly expanding.** *Orc Problem*'s stated strategic wisdom — "upgrade existing turrets before adding distant defenses" — is adopted as an explicit economic design goal (§7.1), not left to emerge by accident.
-- **A roguelite meta-progression loop layered on top of a level campaign**: failed and successful runs alike feed a persistent currency that buys permanent, cross-run upgrades. This is adapted directly from *Orc Problem*'s farming loop (§7.2) and is new to this document — earlier drafts left meta-progression as a vague TBD.
+- **A roguelite meta-progression loop layered on top of a level campaign**: failed and successful runs alike feed two persistent currencies that buy permanent, cross-run upgrades in one skill tree ("Strengthen Immunity"). This is adapted directly from *Orc Problem*'s farming loop (§7.2, fully specified in `PROGRESSION.md`) — earlier drafts left meta-progression as a vague TBD.
 - **A small number of powerful, cooldown-gated *active abilities*, separate from towers** — screen-changing "break glass in emergency" tools, not another tower to place. Adapted from *Orc Problem*'s three emergency attacks; here reskinned as biological cascade responses (§5.6).
 - **Where IMMUNE diverges on purpose:** the horde is not "tens of thousands of interchangeable orcs" rendered as a crowd — it's a *coherent, fluid mass* that visibly deforms, piles up, and splits around obstacles (§4.2), and damage is aggregate/field-based rather than per-unit hit registration (§12.2). That's the game's own identity and the reason the custom renderer/sim exists at all. Borrow the *structure* of classic TD; keep the *spectacle* that's unique to this project.
 
@@ -56,7 +56,7 @@ Loose narrative beats (infection escalating from minor cut → systemic threat �
 ### 3.1 Macro loop (campaign level)
 
 1. From a **region map** (a simple node graph of levels, unlocked in order with light branching — see §4.5), select a level.
-2. Optionally spend meta-currency (**antibody memory**, §7.2) on permanent upgrades, and choose a pre-run **loadout** (§7.3) from unlocked options, before entering.
+2. Optionally spend Memory Cells / Antibodies (§7.2) on permanent upgrades in the **Strengthen Immunity** tree before entering — there is no separate pre-run loadout step (§7.3); every purchase is already active.
 3. Play the level (§3.2).
 4. On completion (or failure — §3.3), earn ATP-equivalent meta-currency proportional to performance, return to the region map, repeat.
 
@@ -105,7 +105,7 @@ The single most important structural lesson adapted from *Orc Problem* (§1.2): 
 - **Player-manufactured obstructions** are the third concentration mechanism, and the only one that isn't geometry: a NET dam or a mid-lane Fibrin Clot (§5.5) compresses the horde *where the player chose to spend*, which is how the game delivers §4.2's bow-wave density without any level authoring a pinch for it.
 - **Levels do not ship chokepoints — this is a hard authoring rule, not a preference.** A lane that squeezes down to single-file hands the player the answer: two towers on the slot beat every other option, on every attempt, forever. That is exactly the "every tower sees the same short window and there's no decision to make" failure this section opens by rejecting — a pinch doesn't fix a boring straight, it just moves the boredom from "nowhere is good" to "only one place is good." Concentration must be *found* (a bend, a convergence) or *bought* (an obstruction), never handed over by a narrow corridor. Vessels may taper gently as anatomy; they may not neck down into a kill slot.
 - **This is a placement-zone authoring rule, not just a fluid-physics side effect:** when building a level, place generous buildable tissue margins (§4.7) around bends/switchbacks/convergences specifically, and comparatively tight or absent buildable margin along long straight stretches, so the level's *geometry itself* nudges the player toward concentrating defense rather than sprawling it — the map should make the good decision the visually obvious one.
-- **Corollary for the economy (§7.1):** because concentrated positions are both scarce and high-value, they're also where **upgrading an existing tower beats placing a new one** most clearly — a maxed-out tower at a hairpin bend outperforms three cheap towers spread along a straight, and the cost curve should make that true in practice, not just in theory.
+- **Corollary for the economy (§7.1, §5.3):** because concentrated positions are both scarce and high-value, they're also where **combining tower types beats spreading them thin** most clearly — a permanently-strong pair (a slow field feeding a damage-dealer's capstone, say) at a hairpin bend outperforms the same towers split across a straight, and level placement-zone authoring should make that true in practice, not just in theory.
 
 ### 4.4 Lane geometry as decision space
 
@@ -175,36 +175,41 @@ Every tower is classified along two independent axes so the roster reads as a co
 ### 5.2 Full roster
 
 > **Current roster (supersedes the table below for what ships).** The game
-> runs a five-tower roster, and every tower is a *spawner* with no range: for
-> as long as a round is on (never in the build phase between rounds) it
-> continuously releases small cells (swarmers) that fly out, pick a pathogen
-> inside their own aggro radius, chase it, and do the tower's work on contact
-> -- a horde answering a horde. Spawn cadence against swarmer lifetime bounds
-> each tower's standing cloud. The chassis (volley size, lifetime, speed,
-> aggro radius, contact radius, body size) is shared and tuned per tower and
-> tier in `assets/config/towers.json`; only the payload differs:
+> runs a swarmer roster in which every placed tower is only a factory. During a
+> round, towers continuously release small cells that pick a pathogen inside
+> their aggro radius and do the tower's work. A released Macrophage grows up
+> to three independent branching pseudopods in any direction. Each tree
+> extends toward its own target, closes fine terminal fingers around it, and
+> pulls the captive into the deforming body, where it dies; the arm then
+> recovers and the slot is free to grow again. A tower's live units all stand
+> as one LANE WALL: a body-to-body rank across the flow that shoves the horde
+> back instead of yielding to it. Cadence, reach,
+> drain, movement speed, and the shared swarmer chassis are tuned per tower
+> and tier in `assets/config/towers.json`.
 >
 > | Cell | Swarmer kind | On contact |
 > |---|---|---|
 > | **Cytotoxic T** | Latch | latches onto the pathogen and drains it; moves on when it dies |
 > | **Neutrophil** | Shooter | holds a standoff and fires real rounds; chases if the target leaves |
-> | **Macrophage** | Bomber | detonates into a damaging burst around the point of contact |
+> | **Macrophage** | Arbor grabber | up to three branching pseudopods extend, latch a target each, and pull them into the body to kill them; the unit's rank forms a wall across the lane |
 > | **Interferon** | Slow bomber | detonates into a timed circle on the ground that slows what walks through it (the slow lingers a little after leaving) |
 > | **Goblet Cell** | Mucus bomber | detonates into a splash of real mucus that weakens what it soaks |
+> | **Fibroblast** | Builder | walks a single builder out to lay a collagen scar across the lane; once it's at its cap of standing scars, the builder reinforces one instead of laying a new one |
 >
-> Bombers that run out of lifetime detonate where they stand. Shooters and
-> bombers stand their ground: a target that walks out of reach is swapped for
-> the nearest other one, and only chased when there is nothing else; latchers
-> always chase. Neutrophil shooters released together fight as a squad, in a
-> rank across their approach. Swarmers respect the vessel walls. Every swarmer
-> can go at named agents (elites, bosses) as well as chaff; burrowed enemies
-> are invisible to all of them. Towers have no active abilities of their own.
+> Swarmer bombers that run out of lifetime detonate where they stand. Shooters
+> and bombers stand their ground; latchers always chase. Neutrophil shooters
+> released together fight as a squad, in a rank across their approach.
+> All swarmers, including Macrophage units, can target named agents as well as chaff;
+> burrowed enemies are invisible to all of them. Towers have no active
+> abilities of their own — see §5.6 for the four player-triggered abilities,
+> which are unlocked separately through meta-progression (§7.2) and are not
+> tied to any one tower.
 > The NK Cell is retired. The table that follows is the original eight-cell
 > design and is kept for the fiction and the role vocabulary.
 
 | Cell | Role | Mechanic | Visual identity |
 |---|---|---|---|
-| **Macrophage** | Melee sink (Erosion) | High single-target DPS/HP, literally "eats" (consumes) elites over time | Chunky, slow, engulfing animation |
+| **Macrophage** | Melee sink (Erosion) | Engulfs a small cluster at close range; captives die inside the cell | Chunky, slow, exaggerated pincer-and-swallow animation |
 | **Neutrophil** | Swarm response (Dam + Erosion) | Spawns short-lived micro-units that flood a lane; can drop **NETs** — a rooted AoE snare zone that is itself a physical obstruction (a NET is a Dam in the fluid sense, not just a debuff — see §5.5) | Fast, numerous, mirrors the enemy horde visually but blue |
 | **Dendritic Cell** | Support/utility (Catalyst) | No direct damage; marks a horde segment (debuff aura), buffs nearby towers' damage vs marked | Beacon/ping, highlights a horde region |
 | **T-Cell (Cytotoxic)** | Precision | High single-target burst, bonus vs elites/bosses | Focused beam, "kiss of death" |
@@ -213,11 +218,11 @@ Every tower is classified along two independent axes so the roster reads as a co
 | **Mast Cell** | Reactive trap (Erosion) | Triggers large AoE "histamine flare" nova when local pathogen density crosses a threshold | Alarm/trigger unit, big juicy nova |
 | **Complement Cascade** | Ultimate/support structure (Erosion) | Chain-reaction AoE that jumps pathogen-to-pathogen through dense clusters | Lightning-cascade tearing through the horde |
 
-### 5.3 Upgrade structure & the upgrade-over-expand economy
+### 5.3 Tower power is permanent, not in-run
 
-Each tower has **2–3 upgrade tiers** (visual + numeric scaling, no new mechanics mid-tree, to keep readability high per Pillar 2) and a max of ~1 unique active ability, to avoid ability-bloat given how busy the screen already is.
+Towers no longer have in-run upgrade tiers. Each tower is placed at a single baseline and every stat above that baseline — damage, rate, range, health, count, everything — comes from whatever the player has permanently purchased in the **Strengthen Immunity** meta-progression tree (§7.2; full design in `PROGRESSION.md`). Every copy of a tower type placed this run, in any level, carries the same permanent bonuses; ATP spent in a level buys placement only (§7.1), there is nothing left to upgrade mid-run.
 
-**Cost curve design goal**, adopted directly from §1.2's *Orc Problem* lesson: the cost of upgrading an existing tower one tier should be **meaningfully cheaper than placing a fresh tower of equivalent total output**, so that reinforcing a concentrated position (§4.3) is close to always the efficient move, and spreading thin is a visible tax the player pays, not the *default* the economy nudges them toward. Concretely (structure, not final numbers, per the balance note in §14): if a tier-1 tower costs `C`, tier-2 should cost meaningfully less than `C` again for a proportionally larger output gain, and tier-3 less still — an accelerating-value, decelerating-cost curve up the tree.
+This retires §1.2's original *Orc Problem*-derived "upgrade over expand" cost curve, and replaces it with a different expression of the same pillar (§1.3 pillar 5, "concentrate, don't sprawl"): since a single tower is already as strong as the player's permanent investment, the interesting decision at a concentrated position (§4.3) becomes **which tower types to combine** — stacking damage, slow, and marking roles together for the cross-tower payoffs the tree's capstone nodes reward (`PROGRESSION.md`) — rather than which one tower to keep feeding tiers into. Sell/refund (§7.1) remains the mistake-forgiveness valve for a bad placement choice.
 
 ### 5.4 Targeting rules
 
@@ -232,7 +237,7 @@ Each tower has **2–3 upgrade tiers** (visual + numeric scaling, no new mechani
 
 ### 5.6 Active abilities (separate from towers)
 
-Adapted directly from §1.2's *Orc Problem* reference: a small set of **cooldown-gated, player-triggered, screen-changing abilities**, distinct from towers (no placement, no targeting — a single button press affects the whole visible battlefield or a large targeted radius), meant as emergency tools for the moments a pure tower-and-economy response isn't enough.
+Adapted directly from §1.2's *Orc Problem* reference: a small set of **cooldown-gated, player-triggered, screen-changing abilities**, distinct from towers (no placement, no targeting — a single button press affects the whole visible battlefield or a large targeted radius), meant as emergency tools for the moments a pure tower-and-economy response isn't enough. All four are locked at campaign start and unlocked permanently through the Strengthen Immunity tree (§7.2) — a new game has zero active abilities available, exactly like it has only one tower; see `PROGRESSION.md`.
 
 | Ability | Effect | Biological framing | Risk/reward |
 |---|---|---|---|
@@ -290,30 +295,30 @@ This is a framework for authoring future bosses, not a specific boss kit — see
 
 ### 7.1 In-run economy (ATP)
 
-- **Resource:** ATP, earned **passively** (a steady trickle over time, funding a baseline build tempo even with no kills) **and per-kill** (proportional to density destroyed, rewarding active engagement over turtling), spent on tower placement and upgrades.
-- **Upgrade-over-expand bias is a deliberate cost-curve property**, not emergent behavior — see §5.3's cost-curve design goal. The player should feel, mechanically, that reinforcing a concentrated position (§4.3) is almost always the efficient move, with placing a *new* tower reserved for genuinely opening a new concentration point (a new bend coming into range, a new lane activating) rather than as the default response to "I have spare ATP."
+- **Resource:** ATP, earned **passively** (a steady trickle over time, funding a baseline build tempo even with no kills) **and per-kill** (proportional to density destroyed, rewarding active engagement over turtling), spent on tower **placement only** — there is no in-run upgrade purchase; a tower's power is whatever the player's permanent meta-progression (§7.2) has already bought into that tower type.
+- **Starting ATP and both income rates are global, not per-level.** A single baseline, raised permanently by the Strengthen Immunity tree's economy nodes (§7.2), applies on every level campaign-wide — a level's difficulty comes entirely from its wave design, never from a bigger starting wallet.
+- **Concentration is still the core decision (§4.3), just expressed differently** — see §5.3: since towers no longer have tiers to sink ATP into, the efficient move at a concentrated position is combining tower *types* for overlapping/synergistic coverage, and spending ATP is otherwise a straightforward "can I afford to open this position now" call.
 - **Sell/refund** exists (partial refund on sale) as a mistake-forgiveness valve, not a strategy — refund fraction should be low enough that repositioning is a real cost, high enough that a genuinely bad placement isn't a run-ending mistake.
 - **Elite/boss kills grant a flat bounty** on top of density-proportional income, making named-threat kills feel like a distinct, celebrated economic event rather than "the same income, delivered in one lump."
 
-### 7.2 Meta-progression: the antibody-memory loop
+### 7.2 Meta-progression: Strengthen Immunity
 
-Adapted directly from §1.2's reference: a **persistent currency** ("antibody memory") earned from **every** run — cleared or failed — funds **permanent, cross-run upgrades** purchased from the region map (§3.1) between attempts. This is the single biggest structural addition this design pass makes; earlier drafts left meta-progression as an unstructured TBD.
+Adapted from §1.2's reference, extended past it: **two persistent currencies**, both earned from **every** run — cleared or failed — fund a single permanent, cross-run skill tree called **Strengthen Immunity**, returned to after every match. This supersedes the single-currency structure of earlier drafts of this section; the full design (currency rules, tree shape, every tower's upgrade lines, the hub branch, and the campaign-pacing rationale) is its own companion document, `PROGRESSION.md` — this section is a summary, not the authority.
 
-- **Earn rate** should be tied to *performance within the attempt* (waves cleared, density killed, elites/bosses defeated), not just "did you win" — so a failed attempt against a level that's currently too hard still meaningfully funds the next attempt, exactly matching §3.3's failure-is-not-a-dead-end design.
-- **Permanent upgrade categories**, mirroring the reference's structure of dependable-first-then-specialized:
-  1. **Global baseline bonuses** (small, universal ATP-income rate, tower damage, or build-speed increases) — cheap, broadly useful, the first things a new or struggling player should buy.
-  2. **Roster unlocks** (new cell types become available — see §7.3) — mid-cost, campaign-gating.
-  3. **Specialized bonuses** (a specific tower archetype's damage, a specific family's bounty rate, active-ability cooldown reduction) — the highest-cost, most build-defining purchases, meant for a player who already knows which strategies they favor.
-- **The loop this creates:** attempt a level → whether you clear it or not, you're now permanently stronger → either push further into new content or replay an earlier level for a better grade (§7.4) and more currency → repeat. This is the primary retention/pacing structure outside the scripted campaign, and it should be tuned so a player who's genuinely stuck on one level always has "go farm/replay elsewhere and come back stronger" as a legitimate, non-punishing path forward.
+- **Memory Cells** — earned from every run's performance (waves cleared, density killed, elites/bosses defeated), never gated by winning, so a failed attempt against a level that's currently too hard still meaningfully funds the next attempt (§3.3's failure-is-not-a-dead-end design). Spent on the tree's incremental stat nodes: every upgradeable number on every tower, plus the hub branch's global economy and active-ability lines.
+- **Antibodies** — earned once, on a level's **first** clear only. Spent on the tree's milestone nodes: unlocking each of the five towers the player doesn't start with (freely orderable — nothing in the roster gates behind anything else, per your call on tower order), each tower branch's capstone, and each of the four active abilities' unlocks (§5.6).
+- **The loop this creates:** attempt a level → whether you clear it or not, Memory Cells make you permanently a little stronger → clearing it for the first time also grants an Antibody, spendable on a real capability jump (a new tower, a capstone, an ability) → push into new content, or replay an earlier level for more Memory Cells and a better grade (§7.4). This is the primary retention/pacing structure outside the scripted campaign, and it's tuned so a player who's genuinely stuck on one level always has "go farm/replay elsewhere and come back stronger" as a legitimate, non-punishing path forward.
+- The game starts with only the **Neutrophil** tower and no active abilities unlocked; everything else — the other five towers, all four abilities, every stat line, every capstone — is purchased from the tree. See `PROGRESSION.md` for the complete node-by-node design.
 
-### 7.3 Loadout: antibody memory as pre-run choice
+### 7.3 No per-run loadout — every unlock is permanent
 
-Distinct from the permanent-upgrade purchases in §7.2, a **loadout** is a lightweight, roguelite-adjacent *per-run* choice made before entering a level: pick a small number of "antibody memory" modifiers from the player's unlocked pool (e.g. "+X% Macrophage damage this run" vs. "-X% enemy replication rate this run") to slightly bias a specific attempt toward a strategy the player wants to test, without committing to it permanently. This keeps runs feeling distinct from each other even on a replay of the same level, and gives the permanent-upgrade currency (§7.2) a second spending channel (unlocking *more choices* in the loadout pool, not just flat power).
+Earlier drafts of this section specified a separate, roguelite-style pre-run "loadout" pick layered on top of permanent upgrades. That system is cut: it overlapped almost entirely with what the Strengthen Immunity tree (§7.2) already does, and a second, temporary layer of the same kind of choice added complexity without adding a distinct decision. Every meta-progression purchase — a stat node, a tower unlock, a capstone, an ability — is permanent and always active from the moment it's bought, on every subsequent run, with no re-selection step. Run-to-run *variance* (drafted relics, biased seeds, and similar roguelite texture) remains a plausible future addition, but as its own separate system layered on top of the permanent tree, not a revival of this one — see `PROGRESSION.md`'s open questions.
 
 ### 7.4 Replayability & grading
 
 - Every level awards a **grade** on completion (a simple 1–3 star or equivalent scale) based on performance signals that reward the game's actual skill expression: objective integrity remaining, whether the optional endless extension (§4.5) was engaged, elite/boss kills, and (lightly) speed — never punishing careful, defensive play in favor of pure speed.
 - A top grade on a level's main content is the unlock condition for that region's harder sub-stage variant (§4.5).
+- **Grade affects Memory Cells only, never Antibodies** — a level's Antibody is a flat, one-time reward for its first clear (§7.2), so replay value stays about tree-funding and bragging rights, not about re-farming a scarce currency.
 - Replaying an already-cleared level for a better grade is always a legitimate, encouraged activity (feeding §7.2's currency loop), not a wasted repeat — the UI (§8) should make "replay for a better grade" as visible an option as "advance to the next level."
 
 ---
@@ -322,12 +327,12 @@ Distinct from the permanent-upgrade purchases in §7.2, a **loadout** is a light
 
 The HUD exists to make every decision in §3's core loop legible without the player having to open a menu mid-wave. Concretely, it needs:
 
-- **Build menu:** all unlocked towers, grouped by functional role (§5.1's second taxonomy) for scannability, each showing cost and a one-line role reminder; disabled/grayed when unaffordable rather than hidden, so the player always sees the full roster and what they're saving toward.
+- **Build menu:** every currently *unlocked* tower (§7.2 — a level always starts with at least the Neutrophil), grouped by functional role (§5.1's second taxonomy) for scannability, each showing cost and a one-line role reminder; disabled/grayed when unaffordable rather than hidden, so the player always sees their full *current* roster and what they're saving toward. A locked tower is a between-run concern (the Strengthen Immunity tree, §7.2), not something the build menu surfaces mid-level.
 - **Wave preview panel:** always visible, always at least one wave ahead — family composition (by the same color coding as the horde itself, §6.2/Pillar 2), approximate scale, and an explicit icon when an elite or boss is inbound. This is the single most important piece of UI for making §3.2 step 4's reactive decisions informed rather than reactive-blind.
-- **Tower info/upgrade panel:** appears on selecting a placed tower — current tier, upgrade cost and stat delta, sell (with refund shown up front), active-ability trigger if applicable, and a targeting-mode toggle for Precision-role towers (§5.4).
-- **Resource readout:** current ATP, income rate, and (during a run) a small always-visible antibody-memory-currency counter so the meta-progression loop (§7.2) is felt accumulating in real time, not just revealed at the results screen.
+- **Tower info panel:** appears on selecting a placed tower — its current (permanently tree-boosted) stats, sell (with refund shown up front), and a targeting-mode toggle for Precision-role towers (§5.4). There is no upgrade control here — a tower's power is entirely a function of the Strengthen Immunity tree (§7.2), never a mid-run purchase.
+- **Resource readout:** current ATP, income rate, and (during a run) small always-visible Memory Cells / Antibodies counters (§7.2) so the meta-progression loop is felt accumulating in real time, not just revealed at the results screen.
 - **Objective integrity meter:** always visible, always legible at a glance as "how close to failing," with an explicit warning state (color shift, not just a number) below a threshold.
-- **Active-ability bar:** the three abilities from §5.6, each showing cooldown state clearly — this is a small, fixed, always-visible bar, never buried in a menu, since these are meant to be used at exactly the moment the player is under the most pressure.
+- **Active-ability bar:** whichever of the four abilities from §5.6 the player has unlocked so far (zero, early on), each showing cooldown state clearly — this is a small, fixed, always-visible bar, never buried in a menu, since these are meant to be used at exactly the moment the player is under the most pressure.
 - **Per-lane readability** (multi-lane levels specifically): per §9.2, the primary channel is the lane's own color/thickness in the world, not a separate abstracted icon — but a small supplementary per-lane indicator (dominant family + rough severity) in a level overview strip is a legitimate addition once in-world readability is solid, especially useful in wide organ-chamber levels where not every lane is on screen at once.
 - **Pause/speed controls** and a **results screen** (grade, currency earned, and a direct "replay" or "next level" choice, per §7.4) round out the loop.
 
@@ -445,7 +450,7 @@ Audio was previously undocumented; it exists to reinforce the same readability-f
 
 ## 13. Economy & Progression — quick reference
 
-*(§7 is the authoritative, detailed version; this section is kept short as a cross-reference for anyone jumping straight to "what's the resource model.")* In-level resource ("ATP") earned passively + per-kill, spent on tower deployment/upgrades, with a deliberate upgrade-over-expand cost curve (§5.3, §7.1). Cross-run meta-currency ("antibody memory") earned from every attempt regardless of outcome, spent on permanent upgrades and loadout-pool unlocks (§7.2, §7.3). Cosmetic pathogen/tissue skins per region are a plausible optional reward layer on top of this, not yet load-bearing for any system above.
+*(§7 is the authoritative, detailed version — and `PROGRESSION.md` is the authoritative version of §7.2/§7.3 specifically; this section is kept short as a cross-reference for anyone jumping straight to "what's the resource model.")* In-level resource ("ATP") earned passively + per-kill, spent on tower **placement only** — no in-run upgrades (§5.3, §7.1). Two cross-run meta-currencies feed one permanent tree, **Strengthen Immunity**: **Memory Cells** (every run, funds incremental stat nodes) and **Antibodies** (a level's first clear only, funds tower/ability unlocks and branch capstones) (§7.2, `PROGRESSION.md`). Cosmetic pathogen/tissue skins per region are a plausible optional reward layer on top of this, not yet load-bearing for any system above.
 
 ---
 
@@ -458,11 +463,11 @@ Audio was previously undocumented; it exists to reinforce the same readability-f
 - Exact lane count per level/region, and how strict the "forks/merges at most once" rule (§4.1) should be — worth stress-testing an actual 2-fork or hub-with-5-lanes layout before locking it as a hard rule versus a strong default.
 - Tuning the fluid-feel parameters (§12.3) to actually produce a convincing pile-up/splash/rejoin at each region's intended intensity (§4.6) is un-prototyped — this is the single highest-risk "does it actually feel right" item in the whole document and should be validated early, on one switchback and one floodplain lane, before content production leans on the feel being correct everywhere.
 - How much does a lane's vessel-type identity (§9.2) drive gameplay versus purely reinforcing recognition? Worth deciding explicitly whether it should carry a mild passive modifier (e.g. arterial lanes running faster, changing available reaction time) or stay cosmetic-only.
-- **Exact antibody-memory earn-rate curve and permanent-upgrade cost table** (§7.2) — the loop structure is specified, the numbers are not; needs its own balance pass once the loop is implementable end to end, distinct from the general numeric-balance deferral below.
+- **Exact Memory Cell/Antibody earn-rate curves and the full Strengthen Immunity cost table** (§7.2, `PROGRESSION.md`) — the loop and tree structure are fully specified, the numbers are not; needs its own balance pass once the tree is implementable end to end, distinct from the general numeric-balance deferral below.
 - **How many boss archetypes does the campaign need**, and do they share a kit family or should each organ chamber's boss be mechanically unique? §6.4 gives a design framework, not a roster.
 - **What does the enemy roster actually contain?** (§6.2/§6.3) — the roster has been cut back to two chaff families (Virus, Bacteria) and no elites at all, pending a redesign. Bacteria has an empty behavior slot; the elite and boss tiers are empty frameworks. Everything added back should follow §6.3's rule and name the defensive gap it tests first, and §6.5's rule that each region introduce at least one new family or elite has nothing to draw on until then.
-- **Loadout pool size and unlock pacing** (§7.3) — how many antibody-memory modifiers should exist, and how quickly should the pool grow, to keep per-run choice meaningful without becoming a solved "always pick X" list?
+- **Tree balance specifics deferred to `PROGRESSION.md`'s own open questions** — respec cost (if any), whether Antibodies should trickle from endless/overtime play (§4.5) once the whole tree is unlocked, and exact per-line level counts and costs.
 
 ---
 
-*This document covers vision, content, and the technical strategy required to hit the 10k-agent target. Numeric balance (exact damage values, costs, wave curves, upgrade cost tables, and the antibody-memory earn/spend economy) is intentionally left for a post-prototype tuning pass — this pass adds the *structure* those numbers need to slot into, not the numbers themselves.*
+*This document covers vision, content, and the technical strategy required to hit the 10k-agent target. Numeric balance (exact damage values, costs, wave curves, and the Memory Cell/Antibody earn/spend economy — see `PROGRESSION.md`) is intentionally left for a post-prototype tuning pass — this pass adds the *structure* those numbers need to slot into, not the numbers themselves.*

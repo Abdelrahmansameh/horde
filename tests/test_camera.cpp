@@ -67,6 +67,30 @@ TEST_CASE("clamp_to_bounds keeps the view inside the level", "[render][camera]")
     REQUIRE(vis.min.y >= -0.01f);
 }
 
+TEST_CASE("clamp_center_to_reference reaches the same edge at any zoom", "[render][camera]") {
+    // A level whose resting (fully zoomed-out) framing is wider than its
+    // world bounds on X -- typical once the viewport's aspect ratio doesn't
+    // match the level's, so the initial view already spills past the edge.
+    Camera cam;
+    cam.set_viewport(1600, 900);
+    cam.set_bounds(Rect{Vec2{0.0f, 0.0f}, Vec2{200.0f, 200.0f}});
+    const f32 reference_height = 200.0f;
+
+    cam.set_view_height(reference_height);
+    cam.set_center(cam.clamp_center_to_reference(Vec2{-1000.0f, 100.0f}, cam.view_height(),
+                                                  reference_height));
+    const f32 widest_left_edge = cam.visible_bounds().min.x;
+    // The resting framing overshoots the bound, so it should reach past it.
+    REQUIRE(widest_left_edge < -0.01f);
+
+    // Zoomed in to a quarter of that, panning hard left should reach the
+    // SAME edge -- not stop short at the raw bounds() edge (0).
+    cam.set_view_height(reference_height / 4.0f);
+    cam.set_center(cam.clamp_center_to_reference(Vec2{-1000.0f, 100.0f}, cam.view_height(),
+                                                  reference_height));
+    REQUIRE(cam.visible_bounds().min.x == Approx(widest_left_edge).margin(0.05));
+}
+
 TEST_CASE("visible_bounds grows with view height", "[render][camera]") {
     Camera cam;
     cam.set_viewport(1600, 900);

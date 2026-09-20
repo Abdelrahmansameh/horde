@@ -10,6 +10,18 @@
   "elites": [],
   "families": {
     "bacteria": {
+      "attack": {
+        "aura_dps": 3.0,
+        "aura_radius": 4.0,
+        "latch_cap_scar": 0,
+        "latch_cap_swarmer": 0,
+        "latch_cap_tower": 0,
+        "latch_dps": 0.0,
+        "latch_ease_distance": 0.0,
+        "latch_ease_power": 0.0,
+        "latch_reach": 0.0,
+        "latch_speed": 0.0
+      },
       "behavior": {
         "base_density": 1.8,
         "replicates": false
@@ -92,6 +104,19 @@
         "seam_softness": 0.035,
         "separation_distance": 1.0
       },
+      "latch_throb": {
+        "enabled": true,
+        "glow": 0.15,
+        "probe": 0.3,
+        "rate": 1.1,
+        "ripple": 0.02,
+        "slosh": 0.09,
+        "squash": 0.12,
+        "stream": 0.7,
+        "throb": 0.06,
+        "wave": 0.07,
+        "wave_count": 1.5
+      },
       "speed_tier": "normal",
       "visual": {
         "color": [
@@ -101,11 +126,23 @@
           1.0
         ],
         "silhouette": 4.5,
-        "tempo": 0,
-        "wobble":0
+        "tempo": 1.5,
+        "wobble": 0
       }
     },
     "virus": {
+      "attack": {
+        "aura_dps": 0.0,
+        "aura_radius": 0.0,
+        "latch_cap_scar": 40,
+        "latch_cap_swarmer": 3,
+        "latch_cap_tower": 16,
+        "latch_dps": 2.0,
+        "latch_ease_distance": 1.2,
+        "latch_ease_power": 3.0,
+        "latch_reach": 0.4,
+        "latch_speed": 20.0
+      },
       "behavior": {
         "base_density": 0.6,
         "replicates": true
@@ -121,7 +158,7 @@
         "pressure_max": 4.0,
         "pressure_threshold": 6.0,
         "radius_from_silhouette": 0.5,
-        "replication_rate": 0.2,
+        "replication_rate": 0.1,
         "separation_radius_mul": 2.4,
         "separation_strength": 6.9,
         "wall_restitution": 0.15,
@@ -187,6 +224,19 @@
         "reveal_ease": 1.0,
         "seam_softness": 0.035,
         "separation_distance": 1.0
+      },
+      "latch_throb": {
+        "enabled": true,
+        "glow": 0.15,
+        "probe": 0.3,
+        "rate": 1.1,
+        "ripple": 0.02,
+        "slosh": 0.09,
+        "squash": 0.12,
+        "stream": 0.7,
+        "throb": 0.06,
+        "wave": 0.07,
+        "wave_count": 1.5
       },
       "speed_tier": "fast",
       "visual": {

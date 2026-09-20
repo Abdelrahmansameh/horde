@@ -135,6 +135,28 @@ struct Barrier {
     f32 duration = 0.0f;    ///< What `remaining` started at.
 };
 
+/// A collagen scar: the wall a Fibroblast's builder swarmer lays down
+/// (sim/scar/Scars.h). The same oriented bar as a Barrier -- `half_extents.x`
+/// along Transform::rotation, `.y` across -- but it is not on a clock. It
+/// stands until the horde chews it down: the entity carries a Health, the
+/// hostile pass lists it as a host (viruses latch along its faces, bacteria
+/// burn it from their aura), and ScarSystem::upkeep tears it down at zero.
+/// An optional `remaining` lifetime (0 = permanent) lets a config make scars
+/// dissolve on their own as well.
+///
+/// Geometry, owner and clock only, for the renderer, tower placement and the
+/// hostile pass. The displaced tissue cells live in a private component the
+/// scar system owns, the same split the clot makes.
+struct Scar {
+    Vec2 half_extents{5.0f, 0.9f};
+    f32 remaining = 0.0f;   ///< Seconds until it dissolves on its own; <= 0 when `duration` is 0.
+    f32 duration = 0.0f;    ///< What `remaining` started at; 0 = no clock.
+    /// The tower whose swarmer laid it. Per-owner scar caps and the HUD read it.
+    EntityId owner{};
+    TowerType source = TowerType::Fibroblast;
+    u16 visual_id = 0;      ///< The owner's tier visual, for the events it raises.
+};
+
 /// Renderable tag: the ECS render pass draws entities carrying this.
 struct Sprite {
     Vec4 tint{1.0f, 1.0f, 1.0f, 1.0f};

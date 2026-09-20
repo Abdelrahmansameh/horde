@@ -23,9 +23,12 @@
 // THE LOOK
 // ---------------------------------------------------------------------------
 // Flat, illustrated, clean -- a vector-art cross-section of tissue, not a wet
-// photographic one. NO lighting, NO grain, NO noise-warped edges. Every colour
-// and every area fraction below was MEASURED off docs/ref_image.webp rather
-// than eyeballed, and the thresholds are set to reproduce those numbers:
+// photographic one. NO lighting, NO grain, NO noise-warped edges. The outer
+// tissue drifts forever beneath the fixed vessel silhouette, with only a very
+// small per-cell deformation and organelle wobble so the illustration feels
+// alive without competing with the horde. Every colour and every area fraction
+// below was MEASURED off docs/ref_image.webp rather than eyeballed, and the
+// thresholds are set to reproduce those numbers:
 //
 //   INTERSTITIUM  large DARK cells (a warped Voronoi) separated by a LIGHTER
 //                 channel web that pools out where three cells meet. 24.7% of
@@ -95,6 +98,14 @@ const vec3 kGrout     = vec3(0.961, 0.592, 0.592);  // #F59797
 const vec3 kCobble    = vec3(0.945, 0.541, 0.561);  // #F18A8F
 const vec3 kCobbleSat = vec3(0.933, 0.506, 0.553);  // #EE818D  the deeper ones
 const vec3 kRim       = vec3(0.965, 0.604, 0.604);  // #F69A9A  rim by the lining
+
+// Visual travel direction is up and right: procedural coordinates move the
+// opposite way beneath the stationary vessel mask. Multiplying by the pattern
+// scale keeps the apparent screen speed stable across differently framed
+// levels. Since the pattern is generated on an unbounded lattice there is no
+// reset point or seam.
+const vec2 kBackgroundScroll = vec2(0.58, 0.23);
+const float kTau = 6.2831853;
 
 /// The artery hue in render/Renderer.cpp's kLaneVisuals: the palette above is
 /// authored for it, and other vessel types are expressed as a ratio to it.
@@ -246,6 +257,11 @@ vec3 interstitium(vec2 p, float px, float S, float d, float band_w, vec3 tint) {
     vec2 warp = (vec2(fbm3(p / (cell * 1.9)), fbm3(p / (cell * 1.9) + 7.3)) - 0.5) * 0.42 +
                 (vec2(fbm3(p / (cell * 0.6) + 3.1), fbm3(p / (cell * 0.6) + 11.9)) - 0.5) * 0.12;
     vec2 q = (p + warp * cell) / cell;
+    // A tiny continuous deformation rides under the global scroll. It moves
+    // neighbouring cells differently while remaining smooth across their
+    // borders, avoiding the look of a single rigid wallpaper tile.
+    q += vec2(sin(q.y * 1.31 + u_time * 0.17),
+              cos(q.x * 1.17 - u_time * 0.14)) * 0.010;
     Cells c = voronoi(q, 0.82);
     // Antialiasing width for the flat shapes, in lattice units. `px` is the
     // world size of a pixel, measured once in main() in uniform control flow
@@ -273,7 +289,11 @@ vec3 interstitium(vec2 p, float px, float S, float d, float band_w, vec3 tint) {
     // as a swollen sac rather than a tile. Both are below the threshold of
     // "a shape" -- they are the ground the crisp shapes are drawn on.
     vec3 col = mix(kCellDark, kCellLite, h0);
-    vec2 lobe_off = (hash22(c.id + 19.3) - 0.5) * 0.5;
+    float motion = u_time * (0.19 + 0.08 * h4) + h5 * kTau;
+    vec2 wobble0 = vec2(cos(motion), sin(motion * 0.83 + h2 * kTau)) * 0.012;
+    vec2 wobble1 = vec2(sin(motion * 0.79 + 2.1), cos(motion * 0.91 + 0.7)) * 0.010;
+    vec2 wobble2 = vec2(cos(motion * 0.73 + 4.2), sin(motion * 0.87 + 3.4)) * 0.009;
+    vec2 lobe_off = (hash22(c.id + 19.3) - 0.5) * 0.5 + wobble0 * 0.45;
     float lobe = 1.0 - smoothstep(0.18, 0.52, length((rel - lobe_off) * vec2(1.0, 0.8 + 0.4 * h1)));
     col = mix(col, mix(kCellLite, kCellDark, h0), lobe * 0.6);
 
@@ -309,8 +329,8 @@ vec3 interstitium(vec2 p, float px, float S, float d, float band_w, vec3 tint) {
     //    shape the eye reads first.
     if (h0 < 0.95) {
         float r = room * (0.34 + 0.24 * h2);
-        vec2 off = a0 * (room - r) * (0.45 + 0.5 * h4);
-        float ang = phase + 0.9 + h3 * 1.8;
+        vec2 off = a0 * (room - r) * (0.45 + 0.5 * h4) + wobble0;
+        float ang = phase + 0.9 + h3 * 1.8 + 0.035 * sin(motion * 0.71);
         float a = oval(rel - off, ang, r, 0.68 + 0.26 * h3, aa);
         col = mix(col, kDiscLight, a);
         // A brighter patch riding on one end of it.
@@ -322,8 +342,8 @@ vec3 interstitium(vec2 p, float px, float S, float d, float band_w, vec3 tint) {
     // 2. The dark oval, on the opposite side.
     if (h2 > 0.30) {
         float r = room * (0.20 + 0.16 * h4);
-        vec2 off = a1 * (room - r) * (0.5 + 0.45 * h5);
-        float ang = h3 * 6.2832;
+        vec2 off = a1 * (room - r) * (0.5 + 0.45 * h5) + wobble1;
+        float ang = h3 * kTau + 0.030 * sin(motion * 0.67 + 1.8);
         col = mix(col, kOvalDark, oval(rel - off, ang, r, 0.56 + 0.36 * h5, aa));
     }
 
@@ -332,7 +352,7 @@ vec3 interstitium(vec2 p, float px, float S, float d, float band_w, vec3 tint) {
         // A cluster of 2-4 small discs of widely varying size. The reference
         // never draws these as a ring of equal dots, so both the radius and
         // the spacing are drawn per dot.
-        vec2 base = a2 * room * (0.42 + 0.35 * h3);
+        vec2 base = a2 * room * (0.42 + 0.35 * h3) + wobble2;
         float rmax = room * (0.10 + 0.06 * h5);
         int n = 2 + int(h4 * 2.99);
         float dots = 0.0;
@@ -353,8 +373,8 @@ vec3 interstitium(vec2 p, float px, float S, float d, float band_w, vec3 tint) {
         // distinct rings, and they are what stop the field reading as a
         // repeating two-shape stamp.
         float r = room * (0.24 + 0.22 * h5);
-        vec2 off = a2 * (room - r) * (0.5 + 0.45 * h2);
-        float ang = h4 * 6.2832;
+        vec2 off = a2 * (room - r) * (0.5 + 0.45 * h2) + wobble2;
+        float ang = h4 * kTau + 0.032 * sin(motion * 0.76 + 4.0);
         float sq = 0.64 + 0.3 * h2;
         float a = oval(rel - off, ang, r, sq, aa);
         if (h5 > 0.7) a *= 1.0 - oval(rel - off, ang, r * 0.5, sq, aa);
@@ -447,6 +467,7 @@ void main() {
     vec2 uv = clamp(v_uv, 0.0, 1.0);
     vec2 p = v_world;
     float S = max(u_pattern_scale, 0.05);
+    vec2 background_p = p - kBackgroundScroll * (u_time * S);
 
     float d = texture(u_sdf, uv).r;
 
@@ -486,7 +507,7 @@ void main() {
     if (inside > 0.999) {
         col = lumen(p, px, S, d, lumen_tint);
     } else {
-        col = interstitium(p, px, S, d, band_w, flesh_tint);
+        col = interstitium(background_p, px, S, d, band_w, flesh_tint);
         col = mix(col, kBand * wall_tint, in_band);
         if (inside > 0.001) col = mix(col, lumen(p, px, S, d, lumen_tint), inside);
     }

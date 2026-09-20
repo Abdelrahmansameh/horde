@@ -4,7 +4,7 @@
 // WHY THIS EXISTS (and why it does not contradict DamageField.h)
 // DamageField.h states, correctly, that chaff is never hit individually by the
 // *aggregate* damage path. That remains true and remains the load-bearing
-// performance decision: area weapons (Mortar's digestive burst, Cryo's signal
+// performance decision: area weapons (timed bursts, Cryo's signal
 // cone, Tesla's chain, Laser's beam, Blade's rotor) all still publish a
 // DamageField and never test pairs.
 //
@@ -17,13 +17,14 @@
 //     virtual dispatch, never a heap allocation in flight, never an ECS entity
 //     per round (comp::Ephemeral exists for a handful of named spawns; it is
 //     the wrong tool for thousands of bullets a second).
-//   - Collision is APPROXIMATE BY DESIGN (explicit user decision). A round asks
-//     the spatial hash for its own cell and damages one agent found there. No
-//     swept volumes, no continuous collision, no nearest-of-all-candidates
-//     search. At Gunner fire rates the player reads a stream of impacts, not
-//     individual ballistic truth, and the error is invisible at 60 Hz.
+//   - Agent collision is APPROXIMATE BY DESIGN (explicit user decision). A
+//     round asks the spatial hash for its own cell and damages one agent found
+//     there. Wall collision is swept through the tissue grid so a fast round
+//     cannot tunnel through a thin obstacle between ticks. There is still no
+//     nearest-of-all-agent-candidates search.
 //   - Cost therefore scales with live round count and is independent of chaff
-//     count: one hash cell lookup per round per tick, no pair tests.
+//     count: one hash cell lookup plus the few tissue cells crossed per round
+//     per tick, with no pair tests.
 //
 // DETERMINISM
 // This runs inside the fixed 60 Hz sim tick and contributes to state_hash().
@@ -48,6 +49,7 @@ namespace immune::sim {
 class ChaffBuffers;
 class SpatialHash;
 class CombatEventSink;
+class TissueMask;
 
 namespace projectile_flags {
 inline constexpr u8 kAlive       = 1u << 0; ///< Slot occupied.
@@ -136,14 +138,16 @@ struct ProjectileStats {
     u32 live = 0;
     u32 spawned_this_tick = 0;
     u32 impacts = 0;          ///< Rounds that hit an agent.
+    u32 wall_impacts = 0;     ///< Rounds destroyed by tissue/obstacle walls.
     u32 expired = 0;          ///< Rounds that timed out or left the world.
     f32 density_removed = 0.0f;
 };
 
 class ProjectileSystem {
 public:
-    /// One tick: integrate, test each live round against its own spatial-hash
-    /// cell, apply damage on impact, retire spent/expired rounds, compact.
+    /// One tick: integrate, sweep through the tissue grid for walls, test each
+    /// surviving round against its own spatial-hash cell, apply damage on
+    /// impact, retire spent/expired rounds, compact.
     ///
     /// `events` may be null. When present, every impact and expiry is reported
     /// so the VFX layer can draw pops and streaks; the sim's own behaviour must
@@ -154,6 +158,7 @@ public:
     ProjectileStats update(ProjectileBuffers& projectiles,
                            ChaffBuffers& chaff,
                            const SpatialHash& hash,
+                           const TissueMask& tissue,
                            const Rect& world_bounds,
                            Rng& rng,
                            f32 dt,

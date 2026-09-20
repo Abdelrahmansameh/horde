@@ -38,10 +38,14 @@ const float kPad = 1.3;
 void main() {
     float s = sin(i_rotation);
     float c = cos(i_rotation);
-    vec2 corner = a_corner * kPad;
+    // The macrophage's branching pseudopods need room beyond its enlarged
+    // body. Keep this visual scale out of the placement and combat footprint.
+    bool macrophage = i_shape_id == 17u;
+    float visual_scale = i_scale * (macrophage ? 1.35 : 1.0);
+    vec2 corner = a_corner * (macrophage ? 1.9 : kPad);
     vec2 local = vec2(corner.x * c - corner.y * s,
-                      corner.x * s + corner.y * c) * i_scale;
-    vec2 center_world = i_position + vec2(0.0, kHeightFrac * i_scale);
+                      corner.x * s + corner.y * c) * visual_scale;
+    vec2 center_world = i_position + vec2(0.0, kHeightFrac * visual_scale);
 
     v_local = corner;
     v_tint = i_tint;

@@ -22,6 +22,9 @@
 //   3. ECS systems                 [prof: ecs_tick]
 //   4. damage fields apply
 //   4b. projectiles, swarmers (and what they asked for), slow zones, fluid
+//   4c''. hostile pass: pathogens vs towers, scars and swarmers (sim/hostile),
+//       after the swarmers have moved and before the fluid; then the scar
+//       sweep (sim/scar), which tears down what the pass just emptied
 //   4f. chaff death events (must be after every damage source and before
 //       compaction — the only window where a dead agent still has a position)
 //   5. chaff compact + despawn accounting
@@ -39,7 +42,9 @@
 #include "sim/ecs/EcsWorld.h"
 #include "sim/flowfield/FlowField.h"
 #include "sim/fluid/Fluid.h"
+#include "sim/hostile/HostileAttacks.h"
 #include "sim/projectile/Projectiles.h"
+#include "sim/scar/Scars.h"
 #include "sim/swarm/Swarmers.h"
 #include "sim/spatial/SpatialHash.h"
 #include "sim/squad/Squads.h"
@@ -157,6 +162,11 @@ struct SimDesc {
     /// Swarmer body collision (sim/swarm/Swarmers.h, BODIES). Defaults are
     /// live, same as squads above.
     SwarmerCollisionTuning swarmer_collision{};
+    /// The horde's own attacks on towers and swarmers
+    /// (sim/hostile/HostileAttacks.h). Defaults OFF with every family
+    /// harmless: the game layer fills it from enemies.json, and a world built
+    /// without one -- a test, a bench -- is the pre-hostile world.
+    HostileTuning hostile_tuning{};
 };
 
 /// One vessel spawn point, captured from the level at load time by
@@ -190,6 +200,18 @@ struct SimSnapshot {
     /// balance report can read without walking the registry.
     u32 active_squads = 0;
     u32 chaff_by_family[kFamilyCount] = {};
+    /// The horde fighting back (sim/hostile). Additive, for --sim-test and
+    /// the HUD: passengers riding a tower or a swarmer right now, units the
+    /// horde has killed, and towers it has brought to zero integrity (the
+    /// game layer tears those down; this only counts them).
+    u32 chaff_latched = 0;
+    u64 swarmers_killed_total = 0;
+    u64 towers_lost_total = 0;
+    /// Collagen scars (sim/scar): standing now, laid so far, and chewed
+    /// down by the horde so far. Additive, for --sim-test and the HUD.
+    u32 scars_live = 0;
+    u64 scars_built_total = 0;
+    u64 scars_lost_total = 0;
 
     // Per-family lifetime tallies. Additive to this struct (Wave "balance
     // harness"): the three aggregate counters above cannot answer "which
@@ -256,6 +278,33 @@ public:
     /// The Interferon's live slow circles.
     SlowZoneSystem& slow_zones() { return slow_zones_; }
     const SlowZoneSystem& slow_zones() const { return slow_zones_; }
+
+    /// The horde's attacks on the player's cells (sim/hostile).
+    HostileSystem& hostile() { return hostile_; }
+    const HostileSystem& hostile() const { return hostile_; }
+    /// The towers -- and the scars, as bar hosts -- as the hostile pass saw
+    /// them last tick, with the passenger count it found on each. Rebuilt
+    /// every tick by build_friendly_towers().
+    const FriendlyTowerList& friendly_towers() const { return friendly_towers_; }
+
+    /// The Fibroblast's collagen scars (sim/scar/Scars.h): the walls its
+    /// builders lay. apply_swarmer_effects() lays them; tick() sweeps the
+    /// ones the horde has emptied right after the hostile damage lands.
+    ScarSystem& scars() { return scars_; }
+    const ScarSystem& scars() const { return scars_; }
+
+    /// Rebuilds the hostile pass's view of the towers from the ECS: every
+    /// live tower entity carrying a Health, plus every live scar as a bar
+    /// host, sorted by id. tick() does this itself; exposed for tests that
+    /// drive the pass by hand.
+    void build_friendly_towers();
+
+    /// Lands the tower damage the last hostile update queued onto the ECS
+    /// Health components and counts the towers it brought to zero. tick()
+    /// calls this right after the hostile update; a test driving the pieces
+    /// by hand calls it the same way. Destroying the entity is the game
+    /// layer's job (game/towers), which owns the placed-tower list.
+    void apply_hostile_effects();
 
     /// Rebuilds the swarmer kernel's view of the named agents from the ECS:
     /// every live, non-Burrowed elite/boss, sorted by id. tick() does this
@@ -359,6 +408,9 @@ private:
     SwarmerBuffers swarmers_;
     SwarmerSystem swarmer_system_;
     NamedTargetList named_targets_;
+    HostileSystem hostile_;
+    FriendlyTowerList friendly_towers_;
+    ScarSystem scars_;
     SlowZoneSystem slow_zones_;
     FluidBuffers fluid_;
     FluidSystem fluid_system_;
@@ -371,6 +423,8 @@ private:
 
     u64 killed_total_ = 0;
     u64 leaked_total_ = 0;
+    u64 swarmers_killed_total_ = 0;
+    u64 towers_lost_total_ = 0;
     u64 killed_by_family_[kFamilyCount] = {};
     u64 leaked_by_family_[kFamilyCount] = {};
     u64 despawned_by_family_[kFamilyCount] = {};

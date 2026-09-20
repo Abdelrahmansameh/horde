@@ -73,6 +73,11 @@ private:
     void build_editor();
     /// Enters the editor on `path` (or a blank template when empty).
     void enter_editor(const std::string& path);
+    /// Wheel zoom-to-cursor and middle-drag pan while a level is live. The
+    /// level's own framing (load_level) is the zoom-out limit, so the widest
+    /// view is exactly what the level author set; the zoom-in limit is a
+    /// fixed multiple of that.
+    void update_level_camera();
     /// Points the camera at the whole document with margin, and widens the
     /// clamp rect so the world rectangle's own edges stay reachable.
     void frame_editor_camera();
@@ -119,6 +124,9 @@ private:
     platform::InputState input_;
     render::Renderer renderer_;
     render::Camera camera_;
+    /// View height the level was framed at on load: the widest the player can
+    /// zoom out to. Zero until a level is loaded (zoom disabled).
+    f32 level_view_height_ = 0.0f;
     audio::AudioEngine audio_;
     ui::Hud hud_;
     ui::Menu menu_;

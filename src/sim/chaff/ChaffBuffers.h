@@ -85,6 +85,17 @@ inline constexpr u8 kSlowed     = 1u << 2;
 inline constexpr u8 kHidden     = 1u << 3;
 inline constexpr u8 kDrifting   = 1u << 4; ///< Ignores flow, follows ambient drift.
 inline constexpr u8 kReplicated = 1u << 5; ///< Spawned by viral replication (replication budget).
+/// Latched onto a FRIENDLY host -- a tower or a swarmer -- and feeding on it
+/// (sim/hostile/HostileAttacks.h). While set, the movement kernel treats the
+/// agent exactly as it treats kHidden: no flow, no separation, no jitter, no
+/// replication, no wall response. The hostile pass owns its position instead
+/// and rides it on the host; `host_index` / `host_generation` / `host_kind`
+/// below say which host. Cleared the tick the host dies, after which the agent
+/// resumes walking from wherever it was dropped. Every damage source still
+/// hits it -- a latched virus is exactly the one a tower's swarmers should
+/// be killing -- but the swarmer BODIES pass ignores it (it is inside its
+/// host's membrane by design) and a kiting shooter does not flee from it.
+inline constexpr u8 kLatched    = 1u << 6;
 inline constexpr u8 kPendingKill= 1u << 7; ///< Scheduled for removal by the next compact().
 
 /// The one weaken multiplier every kMarked-consuming damage path uses, so the
@@ -97,6 +108,19 @@ inline constexpr f32 kMarkedDamageMultiplier = 1.5f;
 /// has to mean "slowed" rather than silently doing nothing.
 inline constexpr f32 kDefaultSlowFactor = 0.4f;
 } // namespace chaff_flags
+
+/// What ChaffBuffers::host_kind holds: which store `host_index` points into
+/// for a kLatched agent. kNone for everyone else.
+namespace host_kind {
+inline constexpr u8 kNone = 0;
+inline constexpr u8 kSwarmer = 1;   ///< host_index / host_generation name a SwarmerBuffers slot.
+/// host_index is an EntityId::value. host_generation is unused for a tower
+/// and, for a scar (a BAR host, sim/hostile), holds the passenger's spot on
+/// the wall's perimeter as a fixed-point fraction -- the one per-passenger
+/// word the pass has, and a bar's face has no "direction from the centre"
+/// to hash a spot from the way a disc does.
+inline constexpr u8 kTower = 2;
+} // namespace host_kind
 
 /// Stable reference to a chaff agent across compaction. Rarely needed.
 struct ChaffHandle {
@@ -188,6 +212,29 @@ public:
     /// whole debuff any more.
     std::vector<f32> slow_remaining;
     std::vector<f32> slow_factor;
+
+    /// The host a chaff_flags::kLatched agent is riding (sim/hostile). Three
+    /// streams rather than bits stolen from `flags` for the same reason
+    /// squad_id is: a host is an identity, not a predicate, and `flags` has
+    /// exactly one bit left, which kLatched itself took. Read by nothing in the
+    /// movement kernel -- the kernel only tests the flag -- so they cost the
+    /// hot path nothing; the hostile pass is the only reader and it walks them
+    /// once, in index order. Sim state (a different host is a different
+    /// position next tick), but not hashed directly: the flag bit and the
+    /// position the pass writes are already in state_hash(), and a host
+    /// mismatch cannot survive a tick without moving one of those.
+    std::vector<u32> host_index;
+    std::vector<u32> host_generation;
+    std::vector<u8>  host_kind;
+
+    /// Which way a kLatched agent is facing: radians, the direction from the
+    /// agent toward the point on its host it is feeding at (into a disc
+    /// host's centre; down a bar host's face normal). PURELY COSMETIC, under
+    /// the same rules as hit_flash: the hostile pass writes it when it plants
+    /// a passenger, the chaff batcher reads it to turn the sprite so the latch
+    /// throb (render/LatchThrob.h) pumps TOWARD the host, nothing in the sim
+    /// reads it and state_hash() omits it. Meaningless unless kLatched is set.
+    std::vector<f32> latch_heading;
 
     /// Reserves every stream to `max_agents`. Call once at level load.
     void reserve(usize max_agents);

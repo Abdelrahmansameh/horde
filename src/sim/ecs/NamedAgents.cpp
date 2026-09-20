@@ -3,6 +3,7 @@
 #include "core/Math.h"
 #include "core/Rng.h"
 #include "sim/SimWorld.h"
+#include "sim/flowfield/RuntimeBlock.h"
 
 #include <algorithm>
 #include <cmath>
@@ -234,6 +235,15 @@ void system_named_movement(SystemContext& ctx) {
         velocity.value += accel * steer.accel * ctx.dt;
         velocity.value = math::clamp_length(velocity.value, math::max(max_speed, 0.0f));
         transform.position += velocity.value * ctx.dt;
+
+        // 7. Walls the SDF has never heard of -- a Fibrin Clot, a Fibroblast's
+        // scar (sim/flowfield/RuntimeBlock.h) -- exist only in the mask, so
+        // the same containment the chaff kernel runs keeps an elite from
+        // walking through one. A burrowed agent is under the tissue and is
+        // not contained by anything.
+        if (brain.state != comp::AiState::Burrowed) {
+            contain_to_walkable(world.tissue(), transform.position, pos);
+        }
     }
 }
 

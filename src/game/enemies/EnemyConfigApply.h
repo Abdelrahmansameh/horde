@@ -34,4 +34,11 @@ bool enemy_config_applied();
 /// apply_enemy_config() replaces them.
 const EnemyConfig& enemy_config();
 
+/// The hostile pass's tuning (sim/hostile/HostileAttacks.h), joined from the
+/// two files that own it: each family's latch and aura from the live enemy
+/// config, the switch and the caps from sim.json's `hostile` block. This is
+/// what every SimDesc built by the game should carry; a SimDesc built without
+/// it ships the pass off.
+sim::HostileTuning hostile_tuning(const HostileGlobals& globals);
+
 } // namespace immune::game

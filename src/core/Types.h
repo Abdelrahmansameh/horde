@@ -73,20 +73,30 @@ inline constexpr u32 kFamilyCount = static_cast<u32>(PathogenFamily::Count);
 /// tower_type_name()/parse_tower_type() all follow it.
 ///
 ///   Neutrophil  SHOOTER       swarmers hold a standoff and fire real rounds
-///   Macrophage  BOMBER        swarmers detonate on contact, area damage
+///   Macrophage  ARBOR GRABBER grows several branching pseudopods in any
+///                             direction, latches prey with fine fingers, and
+///                             pulls several targets into its deforming body.
+///                             A tower's live units form one LANE WALL: a
+///                             body-to-body rank across the flow that shoves
+///                             the horde back instead of yielding to it
 ///   Interferon  SLOW BOMBER   swarmers detonate into a timed slow zone
 ///   CytotoxicT  LATCH         swarmers latch on and drain (the original)
 ///   GobletCell  MUCUS BOMBER  swarmers detonate into a splash of real mucus
+///   Fibroblast  BUILDER       swarmers walk to a spot in the lane and lay
+///                             down a collagen scar: a wall the horde must
+///                             go round and can chew through (sim/scar)
 ///
 /// The NK Cell (a close-range rotor, slot 5) was retired when the roster moved
-/// to the swarmer model: a contact rotor had no swarmer to be.
+/// to the swarmer model: a contact rotor had no swarmer to be. The Fibroblast
+/// took the slot later.
 enum class TowerType : u8 {
     Neutrophil = 0,   ///< SHOOTER
-    Macrophage = 1,   ///< BOMBER
+    Macrophage = 1,   ///< ARBOR GRABBER
     Interferon = 2,   ///< SLOW BOMBER
     CytotoxicT = 3,   ///< LATCH
     GobletCell = 4,   ///< MUCUS BOMBER
-    Count = 5
+    Fibroblast = 5,   ///< BUILDER
+    Count = 6
 };
 
 inline constexpr u32 kTowerTypeCount = static_cast<u32>(TowerType::Count);

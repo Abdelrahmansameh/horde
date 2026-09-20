@@ -11,6 +11,7 @@
 #include "sim/ecs/EcsWorld.h"
 #include "sim/flowfield/FlowField.h"
 #include "sim/flowfield/LaneConnectivity.h"
+#include "sim/flowfield/RuntimeBlock.h"
 
 #include <cmath>
 #include <utility>
@@ -26,34 +27,16 @@ namespace priv {
 /// trivially-copyable state. The public half (geometry, clock) is
 /// comp::Barrier, which the renderer and tower placement read.
 ///
-/// Only cells that were WALKABLE when the clot dropped are recorded, and only
-/// those are restored. A cell the level authored solid, or one under a tower
-/// placed before the clot, is never touched in either direction -- so a clot
-/// laid across a tower cannot un-block that tower's footprint when it goes.
+/// The carve-and-restore rule (only cells that were walkable when the clot
+/// dropped come back) lives in sim/flowfield/RuntimeBlock.h now, shared with
+/// the Fibroblast's scars (sim/scar), so the two blocks cannot disagree.
 struct ClotFootprint {
-    std::vector<u32> carved_cells;   ///< TissueMask::index() of each cell.
-    Rect dirty_bounds{};             ///< What to hand FlowField::mark_dirty.
+    sim::CarvedFootprint carved;
 };
 
 } // namespace priv
 
 namespace {
-
-/// Oriented-box membership in the bar's own frame. `cs`/`sn` are the bar's
-/// rotation, `he` its half extents (x along the bar).
-bool inside_bar(Vec2 p, Vec2 center, Vec2 he, f32 cs, f32 sn) {
-    const Vec2 d = p - center;
-    const f32 lx = d.x * cs + d.y * sn;
-    const f32 ly = -d.x * sn + d.y * cs;
-    return std::fabs(lx) <= he.x && std::fabs(ly) <= he.y;
-}
-
-/// World-space AABB of a rotated bar: the support along each axis.
-Rect bar_bounds(Vec2 center, Vec2 he, f32 cs, f32 sn) {
-    const f32 bx = std::fabs(cs) * he.x + std::fabs(sn) * he.y;
-    const f32 by = std::fabs(sn) * he.x + std::fabs(cs) * he.y;
-    return Rect{center - Vec2{bx, by}, center + Vec2{bx, by}};
-}
 
 /// Decrements every live clot, and when one runs out hands its cells back to
 /// the tissue mask and marks the flow field dirty over them, exactly as
@@ -73,12 +56,7 @@ void system_clot_upkeep(sim::SystemContext& ctx) {
     }
     for (entt::entity e : expired) {
         if (const auto* fp = ctx.registry.try_get<priv::ClotFootprint>(e)) {
-            sim::TissueMask& mask = ctx.world.tissue();
-            const u32 w = static_cast<u32>(mask.width());
-            for (u32 idx : fp->carved_cells) {
-                mask.set_walkable(static_cast<i32>(idx % w), static_cast<i32>(idx / w), true);
-            }
-            if (!fp->carved_cells.empty()) ctx.world.flow().mark_dirty(fp->dirty_bounds);
+            sim::restore_block(ctx.world.tissue(), ctx.world.flow(), fp->carved);
         }
         ctx.registry.destroy(e);
     }
@@ -206,13 +184,11 @@ bool ActiveAbilitySystem::cast(sim::SimWorld& world, AbilityId id, Vec2 target_p
                           math::max(d.barrier_half_width, 0.0f)};
             if (he.x <= 0.0f || he.y <= 0.0f) return false;
 
-            const Vec2 flow_dir = math::normalize_safe(world.flow().sample(target_point));
-            Vec2 along{1.0f, 0.0f};
-            if (flow_dir.x != 0.0f || flow_dir.y != 0.0f) along = Vec2{-flow_dir.y, flow_dir.x};
-            const f32 rotation = std::atan2(along.y, along.x);
-            const f32 cs = std::cos(rotation);
-            const f32 sn = std::sin(rotation);
-            const Rect bounds = bar_bounds(target_point, he, cs, sn);
+            sim::Bar bar;
+            bar.center = target_point;
+            bar.half_extents = he;
+            bar.rotation = sim::across_flow_rotation(world.flow(), target_point);
+            const Rect bounds = bar.bounds();
 
             // Same rule as a tower: a block that seals the local lane is
             // refused outright, not allowed and lived with. Temporary or not,
@@ -220,30 +196,18 @@ bool ActiveAbilitySystem::cast(sim::SimWorld& world, AbilityId id, Vec2 target_p
             // (LaneConnectivity.h), and the horde would bunch at an invisible
             // line upstream of the clot instead of pressing against it.
             const bool sever = sim::would_sever_lane(mask, world.flow(), bounds, [&](i32 x, i32 y) {
-                return inside_bar(mask.cell_to_world(x, y), target_point, he, cs, sn);
+                return bar.contains(mask.cell_to_world(x, y));
             });
             if (sever) return false;
 
-            // Carve. Cell-centre membership, the convention every other mask
-            // stamp uses (ObstacleRaster.h), padded by a cell so a bar whose
-            // edge falls mid-cell still tests the cells it grazes.
+            // Carve (RuntimeBlock.h): cell-centre membership, the convention
+            // every other mask stamp uses, and the flow marked dirty over it.
             priv::ClotFootprint fp;
-            const IVec2 c0 = mask.world_to_cell(bounds.min);
-            const IVec2 c1 = mask.world_to_cell(bounds.max);
-            for (i32 y = c0.y - 1; y <= c1.y + 1; ++y) {
-                for (i32 x = c0.x - 1; x <= c1.x + 1; ++x) {
-                    if (!mask.walkable(x, y)) continue;
-                    if (!inside_bar(mask.cell_to_world(x, y), target_point, he, cs, sn)) continue;
-                    mask.set_walkable(x, y, false);
-                    fp.carved_cells.push_back(static_cast<u32>(mask.index(x, y)));
-                }
-            }
-            fp.dirty_bounds = bounds;
-            if (!fp.carved_cells.empty()) world.flow().mark_dirty(bounds);
+            fp.carved = sim::carve_block(mask, world.flow(), bar);
 
             entt::registry& registry = world.ecs().registry();
             const entt::entity e = registry.create();
-            registry.emplace<sim::comp::Transform>(e, sim::comp::Transform{target_point, rotation, 1.0f});
+            registry.emplace<sim::comp::Transform>(e, sim::comp::Transform{target_point, bar.rotation, 1.0f});
             sim::comp::Barrier barrier;
             barrier.half_extents = he;
             barrier.remaining = math::max(d.field_duration, 0.0f);

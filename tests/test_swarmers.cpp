@@ -13,6 +13,7 @@
 #include "sim/CombatEvents.h"
 #include "sim/chaff/ChaffBuffers.h"
 #include "sim/flowfield/FlowField.h"
+#include "sim/projectile/Projectiles.h"
 #include "sim/spatial/SpatialHash.h"
 #include "sim/swarm/Swarmers.h"
 
@@ -37,6 +38,7 @@ constexpr u16 kShooter = 1;
 constexpr u16 kBomber = 2;
 constexpr u16 kSlow = 3;
 constexpr u16 kMucus = 4;
+constexpr u16 kArbor = 5;
 
 struct Fixture {
     ChaffBuffers chaff;
@@ -64,6 +66,9 @@ struct Fixture {
         base.search_radius = 12.0f;
         base.attach_radius = 0.55f;
         base.dps = 20.0f;
+        // Instant latch by default: the entry animation has its own tests
+        // below, and every other latch test wants the drain on tick one.
+        base.attach_seconds = 0.0f;
 
         SwarmerProfile latch = base;
         latch.kind = SwarmerKind::Latch;
@@ -81,7 +86,7 @@ struct Fixture {
 
         SwarmerProfile bomber = base;
         bomber.kind = SwarmerKind::Bomber;
-        bomber.source = TowerType::Macrophage;
+        bomber.source = TowerType::Count;
         bomber.burst_radius = 3.0f;
         bomber.burst_damage = 25.0f;
         bomber.burst_named_damage = 30.0f;
@@ -96,6 +101,21 @@ struct Fixture {
         mucus.kind = SwarmerKind::MucusBomber;
         mucus.source = TowerType::GobletCell;
         swarm.set_profile(kMucus, mucus);
+
+        // A macrophage unit: reach 6, body 2, no kiting -- a volley of
+        // these is a LANE WALL, spaced 4 apart, and the body shoves the
+        // horde back rather than yielding to it.
+        SwarmerProfile arbor = base;
+        arbor.kind = SwarmerKind::ArborGrabber;
+        arbor.source = TowerType::Macrophage;
+        arbor.lifetime = 30.0f;
+        arbor.search_radius = 40.0f;
+        arbor.attach_radius = 6.0f;
+        arbor.size = 2.0f;
+        arbor.kite_fraction = 0.0f;
+        arbor.formation_spacing = 4.0f;
+        arbor.body_block = 1.0f;
+        swarm.set_profile(kArbor, arbor);
     }
 
     usize add_chaff(Vec2 p, f32 density, u8 flags = 0) {
@@ -215,6 +235,96 @@ TEST_CASE("an attached latcher drains a marked host faster", "[swarm][sim][latch
     INFO("plain lost " << plain_loss << ", marked lost " << marked_loss);
     REQUIRE(plain_loss > 0.0f);
     REQUIRE(marked_loss == Catch::Approx(plain_loss * chaff_flags::kMarkedDamageMultiplier).epsilon(0.001));
+}
+
+TEST_CASE("a latcher spends attach_seconds entering its host before it drains, and sits at the centre once in",
+          "[swarm][sim][latch][entry]") {
+    Fixture f;
+    const usize host = f.add_chaff(Vec2{40.0f, 40.0f}, 1000.0f);
+    SwarmerProfile p = f.swarm.profile_at(kLatch);
+    p.attach_seconds = 6.0f * kDt;   // six ticks
+    p.attach_steps = 3u;
+    f.swarm.set_profile(kLatch, p);
+    // Inside attach_radius already, so it latches on the first tick.
+    f.add_swarmer(Vec2{40.1f, 40.0f}, Vec2{0.0f, 0.0f});
+    const f32 before = f.chaff.density[host];
+
+    // Engaged from tick one, but not yet feeding, and starting out on the
+    // clump ring rather than the centre.
+    f.step(1);
+    REQUIRE(f.any_attached());
+    REQUIRE(f.chaff.density[host] == before);
+    REQUIRE(f.swarm.attach[0] == Catch::Approx(0.0f));
+    const f32 ring_dist = math::length(Vec2{f.swarm.pos_x[0], f.swarm.pos_y[0]} - f_pos(f, host));
+    REQUIRE(ring_dist > 0.1f);
+
+    // Part-way in: the clock runs, still no drain, and the unit has lurched
+    // closer in a discrete step (not the full way).
+    f.step(3);
+    REQUIRE(f.chaff.density[host] == before);
+    REQUIRE(f.swarm.attach[0] == Catch::Approx(3.0f * kDt));
+    const f32 mid_dist = math::length(Vec2{f.swarm.pos_x[0], f.swarm.pos_y[0]} - f_pos(f, host));
+    REQUIRE(mid_dist < ring_dist);
+    REQUIRE(mid_dist > 0.0f);
+
+    // Entry complete: the clock caps at attach_seconds, the unit is at the
+    // host's centre, and the drain has started.
+    f.step(4);
+    REQUIRE(f.swarm.attach[0] == Catch::Approx(p.attach_seconds));
+    REQUIRE(f.chaff.density[host] < before);
+    const f32 in_dist = math::length(Vec2{f.swarm.pos_x[0], f.swarm.pos_y[0]} - f_pos(f, host));
+    REQUIRE(in_dist == Catch::Approx(0.0f).margin(1e-4f));
+}
+
+TEST_CASE("a latcher tracks a moving host exactly while entering and while in",
+          "[swarm][sim][latch][entry]") {
+    Fixture f;
+    const usize host = f.add_chaff(Vec2{40.0f, 40.0f}, 1000.0f);
+    SwarmerProfile p = f.swarm.profile_at(kLatch);
+    p.attach_seconds = 10.0f * kDt;
+    f.swarm.set_profile(kLatch, p);
+    f.add_swarmer(Vec2{40.1f, 40.0f}, Vec2{0.0f, 0.0f});
+    f.step(1);
+    REQUIRE(f.any_attached());
+
+    // Teleport the host each tick as the chaff pass would move it; the
+    // latcher's offset from the host must be a function of the entry clock
+    // only, never of where the host was last tick.
+    for (int t = 0; t < 20; ++t) {
+        f.chaff.pos_x[host] += 0.5f;
+        f.chaff.pos_y[host] += 0.25f;
+        const f32 clock_before = f.swarm.attach[0];
+        f.step(1);
+        const f32 d = math::length(Vec2{f.swarm.pos_x[0], f.swarm.pos_y[0]} - f_pos(f, host));
+        const f32 entry = math::saturate(f.swarm.attach[0] / p.attach_seconds);
+        INFO("tick " << t << " clock " << clock_before << " -> " << f.swarm.attach[0] << " dist " << d);
+        // Never further than the untouched clump ring, and at the centre once in.
+        REQUIRE(d <= p.attach_radius * 0.6f + 1e-4f);
+        if (entry >= 1.0f) REQUIRE(d == Catch::Approx(0.0f).margin(1e-4f));
+    }
+}
+
+TEST_CASE("a latcher is back at full size the tick its host dies", "[swarm][sim][latch][entry]") {
+    Fixture f;
+    f.add_chaff(Vec2{40.0f, 40.0f}, 1000.0f);
+    SwarmerProfile p = f.swarm.profile_at(kLatch);
+    p.attach_seconds = 3.0f * kDt;
+    f.swarm.set_profile(kLatch, p);
+    f.add_swarmer(Vec2{40.1f, 40.0f}, Vec2{0.0f, 0.0f});
+
+    f.step(6);
+    REQUIRE(f.any_attached());
+    REQUIRE(f.swarm.attach[0] == Catch::Approx(p.attach_seconds));   // fully in
+
+    // Kill the host out from under it. The very next update sees the handle
+    // dead, drops the flag and zeroes the entry clock together: the renderer
+    // derives size from (flag, clock), so this is "full size, same frame".
+    f.chaff.kill(0);
+    f.step(1);
+    REQUIRE(f.chaff.count() == 0);
+    REQUIRE_FALSE(f.any_attached());
+    REQUIRE(f.swarm.attach[0] == 0.0f);
+    REQUIRE(f.system.last_stats().live == 1);
 }
 
 TEST_CASE("a latcher whose host dies finds another instead of dissolving with it",
@@ -377,6 +487,98 @@ TEST_CASE("a shooter stands its ground: a target that leaves the standoff is swa
     REQUIRE(f.swarm.pos_x[0] > x0 + 1.0f);
 }
 
+namespace {
+
+/// The hit fraction a shooter manages against one target walking ACROSS its
+/// line of fire, with its rounds flown through the real projectile pass the
+/// way SimWorld wires the two systems (hash, chaff moves, rounds fly,
+/// swarmers act, and what they asked for is in the store by the next tick).
+/// `target_speed` is the walk; the standoff and round speed are the game's
+/// (towers.json: 20 out, 45 u/s at tier 1, 60 at tier 3).
+struct LeadTrial {
+    u32 fired = 0;
+    u32 hits = 0;
+};
+
+LeadTrial run_lead_trial(f32 target_speed, f32 round_speed, f32 hit_radius, u32 seed = 4242u) {
+    Fixture f;
+    f.rng = Rng{seed};
+    SwarmerProfile pr = f.swarm.profile_at(kShooter);
+    pr.lifetime = 30.0f;
+    pr.attach_radius = 20.0f;
+    pr.search_radius = 60.0f;
+    pr.speed = 22.0f;
+    pr.round_speed = round_speed;
+    pr.round_hit_radius = hit_radius;
+    pr.round_spread = 0.0f;    // the spread is the "spray" read; the AIM is under test
+    pr.kite_fraction = 0.0f;   // hold the slot rather than back off
+    f.swarm.set_profile(kShooter, pr);
+
+    const Vec2 target_vel{0.0f, target_speed};
+    const usize target = f.add_chaff(Vec2{62.3f, 21.7f}, 1.0e6f);
+    f.chaff.vel_x[target] = target_vel.x;
+    f.chaff.vel_y[target] = target_vel.y;
+    f.add_swarmer(Vec2{40.0f, 40.0f}, Vec2{0.0f, 0.0f}, kShooter);
+
+    ProjectileBuffers rounds;
+    rounds.reserve(1024);
+    ProjectileSystem projectiles;
+    TissueMask tissue;
+    LeadTrial trial;
+    for (int tick = 0; tick < 60 * 6; ++tick) {
+        f.hash.rebuild(f.chaff.pos_x.data(), f.chaff.pos_y.data(), f.chaff.count(), nullptr);
+        f.chaff.pos_x[target] += target_vel.x * kDt;
+        f.chaff.pos_y[target] += target_vel.y * kDt;
+        trial.hits += projectiles.update(rounds, f.chaff, f.hash, tissue, kBounds, f.rng, kDt, nullptr).impacts;
+        f.named.clear();
+        f.system.update(f.swarm, f.chaff, f.hash, f.named, nullptr, nullptr, kBounds, f.rng, kDt, nullptr);
+        for (const SwarmerShot& s : f.system.effects().shots) {
+            ProjectileSpawnParams p;
+            p.position = s.origin;
+            p.velocity = s.velocity;
+            p.damage = s.damage;
+            p.lifetime = s.lifetime;
+            p.hit_radius = s.hit_radius;
+            p.family_mask = s.family_mask;
+            p.owner = s.owner;
+            p.visual_id = s.visual_id;
+            REQUIRE(rounds.spawn(p));
+            ++trial.fired;
+        }
+        f.chaff.compact();
+    }
+    return trial;
+}
+
+} // namespace
+
+TEST_CASE("a shooter leads a crossing target so its rounds land", "[swarm][sim][shooter][lead]") {
+    // Over the ~0.36 s a round takes to cross the standoff, a target walking
+    // at a horde's pace moves several hit radii. Aimed at where the target IS,
+    // every round lands where it WAS; aimed at the intercept, most of them
+    // land. The threshold leaves room for what the projectile pass concedes
+    // by design (Projectiles.cpp: one cell tested per tick, a per-tick step
+    // comparable to the hit diameter).
+    const f32 kFast = 16.875f;   // enemies.json "fast" tier
+    const f32 kNormal = 12.375f;
+    for (const f32 walk : {kNormal, kFast}) {
+        for (const f32 round_speed : {45.0f, 60.0f}) {
+            const LeadTrial t = run_lead_trial(walk, round_speed, 0.45f);
+            INFO("target " << walk << " u/s, round " << round_speed << " u/s: " << t.hits << " of "
+                           << t.fired << " rounds landed");
+            REQUIRE(t.fired >= 15);
+            CHECK(t.hits * 10 >= t.fired * 7);
+        }
+    }
+
+    // A target standing still is the degenerate case: the intercept IS the
+    // target, so the solver must not disturb a shot that already lands.
+    const LeadTrial still = run_lead_trial(0.0f, 45.0f, 0.45f);
+    INFO("standing target: " << still.hits << " of " << still.fired);
+    REQUIRE(still.fired >= 15);
+    CHECK(still.hits * 10 >= still.fired * 7);
+}
+
 TEST_CASE("a bomber whose target leaves its aggro radius switches to a closer one",
           "[swarm][sim][bomber][retarget]") {
     Fixture f;
@@ -427,6 +629,72 @@ TEST_CASE("shooters released together hold a rank across their approach", "[swar
     }
 }
 
+FlowField make_flow_toward(Vec2 goal);
+
+TEST_CASE("an arbor grabber volley forms a lane wall: a rank across the flow, not across its approach",
+          "[swarm][sim][arbor_grabber][squad][wall]") {
+    Fixture f;
+    // The horde walks +x through this spot. The volley comes in from below
+    // and behind, so a rank across its APPROACH would be tilted ~30 degrees
+    // off vertical and span ~4 in x; a rank across the FLOW is vertical.
+    const FlowField flow = make_flow_toward(Vec2{120.0f, 40.0f});
+    f.flow = &flow;
+    for (int k = 0; k < 24; ++k) {
+        f.add_chaff(Vec2{52.0f + 0.05f * static_cast<f32>(k), 40.0f + 0.03f * static_cast<f32>(k % 5)}, 1.0e6f);
+    }
+    for (u16 k = 0; k < 3; ++k) {
+        f.add_swarmer(Vec2{30.0f, 28.0f + 0.2f * static_cast<f32>(k)}, Vec2{10.0f, 5.0f}, kArbor,
+                      /*group=*/1u, /*slot=*/k);
+    }
+    f.step(240);
+    REQUIRE(f.swarm.count() == 3);
+    f32 ys[3];
+    f32 xmin = 1e9f, xmax = -1e9f;
+    for (usize i = 0; i < 3; ++i) {
+        INFO("slot " << f.swarm.slot[i] << " at " << f.swarm.pos_x[i] << "," << f.swarm.pos_y[i]);
+        ys[f.swarm.slot[i]] = f.swarm.pos_y[i];
+        xmin = math::min(xmin, f.swarm.pos_x[i]);
+        xmax = math::max(xmax, f.swarm.pos_x[i]);
+    }
+    INFO("x span " << xmax - xmin << ", ys " << ys[0] << " " << ys[1] << " " << ys[2]);
+    // Athwart the lane: one x, spread in y at the profile's spacing, in slot
+    // order. And ANCHORED short of the horde at 70% of reach, not sat on it.
+    REQUIRE(xmax - xmin < 2.0f);
+    for (int k = 1; k < 3; ++k) {
+        REQUIRE(ys[k] > ys[k - 1]);
+        REQUIRE(ys[k] - ys[k - 1] == Catch::Approx(4.0f).margin(1.0f));
+    }
+    REQUIRE(xmax < 52.0f);
+    REQUIRE(xmin > 52.0f - 6.0f);
+}
+
+TEST_CASE("a body_block unit shoves an overlapping pathogen out of itself instead of yielding",
+          "[swarm][sim][arbor_grabber][bodies][wall]") {
+    // Body 1.6 + chaff 0.5 = 2.1 of contact; the pathogen is planted 1.0 in.
+    auto run = [](f32 body_block) {
+        Fixture f;
+        SwarmerProfile pr = f.swarm.profile_at(kArbor);
+        pr.body_block = body_block;
+        f.swarm.set_profile(kArbor, pr);
+        f.add_chaff(Vec2{41.0f, 40.0f}, 1.0e6f);
+        f.add_swarmer(Vec2{40.0f, 40.0f}, Vec2{0.0f, 0.0f}, kArbor);
+        f.step(1);
+        struct Out { f32 chaff_x; f32 unit_x; u32 blocks; };
+        return Out{f.chaff.pos_x[0], f.swarm.pos_x[0], f.system.last_stats().body_blocks};
+    };
+    // The ordinary one-way contact: the pathogen never moves, the unit does.
+    const auto yields = run(0.0f);
+    REQUIRE(yields.chaff_x == Catch::Approx(41.0f));
+    REQUIRE(yields.unit_x < 39.6f);
+    REQUIRE(yields.blocks == 0);
+    // The wall: the pathogen is pushed out along the contact normal, the
+    // unit holds its ground.
+    const auto wall = run(1.0f);
+    REQUIRE(wall.chaff_x > 41.5f);
+    REQUIRE(wall.unit_x == Catch::Approx(40.0f).margin(0.1f));
+    REQUIRE(wall.blocks == 1);
+}
+
 // ---------------------------------------------------------------------------
 // Bombers
 // ---------------------------------------------------------------------------
@@ -434,7 +702,7 @@ TEST_CASE("shooters released together hold a rank across their approach", "[swar
 TEST_CASE("a bomber detonates on contact and asks for its effect, killing itself",
           "[swarm][sim][bomber]") {
     struct Case { u16 profile; TowerType source; };
-    const Case cases[] = {{kBomber, TowerType::Macrophage}, {kSlow, TowerType::Interferon},
+    const Case cases[] = {{kBomber, TowerType::Count}, {kSlow, TowerType::Interferon},
                           {kMucus, TowerType::GobletCell}};
     for (const Case& c : cases) {
         INFO("profile " << c.profile);

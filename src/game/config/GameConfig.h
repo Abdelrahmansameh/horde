@@ -23,9 +23,11 @@
 #include "game/economy/Economy.h"
 #include "game/enemies/EnemyRoster.h"
 #include "game/towers/TowerSystem.h"
+#include "render/LatchThrob.h"
 #include "sim/chaff/HitFlash.h"
 #include "sim/chaff/ReplicationSplit.h"
 #include "sim/fluid/Fluid.h"
+#include "sim/hostile/HostileAttacks.h"
 #include "sim/squad/Squads.h"
 #include "sim/swarm/Swarmers.h"
 #include "vfx/DeathVfx.h"
@@ -64,11 +66,21 @@ struct SwarmParams {
     /// Body radius, world units: drawn at this size, and kept this far (x
     /// sim::kWallContactFraction) off the vessel wall.
     f32 size = 1.5f;
+    /// Hit points a swarmer is released with. The horde spends them
+    /// (sim/hostile: viruses latch on and drain, bacteria burn); at zero the
+    /// unit dissolves without acting.
+    f32 max_health = 10.0f;
 };
 
 struct LatchParams {
     /// Density drained per second by one attached swarmer.
     f32 dps = 4.2f;
+    /// Seconds the entry takes once in reach: the unit lurches into the
+    /// host's centre and shrinks to nothing, and only then starts draining.
+    /// It pops back to full size the tick the host dies. 0 = instant.
+    f32 attach_seconds = 0.1f;
+    /// Discrete lurches the entry movement is chopped into (0/1 = one slide).
+    u32 attach_steps = 4;
 };
 
 struct ShooterParams {
@@ -103,6 +115,32 @@ struct BomberParams {
     f32 named_damage = 20.0f;
 };
 
+/// The Macrophage's radial, branching pseudopods. Each arm launches, latches
+/// and recovers independently. `fake_mass` is visual compensation: 0 strictly
+/// redistributes the body's apparent volume into its arms, while 1 keeps the
+/// core nearly full-sized.
+///
+/// A volley of these is a LANE WALL (sim/swarm/Swarmers.h): a rank across
+/// the flow the horde has to press through. `wall_spacing` is the most room
+/// between squad-mates along that rank (it shrinks to fit the lane), and
+/// `body_block` is how much of a pathogen/macrophage overlap the PATHOGEN
+/// takes: 0 is the ordinary one-way contact where the swarmer yields, 1 an
+/// immovable body the horde is shoved out of. Kiting and a wall pull in
+/// opposite directions; ship kite_fraction 0 with a body_block above 0.
+struct ArborGrabberParams {
+    u32 arm_count = 3;
+    f32 extend_seconds = 0.12f;
+    f32 latch_seconds = 0.05f;
+    f32 pull_seconds = 0.22f;
+    f32 recover_seconds = 0.06f;
+    f32 fake_mass = 0.65f;
+    f32 kite_fraction = 0.0f;
+    f32 kite_flow_weight = 1.0f;
+    f32 kite_speed_mult = 1.1f;
+    f32 wall_spacing = 4.5f;
+    f32 body_block = 0.9f;
+};
+
 struct SlowBomberParams {
     /// Seconds a bomber chases one target before detonating where it is.
     f32 chase_seconds = 1.0f;
@@ -131,6 +169,43 @@ struct MucusBomberParams {
     f32 mark_seconds = 2.5f;
 };
 
+/// The Fibroblast's builders and the collagen scars they lay
+/// (sim/scar/Scars.h). A scar is a bar laid ACROSS the local flow, carved
+/// out of the tissue so the horde has to go round it, standing until the
+/// horde chews it down (it is a host to the hostile pass like a tower is).
+struct BuilderParams {
+    /// Where a builder is sent: a random site in the annulus
+    /// [build_min_radius, build_radius] around its tower, on walkable tissue
+    /// with a flow direction (i.e. in a lane), with this much SDF clearance.
+    f32 build_radius = 14.0f;
+    f32 build_min_radius = 4.0f;
+    f32 build_min_clearance = 1.0f;
+    /// Random sites tried per builder before the tower gives up on it.
+    u32 build_candidates = 12;
+    /// The bar: half-length along the wall, half-width across it. It is laid
+    /// ACROSS the local flow (square to the arrows), give or take a random
+    /// tilt of up to scar_tilt radians either way; 0 = exactly square.
+    f32 scar_half_length = 5.0f;
+    f32 scar_half_width = 0.9f;
+    f32 scar_tilt = 0.2f;
+    /// Integrity a fresh scar stands with; the horde spends it like a tower's.
+    f32 scar_health = 250.0f;
+    /// Hit points a builder adds to an existing scar when it cannot start a
+    /// new one (another scar too close, or the owner at max_scars). 0 = a
+    /// blocked builder just dissolves.
+    f32 scar_reinforce = 60.0f;
+    /// No two scar centres closer than this.
+    f32 scar_spacing = 6.0f;
+    /// Live scars one tower may own at once; 0 = unlimited.
+    u32 max_scars = 4;
+    /// Seconds a scar stands before dissolving on its own; 0 = permanent.
+    f32 scar_lifetime = 0.0f;
+    /// How much of the crowd's shove a walking builder takes, 0..1: 0 crawls
+    /// through the horde as if it were matrix, 1 is pushed out of every
+    /// pathogen like any other unit. Passengers still climb on either way.
+    f32 crowd_push = 0.0f;
+};
+
 /// The chassis plus every payload arm held flat. Only the arm matching the
 /// tower's kind is read or written; a flat aggregate keeps offsetof trivial
 /// and costs a few hundred bytes for the whole table.
@@ -139,8 +214,10 @@ struct TowerMechanics {
     LatchParams latch{};
     ShooterParams shooter{};
     BomberParams bomber{};
+    ArborGrabberParams arbor_grabber{};
     SlowBomberParams slow_bomber{};
     MucusBomberParams mucus_bomber{};
+    BuilderParams builder{};
 };
 
 struct TowerGlobals {
@@ -221,6 +298,14 @@ struct FamilyConfig {
     sim::HitFlashParams hit_flash{};
     /// The continuous parent-shell-to-two-daughters replication morph.
     sim::ReplicationSplitParams replication_split{};
+    /// How a latched agent throbs and pumps at the host it is feeding on
+    /// (render/LatchThrob.h). Reused verbatim from render/ for the no-mirror
+    /// reason above; it is the one family look with no sim consumer at all.
+    render::LatchThrobParams latch_throb{};
+    /// How this family hurts the player's cells -- the latch and the aura
+    /// (sim/hostile/HostileAttacks.h). Reused verbatim from sim/ for the same
+    /// no-mirror reason as `hit_flash`: the pass reads exactly this struct.
+    sim::HostileFamilyParams attack{};
 };
 
 /// Shared melee shape every elite starts from.
@@ -312,6 +397,16 @@ struct SwarmerGlobals {
     f32 turn_gain = 9.0f;
 };
 
+/// The world-wide half of sim::HostileTuning: the switch and the caps. The
+/// per-family half (the numbers that make a virus a virus) lives on each
+/// family in enemies.json; hostile_tuning() in game/enemies/EnemyConfigApply.h
+/// joins the two.
+struct HostileGlobals {
+    bool enabled = true;
+    u32 max_attackers = 128;
+    u32 max_latch_events = 64;
+};
+
 struct SimConfig {
     SimCapacities capacities{};
     SimGlobals globals{};
@@ -324,6 +419,9 @@ struct SimConfig {
     /// Swarmer body collision, reused verbatim from sim/swarm for the same
     /// reason. See SwarmerCollisionTuning for what each knob does.
     sim::SwarmerCollisionTuning swarmer_collision{};
+    /// The horde's attacks on towers and swarmers: the switch and the walk
+    /// caps. Per-family strength is in enemies.json.
+    HostileGlobals hostile{};
     /// The fluid solver's own constants, reused verbatim from sim/fluid so the
     /// config cannot drift from the struct the solver actually reads. It sits
     /// in sim.json rather than towers.json because there is exactly ONE solver

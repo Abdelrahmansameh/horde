@@ -48,10 +48,16 @@ const uint FLAG_HIDDEN  = 1u << 3;
 // is set, then as two ordinary whole viruses once its split timer finishes.
 const uint FLAG_SPLIT_ACTIVE  = 1u << 6;
 const uint FLAG_SPLIT_NEGATIVE_HALF = 1u << 7;
+// Riding a host (chaff_flags::kLatched, moved up here by the batcher because
+// sim bit 6 is the split morph's in this word). Local +x points INTO the host
+// and v_wobble carries the throb clock instead of the family wobble; see
+// latch_throb() below.
+const uint FLAG_LATCHED = 1u << 15;
 
 // Family id packed into bits 8..15 by ChaffBatcher (see build_chaff_instances).
+// The mask stops one bit short of the byte: bit 15 is FLAG_LATCHED.
 const uint CHAFF_FAMILY_SHIFT = 8u;
-const uint CHAFF_FAMILY_MASK  = 0xFFu;
+const uint CHAFF_FAMILY_MASK  = 0x7Fu;
 // Local crowding, 0..255 over [0, lod_blob_threshold], packed into bits 16..23
 // by the same batcher. See its comment for what it is for; see the shadow block
 // below for what this stage does with it.
@@ -79,34 +85,109 @@ layout(location = 2) uniform vec4 u_hit_flash_color[FAM_COUNT];
 // x = local reveal distance, y = seam softness. Uploaded from each family's
 // replication_split config every frame so live config edits redraw immediately.
 layout(location = 4) uniform vec4 u_replication_split_params[FAM_COUNT];
+// The latch throb (render/LatchThrob.h), refreshed every frame like the two
+// above. shape = (throb, slosh, wave, wave_count), skin = (ripple, stream,
+// squash, probe), pump = (glow, -, -, -).
+layout(location = 6) uniform vec4 u_latch_throb_shape[FAM_COUNT];
+layout(location = 8) uniform vec4 u_latch_throb_skin[FAM_COUNT];
+layout(location = 10) uniform vec4 u_latch_throb_pump[FAM_COUNT];
+// render::kShadowsEnabled as 0/1: a global kill switch for the drop shadow.
+layout(location = 12) uniform float u_shadows;
 
 // ---------------------------------------------------------------------------
-// VIRUS — an icosahedral capsid ringed with receptor spikes.
+// VIRUS — an icosahedral capsid ringed with stalked receptor knobs.
 //
-// Real virions read as "faceted ball wearing a crown of knobs" (that crown is
-// literally why coronaviruses are named that). Both halves of that are cheap in
-// polar coordinates:
+// The cartoon-virus silhouette: a faceted ball with a ring of LOLLIPOPS
+// standing off it -- a thin stalk out of the shell, a round knob on the end
+// (the receptor proteins a real virion docks with, drawn the way every
+// illustrator draws them). Cheap in polar coordinates:
 //   - the facets are a low-amplitude cosine on the angle, which flattens the
 //     circle into a polygon-ish outline without any polygon SDF;
-//   - the spikes are a sharpened cosine at a higher frequency, pushed OUTWARD
-//     from the same radius, each tipped with a knob via the smoothstep.
-// The spike phase is offset by the per-agent anim_phase so neighbouring virions
-// are not rotationally identical, which is what stops a cluster reading as a
+//   - the knobs are ONE stalk+knob evaluated once, after folding the angle
+//     into the nearest of N identical sectors, then unioned with the capsid.
+// The ring is rotated by the per-agent anim_phase so neighbouring virions are
+// not rotationally identical, which is what stops a cluster reading as a
 // repeated stamp.
 // ---------------------------------------------------------------------------
-float sdf_virus(vec2 p, float r, float phase, float pulse) {
+// `spike_scale` is 1 for a virion in the lane; a feeding one draws its
+// receptors in on every push (see latch_throb).
+const float kVirusKnobs = 9.0;
+
+float sdf_virus(vec2 p, float r, float phase, float pulse, float spike_scale) {
     float a = atan(p.y, p.x);
     float d = length(p);
 
     // Faceted capsid: 5-fold flattening, very shallow.
     float facet = cos(a * 5.0 + phase * 0.3) * 0.022;
+    float capsid = d - (r + facet + pulse);
 
-    // Receptor spikes: 11 of them, sharp, standing off the capsid surface.
-    float spike_wave = cos(a * 11.0 + phase);
-    float spikes = pow(max(spike_wave, 0.0), 3.0) * 0.17;
+    // Fold the angle into one sector so a single stalk+knob, drawn along the
+    // folded +x axis, repeats round the whole ring.
+    float sector = 6.28318530 / kVirusKnobs;
+    float fa = mod(a + phase + 0.5 * sector, sector) - 0.5 * sector;
+    vec2 q = d * vec2(cos(fa), sin(fa));
 
-    float radius = r + facet + spikes + pulse;
-    return d - radius;
+    // Stalk: a thin capsule rooted inside the shell, so it never detaches
+    // from a capsid that is breathing under it. Knob: a disc on its tip.
+    float reach = 0.10 * spike_scale;
+    float stalk_x = clamp(q.x, r - 0.05, r + reach);
+    float stalk = length(vec2(q.x - stalk_x, q.y)) - 0.055;
+    float knob = length(q - vec2(r + reach, 0.0)) - 0.095;
+
+    return min(capsid, min(stalk, knob));
+}
+
+// ---------------------------------------------------------------------------
+// LATCH THROB -- a passenger pumping itself into its host.
+//
+// A latched virion is planted with local +x pointing INTO its host, parked
+// on the host's footprint (sim/hostile ring_radius) with the host drawn over
+// it. Sitting there rigid it read as a decal stuck to the cell. This is the
+// motion of a body with liquid moving through it, toward +x, on one master
+// STROKE that everything below shares: -1 is the push (a squeeze toward the
+// host), +1 the refill. Closed-form trig only, per BUDGET above; the branch
+// that reaches it is uniform across an instance, and a few dozen agents are
+// latched against thousands walking, so the crowd never pays for it.
+//
+// The stroke is three sines at incommensurate rates, so the rhythm never
+// quite repeats; latch_throb() turns it into the outline deformation:
+//
+//   throb   the whole body breathing with the stroke;
+//   slosh   the stroke shifting volume front-to-back: on the push the back
+//           flattens and the front swells, so each beat reads as a shove
+//           INTO the host rather than a balloon inflating;
+//   wave    peristaltic slugs rolling round the outline from the far side
+//           toward the host, fading where they would meet the membrane;
+//   ripple  a fine two-frequency shimmer on the skin -- the "noisy" in
+//           noisy throbbing -- so the surface is never still between beats.
+//
+// main() adds the rest on the same stroke: a bellows SQUASH of the whole
+// local frame (shorter along x, fatter across, on the push), the crown
+// flattening, a PROBE -- a tapering tube reaching into the host with beads
+// travelling down it -- and a GLOW that lights the push, which is the one
+// part of this that still reads when the sprite is six pixels wide.
+//
+// `a` is the polar angle from +x, `T` the throb clock (2*pi per stroke, from
+// v_wobble). Returns a radial offset in local units to add to the capsid
+// radius.
+// ---------------------------------------------------------------------------
+float latch_stroke(float T) {
+    return 0.55 * sin(T) + 0.30 * sin(T * 1.83 + 1.7) + 0.15 * sin(T * 3.11 + 0.4);
+}
+
+float latch_throb(float a, float T, float stroke, vec4 shape, float ripple) {
+    float aa = abs(a);
+    // Crests sit where aa * count + 1.2 T = pi/2 + 2 pi n, so they slide to
+    // smaller aa -- toward +x, the host -- as T advances. Squared, not cubed:
+    // a broad swell rolling round the body reads as liquid, a narrow bump
+    // between the receptor stalks reads as another stalk.
+    float slug = pow(max(sin(aa * shape.w + T * 1.2), 0.0), 2.0);
+    float far_side = smoothstep(0.35, 1.3, aa);
+    float skin = sin(a * 7.0 + T * 2.3) * sin(a * 13.0 - T * 1.7);
+    return shape.x * stroke
+         - shape.y * stroke * cos(a)
+         + shape.z * slug * far_side
+         + ripple * skin;
 }
 
 // ---------------------------------------------------------------------------
@@ -118,8 +199,8 @@ float sdf_virus(vec2 p, float r, float phase, float pulse) {
 // agent's heading, so a bacterium automatically swims lengthwise — which is
 // both correct and free.
 //
-// The flagellum is a sine-displaced line trailing the rod, beating at the
-// agent's own tempo. It is a huge part of reading as "bacterium" rather than
+// The flagellum is a travelling-wave (snake-like) line trailing the rod,
+// slithering at the agent's own tempo. It is a huge part of reading as "bacterium" rather than
 // "pill", and costs one extra distance evaluation.
 // ---------------------------------------------------------------------------
 float sdf_capsule(vec2 p, float half_len, float r) {
@@ -148,11 +229,31 @@ float sdf_bacteria(vec2 p, float r, float phase, float pulse, out float flagellu
     float tail_x = p.x - rear;                     // 0 at the cap, negative behind
     float along = clamp(-tail_x / 0.90, 0.0, 1.0); // 0 at cap, 1 at the tip
 
-    // Amplitude grows toward the tip, which is what a real beating filament
-    // does and what makes it read as propulsion rather than a drawn line.
-    float beat = sin(tail_x * 11.0 - phase * 3.0) * (0.02 + 0.075 * along);
-    float thickness = mix(0.042, 0.010, along);    // tapers to a point
-    float tail_d = abs(p.y - beat) - thickness;
+    // Snake-like undulation: a travelling wave that runs FROM the body TOWARD
+    // the tip. `s` counts distance behind the cap, so sin(k*s - w*t) advances
+    // in +s as t grows -- the crests slither down the tail and off the end.
+    // (The old form used tail_x directly, which made the wave crawl the wrong
+    // way, up the tail into the body, and never read as slithering.)
+    //
+    // Tuned for GAMEPLAY zoom, not the close-up: at the campaign view height a
+    // bacterium is ~14 px long, so a subtle wave is sub-pixel. About 1.5
+    // wavelengths in the span, a swing of a quarter of the quad, and a wave
+    // that advances at the family tempo itself (~1.5 cycles/s) rather than 3x
+    // it -- fast enough to be alive, slow enough that the eye follows a bend
+    // down the tail instead of seeing a buzz.
+    float s = -tail_x;
+    const float kWaveNum = 10.0;
+    float amp = 0.26 * along * along;              // rooted at the cap, whips at the tip
+    float wave_arg = kWaveNum * s - phase;
+    float beat = sin(wave_arg) * amp;
+
+    // Perpendicular distance, not vertical: a plain abs(p.y - beat) thins the
+    // stroke wherever the curve is steep, so the bends looked pinched. Dividing
+    // by the curve's arc-length factor keeps the snake a uniform width around
+    // every bend.
+    float slope = cos(wave_arg) * kWaveNum * amp;
+    float thickness = mix(0.065, 0.014, along);    // tapers to a point
+    float tail_d = abs(p.y - beat) * inversesqrt(1.0 + slope * slope) - thickness;
 
     // Behind the rod only, and fading out at the tip so it does not end in a
     // hard chop against the quad edge.
@@ -164,17 +265,58 @@ float sdf_bacteria(vec2 p, float r, float phase, float pulse, out float flagellu
 
 void main() {
     uint family = (v_flags >> CHAFF_FAMILY_SHIFT) & CHAFF_FAMILY_MASK;
+    uint fam_slot = min(family, FAM_COUNT - 1u);
 
     // Tempo pulse: small so 10k instances read as "alive", not "flickering".
     float pulse = sin(v_anim_phase) * 0.05 * v_wobble;
+
+    // Feeding on a host: the tempo pulse gives way to the latch throb, which
+    // owns the whole deformation (and v_wobble is the throb clock, not the
+    // wobble amount). `stroke` beats -1..1 with it for everything below.
+    bool latched = (v_flags & FLAG_LATCHED) != 0u;
+    float stroke = 0.0;
+    float throb_T = v_wobble;
+    float spike_phase = v_anim_phase;
+    float spike_scale = 1.0;
+    vec2 body_p = v_local;
+    vec4 throb_skin = u_latch_throb_skin[fam_slot];
+    if (latched) {
+        stroke = latch_stroke(throb_T);
+        // The bellows: the frame the capsid is evaluated in compresses
+        // toward the host on the push and stretches on the refill, roughly
+        // area-preserving so it reads as one body changing shape.
+        float sq = throb_skin.z * stroke;
+        body_p = vec2(v_local.x / (1.0 + sq), v_local.y / (1.0 - 0.5 * sq));
+        float angle = atan(body_p.y, body_p.x);
+        pulse = latch_throb(angle, throb_T, stroke, u_latch_throb_shape[fam_slot], throb_skin.x);
+        // The crown flattens on the push and twitches on its own clock: a
+        // gripping crown, not a painted one.
+        spike_scale = 1.0 + 0.2 * stroke;
+        spike_phase += 0.35 * sin(throb_T * 2.9 + 1.0);
+    }
 
     float body_d;
     float flagellum = 0.0;
     float rim_scale = 1.0;   // per-species rim tightness
 
     if (family == FAM_VIRUS) {
-        body_d = sdf_virus(v_local, 0.36, v_anim_phase, pulse);
+        body_d = sdf_virus(body_p, 0.36, spike_phase, pulse, spike_scale);
         rim_scale = 0.8;     // crisper edge; a capsid is a hard shell
+        if (latched && throb_skin.w > 0.0) {
+            // The probe: a tapering tube rooted inside the capsid and reaching
+            // +x into the host, its wall swelling round the beads travelling
+            // down it (crests at x * 42 - 3 T = pi/2 + 2 pi n, so they move
+            // toward +x). Unioned into the body so the shading below treats
+            // it as one membrane. Unsquashed frame: the root stays inside the
+            // capsid through the whole stroke, so it never detaches.
+            float x0 = 0.30;
+            float x1 = x0 + throb_skin.w;
+            float along = clamp((v_local.x - x0) / throb_skin.w, 0.0, 1.0);
+            float beads = 0.5 + 0.5 * sin(v_local.x * 42.0 - throb_T * 3.0);
+            float thick = mix(0.085, 0.04, along) * (0.85 + 0.45 * beads * beads);
+            vec2 q = vec2(v_local.x - clamp(v_local.x, x0, x1), v_local.y);
+            body_d = min(body_d, length(q) - thick);
+        }
     } else if (family == FAM_BACTERIA) {
         body_d = sdf_bacteria(v_local, 0.60, v_anim_phase, pulse, flagellum);
         rim_scale = 1.2;     // softer; a bacterium is a wet sac
@@ -195,7 +337,7 @@ void main() {
     float split_reveal = float((v_flags >> CHAFF_FLASH_SHIFT) & CHAFF_FLASH_MASK) *
                          (1.0 / 255.0);
     if (splitting) {
-        vec4 split_params = u_replication_split_params[min(family, FAM_COUNT - 1u)];
+        vec4 split_params = u_replication_split_params[fam_slot];
         float reveal_distance = split_reveal * max(0.0, split_params.x);
         // The two split instances share their local frame; one retains x <= 0
         // and the other x >= 0 at the start, which recreates the parent shell.
@@ -239,7 +381,7 @@ void main() {
     float crowd = float((v_flags >> CHAFF_CROWD_SHIFT) & CHAFF_CROWD_MASK) * (1.0 / 255.0);
     float shadow_d = length(v_local - v_shadow_offset) - 0.52;
     float shadow_alpha = (1.0 - smoothstep(-0.18, 0.02, shadow_d)) * 0.46 *
-                         mix(1.0, 0.18, crowd) * sprite_fade * split_mask;
+                         mix(1.0, 0.18, crowd) * sprite_fade * split_mask * u_shadows;
 
     if (body_alpha <= 0.0 && shadow_alpha <= 0.0) discard;
 
@@ -252,14 +394,38 @@ void main() {
     // it is what separates a cell from a flat dot.
     float depth = clamp(-body_d * 3.4, 0.0, 1.0);          // 0 at edge, 1 deep inside
     rgb *= mix(1.30, 0.62, depth);                          // bright rim, dark core
+    // The push lights the whole body. Colour survives any zoom; at gameplay
+    // distance this is most of what "feeding" looks like.
+    if (latched) rgb *= 1.0 - u_latch_throb_pump[fam_slot].x * stroke;
     float rim = 1.0 - smoothstep(0.0, 0.11, abs(body_d));
-    rgb = mix(rgb, mix(rgb, vec3(1.0), 0.72), rim * 0.80);  // membrane highlight
+    // A feeding membrane glistens on the push: wet, not lacquered.
+    float rim_gain = latched ? 0.80 - 0.15 * stroke : 0.80;
+    rgb = mix(rgb, mix(rgb, vec3(1.0), 0.72), rim * rim_gain);  // membrane highlight
 
     if (family == FAM_VIRUS) {
         // Dense genetic core: a small hot centre, which is what makes a virion
-        // read as "shell around cargo" rather than a spiky blob.
-        float core = 1.0 - smoothstep(0.10, 0.19, length(v_local));
-        rgb = mix(rgb, mix(v_tint.rgb, vec3(1.0), 0.35), core * 0.5);
+        // read as "shell around cargo" rather than a knobbed blob.
+        vec2 core_p = v_local;
+        float core_gain = 0.5;
+        if (latched) {
+            // The cargo is what is being pumped: every squeeze shoves the core
+            // toward the host and dims it, and it drifts back on the release.
+            core_p.x -= 0.06 * max(-stroke, 0.0);
+            core_gain += 0.15 * stroke;
+        }
+        float core = 1.0 - smoothstep(0.10, 0.19, length(core_p));
+        rgb = mix(rgb, mix(v_tint.rgb, vec3(1.0), 0.35), core * core_gain);
+        if (latched) {
+            // ...down a beaded channel from the core through the probe, the
+            // beads travelling +x on the same wave the probe's wall swells to.
+            float chan = (1.0 - smoothstep(0.0, 0.075, abs(v_local.y))) *
+                         smoothstep(0.02, 0.12, v_local.x) *
+                         (1.0 - smoothstep(0.30 + throb_skin.w - 0.05, 0.30 + throb_skin.w,
+                                           v_local.x));
+            float beads = 0.5 + 0.5 * sin(v_local.x * 42.0 - throb_T * 3.0);
+            beads *= beads;
+            rgb = mix(rgb, mix(v_tint.rgb, vec3(1.0), 0.55), throb_skin.y * chan * beads);
+        }
     } else if (family == FAM_BACTERIA) {
         // Nucleoid: a lengthwise darker band, the DNA mass down the rod.
         // Centred on the offset body, not on the quad.
@@ -288,7 +454,7 @@ void main() {
     // thing (render/ChaffBatcher.h's crossfade contract).
     float hit_flash = float((v_flags >> CHAFF_FLASH_SHIFT) & CHAFF_FLASH_MASK) * (1.0 / 255.0);
     if (!splitting && hit_flash > 0.0) {
-        rgb = mix(rgb, u_hit_flash_color[min(family, FAM_COUNT - 1u)].rgb, hit_flash);
+        rgb = mix(rgb, u_hit_flash_color[fam_slot].rgb, hit_flash);
     }
 
     float body_a = body_alpha * sprite_fade;

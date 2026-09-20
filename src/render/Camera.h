@@ -44,6 +44,21 @@ public:
     const Rect& bounds() const { return bounds_; }
     void clamp_to_bounds();
 
+    /// Same clamp as clamp_to_bounds(), but against an arbitrary view height
+    /// instead of the camera's own. Pure: does not touch center().
+    Vec2 clamp_center_at(Vec2 center, f32 view_height) const;
+
+    /// Clamps `center` for a view at `view_height`, but using the world-space
+    /// edge that `reference_view_height` would reach (its clamp_center_at()
+    /// result's visible edge, which may overshoot bounds() when that
+    /// reference is zoomed out past the level). Zooming in past the
+    /// reference (view_height < reference_view_height) then still lets the
+    /// player pan up to that same edge instead of the pan range shrinking
+    /// back down to bounds() itself. view_height == reference_view_height
+    /// matches clamp_center_at() exactly. Pure: does not touch center().
+    Vec2 clamp_center_to_reference(Vec2 center, f32 view_height,
+                                    f32 reference_view_height) const;
+
     /// Combined view-projection for the sprite shaders.
     glm::mat4 view_projection() const;
 

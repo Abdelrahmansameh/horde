@@ -136,6 +136,14 @@ constexpr Field kSwarmerCollisionFields[] = {
 };
 constexpr Schema kSwarmerCollisionSchema{"swarmer_collision", kSwarmerCollisionFields};
 
+IMMUNE_CONFIG_SCHEMA_ASSERT(HostileGlobals);
+constexpr Field kHostileFields[] = {
+    IMMUNE_CONFIG_FIELD(HostileGlobals, enabled, FieldKind::Bool, "Master switch for pathogens attacking towers and swarmers; off is the old harmless horde"),
+    IMMUNE_CONFIG_FIELD(HostileGlobals, max_attackers, FieldKind::U32, "Chaff one tower or swarmer inspects per tick for latches and aura hits"),
+    IMMUNE_CONFIG_FIELD(HostileGlobals, max_latch_events, FieldKind::U32, "Latch VFX events raised per tick, out of the shared combat-event sink"),
+};
+constexpr Schema kHostileSchema{"hostile", kHostileFields};
+
 constexpr Field kEconomyFields[] = {
     IMMUNE_CONFIG_FIELD(EconomyConfig, starting_atp, FieldKind::U32, "ATP at level start"),
     IMMUNE_CONFIG_FIELD(EconomyConfig, passive_income_per_second, FieldKind::F32, ""),
@@ -166,7 +174,8 @@ constexpr Field kMetaFields[] = {
 constexpr Schema kMetaSchema{"meta", kMetaFields};
 
 constexpr std::string_view kSimKeys[] = {"schema", "capacities", "globals", "swarmers",
-                                        "fluid",  "squads",     "swarmer_collision"};
+                                        "fluid",  "squads",     "swarmer_collision",
+                                        "hostile"};
 constexpr std::string_view kAbilitiesKeys[] = {"schema", "complement_cascade_burst",
                                                "histamine_flare", "fever_response",
                                                "fibrin_clot"};
@@ -228,6 +237,11 @@ void parse_sim(const Json& doc, SimConfig& out, config::Ctx& ctx) {
         config::parse_struct(config::require_object(doc, "swarmer_collision", ctx),
                              kSwarmerCollisionSchema, &out.swarmer_collision, ctx);
     }
+    {
+        config::Ctx::Scope s(ctx, "hostile");
+        config::parse_struct(config::require_object(doc, "hostile", ctx), kHostileSchema,
+                             &out.hostile, ctx);
+    }
 }
 
 Json dump_sim(const SimConfig& cfg) {
@@ -251,6 +265,9 @@ Json dump_sim(const SimConfig& cfg) {
     Json swarmer_collision = Json::object();
     config::dump_struct(swarmer_collision, kSwarmerCollisionSchema, &cfg.swarmer_collision);
     doc["swarmer_collision"] = std::move(swarmer_collision);
+    Json hostile = Json::object();
+    config::dump_struct(hostile, kHostileSchema, &cfg.hostile);
+    doc["hostile"] = std::move(hostile);
     return doc;
 }
 
@@ -261,6 +278,7 @@ void bind_sim(config::Registry& registry, SimConfig& cfg) {
     registry.bind("sim.fluid", kFluidSchema, &cfg.fluid);
     registry.bind("sim.squads", kSquadSchema, &cfg.squads);
     registry.bind("sim.swarmer_collision", kSwarmerCollisionSchema, &cfg.swarmer_collision);
+    registry.bind("sim.hostile", kHostileSchema, &cfg.hostile);
 }
 
 // --- economy.json ------------------------------------------------------
@@ -522,6 +540,11 @@ GameConfig default_game_config() {
             // body and reads as an event precisely because it is not.
             fc.hit_flash = sim::family_hit_flash(family);
             fc.replication_split = sim::family_replication_split(family);
+            fc.latch_throb = render::family_latch_throb(family);
+            // The latch and the aura, read out of the live enemy config the
+            // same way the size derivations below are: the roster seeds it
+            // with the compiled-in numbers until a file replaces them.
+            fc.attack = enemy_config().families[i].attack;
 
             // The two size derivations come from the live enemy config so the
             // bootstrap cannot disagree with what apply_to_tuning() actually
@@ -593,6 +616,10 @@ GameConfig default_game_config() {
         cfg.sim.fluid = desc.fluid_tuning;
         cfg.sim.squads = desc.squad_tuning;
         cfg.sim.swarmer_collision = desc.swarmer_collision;
+        // NOT read off SimDesc: a bare SimDesc ships the hostile pass OFF so a
+        // configless test world is the pre-hostile one, and the game turns it
+        // on. HostileGlobals' own defaults are the shipped values.
+        cfg.sim.hostile = HostileGlobals{};
     }
 
     cfg.economy = EconomyConfig{};

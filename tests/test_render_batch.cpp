@@ -184,6 +184,66 @@ TEST_CASE("replicating chaff carries a continuous split render state", "[render]
     REQUIRE(split_scale == Approx(dest[0].scale).margin(1e-4f));
 }
 
+TEST_CASE("a latched agent faces its host and carries the latched bit", "[render][batch][latch]") {
+    ChaffBuffers chaff = make_chaff(4);
+    ChaffSpawnParams p;
+    p.family = PathogenFamily::Virus;
+    p.position = Vec2{10.0f, 10.0f};
+    p.velocity = Vec2{1.0f, 0.0f};   // heading 0 if the batcher used it
+    chaff.spawn(p);
+    // What the hostile pass leaves behind when it plants a passenger: the
+    // flag, and the cosmetic heading toward the host.
+    chaff.flags[0] |= chaff_flags::kLatched;
+    chaff.latch_heading[0] = 2.0f;
+
+    OccupancyGrid occ = flat_grid(Rect{Vec2{0.0f, 0.0f}, Vec2{100.0f, 100.0f}});
+    ChaffBatchParams params;
+    params.per_family_capacity = 4;
+    params.time = 3.0f;
+    std::vector<ChaffInstance> dest(kFamilyCount * params.per_family_capacity);
+
+    constexpr u32 kVisualSplitActive = 1u << 6;
+    constexpr u32 kVisualLatched = 1u << 15;
+
+    SECTION("with the throb on") {
+        build_chaff_batches(chaff, occ, params, dest.data(), nullptr);
+        REQUIRE((dest[0].flags & kVisualLatched) != 0u);
+        // The sim's kLatched (bit 6) must not leak through as the split bit.
+        REQUIRE((dest[0].flags & kVisualSplitActive) == 0u);
+        REQUIRE(dest[0].rotation == Approx(2.0f));
+        // The family byte still reads as the virus under the shader's 0x7F mask.
+        REQUIRE(((dest[0].flags >> 8) & 0x7Fu) == static_cast<u32>(PathogenFamily::Virus));
+        // The pad is the throb clock, not the family wobble, and it advances
+        // with time so the pump actually runs.
+        const f32 clock_a = dest[0].pad;
+        params.time = 3.25f;
+        build_chaff_batches(chaff, occ, params, dest.data(), nullptr);
+        REQUIRE(dest[0].pad != Approx(clock_a));
+    }
+
+    SECTION("a passenger mid-split drops the split morph") {
+        chaff.replication_pulse[0] = 1.0f;
+        chaff.replication_origin_x[0] = 9.0f;
+        chaff.replication_origin_y[0] = 10.0f;
+        build_chaff_batches(chaff, occ, params, dest.data(), nullptr);
+        REQUIRE((dest[0].flags & kVisualLatched) != 0u);
+        REQUIRE((dest[0].flags & kVisualSplitActive) == 0u);
+        REQUIRE(dest[0].rotation == Approx(2.0f));
+    }
+
+    SECTION("with the throb off the agent draws as a walker") {
+        LatchThrobParams off = family_latch_throb(PathogenFamily::Virus);
+        const LatchThrobParams saved = off;
+        off.enabled = false;
+        set_family_latch_throb(PathogenFamily::Virus, off);
+        build_chaff_batches(chaff, occ, params, dest.data(), nullptr);
+        set_family_latch_throb(PathogenFamily::Virus, saved);
+        REQUIRE((dest[0].flags & kVisualLatched) == 0u);
+        REQUIRE(dest[0].rotation == Approx(0.0f));
+        REQUIRE(dest[0].pad == Approx(family_visual(PathogenFamily::Virus).wobble));
+    }
+}
+
 TEST_CASE("family_visual assigns distinct silhouette/tempo per family", "[render][batch][readability]") {
     // DESIGN.md §6: colour = family, silhouette = threat tier, tempo = speed
     // tier. Enforce structurally: no two families should accidentally share

@@ -176,7 +176,9 @@ F1 debug overlay · TAB threat overlay · SPACE pause · `,`/`.` speed · F12 sc
 ```
 
 Metrics: `chaff_count`, `named_count`, `total_density`, `objective_integrity`,
-`chaff_killed_total`, `chaff_leaked_total`, `tick`, `state_hash`.
+`chaff_killed_total`, `chaff_leaked_total`, `active_squads`, `chaff_latched`,
+`swarmers_killed_total`, `towers_lost_total`, `tick`, `state_hash`, plus the
+per-family forms `chaff_{spawned,killed,leaked,despawned}.<family>`.
 Operators: `==` `!=` `<` `<=` `>` `>=`.
 Families: `virus` `bacteria`.
 

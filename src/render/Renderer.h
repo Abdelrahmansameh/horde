@@ -60,6 +60,13 @@ namespace immune::render {
 
 class Camera;
 
+/// Global switch for every drop shadow the renderer draws: the chaff sprite's
+/// contact shadow (chaff.frag), the named-agent and tower shadows
+/// (entity.frag) and the swarmer shadows (swarmer.frag). Uploaded to those
+/// programs as `u_shadows` every frame, so flipping it here is the whole
+/// change; nothing else in the pipeline knows shadows exist.
+inline constexpr bool kShadowsEnabled = false;
+
 struct RendererDesc {
     i32 framebuffer_width = 1600;
     i32 framebuffer_height = 900;

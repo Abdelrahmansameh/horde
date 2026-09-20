@@ -7,6 +7,7 @@
 #include "core/Rng.h"
 #include "sim/CombatEvents.h"
 #include "sim/chaff/ChaffBuffers.h"
+#include "sim/flowfield/FlowField.h"
 #include "sim/spatial/SpatialHash.h"
 
 #include <catch2/catch_approx.hpp>
@@ -30,6 +31,7 @@ struct Harness {
     ChaffBuffers chaff;
     ProjectileBuffers rounds;
     SpatialHash hash;
+    TissueMask tissue;
     ProjectileSystem sys;
     Rng rng{0xC0FFEEu};
     Rect bounds{Vec2{0.0f, 0.0f}, Vec2{100.0f, 100.0f}};
@@ -70,7 +72,15 @@ struct Harness {
 
     ProjectileStats step(CombatEventSink* sink = nullptr, f32 dt = kFixedDt) {
         hash.rebuild(chaff.pos_x.data(), chaff.pos_y.data(), chaff.count(), nullptr);
-        return sys.update(rounds, chaff, hash, bounds, rng, dt, sink);
+        return sys.update(rounds, chaff, hash, tissue, bounds, rng, dt, sink);
+    }
+
+    void add_vertical_wall(i32 wall_x) {
+        tissue.resize(100, 100, 1.0f, Vec2{0.0f, 0.0f});
+        for (i32 y = 0; y < tissue.height(); ++y) {
+            for (i32 x = 0; x < tissue.width(); ++x) tissue.set_walkable(x, y, true);
+            tissue.set_walkable(wall_x, y, false);
+        }
     }
 };
 
@@ -205,6 +215,62 @@ TEST_CASE("a round in a different cell than the agent does not hit it",
     const ProjectileStats s = h.step();
     REQUIRE(s.impacts == 0);
     REQUIRE(h.chaff.density[0] == Catch::Approx(5.0f));
+}
+
+TEST_CASE("a round collides with a wall, emits its impact, and is destroyed",
+          "[sim][projectile][walls][events]") {
+    Harness h;
+    h.add_vertical_wall(50);
+    h.add_chaff(51.5f, 50.5f, 5.0f);
+    // Travels two units this tick and would tunnel through the one-cell wall
+    // if collision only sampled the endpoint.
+    h.add_round(Vec2{49.5f, 50.5f}, Vec2{120.0f, 0.0f}, 2.0f, 1.0f, 0.5f);
+
+    CombatEventSink sink;
+    sink.reserve(8);
+    const ProjectileStats s = h.step(&sink);
+
+    REQUIRE(s.wall_impacts == 1);
+    REQUIRE(s.impacts == 0);
+    REQUIRE(s.live == 0);
+    REQUIRE(h.rounds.count() == 0);
+    REQUIRE(h.chaff.density[0] == Catch::Approx(5.0f));
+    REQUIRE(sink.size() == 1);
+    const CombatEvent& e = sink.events()[0];
+    REQUIRE(e.type == CombatEventType::ProjectileImpact);
+    REQUIRE(e.source == TowerType::Neutrophil);
+    REQUIRE(e.target_family == PathogenFamily::Count);
+    REQUIRE(e.origin.x == Catch::Approx(50.0f));
+    REQUIRE(e.origin.y == Catch::Approx(50.5f));
+}
+
+TEST_CASE("a round flies through a runtime block and hits what stands behind it",
+          "[sim][projectile][walls]") {
+    // The same one-cell wall, but laid by the player at runtime -- a Fibrin
+    // Clot, a Fibroblast's scar (sim/flowfield/RuntimeBlock.h) -- which the
+    // mask flags as a runtime block. Walls to the horde, not to its own
+    // side's rounds: the round crosses it and lands on the agent beyond.
+    Harness h;
+    h.add_vertical_wall(50);
+    for (i32 y = 0; y < h.tissue.height(); ++y) h.tissue.set_runtime_block(50, y, true);
+    REQUIRE_FALSE(h.tissue.walkable(50, 50));
+    REQUIRE_FALSE(h.tissue.authored_wall(50, 50));
+    REQUIRE(h.tissue.authored_wall(-1, 50));   // off the grid is still a wall
+    h.add_chaff(51.5f, 50.5f, 5.0f);
+    h.add_round(Vec2{49.5f, 50.5f}, Vec2{120.0f, 0.0f}, 2.0f, 1.0f, 0.5f);
+
+    CombatEventSink sink;
+    sink.reserve(8);
+    const ProjectileStats s = h.step(&sink);
+
+    REQUIRE(s.wall_impacts == 0);
+    REQUIRE(s.impacts == 1);
+    REQUIRE(h.chaff.density[0] == Catch::Approx(3.0f));
+
+    // Handed back to the tissue, the cell is neither.
+    h.tissue.set_walkable(50, 50, true);
+    h.tissue.set_runtime_block(50, 50, false);
+    REQUIRE_FALSE(h.tissue.authored_wall(50, 50));
 }
 
 TEST_CASE("hit_radius is an exact test inside the cell", "[sim][projectile]") {
@@ -391,6 +457,7 @@ TEST_CASE("impacts and expiries are reported to an attached sink",
     for (const CombatEvent& e : sink.events()) {
         if (e.type == CombatEventType::ProjectileImpact) {
             saw_impact = true;
+            REQUIRE(e.source == TowerType::Neutrophil);
             REQUIRE(e.target_family == PathogenFamily::Bacteria);
             REQUIRE(e.magnitude == Catch::Approx(4.0f));
             REQUIRE(e.origin.x == Catch::Approx(50.0f));
@@ -626,7 +693,7 @@ TEST_CASE("projectile update cost tracks round count, not chaff count",
         f64 best_ms = 1.0e30;
         for (int t = 0; t < ticks; ++t) {
             const auto t0 = std::chrono::steady_clock::now();
-            h.sys.update(h.rounds, h.chaff, h.hash, h.bounds, h.rng, kFixedDt, nullptr);
+            h.sys.update(h.rounds, h.chaff, h.hash, h.tissue, h.bounds, h.rng, kFixedDt, nullptr);
             const auto t1 = std::chrono::steady_clock::now();
             const f64 ms = std::chrono::duration<f64, std::milli>(t1 - t0).count();
             if (ms < best_ms) best_ms = ms;

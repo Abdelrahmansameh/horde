@@ -6,21 +6,25 @@
   "max_chaff": 20000,
   "level": "assets/levels/gym.json",
   "actions": [
-    { "tick": 0,  "type": "cmd", "cmd": "config get towers.macrophage.3.payload.burst_damage" },
+    { "tick": 0,  "type": "cmd", "cmd": "config get towers.macrophage.3.payload.arm_count" },
     { "tick": 0,  "type": "cmd", "cmd": "invuln on" },
 
     { "tick": 1,  "type": "cmd", "cmd": "spawn bacteria 1200 at p_lymph radius 8" },
-    { "tick": 2,  "type": "cmd", "cmd": "tower macrophage at 120,75 tier 3" },
+    { "tick": 2,  "type": "cmd", "cmd": "tower macrophage at 220,395 tier 3" },
+    { "tick": 2,  "type": "cmd", "cmd": "wave start" },
+    { "tick": 3,  "type": "cmd", "cmd": "fire" },
     { "tick": 120, "type": "cmd", "cmd": "kill all" },
 
-    { "tick": 130, "type": "cmd", "cmd": "config set towers.macrophage.3.payload.burst_damage 0" },
-    { "tick": 130, "type": "cmd", "cmd": "config set towers.macrophage.3.payload.burst_radius 0.1" },
+    { "tick": 129, "type": "cmd", "cmd": "sell all" },
+    { "tick": 130, "type": "cmd", "cmd": "config set towers.macrophage.3.payload.arm_count 0" },
+    { "tick": 130, "type": "cmd", "cmd": "config set towers.macrophage.3.payload.wall_spacing 0.1" },
     { "tick": 131, "type": "cmd", "cmd": "spawn bacteria 1200 at p_lymph radius 8" },
-    { "tick": 132, "type": "cmd", "cmd": "tower macrophage at 120,75 tier 3" }
+    { "tick": 132, "type": "cmd", "cmd": "tower macrophage at 220,395 tier 3" },
+    { "tick": 133, "type": "cmd", "cmd": "fire" }
   ],
   "assertions": [
     { "tick": 0,   "metric": "chaff_count",       "op": "==", "value": 0 },
-    { "tick": 120, "metric": "chaff_killed_total", "op": ">",  "value": 0 },
+    { "tick": 100, "metric": "chaff_killed_total", "op": ">",  "value": 0 },
     { "tick": 240, "metric": "chaff_count",       "op": ">",  "value": 0 },
     { "tick": 240, "metric": "state_hash",        "op": "!=", "value": 0 }
   ]

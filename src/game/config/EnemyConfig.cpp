@@ -23,6 +23,8 @@ IMMUNE_CONFIG_SCHEMA_ASSERT(FamilyChaffParams);
 IMMUNE_CONFIG_SCHEMA_ASSERT(vfx::FamilyDeathVfx);
 IMMUNE_CONFIG_SCHEMA_ASSERT(sim::HitFlashParams);
 IMMUNE_CONFIG_SCHEMA_ASSERT(sim::ReplicationSplitParams);
+IMMUNE_CONFIG_SCHEMA_ASSERT(render::LatchThrobParams);
+IMMUNE_CONFIG_SCHEMA_ASSERT(sim::HostileFamilyParams);
 IMMUNE_CONFIG_SCHEMA_ASSERT(BaseAttackParams);
 IMMUNE_CONFIG_SCHEMA_ASSERT(EliteStatsParams);
 
@@ -129,6 +131,39 @@ constexpr Field kReplicationSplitFields[] = {
 };
 constexpr Schema kReplicationSplitSchema{"family_replication_split", kReplicationSplitFields};
 
+// The feeding animation of a latched agent (render/LatchThrob.h). Amplitudes
+// are in the sprite's local units, where the virus capsid has radius 0.36.
+constexpr Field kLatchThrobFields[] = {
+    IMMUNE_CONFIG_FIELD(render::LatchThrobParams, enabled, FieldKind::Bool, "False draws a latched agent exactly as a walking one"),
+    IMMUNE_CONFIG_FIELD(render::LatchThrobParams, rate, FieldKind::F32, "Pump strokes per second (average; the rhythm is irregular)"),
+    IMMUNE_CONFIG_FIELD(render::LatchThrobParams, throb, FieldKind::F32, "Whole-body breathing amplitude, local units"),
+    IMMUNE_CONFIG_FIELD(render::LatchThrobParams, slosh, FieldKind::F32, "Volume shifted toward the host per stroke, local units"),
+    IMMUNE_CONFIG_FIELD(render::LatchThrobParams, wave, FieldKind::F32, "Height of the peristaltic slugs rolling toward the host, local units"),
+    IMMUNE_CONFIG_FIELD(render::LatchThrobParams, wave_count, FieldKind::F32, "Slugs per half-circumference; more is finer and faster"),
+    IMMUNE_CONFIG_FIELD(render::LatchThrobParams, ripple, FieldKind::F32, "Fine skin shimmer between strokes, local units"),
+    IMMUNE_CONFIG_FIELD(render::LatchThrobParams, squash, FieldKind::F32, "Bellows compression toward the host on the push, fraction of body length"),
+    IMMUNE_CONFIG_FIELD(render::LatchThrobParams, probe, FieldKind::F32, "Length of the tube reaching into the host, local units; 0 draws none"),
+    IMMUNE_CONFIG_FIELD(render::LatchThrobParams, stream, FieldKind::F32, "Brightness of the beaded cargo channel into the host, 0..1"),
+    IMMUNE_CONFIG_FIELD(render::LatchThrobParams, glow, FieldKind::F32, "How much the push lights the whole body, fraction of its colour"),
+};
+constexpr Schema kLatchThrobSchema{"family_latch_throb", kLatchThrobFields};
+
+// How the family hurts the player's cells (sim/hostile/HostileAttacks.h). A
+// family may carry either attack or both; all zero is a harmless one.
+constexpr Field kAttackFields[] = {
+    IMMUNE_CONFIG_FIELD(sim::HostileFamilyParams, latch_dps, FieldKind::F32, "Hit points/sec one latched agent takes off the tower or swarmer it rides; 0 = never latches"),
+    IMMUNE_CONFIG_FIELD(sim::HostileFamilyParams, latch_reach, FieldKind::F32, "Extra reach past body contact at which a latch happens, world units"),
+    IMMUNE_CONFIG_FIELD(sim::HostileFamilyParams, latch_cap_swarmer, FieldKind::U32, "Most agents of this family one swarmer carries at once"),
+    IMMUNE_CONFIG_FIELD(sim::HostileFamilyParams, latch_cap_tower, FieldKind::U32, "Most agents of this family one tower carries at once"),
+    IMMUNE_CONFIG_FIELD(sim::HostileFamilyParams, latch_cap_scar, FieldKind::U32, "Most agents of this family one collagen scar (Fibroblast wall) carries at once"),
+    IMMUNE_CONFIG_FIELD(sim::HostileFamilyParams, latch_speed, FieldKind::F32, "Lunge speed toward the spot on the host's membrane, world units/sec; full speed from the first tick"),
+    IMMUNE_CONFIG_FIELD(sim::HostileFamilyParams, latch_ease_distance, FieldKind::F32, "Distance from the spot inside which the lunge brakes, world units"),
+    IMMUNE_CONFIG_FIELD(sim::HostileFamilyParams, latch_ease_power, FieldKind::F32, "Ease-out exponent: speed scales by (distance/ease_distance)^power; higher is a later, heavier brake"),
+    IMMUNE_CONFIG_FIELD(sim::HostileFamilyParams, aura_dps, FieldKind::F32, "Hit points/sec dealt to every tower or swarmer whose body is inside the aura; 0 = no aura"),
+    IMMUNE_CONFIG_FIELD(sim::HostileFamilyParams, aura_radius, FieldKind::F32, "Aura reach from the agent's centre to the victim's membrane, world units"),
+};
+constexpr Schema kAttackSchema{"family_attack", kAttackFields};
+
 constexpr Field kBaseAttackFields[] = {
     IMMUNE_CONFIG_FIELD(BaseAttackParams, active, FieldKind::F32, "Seconds the strike is live"),
     IMMUNE_CONFIG_FIELD(BaseAttackParams, recovery, FieldKind::F32, "Seconds of recovery after a strike"),
@@ -170,7 +205,8 @@ const char* speed_tier_key(SpeedTier t) {
 }
 
 constexpr std::string_view kFamilyEntryKeys[] = {"speed_tier", "visual", "behavior", "chaff",
-                                                 "death_vfx", "hit_flash", "replication_split"};
+                                                 "death_vfx", "hit_flash", "replication_split",
+                                                 "latch_throb", "attack"};
 constexpr std::string_view kEliteEntryKeys[] = {"id", "name", "family", "tier", "stats"};
 
 } // namespace
@@ -241,6 +277,16 @@ void parse_enemies(const Json& doc, EnemyConfig& out, config::Ctx& ctx) {
                 config::Ctx::Scope r(ctx, "replication_split");
                 config::parse_struct(config::require_object(entry, "replication_split", ctx),
                                      kReplicationSplitSchema, &fc.replication_split, ctx);
+            }
+            {
+                config::Ctx::Scope l(ctx, "latch_throb");
+                config::parse_struct(config::require_object(entry, "latch_throb", ctx),
+                                     kLatchThrobSchema, &fc.latch_throb, ctx);
+            }
+            {
+                config::Ctx::Scope a(ctx, "attack");
+                config::parse_struct(config::require_object(entry, "attack", ctx), kAttackSchema,
+                                     &fc.attack, ctx);
             }
         }
     }
@@ -313,6 +359,12 @@ Json dump_enemies(const EnemyConfig& cfg) {
         Json replication_split = Json::object();
         config::dump_struct(replication_split, kReplicationSplitSchema, &fc.replication_split);
         entry["replication_split"] = std::move(replication_split);
+        Json latch_throb = Json::object();
+        config::dump_struct(latch_throb, kLatchThrobSchema, &fc.latch_throb);
+        entry["latch_throb"] = std::move(latch_throb);
+        Json attack = Json::object();
+        config::dump_struct(attack, kAttackSchema, &fc.attack);
+        entry["attack"] = std::move(attack);
         families[family_key(static_cast<PathogenFamily>(i))] = std::move(entry);
     }
     doc["families"] = std::move(families);
@@ -354,6 +406,8 @@ void bind_enemies(config::Registry& registry, EnemyConfig& cfg) {
         registry.bind(base + "hit_flash", kHitFlashSchema, &cfg.families[i].hit_flash);
         registry.bind(base + "replication_split", kReplicationSplitSchema,
                       &cfg.families[i].replication_split);
+        registry.bind(base + "latch_throb", kLatchThrobSchema, &cfg.families[i].latch_throb);
+        registry.bind(base + "attack", kAttackSchema, &cfg.families[i].attack);
     }
     registry.bind("enemies.base_attack", kBaseAttackSchema, &cfg.base_attack);
     for (EliteConfig& ec : cfg.elites) {

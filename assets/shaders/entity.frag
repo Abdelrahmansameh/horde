@@ -12,11 +12,14 @@
 //       burst-fade progress in [0,1])
 //   5 = fibrin clot bar (game/abilities Fibrin Clot; v_shape_param is the
 //       bar's aspect, half_length / half_width, and v_tint.a its dissolve)
+//   6 = collagen scar bar (sim/scar, the Fibroblast's wall; v_shape_param is
+//       the aspect as for 5, and v_tint.a its remaining INTEGRITY fraction)
 // Tower shape ids start at 16 (kTowerShapeBase in TowerSystem.cpp) and run in
 // TowerType declaration order, so id == 16 + TowerType:
-//   16 = Neutrophil   17 = Macrophage   18 = Interferon
-//   19 = Cytotoxic T  20 = Goblet Cell
-// (21 was the NK Cell's rotor; retired with the swarmer roster.)
+//   16 = Neutrophil   17 = Macrophage (branching multi-grabber)
+//   18 = Interferon   19 = Cytotoxic T
+//   20 = Goblet Cell  21 = Fibroblast
+// (21 was the NK Cell's rotor before the swarmer roster retired it.)
 // Any other id falls back to the filled blob.
 
 in vec2  v_local;
@@ -32,6 +35,11 @@ in float v_shape_param;
 /// Instance world rotation; see entity.vert. Used to hold a feature still while
 /// the quad spins.
 in float v_rotation;
+
+// render::kShadowsEnabled as 0/1: a global kill switch for every drop shadow
+// this pass draws. Applied once, in over_shadow(), which every shadowed
+// shape composites through.
+layout(location = 1) uniform float u_shadows;
 
 out vec4 o_color;
 
@@ -142,8 +150,8 @@ float sdf_neutrophil(vec2 p, float phase, out float nucleus_d, out float granule
 
 /// Smooth maximum — the counterpart to smin(), and what CARVES a shape instead
 /// of growing one. smax(body, -hole, k) subtracts `hole` from `body` with a
-/// rounded lip rather than a knife edge, which is how the Macrophage gets a maw
-/// that reads as a mouth of soft membrane instead of a bite taken with scissors.
+/// rounded lip rather than a knife edge, which is how a body gets a mouth or
+/// cleft that reads as soft membrane instead of a bite taken with scissors.
 float smax(float a, float b, float k) { return -smin(-a, -b, k); }
 
 /// Rotates a point. For features that must turn independently of the quad.
@@ -173,114 +181,75 @@ float sdf_hexagon(vec2 p, float r) {
 }
 
 // ---------------------------------------------------------------------------
-// MORTAR — Macrophage.
+// ARBOR GRABBER — Macrophage.
 //
 // The heaviest silhouette in the roster, and it has to read that way from the
 // build menu onward: the Macrophage is the tower you place when a clump needs
 // deleting, so it is the widest, lumpiest, slowest-moving thing on the tissue.
-//
-// Three features carry it, and all three are real macrophage anatomy:
-//   1. MEMBRANE RUFFLES. A live macrophage's surface is in constant ruffling
-//      motion. A low-order angular ripple on the radius buys that without a
-//      second fbm, and it is what stops the body reading as the big smooth ball
-//      it replaces.
-//   2. THE MAW. Local +x is the aim direction (entity.vert rotates the whole
-//      quad), so a bite carved out of the LEADING edge with smax() gives the
-//      tower a mouth that always faces what it is about to shell, flanked by
-//      two lip lobes. Strongest "which way am I pointing" cue on any tower
-//      here, and it costs one subtraction.
-//   3. PHAGOSOMES. Real macrophages are stuffed with vesicles mid-digestion.
-//      Here they double as ammunition — `loaded_glow` marks one fat vesicle
-//      held right at the maw, brighter than the rest and breathing, so the
-//      tower visibly has a shell chambered.
-//
-// Pseudopods are pushed to the flanks and rear deliberately: a pod reaching
-// forward would fill the maw and destroy the directional read.
+// Its tower silhouette previews the released unit's defining feature: roots
+// that fork into fine branching fingers reaching in every direction.
 // ---------------------------------------------------------------------------
-const float kMacroBodyR = 0.300;
+float sdf_tapered_segment(vec2 p, vec2 a, vec2 b, float ra, float rb) {
+    vec2 ba = b - a;
+    float h = clamp(dot(p - a, ba) / max(dot(ba, ba), 1e-8), 0.0, 1.0);
+    return length(p - a - ba * h) - mix(ra, rb, h);
+}
 
-float sdf_macrophage(vec2 p, float phase, float tier, out float nucleus_d,
-                     out float vesicle_d, out float loaded_glow, out float loaded_spec,
-                     out float granule) {
-    // Coarser and slower warp than the neutrophil's: this is a big cell, and
-    // fine high-frequency writhe at this size reads as boiling noise.
-    float wx = fbm(p * 2.4 + vec2(phase * 0.09, 0.0)) - 0.5;
-    float wy = fbm(p * 2.4 + vec2(3.7, -phase * 0.08)) - 0.5;
-    vec2 wp = p + vec2(wx, wy) * 0.19;
+float sdf_macrophage(vec2 p, float phase, float tier,
+                      out float nucleus_d, out float granule) {
+    float wx = fbm(p * 2.8 + vec2(phase * 0.10, 0.0)) - 0.5;
+    float wy = fbm(p * 2.8 + vec2(4.8, -phase * 0.08)) - 0.5;
+    vec2 wp = p + vec2(wx, wy) * 0.15;
+    float a = atan(wp.y, wp.x);
+    float body = length(wp) - (0.32 + 0.025 * sin(a * 9.0 + phase * 0.46)
+                                      + 0.012 * sin(a * 15.0 - phase * 0.34));
 
-    float ang = atan(wp.y, wp.x);
-    // Both harmonics use INTEGER multiples of the angle so the ripple closes on
-    // itself at +-pi; a fractional factor puts a seam down the cell's left side.
-    float ruffle = 0.024 * sin(ang * 7.0 + phase * 0.45)
-                 + 0.013 * sin(ang * 13.0 - phase * 0.31);
-    float body = length(wp) - (kMacroBodyR + ruffle);
-
-
-    // FIVE pseudopods, walked around the REAR 250 degrees only. Both numbers
-    // are load-bearing:
-    //   - Five, not four. Four lobes at mirrored angles resolve into a rounded
-    //     SQUARE, the one silhouette a cell must never have; sdf_neutrophil
-    //     documents the same trap and dodges it the same way.
-    //   - Rear only. The front sector belongs to the maw and its lips, and a
-    //     pod growing into it fills the mouth and kills the directional read.
-    // Same fixed-hash-per-index idiom as the neutrophil, so a given lobe is
-    // stable frame to frame but the set is irregular.
+    int arm_count = int(clamp(2.0 + tier, 3.0, 5.0));
     for (int k = 0; k < 5; ++k) {
+        if (k >= arm_count) break;
         float fk = float(k);
-        float a = 0.95 + fk * 0.87 + 0.30 * fract(sin(fk * 12.9898) * 43758.5453)
-                + 0.10 * sin(phase * 0.33 + fk);
-        // Short and fat, fused hard. Reaching pods turn this body into a star;
-        // the Macrophage has to stay the CHUNKY silhouette, so the pods read as
-        // bulges in a heavy cell rather than as limbs.
-        float dist = 0.205 + 0.055 * fract(sin(fk * 78.233) * 43758.5453);
-        float rad  = 0.110 + 0.035 * fract(sin(fk * 39.425) * 43758.5453);
-        body = smin(body, length(wp - vec2(cos(a), sin(a)) * dist) - rad, 0.17);
+        float ang = fk * 6.2831853 / float(arm_count) +
+                    0.16 * sin(phase * 0.31 + fk * 1.9);
+        vec2 dir = vec2(cos(ang), sin(ang));
+        vec2 side = vec2(-dir.y, dir.x);
+        float wave = 0.045 * sin(phase * 0.58 + fk * 2.37);
+        vec2 root = dir * 0.16;
+        vec2 joint = dir * 0.43 + side * wave;
+        vec2 tip = dir * (0.62 + 0.025 * sin(phase * 0.42 + fk)) + side * wave * 0.4;
+        float tree = sdf_tapered_segment(p, root, joint, 0.105, 0.045);
+        tree = min(tree, sdf_tapered_segment(p, joint, tip, 0.047, 0.014));
+
+        for (int j = 0; j < 2; ++j) {
+            float sign_side = j == 0 ? -1.0 : 1.0;
+            vec2 origin = mix(joint, tip, 0.42 + float(j) * 0.28);
+            vec2 branch_dir = normalize(dir * 0.80 + side * sign_side * 0.58);
+            vec2 branch_tip = origin + branch_dir * (0.16 - float(j) * 0.025);
+            tree = min(tree, sdf_tapered_segment(p, origin, branch_tip, 0.030, 0.006));
+            vec2 twig_side = vec2(-branch_dir.y, branch_dir.x);
+            for (int f = 0; f < 2; ++f) {
+                float sf = f == 0 ? -1.0 : 1.0;
+                vec2 finger_dir = normalize(branch_dir * 0.82 + twig_side * sf * 0.42);
+                tree = min(tree, sdf_tapered_segment(p, branch_tip,
+                                                     branch_tip + finger_dir * 0.075,
+                                                     0.008, 0.002));
+            }
+        }
+        body = smin(body, tree, 0.075);
     }
 
-    // Lips first, THEN the bite — carving last is what gives them a concave
-    // inner face instead of two beads stuck either side of a hole.
-    for (int k = 0; k < 2; ++k) {
-        float side = (k == 0) ? 1.0 : -1.0;
-        float a = side * (0.78 + 0.06 * sin(phase * 0.4 + side));
-        body = smin(body, length(p - vec2(cos(a), sin(a)) * 0.315) - 0.100, 0.10);
-    }
-    // A SHALLOW bite. The obvious mistake here is to carve deep for a dramatic
-    // mouth: at any depth past about a third of the radius the cutter meets the
-    // pseudopods either side and the whole body resolves into a C, or worse an
-    // X, which throws away the one thing this tower's silhouette is for.
-    float maw = length(p - vec2(0.385 + 0.015 * sin(phase * 0.4), 0.0)) - 0.160;
-    body = smax(body, -maw, 0.050);
-
-    // Kidney-bean nucleus: two fused blobs with a notch bitten out of one side.
-    // The indentation is the whole point — a round nucleus here would be
-    // indistinguishable from one more phagosome.
-    vec2 nc = vec2(-0.115, 0.030);
-    float n1 = length(p - nc - vec2( 0.045,  0.035)) - 0.078;
-    float n2 = length(p - nc - vec2(-0.045, -0.020)) - 0.072;
-    nucleus_d = smin(n1, n2, 0.050);
-    nucleus_d = smax(nucleus_d, -(length(p - nc - vec2(0.020, -0.105)) - 0.070), 0.035);
-
-    // Phagosomes. Count is 3 + tier, so an upgrade shows up in the body itself.
-    vesicle_d = 1e9;
-    float vesicles = 3.0 + tier;
+    // Uneven body lobes bridge the roots and keep the central mass amoeboid.
     for (int k = 0; k < 6; ++k) {
-        if (float(k) >= vesicles) break;
         float fk = float(k);
-        float a = phase * 0.12 + fk * 1.70 + 1.20;
-        float dist = 0.145 + 0.055 * fract(sin(fk * 91.71) * 43758.5453);
-        float r = 0.030 + 0.020 * fract(sin(fk * 27.13) * 43758.5453);
-        vesicle_d = min(vesicle_d, length(p - vec2(cos(a), sin(a)) * dist) - r);
+        float ang = fk * 1.0472 + 0.13 * sin(phase * 0.27 + fk);
+        vec2 c = vec2(cos(ang), sin(ang)) * (0.23 + 0.025 * sin(fk * 2.1));
+        body = smin(body, length(wp - c) - (0.080 + 0.015 * sin(fk * 3.7)), 0.11);
     }
-    // The chambered shell, held at the maw and breathing.
-    float loaded_d = length(p - vec2(0.185, 0.0)) - (0.062 + 0.006 * sin(phase * 1.1));
-    loaded_glow = 1.0 - smoothstep(-0.010, 0.022, loaded_d);
-    // A specular cap up and left, matching the key light the rest of the scene
-    // is lit by (see kEntityShadowDir below, and tissue.frag). Filling the
-    // shell white instead reads as a hole in the cell rather than a wet vesicle.
-    loaded_spec = 1.0 - smoothstep(0.0, 0.030, length(p - vec2(0.163, 0.024)));
-    vesicle_d = min(vesicle_d, loaded_d);
 
-    granule = smoothstep(0.60, 0.80, fbm(p * 13.0 + vec2(phase * 0.04, 0.0)));
+    vec2 nc = vec2(-0.045, 0.018);
+    float n1 = length(p - nc - vec2(0.040, 0.028)) - 0.074;
+    float n2 = length(p - nc - vec2(-0.040, -0.020)) - 0.067;
+    nucleus_d = smin(n1, n2, 0.045);
+    granule = smoothstep(0.61, 0.80, fbm(p * 14.0 + vec2(phase * 0.045, 0.0)));
     return body;
 }
 
@@ -656,6 +625,103 @@ float sdf_clot(vec2 p, float aspect, float phase, float dissolve, out float plat
     return body;
 }
 
+// ---------------------------------------------------------------------------
+// COLLAGEN SCAR -- the Fibroblast's wall (sim/scar).
+//
+// Scar tissue is collagen laid down in dense parallel bundles, and that is
+// the read here: the same rounded bar the sim carved, less frayed than the
+// clot (this is a structure, not a tangle), striped end to end with fibre
+// bundles that run ALONG the bar. No platelets -- collagen is the fibroblast's
+// own product, nothing is caught in it.
+//
+// `damage` is 1 - v_tint.a: the horde chews the wall from its faces, so the
+// bar loses thickness in noisy bites along its length and cracks open along
+// the fibre lines as its integrity falls, and at nothing it is gone. The
+// bites are seeded by position, not by time, so a wall that is being eaten
+// looks eaten in one place rather than shimmering everywhere.
+// ---------------------------------------------------------------------------
+float sdf_scar(vec2 p, float aspect, float phase, float damage, out float fibre,
+               out float crack) {
+    vec2 he = vec2(0.5, 0.5 / max(aspect, 1.0));
+    // A slight, slow writhe along the long edges: collagen creeps.
+    float w = fbm(vec2(p.x * 7.0 + phase * 0.02, p.y * 10.0 + 1.9)) - 0.5;
+    vec2 wp = vec2(p.x, p.y + w * he.y * 0.30);
+    float r = he.y * 0.70;
+    vec2 q = abs(wp) - (he - vec2(r));
+    float box = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r;
+
+    // Bites: the faces are chewed in where the noise says the crowd was.
+    // Deeper toward the ends first, so a wall dies from its tips inward and
+    // the last of it is the middle still holding.
+    float bite = vnoise(vec2(p.x * 9.0 + 5.1, 0.0)) * 0.7 + vnoise(vec2(p.x * 23.0, 2.2)) * 0.3;
+    float thin = damage * he.y * (0.55 + 0.9 * bite) * (0.8 + 0.5 * abs(p.x) / he.x);
+    float body = box + thin;
+
+    // Fibre bundles: bands running along the bar, gently waved.
+    float band = vnoise(vec2(p.x * 9.0 + phase * 0.01, p.y * 85.0));
+    fibre = smoothstep(0.38, 0.62, band);
+    // Cracks open along the bands as integrity falls: long in x, thin in y,
+    // so they read as splits between fibre bundles and not as pockmarks.
+    float cn = vnoise(vec2(p.x * 7.0 + 2.3, p.y * 75.0 + 7.0)) * 0.7 + vnoise(vec2(p.x * 19.0, p.y * 140.0)) * 0.3;
+    crack = smoothstep(1.0 - damage * 0.85, 1.0 - damage * 0.85 + 0.10, cn) * step(0.0, -body);
+    return body;
+}
+
+// ---------------------------------------------------------------------------
+// BUILDER -- Fibroblast.
+//
+// A fibroblast is the spindle of the cell world: a long tapered body with
+// an oval nucleus in its waist and thin processes trailing from both tips,
+// crawling through the matrix it lays down. So this is the one tower body
+// that is not round at all: a fusiform soma, warped just enough to read as a
+// membrane, a central ellipsoid nucleus, and `2 + tier` fine processes
+// reaching out of the two ends, which is the countable feature an upgrade
+// adds. Inside, faint fibre streaks run along the long axis -- the collagen
+// the cell is full of, and the same striping its scars carry, so the wall
+// and the cell that laid it read as one material.
+// ---------------------------------------------------------------------------
+float sdf_fibroblast(vec2 p, float phase, float tier, out float nucleus_d,
+                     out float fibre, out float process_d) {
+    float wx = fbm(p * 5.0 + vec2(phase * 0.08, 0.0)) - 0.5;
+    float wy = fbm(p * 5.0 + vec2(3.1, -phase * 0.07)) - 0.5;
+    vec2 wp = p + vec2(wx, wy) * 0.035;
+
+    // Fusiform soma: an ellipse whose across-axis squash grows toward the
+    // tips, so the ends draw to points instead of rounding off.
+    float taper = 2.3 + 3.2 * smoothstep(0.16, 0.44, abs(wp.x));
+    float body = length(vec2(wp.x, wp.y * taper)) - 0.44;
+    // A slight bow along the length -- fibroblasts are never quite straight.
+    body += 0.010 * sin(wp.x * 5.0 + phase * 0.3) * (1.0 - abs(wp.x) * 1.4);
+
+    // Processes: fine tapering filaments from each tip, fanned a little,
+    // 2 + tier of them split across the two ends.
+    process_d = 1e9;
+    int n = 2 + int(clamp(tier, 1.0, 3.0));
+    for (int k = 0; k < 5; ++k) {
+        if (k >= n) break;
+        float side = (k % 2 == 0) ? 1.0 : -1.0;
+        float fk = float(k / 2);
+        float fan = (fk - 0.5 * float((n - 1) / 2)) * 0.32 + 0.12 * sin(phase * 0.4 + fk * 1.7);
+        vec2 root = vec2(side * 0.41, 0.0);
+        vec2 dir = normalize(vec2(side * 1.0, fan));
+        float len = 0.16 + 0.05 * fk;
+        vec2 tip = root + dir * len;
+        // Thin at the tip, a touch thicker at the root.
+        float d = sdf_segment(p, root, tip, 0.012);
+        float along = clamp(dot(p - root, dir) / len, 0.0, 1.0);
+        process_d = min(process_d, d + along * 0.006);
+    }
+    body = smin(body, process_d, 0.03);
+
+    // Nucleus: an ellipsoid in the waist, long axis with the cell.
+    vec2 np = p - vec2(0.0, 0.0);
+    nucleus_d = length(vec2(np.x, np.y * 1.9)) - 0.115;
+
+    // Collagen streaks along the long axis.
+    fibre = smoothstep(0.42, 0.62, vnoise(vec2(p.x * 12.0 + phase * 0.02, p.y * 60.0)));
+    return body;
+}
+
 const vec2 kEntityShadowDir = vec2(0.085, -0.070);
 
 float entity_shadow(vec2 p, float radius) {
@@ -667,9 +733,45 @@ float entity_shadow(vec2 p, float radius) {
 /// result, so the pair resolves correctly against the destination blend.
 vec4 over_shadow(vec3 rgb, float body_a, float shadow_a) {
     const vec3 kShadowRgb = vec3(0.05, 0.01, 0.02);
+    shadow_a *= u_shadows;
     float out_a = body_a + shadow_a * (1.0 - body_a);
     if (out_a <= 0.001) return vec4(0.0);
     return vec4((rgb * body_a + kShadowRgb * shadow_a * (1.0 - body_a)) / out_a, out_a);
+}
+
+/// A tower's wounds. The horde chews on towers now (sim/hostile), and for the
+/// five tower bodies (shape 16-20) the renderer sends the tower's remaining
+/// INTEGRITY FRACTION in v_tint.a instead of an alpha (towers are never
+/// translucent; see submit_entities in Renderer.cpp). Every tower branch
+/// mixes its tint at 0.18 or less -- the bodies are authored colours, not
+/// tinted discs -- so a colour change through the tint would be invisible,
+/// and the wound has to be applied here, after each body has been shaded.
+///
+/// What it looks like: the cell goes dull and bruised, from the inside out.
+/// Lesions in a dark violet-red -- the bruise colour, deliberately not any
+/// pathogen family's colour, so it reads as "this cell is hurt" rather than
+/// "there is a virus here" -- creep across the body as a noise field whose
+/// threshold falls with integrity, and the whole body desaturates and darkens
+/// with it. At a third of its integrity a tower is unmistakably sick before
+/// the player opens its panel. `body_d` is the branch's own membrane SDF, so
+/// the lesions never stray outside the silhouette.
+vec3 wounded(vec3 rgb, float body_d, float integrity) {
+    float hurt = clamp(1.0 - integrity, 0.0, 1.0);
+    if (hurt <= 0.001) return rgb;
+    const vec3 kBruise = vec3(0.36, 0.10, 0.22);
+    // Lesion field: two octaves of value noise in body space, thresholded so
+    // that more of the body is lesion as integrity falls. Anchored to the
+    // interior (body_d < 0) and fading out at the rim so the membrane stays
+    // readable as the tower's edge.
+    float n = vnoise(v_local * 9.0 + 3.7) * 0.65 + vnoise(v_local * 21.0 + 11.3) * 0.35;
+    float lesion = smoothstep(1.0 - hurt * 0.95, 1.0 - hurt * 0.95 + 0.18, n);
+    float interior = clamp(-body_d * 6.0, 0.0, 1.0);
+    lesion *= interior;
+    // Whole-body sickness: desaturate and darken with the damage, on top of
+    // the lesions, so even the healthy patches look worn.
+    float lum = dot(rgb, vec3(0.30, 0.59, 0.11));
+    vec3 dull = mix(rgb, vec3(lum), hurt * 0.45) * mix(1.0, 0.72, hurt);
+    return mix(dull, kBruise, lesion * 0.85);
 }
 
 void main() {
@@ -755,6 +857,40 @@ void main() {
         o_color = over_shadow(rgb, a, sh);
         if (o_color.a <= 0.001) discard;
         return;
+    } else if (v_shape_id == 6u) {
+        // COLLAGEN SCAR. See sdf_scar above.
+        float damage = 1.0 - clamp(v_tint.a, 0.0, 1.0);
+        float fibre, crack;
+        float body_d = sdf_scar(v_local, v_shape_param, v_anim_phase, damage, fibre, crack);
+
+        float a = 1.0 - smoothstep(-0.018, 0.008, body_d);
+        float he_y = 0.5 / max(v_shape_param, 1.0);
+        vec2 hp = v_local - kEntityShadowDir;
+        float rr = he_y * 0.70;
+        vec2 hq = abs(hp) - (vec2(0.5, he_y) - vec2(rr));
+        float sd = length(max(hq, 0.0)) + min(max(hq.x, hq.y), 0.0) - rr;
+        float sh = (1.0 - smoothstep(-0.10, 0.03, sd)) * 0.42 * (1.0 - damage * 0.6);
+        if (a <= 0.0 && sh <= 0.0) discard;
+
+        float depth = clamp(-body_d / max(he_y, 1e-3), 0.0, 1.0);
+        // Collagen: pale, faintly warm, denser and rosier in the interior.
+        vec3 collagen = mix(vec3(1.00, 0.95, 0.92), v_tint.rgb, depth * 0.80);
+        // Fibre bundles a shade lighter and, between them, a shade deeper.
+        collagen = mix(collagen, vec3(1.00, 0.98, 0.96), fibre * 0.30 * depth);
+        collagen = mix(collagen, v_tint.rgb * 0.80, (1.0 - fibre) * 0.18 * depth);
+        // Cracks: dark seams where the wall is giving way.
+        vec3 rgb = mix(collagen, vec3(0.38, 0.16, 0.20), crack * 0.85);
+        // Chewed faces go bruised, like a wounded tower does.
+        float lum = dot(rgb, vec3(0.30, 0.59, 0.11));
+        rgb = mix(rgb, mix(vec3(lum), vec3(0.50, 0.22, 0.30), 0.5), damage * 0.35 * (1.0 - depth * 0.5));
+        float rim = 1.0 - smoothstep(0.0, 0.028, abs(body_d));
+        rgb = mix(rgb, vec3(1.0, 0.97, 0.95), rim * 0.55);
+
+        // Opaque up to whatever is left: a wall the horde cannot cross should
+        // never look see-through, and the damage is spent on the shape.
+        o_color = over_shadow(rgb, a, sh);
+        if (o_color.a <= 0.001) discard;
+        return;
     } else if (v_shape_id == 16u) {
         // GUNNER (Neutrophil). Tower shape ids start at 16; see
         // kTowerShapeBase in TowerSystem.cpp.
@@ -788,46 +924,36 @@ void main() {
         float rim = 1.0 - smoothstep(0.0, 0.055, abs(body_d));
         rgb = mix(rgb, vec3(1.0), rim * 0.68);
 
-        o_color = over_shadow(rgb, a * v_tint.a, sh);
+        // Towers carry integrity, not alpha, in v_tint.a: see wounded().
+        o_color = over_shadow(wounded(rgb, body_d, v_tint.a), a, sh);
         if (o_color.a <= 0.001) discard;
         return;
     } else if (v_shape_id == 17u) {
-        // MORTAR (Macrophage). Warm and heavy: the amber goes in much harder
-        // than the Gunner's 0.18 tint mix, because this tower's whole read is
-        // "the big orange one", and a near-white body would hand that job back
-        // to hue-matching against the particles.
-        float nucleus_d, vesicle_d, loaded_glow, loaded_spec, granule;
-        float body_d = sdf_macrophage(v_local, v_anim_phase, v_shape_param,
-                                      nucleus_d, vesicle_d, loaded_glow, loaded_spec, granule);
+        // ARBOR GRABBER (Macrophage). Its tower silhouette previews the
+        // released unit's defining feature: roots that fork into fine fingers
+        // reaching out in every direction.
+        float nucleus_d, granule;
+        float tier = floor(v_shape_param + 0.001);
+        float body_d = sdf_macrophage(v_local, v_anim_phase, tier,
+                                      nucleus_d, granule);
 
-        float a = 1.0 - smoothstep(-0.028, 0.010, body_d);
-        float sh = entity_shadow(v_local, 0.37);
+        float a = 1.0 - smoothstep(-0.022, 0.008, body_d);
+        float sh = entity_shadow(v_local, 0.38);
         if (a <= 0.0 && sh <= 0.0) discard;
 
-        float depth = clamp(-body_d * 4.5, 0.0, 1.0);
-        const vec3 kMacroHue = vec3(1.00, 0.66, 0.24);
-
-        vec3 cytoplasm = mix(vec3(1.00, 0.93, 0.80), vec3(0.86, 0.46, 0.13), depth);
-        cytoplasm = mix(cytoplasm, kMacroHue, 0.42);
+        float depth = clamp(-body_d * 4.7, 0.0, 1.0);
+        const vec3 kMacroHue = vec3(0.98, 0.42, 0.58);
+        vec3 cytoplasm = mix(vec3(1.00, 0.91, 0.92), vec3(0.64, 0.12, 0.27), depth);
+        cytoplasm = mix(cytoplasm, kMacroHue, 0.46);
         float in_cyto = smoothstep(0.0, 0.05, nucleus_d);
-        cytoplasm = mix(cytoplasm, vec3(1.00, 0.86, 0.55), granule * in_cyto * 0.40);
-
-        // Phagosomes read as the shells they are: hot amber with a bright wet
-        // rim, and the chambered one at the maw hotter still.
-        float ves = 1.0 - smoothstep(-0.010, 0.010, vesicle_d);
-        float ves_rim = 1.0 - smoothstep(0.0, 0.020, abs(vesicle_d));
-        vec3 rgb = mix(cytoplasm, vec3(1.00, 0.66, 0.18), ves * 0.88);
-        rgb = mix(rgb, vec3(1.00, 0.90, 0.62), ves_rim * 0.55);
-        rgb = mix(rgb, vec3(1.00, 0.78, 0.24), loaded_glow * 0.92);
-        rgb = mix(rgb, vec3(1.00, 0.98, 0.90), loaded_spec * 0.85);
+        vec3 rgb = mix(cytoplasm, vec3(1.00, 0.72, 0.78), granule * in_cyto * 0.35);
 
         float nuc = 1.0 - smoothstep(-0.012, 0.012, nucleus_d);
-        rgb = mix(rgb, vec3(0.40, 0.23, 0.24), nuc * 0.85);
+        rgb = mix(rgb, vec3(0.31, 0.09, 0.20), nuc * 0.86);
+        float rim = 1.0 - smoothstep(0.0, 0.042, abs(body_d));
+        rgb = mix(rgb, vec3(1.00, 0.91, 0.94), rim * 0.68);
 
-        float rim = 1.0 - smoothstep(0.0, 0.050, abs(body_d));
-        rgb = mix(rgb, vec3(1.00, 0.93, 0.78), rim * 0.70);
-
-        o_color = over_shadow(rgb, a * v_tint.a, sh);
+        o_color = over_shadow(wounded(rgb, body_d, v_tint.a), a, sh);
         if (o_color.a <= 0.001) discard;
         return;
     } else if (v_shape_id == 18u) {
@@ -863,7 +989,7 @@ void main() {
         // over the finished body rather than being mixed into its shading —
         // otherwise it would only ever show up where the body already is, which
         // is precisely where it isn't.
-        vec4 lit = over_shadow(rgb, a * v_tint.a, sh);
+        vec4 lit = over_shadow(wounded(rgb, body_d, v_tint.a), a, sh);
         float out_a = lit.a + vap_a * (1.0 - lit.a);
         if (out_a <= 0.001) discard;
         o_color = vec4((lit.rgb * lit.a + kCryoHue * vap_a * (1.0 - lit.a)) / out_a, out_a);
@@ -899,9 +1025,9 @@ void main() {
 
         // Mixed toward that hue only lightly. kTeslaHue is itself a PALE violet
         // — it has to be, it doubles as a particle colour on a dark red field —
-        // so leaning on it the way the Macrophage leans on its amber washes the
-        // body out instead of saturating it. The purple comes from the gradient
-        // here; the hue mix only pulls it onto the roster's exact violet.
+        // so leaning on it hard would wash the body out instead of saturating
+        // it. The purple comes from the gradient here; the hue mix only pulls
+        // it onto the roster's exact violet.
         vec3 cytoplasm = mix(vec3(0.62, 0.47, 0.95), vec3(0.24, 0.11, 0.54), depth);
         cytoplasm = mix(cytoplasm, kTeslaHue, 0.18);
         // Cytoplasmic speckle, suppressed over the nucleus so the two never
@@ -943,7 +1069,7 @@ void main() {
         rgb = mix(rgb, vec3(0.93, 0.87, 1.00), clamp(synapse_glow, 0.0, 1.0) * 0.85);
         rgb = mix(rgb, vec3(1.00, 0.98, 1.00), clamp(lance, 0.0, 1.0) * 0.95);
 
-        o_color = over_shadow(rgb, a * v_tint.a, sh);
+        o_color = over_shadow(wounded(rgb, body_d, v_tint.a), a, sh);
         if (o_color.a <= 0.001) discard;
         return;
     } else if (v_shape_id == 20u) {
@@ -992,7 +1118,50 @@ void main() {
         float rim = 1.0 - smoothstep(0.0, 0.042, abs(body_d));
         rgb = mix(rgb, vec3(0.95, 1.00, 0.97), rim * 0.60);
 
-        o_color = over_shadow(rgb, a * v_tint.a, sh);
+        o_color = over_shadow(wounded(rgb, body_d, v_tint.a), a, sh);
+        if (o_color.a <= 0.001) discard;
+        return;
+    } else if (v_shape_id == 21u) {
+        // BUILDER (Fibroblast). See sdf_fibroblast above.
+        float nucleus_d, fibre, process_d;
+        float body_d = sdf_fibroblast(v_local, v_anim_phase, v_shape_param,
+                                      nucleus_d, fibre, process_d);
+
+        float a = 1.0 - smoothstep(-0.022, 0.008, body_d);
+        // A thin body: the shadow is a squashed disc so it stays under the cell.
+        vec2 sp = v_local - kEntityShadowDir;
+        float sd = length(vec2(sp.x, sp.y * 2.4)) - 0.42;
+        float sh = (1.0 - smoothstep(-0.10, 0.03, sd)) * 0.42;
+        if (a <= 0.0 && sh <= 0.0) discard;
+
+        // Shallow ramp: this body is thin end to end, so almost none of it
+        // is far inside the membrane.
+        float depth = clamp(-body_d * 5.0, 0.0, 1.0);
+        // Identity hue, shared verbatim with palette_for() in vfx/Particles.cpp:
+        // salmon, the colour of fresh granulation tissue.
+        const vec3 kCollagenHue = vec3(1.00, 0.72, 0.64);
+        vec3 cytoplasm = mix(vec3(1.00, 0.92, 0.88), vec3(0.82, 0.48, 0.44), depth);
+        cytoplasm = mix(cytoplasm, kCollagenHue, 0.22);
+        // Collagen streaks, suppressed over the nucleus.
+        float in_cyto = smoothstep(0.0, 0.04, nucleus_d);
+        vec3 rgb = mix(cytoplasm, vec3(1.00, 0.86, 0.80), fibre * in_cyto * 0.45 * depth);
+
+        // Nucleus: dusky mauve, with a chromatin mottle so it reads as an
+        // organelle and not a hole.
+        float nuc = 1.0 - smoothstep(-0.010, 0.010, nucleus_d);
+        float chromatin = fbm(v_local * 16.0 + vec2(v_anim_phase * 0.03, 0.0));
+        rgb = mix(rgb, mix(vec3(0.42, 0.20, 0.30), vec3(0.60, 0.34, 0.42), chromatin), nuc * 0.90);
+        rgb = mix(rgb, vec3(0.92, 0.70, 0.72), (1.0 - smoothstep(0.0, 0.016, abs(nucleus_d))) * 0.50);
+
+        // The processes are brighter than the soma they leave, so the tier
+        // count reads even where they are a pixel wide.
+        float proc = 1.0 - smoothstep(-0.004, 0.010, process_d);
+        rgb = mix(rgb, vec3(1.00, 0.90, 0.86), proc * 0.55 * smoothstep(0.30, 0.42, abs(v_local.x)));
+
+        float rim = 1.0 - smoothstep(0.0, 0.030, abs(body_d));
+        rgb = mix(rgb, vec3(1.00, 0.96, 0.94), rim * 0.55);
+
+        o_color = over_shadow(wounded(rgb, body_d, v_tint.a), a, sh);
         if (o_color.a <= 0.001) discard;
         return;
     } else if (v_shape_id == 2u) {

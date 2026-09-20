@@ -45,6 +45,11 @@
     "slowed_speed_multiplier": 0.4,
     "spatial_cell_size": 4.0
   },
+  "hostile": {
+    "enabled": true,
+    "max_attackers": 128,
+    "max_latch_events": 64
+  },
   "schema": 1,
   "squads": {
     "anchor_lookahead": 8.0,

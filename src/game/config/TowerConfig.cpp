@@ -16,10 +16,11 @@ namespace immune::game {
 sim::SwarmerKind tower_kind(TowerType type) {
     switch (type) {
         case TowerType::Neutrophil: return sim::SwarmerKind::Shooter;
-        case TowerType::Macrophage: return sim::SwarmerKind::Bomber;
+        case TowerType::Macrophage: return sim::SwarmerKind::ArborGrabber;
         case TowerType::Interferon: return sim::SwarmerKind::SlowBomber;
         case TowerType::CytotoxicT: return sim::SwarmerKind::Latch;
         case TowerType::GobletCell: return sim::SwarmerKind::MucusBomber;
+        case TowerType::Fibroblast: return sim::SwarmerKind::Builder;
         case TowerType::Count:      break;
     }
     return sim::SwarmerKind::Latch;
@@ -42,8 +43,10 @@ IMMUNE_CONFIG_SCHEMA_ASSERT(SwarmParams);
 IMMUNE_CONFIG_SCHEMA_ASSERT(LatchParams);
 IMMUNE_CONFIG_SCHEMA_ASSERT(ShooterParams);
 IMMUNE_CONFIG_SCHEMA_ASSERT(BomberParams);
+IMMUNE_CONFIG_SCHEMA_ASSERT(ArborGrabberParams);
 IMMUNE_CONFIG_SCHEMA_ASSERT(SlowBomberParams);
 IMMUNE_CONFIG_SCHEMA_ASSERT(MucusBomberParams);
+IMMUNE_CONFIG_SCHEMA_ASSERT(BuilderParams);
 IMMUNE_CONFIG_SCHEMA_ASSERT(TowerGlobals);
 
 constexpr Field kStatsFields[] = {
@@ -52,6 +55,7 @@ constexpr Field kStatsFields[] = {
     IMMUNE_CONFIG_FIELD(TowerStats, build_cost, FieldKind::U32, "ATP to place"),
     IMMUNE_CONFIG_FIELD(TowerStats, upgrade_cost, FieldKind::U32, "ATP to reach the next tier; 0 at max tier"),
     IMMUNE_CONFIG_FIELD(TowerStats, family_mask, FieldKind::U8, "Bitmask of affectable pathogen families; 255 = all"),
+    IMMUNE_CONFIG_FIELD(TowerStats, max_health, FieldKind::F32, "Integrity the horde has to chew through (viruses latch, bacteria burn); restored in full by an upgrade"),
 };
 constexpr Schema kStatsSchema{"tower_stats", kStatsFields};
 
@@ -63,11 +67,14 @@ constexpr Field kSwarmFields[] = {
     IMMUNE_CONFIG_FIELD(SwarmParams, attach_radius, FieldKind::F32, "Contact radius; a shooter's standoff"),
     IMMUNE_CONFIG_FIELD(SwarmParams, launch_spread, FieldKind::F32, "Launch cone half-angle, radians"),
     IMMUNE_CONFIG_FIELD(SwarmParams, size, FieldKind::F32, "Body radius, world units: drawn size and wall clearance"),
+    IMMUNE_CONFIG_FIELD(SwarmParams, max_health, FieldKind::F32, "Hit points a swarmer is released with; the horde drains them and the unit dissolves at zero"),
 };
 constexpr Schema kSwarmSchema{"swarm", kSwarmFields};
 
 constexpr Field kLatchFields[] = {
     IMMUNE_CONFIG_FIELD(LatchParams, dps, FieldKind::F32, "Density drained per second by one attached swarmer"),
+    IMMUNE_CONFIG_FIELD(LatchParams, attach_seconds, FieldKind::F32, "Seconds the entry into the host takes; the drain starts when it ends, 0 = instant"),
+    IMMUNE_CONFIG_FIELD(LatchParams, attach_steps, FieldKind::U32, "Discrete lurches the entry movement is chopped into"),
 };
 constexpr Schema kLatchSchema{"latch", kLatchFields};
 
@@ -94,6 +101,21 @@ constexpr Field kBomberFields[] = {
 };
 constexpr Schema kBomberSchema{"bomber", kBomberFields};
 
+constexpr Field kArborGrabberFields[] = {
+    IMMUNE_CONFIG_FIELD(ArborGrabberParams, arm_count, FieldKind::U32, "Independent pseudopod trees per unit; clamped to the renderer's three arm channels"),
+    IMMUNE_CONFIG_FIELD(ArborGrabberParams, extend_seconds, FieldKind::F32, "Seconds a new pseudopod tree takes to reach its target"),
+    IMMUNE_CONFIG_FIELD(ArborGrabberParams, latch_seconds, FieldKind::F32, "Seconds the terminal fingers spend closing around a target"),
+    IMMUNE_CONFIG_FIELD(ArborGrabberParams, pull_seconds, FieldKind::F32, "Seconds a latched target takes to reach the body"),
+    IMMUNE_CONFIG_FIELD(ArborGrabberParams, recover_seconds, FieldKind::F32, "Seconds the empty branch takes to melt back into the silhouette"),
+    IMMUNE_CONFIG_FIELD(ArborGrabberParams, fake_mass, FieldKind::F32, "Visual arm-volume compensation, 0 strict redistribution to 1 stable core"),
+    IMMUNE_CONFIG_FIELD(ArborGrabberParams, kite_fraction, FieldKind::F32, "Kite radius as a fraction of arm reach; 0 disables backing off"),
+    IMMUNE_CONFIG_FIELD(ArborGrabberParams, kite_flow_weight, FieldKind::F32, "How much the flow field bends the retreat; 0 = straight away"),
+    IMMUNE_CONFIG_FIELD(ArborGrabberParams, kite_speed_mult, FieldKind::F32, "Retreat speed as a multiple of swarm speed"),
+    IMMUNE_CONFIG_FIELD(ArborGrabberParams, wall_spacing, FieldKind::F32, "Most room between squad-mates along the lane wall; shrinks to fit the lane"),
+    IMMUNE_CONFIG_FIELD(ArborGrabberParams, body_block, FieldKind::F32, "Share of a pathogen overlap the pathogen takes: 0 the unit yields, 1 an immovable wall"),
+};
+constexpr Schema kArborGrabberSchema{"arbor_grabber", kArborGrabberFields};
+
 constexpr Field kSlowBomberFields[] = {
     IMMUNE_CONFIG_FIELD(SlowBomberParams, chase_seconds, FieldKind::F32, "Seconds a bomber chases one target before detonating where it is"),
     IMMUNE_CONFIG_FIELD(SlowBomberParams, zone_radius, FieldKind::F32, "Slow circle radius"),
@@ -113,6 +135,23 @@ constexpr Field kMucusBomberFields[] = {
     IMMUNE_CONFIG_FIELD(MucusBomberParams, mark_seconds, FieldKind::F32, "Seconds a named agent inside the splash stays weakened"),
 };
 constexpr Schema kMucusBomberSchema{"mucus_bomber", kMucusBomberFields};
+
+constexpr Field kBuilderFields[] = {
+    IMMUNE_CONFIG_FIELD(BuilderParams, build_radius, FieldKind::F32, "How far from the tower a builder may be sent to lay a scar"),
+    IMMUNE_CONFIG_FIELD(BuilderParams, build_min_radius, FieldKind::F32, "No scar site closer to the tower than this"),
+    IMMUNE_CONFIG_FIELD(BuilderParams, build_min_clearance, FieldKind::F32, "SDF clearance a scar site needs, world units"),
+    IMMUNE_CONFIG_FIELD(BuilderParams, build_candidates, FieldKind::U32, "Random sites tried per builder before the tower gives up on it"),
+    IMMUNE_CONFIG_FIELD(BuilderParams, scar_half_length, FieldKind::F32, "Half-length of the scar along the wall (laid across the flow)"),
+    IMMUNE_CONFIG_FIELD(BuilderParams, scar_half_width, FieldKind::F32, "Half-width of the scar: its thickness"),
+    IMMUNE_CONFIG_FIELD(BuilderParams, scar_tilt, FieldKind::F32, "Max random tilt off square-to-the-flow, radians either way; 0 = every wall exactly across the arrows"),
+    IMMUNE_CONFIG_FIELD(BuilderParams, scar_health, FieldKind::F32, "Integrity a fresh scar stands with; viruses latch on it, bacteria burn it"),
+    IMMUNE_CONFIG_FIELD(BuilderParams, scar_reinforce, FieldKind::F32, "Hit points a builder adds to a scar in its way instead of starting a new one; 0 = it just dissolves"),
+    IMMUNE_CONFIG_FIELD(BuilderParams, scar_spacing, FieldKind::F32, "No two scar centres closer than this; a builder arriving inside it reinforces"),
+    IMMUNE_CONFIG_FIELD(BuilderParams, max_scars, FieldKind::U32, "Live scars one tower may own; 0 = unlimited; at the cap builders reinforce"),
+    IMMUNE_CONFIG_FIELD(BuilderParams, scar_lifetime, FieldKind::F32, "Seconds a scar stands before dissolving on its own; 0 = permanent"),
+    IMMUNE_CONFIG_FIELD(BuilderParams, crowd_push, FieldKind::F32, "Share of the crowd's shove a walking builder takes, 0..1; 0 crawls through the horde untouched"),
+};
+constexpr Schema kBuilderSchema{"builder", kBuilderFields};
 
 constexpr Field kGlobalsFields[] = {
     IMMUNE_CONFIG_FIELD(TowerGlobals, refund_fraction, FieldKind::F32, "Filled from economy.json; kept here for addressing"),
@@ -135,6 +174,8 @@ KindBinding kind_binding(sim::SwarmerKind kind) {
         case sim::SwarmerKind::Bomber:      return {&kBomberSchema,     offsetof(TowerMechanics, bomber)};
         case sim::SwarmerKind::SlowBomber:  return {&kSlowBomberSchema, offsetof(TowerMechanics, slow_bomber)};
         case sim::SwarmerKind::MucusBomber: return {&kMucusBomberSchema, offsetof(TowerMechanics, mucus_bomber)};
+        case sim::SwarmerKind::Builder:     return {&kBuilderSchema,     offsetof(TowerMechanics, builder)};
+        case sim::SwarmerKind::ArborGrabber:return {&kArborGrabberSchema,offsetof(TowerMechanics, arbor_grabber)};
         case sim::SwarmerKind::Count:       break;
     }
     return {&kLatchSchema, offsetof(TowerMechanics, latch)};
