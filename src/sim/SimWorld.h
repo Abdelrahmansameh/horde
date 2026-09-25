@@ -19,6 +19,7 @@
 //   1. spatial hash rebuild        [prof: spatial_hash]
 //   1b. squad centroids + anchors  [prof: squad_update]
 //   2. chaff update                [prof: chaff_update]
+//   2b. burrowing + slither        [prof: burrow] (sim/burrow/Burrow.h)
 //   3. ECS systems                 [prof: ecs_tick]
 //   4. damage fields apply
 //   4b. projectiles, swarmers (and what they asked for), slow zones, fluid
@@ -36,6 +37,7 @@
 #include "core/Rng.h"
 #include "core/Types.h"
 #include "sim/CombatEvents.h"
+#include "sim/burrow/Burrow.h"
 #include "sim/chaff/ChaffBuffers.h"
 #include "sim/chaff/ChaffSystem.h"
 #include "sim/damage/DamageField.h"
@@ -167,6 +169,9 @@ struct SimDesc {
     /// harmless: the game layer fills it from enemies.json, and a world built
     /// without one -- a test, a bench -- is the pre-hostile world.
     HostileTuning hostile_tuning{};
+    /// Burrowing and slithering families (sim/burrow/Burrow.h). Defaults OFF
+    /// for every family; the game layer fills it from enemies.json.
+    BurrowTuning burrow_tuning{};
 };
 
 /// One vessel spawn point, captured from the level at load time by
@@ -212,6 +217,9 @@ struct SimSnapshot {
     u32 scars_live = 0;
     u64 scars_built_total = 0;
     u64 scars_lost_total = 0;
+    /// Burrowers (sim/burrow): under the tissue right now, and dives so far.
+    u32 chaff_burrowed = 0;
+    u64 burrows_total = 0;
 
     // Per-family lifetime tallies. Additive to this struct (Wave "balance
     // harness"): the three aggregate counters above cannot answer "which
@@ -286,6 +294,14 @@ public:
     /// them last tick, with the passenger count it found on each. Rebuilt
     /// every tick by build_friendly_towers().
     const FriendlyTowerList& friendly_towers() const { return friendly_towers_; }
+
+    /// Burrowing and slithering chaff (sim/burrow/Burrow.h).
+    BurrowSystem& burrow() { return burrow_; }
+    const BurrowSystem& burrow() const { return burrow_; }
+    /// Rebuilds the burrow pass's view of tower coverage from the ECS: one
+    /// disc per live tower, its swarmers' reach. tick() does this itself.
+    void build_burrow_threats();
+    const std::vector<BurrowThreat>& burrow_threats() const { return burrow_threats_; }
 
     /// The Fibroblast's collagen scars (sim/scar/Scars.h): the walls its
     /// builders lay. apply_swarmer_effects() lays them; tick() sweeps the
@@ -409,6 +425,10 @@ private:
     SwarmerSystem swarmer_system_;
     NamedTargetList named_targets_;
     HostileSystem hostile_;
+    BurrowSystem burrow_;
+    std::vector<BurrowThreat> burrow_threats_;
+    BurrowStats last_burrow_stats_{};
+    u64 burrows_total_ = 0;
     FriendlyTowerList friendly_towers_;
     ScarSystem scars_;
     SlowZoneSystem slow_zones_;

@@ -52,7 +52,10 @@ struct EntityId {
 enum class PathogenFamily : u8 {
     Virus = 0,
     Bacteria = 1,
-    Count = 2
+    /// Burrowing worm (sim/burrow/Burrow.h): slithers down the lane and, on a
+    /// cooldown, dives under the tissue and resurfaces further along it.
+    Parasite = 2,
+    Count = 3
 };
 
 inline constexpr u32 kFamilyCount = static_cast<u32>(PathogenFamily::Count);

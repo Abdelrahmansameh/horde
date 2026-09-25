@@ -25,6 +25,8 @@ IMMUNE_CONFIG_SCHEMA_ASSERT(sim::HitFlashParams);
 IMMUNE_CONFIG_SCHEMA_ASSERT(sim::ReplicationSplitParams);
 IMMUNE_CONFIG_SCHEMA_ASSERT(render::LatchThrobParams);
 IMMUNE_CONFIG_SCHEMA_ASSERT(sim::HostileFamilyParams);
+IMMUNE_CONFIG_SCHEMA_ASSERT(sim::BurrowParams);
+IMMUNE_CONFIG_SCHEMA_ASSERT(sim::SlitherParams);
 IMMUNE_CONFIG_SCHEMA_ASSERT(BaseAttackParams);
 IMMUNE_CONFIG_SCHEMA_ASSERT(EliteStatsParams);
 
@@ -65,6 +67,7 @@ constexpr Field kChaffFields[] = {
     IMMUNE_CONFIG_FIELD(FamilyChaffParams, crowd_relief, FieldKind::F32, "Over-packed spread, radii per tick"),
     IMMUNE_CONFIG_FIELD(FamilyChaffParams, drift_bias, FieldKind::F32, "How much ambient drift overrides flow"),
     IMMUNE_CONFIG_FIELD(FamilyChaffParams, replication_rate, FieldKind::F32, "Expected replications per agent per second"),
+    IMMUNE_CONFIG_FIELD(FamilyChaffParams, collides, FieldKind::Bool, "False: a ghost to the horde, neither shoves nor is shoved (walls still apply)"),
 };
 constexpr Schema kChaffSchema{"family_chaff", kChaffFields};
 
@@ -164,6 +167,56 @@ constexpr Field kAttackFields[] = {
 };
 constexpr Schema kAttackSchema{"family_attack", kAttackFields};
 
+// Burrowing (sim/burrow/Burrow.h). Seconds, world units and score weights for
+// the gameplay half; local sprite units and colours for the look.
+constexpr Field kBurrowFields[] = {
+    IMMUNE_CONFIG_FIELD(sim::BurrowParams, enabled, FieldKind::Bool, "False: this family never burrows"),
+    IMMUNE_CONFIG_FIELD(sim::BurrowParams, cooldown, FieldKind::F32, "Seconds on the surface between burrows"),
+    IMMUNE_CONFIG_FIELD(sim::BurrowParams, cooldown_jitter, FieldKind::F32, "+- seconds of uniform jitter on every cooldown, the first included"),
+    IMMUNE_CONFIG_FIELD(sim::BurrowParams, dive_duration, FieldKind::F32, "Seconds spent sinking into the tissue"),
+    IMMUNE_CONFIG_FIELD(sim::BurrowParams, underground_duration, FieldKind::F32, "Seconds spent under, telegraph included"),
+    IMMUNE_CONFIG_FIELD(sim::BurrowParams, telegraph_duration, FieldKind::F32, "Last seconds underground during which the exit mound shows"),
+    IMMUNE_CONFIG_FIELD(sim::BurrowParams, emerge_duration, FieldKind::F32, "Seconds spent breaking back out"),
+    IMMUNE_CONFIG_FIELD(sim::BurrowParams, retry_delay, FieldKind::F32, "Seconds before trying again when no exit was legal"),
+    IMMUNE_CONFIG_FIELD(sim::BurrowParams, min_range, FieldKind::F32, "Nearest exit, world units from the dive point"),
+    IMMUNE_CONFIG_FIELD(sim::BurrowParams, max_range, FieldKind::F32, "Furthest exit, world units from the dive point"),
+    IMMUNE_CONFIG_FIELD(sim::BurrowParams, cone_half_angle, FieldKind::F32, "Degrees either side of the lane's forward direction exits are drawn in"),
+    IMMUNE_CONFIG_FIELD(sim::BurrowParams, candidate_count, FieldKind::U32, "Exit points sampled per attempt"),
+    IMMUNE_CONFIG_FIELD(sim::BurrowParams, min_progress, FieldKind::F32, "Least cost-to-goal (world units) an exit must save; keeps it going forward"),
+    IMMUNE_CONFIG_FIELD(sim::BurrowParams, goal_standoff, FieldKind::F32, "Least cost-to-goal an exit may have; stops it surfacing inside the organ"),
+    IMMUNE_CONFIG_FIELD(sim::BurrowParams, wall_clearance, FieldKind::F32, "Least tissue clearance at an exit, world units"),
+    IMMUNE_CONFIG_FIELD(sim::BurrowParams, progress_weight, FieldKind::F32, "Exit score per world unit of lane gained"),
+    IMMUNE_CONFIG_FIELD(sim::BurrowParams, tower_weight, FieldKind::F32, "Exit score lost per tower whose coverage contains it"),
+    IMMUNE_CONFIG_FIELD(sim::BurrowParams, tower_range_scale, FieldKind::F32, "Coverage radius = tower range * this"),
+    IMMUNE_CONFIG_FIELD(sim::BurrowParams, crowd_weight, FieldKind::F32, "Exit score lost per pathogen within crowd_radius"),
+    IMMUNE_CONFIG_FIELD(sim::BurrowParams, crowd_radius, FieldKind::F32, "World units around an exit counted as its crowd"),
+    IMMUNE_CONFIG_FIELD(sim::BurrowParams, leave_squad, FieldKind::Bool, "Drop out of its squad on the dive, so the squad does not brake it back"),
+    IMMUNE_CONFIG_FIELD(sim::BurrowParams, mound_radius, FieldKind::F32, "Look: disturbed-tissue ring radius, local sprite units"),
+    IMMUNE_CONFIG_FIELD(sim::BurrowParams, hole_radius, FieldKind::F32, "Look: dark mouth radius, local sprite units"),
+    IMMUNE_CONFIG_FIELD(sim::BurrowParams, clod_count, FieldKind::F32, "Look: dirt clods tumbling round the rim"),
+    IMMUNE_CONFIG_FIELD(sim::BurrowParams, clod_size, FieldKind::F32, "Look: clod radius, local sprite units"),
+    IMMUNE_CONFIG_FIELD(sim::BurrowParams, clod_throw, FieldKind::F32, "Look: how far clods are flung past the rim, local sprite units"),
+    IMMUNE_CONFIG_FIELD(sim::BurrowParams, sink_fraction, FieldKind::F32, "Look: part of a dive/emerge the body is moving; the rest is the mound settling"),
+    IMMUNE_CONFIG_FIELD(sim::BurrowParams, dirt_color, FieldKind::Vec4, "Look: RGBA of the disturbed tissue and clods"),
+    IMMUNE_CONFIG_FIELD(sim::BurrowParams, hole_color, FieldKind::Vec4, "Look: RGBA of the hole's mouth"),
+};
+constexpr Schema kBurrowSchema{"family_burrow", kBurrowFields};
+
+// The worm body (sim/burrow/Burrow.h SlitherParams). Cosmetic end to end.
+constexpr Field kSlitherFields[] = {
+    IMMUNE_CONFIG_FIELD(sim::SlitherParams, enabled, FieldKind::Bool, "False: this family is not drawn as a worm"),
+    IMMUNE_CONFIG_FIELD(sim::SlitherParams, wavelength, FieldKind::F32, "World units between body-wave crests; crests stay put on the ground as it moves"),
+    IMMUNE_CONFIG_FIELD(sim::SlitherParams, idle_rate, FieldKind::F32, "Wave cycles/sec even when standing still"),
+    IMMUNE_CONFIG_FIELD(sim::SlitherParams, turn_rate, FieldKind::F32, "Radians/sec the drawn heading follows the velocity"),
+    IMMUNE_CONFIG_FIELD(sim::SlitherParams, amplitude, FieldKind::F32, "Sideways swing, local sprite units"),
+    IMMUNE_CONFIG_FIELD(sim::SlitherParams, head_amplitude, FieldKind::F32, "Fraction of the swing left at the head"),
+    IMMUNE_CONFIG_FIELD(sim::SlitherParams, body_length, FieldKind::F32, "Head to tail, local sprite units (the quad spans about 1.9)"),
+    IMMUNE_CONFIG_FIELD(sim::SlitherParams, thickness, FieldKind::F32, "Half-width at the thickest point, local sprite units"),
+    IMMUNE_CONFIG_FIELD(sim::SlitherParams, segments, FieldKind::F32, "Annulation rings along the body"),
+    IMMUNE_CONFIG_FIELD(sim::SlitherParams, min_speed, FieldKind::F32, "World units/sec below which the drawn heading holds still"),
+};
+constexpr Schema kSlitherSchema{"family_slither", kSlitherFields};
+
 constexpr Field kBaseAttackFields[] = {
     IMMUNE_CONFIG_FIELD(BaseAttackParams, active, FieldKind::F32, "Seconds the strike is live"),
     IMMUNE_CONFIG_FIELD(BaseAttackParams, recovery, FieldKind::F32, "Seconds of recovery after a strike"),
@@ -189,6 +242,7 @@ const char* family_key(PathogenFamily f) {
     switch (f) {
         case PathogenFamily::Virus: return "virus";
         case PathogenFamily::Bacteria: return "bacteria";
+        case PathogenFamily::Parasite: return "parasite";
         case PathogenFamily::Count: break;
     }
     return "virus";
@@ -206,7 +260,7 @@ const char* speed_tier_key(SpeedTier t) {
 
 constexpr std::string_view kFamilyEntryKeys[] = {"speed_tier", "visual", "behavior", "chaff",
                                                  "death_vfx", "hit_flash", "replication_split",
-                                                 "latch_throb", "attack"};
+                                                 "latch_throb", "attack", "burrow", "slither"};
 constexpr std::string_view kEliteEntryKeys[] = {"id", "name", "family", "tier", "stats"};
 
 } // namespace
@@ -288,6 +342,16 @@ void parse_enemies(const Json& doc, EnemyConfig& out, config::Ctx& ctx) {
                 config::parse_struct(config::require_object(entry, "attack", ctx), kAttackSchema,
                                      &fc.attack, ctx);
             }
+            {
+                config::Ctx::Scope b(ctx, "burrow");
+                config::parse_struct(config::require_object(entry, "burrow", ctx), kBurrowSchema,
+                                     &fc.burrow, ctx);
+            }
+            {
+                config::Ctx::Scope sl(ctx, "slither");
+                config::parse_struct(config::require_object(entry, "slither", ctx), kSlitherSchema,
+                                     &fc.slither, ctx);
+            }
         }
     }
 
@@ -365,6 +429,12 @@ Json dump_enemies(const EnemyConfig& cfg) {
         Json attack = Json::object();
         config::dump_struct(attack, kAttackSchema, &fc.attack);
         entry["attack"] = std::move(attack);
+        Json burrow = Json::object();
+        config::dump_struct(burrow, kBurrowSchema, &fc.burrow);
+        entry["burrow"] = std::move(burrow);
+        Json slither = Json::object();
+        config::dump_struct(slither, kSlitherSchema, &fc.slither);
+        entry["slither"] = std::move(slither);
         families[family_key(static_cast<PathogenFamily>(i))] = std::move(entry);
     }
     doc["families"] = std::move(families);
@@ -408,6 +478,8 @@ void bind_enemies(config::Registry& registry, EnemyConfig& cfg) {
                       &cfg.families[i].replication_split);
         registry.bind(base + "latch_throb", kLatchThrobSchema, &cfg.families[i].latch_throb);
         registry.bind(base + "attack", kAttackSchema, &cfg.families[i].attack);
+        registry.bind(base + "burrow", kBurrowSchema, &cfg.families[i].burrow);
+        registry.bind(base + "slither", kSlitherSchema, &cfg.families[i].slither);
     }
     registry.bind("enemies.base_attack", kBaseAttackSchema, &cfg.base_attack);
     for (EliteConfig& ec : cfg.elites) {

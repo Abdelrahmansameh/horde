@@ -28,6 +28,7 @@
 #include "sim/chaff/ChaffBuffers.h"
 #include "sim/chaff/HitFlash.h"
 #include "sim/chaff/ReplicationSplit.h"
+#include "sim/burrow/Burrow.h"
 
 #include <cmath>
 #include <vector>
@@ -317,6 +318,10 @@ inline ChaffBatchResult build_chaff_batches(const sim::ChaffBuffers& chaff,
     const f32* replication_origin_x = chaff.replication_origin_x.data();
     const f32* replication_origin_y = chaff.replication_origin_y.data();
     const f32* latch_heading = chaff.latch_heading.data();
+    const u8* burrow_state = chaff.burrow_state.data();
+    const f32* burrow_anim = chaff.burrow_anim.data();
+    const f32* body_heading = chaff.body_heading.data();
+    const f32* slither_phase = chaff.slither_phase.data();
 
     // Per-family cursors into the fixed-stride destination regions.
     u32 cursor[kFamilyCount];
@@ -328,6 +333,10 @@ inline ChaffBatchResult build_chaff_batches(const sim::ChaffBuffers& chaff,
     sim::HitFlashParams fam_flash[kFamilyCount];
     sim::ReplicationSplitParams fam_split[kFamilyCount];
     LatchThrobParams fam_throb[kFamilyCount];
+    // Drawn as a worm (sim/burrow/Burrow.h SlitherParams): faces its smoothed
+    // body heading, animates on its ground-locked wave phase, and carries its
+    // burrow phase in the pad instead of a wobble.
+    bool fam_worm[kFamilyCount];
     // Reciprocal of the occupancy at which this family's sprites cover a
     // broadphase cell: cell area over the area of one silhouette disc. A virus
     // (1.53 across) fills a 4-unit cell at ~8.7 agents, a bacterium (2.25) at
@@ -341,6 +350,7 @@ inline ChaffBatchResult build_chaff_batches(const sim::ChaffBuffers& chaff,
         fam_flash[f] = sim::family_hit_flash(static_cast<PathogenFamily>(f));
         fam_split[f] = sim::family_replication_split(static_cast<PathogenFamily>(f));
         fam_throb[f] = family_latch_throb(static_cast<PathogenFamily>(f));
+        fam_worm[f] = sim::family_slither(static_cast<PathogenFamily>(f)).enabled;
         const f32 s = math::max(fam_vis[f].silhouette, 0.01f);
         const f32 disc = 0.25f * math::kPi * s * s;
         inv_crowd_full[f] = disc / math::max(cell_area, disc);
@@ -351,6 +361,12 @@ inline ChaffBatchResult build_chaff_batches(const sim::ChaffBuffers& chaff,
         const Vec2 p{prev_px[i] + (px[i] - prev_px[i]) * alpha,
                      prev_py[i] + (py[i] - prev_py[i]) * alpha};
         if (params.cull_enabled && !params.cull.contains(p)) {
+            ++out.agents_culled;
+            continue;
+        }
+        // Under the tissue with no exit mound up yet: there is nothing of it
+        // on screen at all, so it is neither a sprite nor blob mass.
+        if (burrow_state[i] == sim::burrow_state::kUnderground && burrow_anim[i] <= 0.0f) {
             ++out.agents_culled;
             continue;
         }
@@ -460,7 +476,9 @@ inline ChaffBatchResult build_chaff_batches(const sim::ChaffBuffers& chaff,
         inst.scale = vis.silhouette * (1.0f + flash_params.scale_punch * flash_k);
         // A passenger faces its host (local +x points into the cell) rather
         // than its velocity, which is the host's and says nothing about it.
+        const bool worm = fam_worm[f] && !latched;
         inst.rotation = latched         ? latch_heading[i]
+                        : worm           ? body_heading[i]
                         : split_oriented ? std::atan2(split_delta.y, split_delta.x)
                                          : std::atan2(vy[i], vx[i]);
         Vec4 tint = fam_color[f];
@@ -538,20 +556,32 @@ inline ChaffBatchResult build_chaff_batches(const sim::ChaffBuffers& chaff,
         // which kFamilyCount (2) leaves empty: the family mask in chaff.frag
         // (CHAFF_FAMILY_MASK) stops short of it. Mirrored by FLAG_LATCHED.
         constexpr u32 kVisualLatched = 1u << 15;
-        inst.flags = (static_cast<u32>(flg[i]) & ~kRendererOwnedBits) | split_bits | (f << 8) |
+        // A burrowing worm's kHidden is the burrow's, and the burrow draws
+        // itself (the dive, the mound, the emergence); the generic "hidden"
+        // dimming in chaff.frag is for a captive held in a Macrophage arm.
+        const bool burrowing = worm && burrow_state[i] != sim::burrow_state::kSurface;
+        const u32 sim_bits = burrowing ? (static_cast<u32>(flg[i]) & ~sim::chaff_flags::kHidden)
+                                       : static_cast<u32>(flg[i]);
+        inst.flags = (sim_bits & ~kRendererOwnedBits) | split_bits | (f << 8) |
                      crowd_bits | flash_bits | (latched ? kVisualLatched : 0u);
         // A shared phase is as important as a shared local frame: at frame
         // zero the two complementary masks must reconstruct ONE capsid, not
         // two different spiky outlines drawn over each other.
-        inst.anim_phase = splitting ? params.time * vis.tempo * math::kTwoPi
-                                    : offset + params.time * vis.tempo * math::kTwoPi;
+        inst.anim_phase = worm        ? math::max(slither_phase[i], 0.0f)
+                          : splitting ? params.time * vis.tempo * math::kTwoPi
+                                      : offset + params.time * vis.tempo * math::kTwoPi;
         // The pad carries the family wobble -- or, for a passenger, the throb
         // clock: 2*pi per stroke at the family's rate, offset per agent so a
         // cell wearing a dozen of them is not wearing a chorus line. It can
         // not ride in anim_phase, whose rate is the family tempo (SPEED tier,
         // and zero for a family that does not pulse in the lane), and the
         // fragment stage has no way to separate the two rates once summed.
+        // A worm's pad is its burrow phase: 2 * burrow_state + progress, the
+        // progress held under 1 so the state survives the floor() that
+        // chaff.frag decodes it with (worm_burrow_mode()).
         inst.pad = latched ? offset + params.time * throb_params.rate * math::kTwoPi
+                   : worm  ? 2.0f * static_cast<f32>(burrow_state[i]) +
+                                 math::clamp(burrow_anim[i], 0.0f, 0.999f)
                            : vis.wobble;
     }
 

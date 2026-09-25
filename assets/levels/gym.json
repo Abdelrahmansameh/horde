@@ -137,9 +137,12 @@
       "spawns": [
         { "family": "virus", "count": 300, "duration": 10, "spawn_point_id": "p_lymph" },
         { "family": "bacteria", "count": 200, "duration": 10, "spawn_point_id": "p_artery" },
+        { "family": "parasite", "count": 30, "start_time": 0.5, "duration": 10, "spawn_point_id": "p_artery" },
         { "family": "bacteria", "count": 200, "duration": 10, "spawn_point_id": "p_vein" },
+        { "family": "parasite", "count": 30, "start_time": 0.5, "duration": 10, "spawn_point_id": "p_vein" },
         { "family": "virus", "count": 150, "duration": 10, "spawn_point_id": "p_nerve" },
         { "family": "bacteria", "count": 150, "duration": 10, "spawn_point_id": "p_mucosa" },
+        { "family": "parasite", "count": 22, "start_time": 0.5, "duration": 10, "spawn_point_id": "p_mucosa" },
         { "family": "virus", "count": 150, "start_time": 4, "duration": 8, "spawn_point_id": "p_lymph" }
       ]
     },
@@ -151,6 +154,7 @@
       "spawns": [
         { "family": "virus", "count": 500, "duration": 10, "spawn_point_id": "p_lymph" },
         { "family": "bacteria", "count": 250, "duration": 10, "spawn_point_id": "p_artery" },
+        { "family": "parasite", "count": 38, "start_time": 0.5, "duration": 10, "spawn_point_id": "p_artery" },
         { "family": "virus", "count": 150, "start_time": 1, "duration": 9, "spawn_point_id": "p_vein" }
       ]
     },
@@ -162,6 +166,7 @@
       "spawns": [
         { "family": "virus", "count": 500, "duration": 10, "spawn_point_id": "p_lymph" },
         { "family": "bacteria", "count": 250, "duration": 10, "spawn_point_id": "p_artery" },
+        { "family": "parasite", "count": 38, "start_time": 0.5, "duration": 10, "spawn_point_id": "p_artery" },
         { "family": "virus", "count": 150, "start_time": 1, "duration": 9, "spawn_point_id": "p_vein" }
       ]
     },
@@ -172,9 +177,12 @@
       "spawns": [
         { "family": "virus", "count": 400, "duration": 8, "spawn_point_id": "p_lymph" },
         { "family": "bacteria", "count": 400, "duration": 8, "spawn_point_id": "p_artery" },
+        { "family": "parasite", "count": 60, "start_time": 0.5, "duration": 8, "spawn_point_id": "p_artery" },
         { "family": "bacteria", "count": 400, "duration": 8, "spawn_point_id": "p_vein" },
+        { "family": "parasite", "count": 60, "start_time": 0.5, "duration": 8, "spawn_point_id": "p_vein" },
         { "family": "virus", "count": 400, "duration": 8, "spawn_point_id": "p_nerve" },
-        { "family": "bacteria", "count": 400, "duration": 8, "spawn_point_id": "p_mucosa" }
+        { "family": "bacteria", "count": 400, "duration": 8, "spawn_point_id": "p_mucosa" },
+        { "family": "parasite", "count": 60, "start_time": 0.5, "duration": 8, "spawn_point_id": "p_mucosa" }
       ]
     },
     {
@@ -184,9 +192,12 @@
       "spawns": [
         { "family": "virus", "count": 2400, "duration": 10, "spawn_point_id": "p_lymph" },
         { "family": "bacteria", "count": 1200, "duration": 10, "spawn_point_id": "p_artery" },
+        { "family": "parasite", "count": 180, "start_time": 0.5, "duration": 10, "spawn_point_id": "p_artery" },
         { "family": "bacteria", "count": 1200, "duration": 10, "spawn_point_id": "p_vein" },
+        { "family": "parasite", "count": 180, "start_time": 0.5, "duration": 10, "spawn_point_id": "p_vein" },
         { "family": "virus", "count": 800, "duration": 10, "spawn_point_id": "p_nerve" },
         { "family": "bacteria", "count": 800, "duration": 10, "spawn_point_id": "p_mucosa" },
+        { "family": "parasite", "count": 120, "start_time": 0.5, "duration": 10, "spawn_point_id": "p_mucosa" },
         { "family": "virus", "count": 800, "start_time": 2, "duration": 8, "spawn_point_id": "p_lymph" }
       ]
     }

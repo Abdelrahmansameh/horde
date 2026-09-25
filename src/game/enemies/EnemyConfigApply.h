@@ -41,4 +41,10 @@ const EnemyConfig& enemy_config();
 /// it ships the pass off.
 sim::HostileTuning hostile_tuning(const HostileGlobals& globals);
 
+/// The burrow pass's tuning (sim/burrow/Burrow.h), every family's `burrow`
+/// and `slither` blocks from the live enemy config. Same footing as
+/// hostile_tuning(): what every SimDesc built by the game should carry, and
+/// what a hot reload pushes onto a running world.
+sim::BurrowTuning burrow_tuning();
+
 } // namespace immune::game

@@ -39,6 +39,13 @@ void ChaffBuffers::reserve(usize max_agents) {
     host_generation.assign(max_agents, 0u);
     host_kind.assign(max_agents, host_kind::kNone);
     latch_heading.assign(max_agents, 0.0f);
+    burrow_state.assign(max_agents, burrow_state::kSurface);
+    burrow_timer.assign(max_agents, -1.0f);
+    burrow_target_x.assign(max_agents, 0.0f);
+    burrow_target_y.assign(max_agents, 0.0f);
+    burrow_anim.assign(max_agents, 0.0f);
+    body_heading.assign(max_agents, 0.0f);
+    slither_phase.assign(max_agents, -1.0f);
     next_generation_ = 1u;   // 0 is the reserved "invalid handle" generation.
     clear();
 }
@@ -62,6 +69,13 @@ void ChaffBuffers::clear() {
         host_generation[i] = 0u;
         host_kind[i] = host_kind::kNone;
         latch_heading[i] = 0.0f;
+        burrow_state[i] = burrow_state::kSurface;
+        burrow_timer[i] = -1.0f;
+        burrow_target_x[i] = 0.0f;
+        burrow_target_y[i] = 0.0f;
+        burrow_anim[i] = 0.0f;
+        body_heading[i] = 0.0f;
+        slither_phase[i] = -1.0f;
     }
     // Deliberately NOT resetting next_generation_: handles taken before a clear()
     // must not silently resolve to a freshly spawned agent.
@@ -102,6 +116,16 @@ ChaffHandle ChaffBuffers::spawn(const ChaffSpawnParams& p) {
     host_generation[i] = 0u;
     host_kind[i] = host_kind::kNone;
     latch_heading[i] = 0.0f;
+    // Nothing spawns burrowed, and the first cooldown is armed by the burrow
+    // system (negative timer), which is the only thing that knows the family's
+    // tuning and owns an RNG draw order.
+    burrow_state[i] = burrow_state::kSurface;
+    burrow_timer[i] = -1.0f;
+    burrow_target_x[i] = p.position.x;
+    burrow_target_y[i] = p.position.y;
+    burrow_anim[i] = 0.0f;
+    body_heading[i] = 0.0f;
+    slither_phase[i] = -1.0f;
     if (next_generation_ == 0u) next_generation_ = 1u;   // never hand out 0
     total_density_ += p.density;
     ++family_counts_[static_cast<u32>(p.family)];
@@ -116,6 +140,7 @@ void ChaffBuffers::kill(usize index) {
 
 void ChaffBuffers::apply_density_loss(usize index, f32 amount) {
     if (index >= count_ || amount <= 0.0f) return;
+    if (burrow_state[index] != burrow_state::kSurface) return;   // under the tissue
     const f32 before = density[index];
     const f32 removed = amount < before ? amount : before;
     density[index] = before - removed;
@@ -179,6 +204,13 @@ usize ChaffBuffers::compact(u32* removed_by_family) {
             host_generation[i] = host_generation[last];
             host_kind[i] = host_kind[last];
             latch_heading[i] = latch_heading[last];
+            burrow_state[i] = burrow_state[last];
+            burrow_timer[i] = burrow_timer[last];
+            burrow_target_x[i] = burrow_target_x[last];
+            burrow_target_y[i] = burrow_target_y[last];
+            burrow_anim[i] = burrow_anim[last];
+            body_heading[i] = body_heading[last];
+            slither_phase[i] = slither_phase[last];
         }
         --count_;
         prev_pos_x[count_] = 0.0f;
@@ -198,6 +230,10 @@ usize ChaffBuffers::compact(u32* removed_by_family) {
         host_generation[count_] = 0u;
         host_kind[count_] = host_kind::kNone;
         latch_heading[count_] = 0.0f;
+        burrow_state[count_] = burrow_state::kSurface;
+        burrow_timer[count_] = -1.0f;
+        burrow_anim[count_] = 0.0f;
+        slither_phase[count_] = -1.0f;
         // Do not advance i: the swapped-in agent must be tested too.
     }
     if (total_density_ < 0.0f) total_density_ = 0.0f;
@@ -239,6 +275,10 @@ void ChaffBuffers::assert_invariants() const {
     assert(host_index.size() == capacity_ && host_generation.size() == capacity_);
     assert(host_kind.size() == capacity_);
     assert(latch_heading.size() == capacity_);
+    assert(burrow_state.size() == capacity_ && burrow_timer.size() == capacity_);
+    assert(burrow_target_x.size() == capacity_ && burrow_target_y.size() == capacity_);
+    assert(burrow_anim.size() == capacity_);
+    assert(body_heading.size() == capacity_ && slither_phase.size() == capacity_);
     for (usize i = 0; i < count_; ++i) {
         assert((flags[i] & chaff_flags::kAlive) != 0);               // I1
         assert((flags[i] & chaff_flags::kPendingKill) == 0);         // post-compact

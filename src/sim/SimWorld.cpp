@@ -130,6 +130,11 @@ void SimWorld::init(const SimDesc& desc, JobSystem* jobs) {
         hostile_.set_chaff_radii(radii, kFamilyCount);
     }
     hostile_.set_tuning(desc.hostile_tuning);
+    burrow_.set_tuning(desc.burrow_tuning);
+    burrow_threats_.clear();
+    burrow_threats_.reserve(256);
+    last_burrow_stats_ = BurrowStats{};
+    burrows_total_ = 0;
     scars_.reset();
     friendly_towers_.items.reserve(256);
     friendly_towers_.damage.reserve(256);
@@ -194,6 +199,21 @@ void SimWorld::tick(Profiler* profiler) {
         objective_integrity_ = math::max(
             0.0f, objective_integrity_ - static_cast<f32>(chaff_stats.despawned_at_goal));
         if (profiler) profiler->record(prof_key::kChaffUpdate, t.elapsed_ms());
+    }
+
+    // 2b. Burrowing and slither (sim/burrow/Burrow.h). Right after movement:
+    // a dive freezes the agent where this tick's step left it, and an agent
+    // that finishes surfacing is back in the kernel next tick. Before every
+    // damage source, so a parasite that went under this tick is already out
+    // of their reach -- and before the towers' aim search in the ECS tick,
+    // which reads kHidden.
+    if (burrow_.active()) {
+        WallClock t;
+        build_burrow_threats();
+        last_burrow_stats_ =
+            burrow_.update(chaff_, flow_, sdf_, tissue_, spatial_, burrow_threats_, rng_, kFixedDt);
+        burrows_total_ += last_burrow_stats_.dives;
+        if (profiler) profiler->record(prof_key::kBurrow, t.elapsed_ms());
     }
 
     // 3. ECS systems (named agents, towers).
@@ -362,6 +382,8 @@ SimSnapshot SimWorld::snapshot() const {
     s.scars_live = scars_.stats().live;
     s.scars_built_total = scars_.stats().built_total;
     s.scars_lost_total = scars_.stats().lost_total;
+    s.chaff_burrowed = last_burrow_stats_.burrowed;
+    s.burrows_total = burrows_total_;
     for (u32 f = 0; f < kFamilyCount; ++f) {
         s.chaff_by_family[f] = chaff_.family_count(static_cast<PathogenFamily>(f));
         s.chaff_spawned_by_family[f] = chaff_.spawned_by_family()[f];
@@ -398,6 +420,12 @@ u64 SimWorld::state_hash() const {
         // slowed for different remaining seconds diverge on the next tick.
         mix(chaff_.slow_remaining.data(), n * sizeof(f32));
         mix(chaff_.slow_factor.data(), n * sizeof(f32));
+        // Burrowing is a timer-driven state machine with a chosen exit: two
+        // worlds that disagree on any of it put a parasite somewhere else.
+        mix(chaff_.burrow_state.data(), n * sizeof(u8));
+        mix(chaff_.burrow_timer.data(), n * sizeof(f32));
+        mix(chaff_.burrow_target_x.data(), n * sizeof(f32));
+        mix(chaff_.burrow_target_y.data(), n * sizeof(f32));
     }
     // Swarmers steer, choose and kill, so where they are and what they hold
     // is gameplay state; positions plus targets are enough to catch a
@@ -459,6 +487,31 @@ u64 SimWorld::state_hash() const {
     mix(&swarmers_killed_total_, sizeof(swarmers_killed_total_));
     mix(&towers_lost_total_, sizeof(towers_lost_total_));
     return h;
+}
+
+void SimWorld::build_burrow_threats() {
+    burrow_threats_.clear();
+    const entt::registry& registry = ecs_.registry();
+    auto view = registry.view<const comp::Tower, const comp::Transform, const comp::Health>();
+    for (auto e : view) {
+        if (view.get<const comp::Health>(e).dead()) continue;
+        BurrowThreat t;
+        t.position = view.get<const comp::Transform>(e).position;
+        // comp::Tower::range is the swarmers' aggro radius (game/towers):
+        // the ground this tower actually defends.
+        t.radius = view.get<const comp::Tower>(e).range;
+        burrow_threats_.push_back(t);
+    }
+    // entt view order is storage order, which depends on creation/destruction
+    // history rather than on anything in the sim state. The scoring only sums
+    // over the list, so order cannot change a result -- but keep it canonical
+    // anyway so nothing downstream can come to depend on it.
+    std::sort(burrow_threats_.begin(), burrow_threats_.end(),
+              [](const BurrowThreat& a, const BurrowThreat& b) {
+                  if (a.position.x != b.position.x) return a.position.x < b.position.x;
+                  if (a.position.y != b.position.y) return a.position.y < b.position.y;
+                  return a.radius < b.radius;
+              });
 }
 
 void SimWorld::build_friendly_towers() {

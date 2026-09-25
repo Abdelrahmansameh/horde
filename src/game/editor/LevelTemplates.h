@@ -65,11 +65,11 @@ struct WaveRampParams {
     u32 wave_count = 8;
     /// Per-family first/last wave counts. A family with both zero is skipped,
     /// which is how you ramp only viruses and layer bacteria in later.
-    u32 first_count[kFamilyCount] = {135, 0};
-    u32 last_count[kFamilyCount] = {600, 240};
+    u32 first_count[kFamilyCount] = {135, 0, 0};
+    u32 last_count[kFamilyCount] = {600, 240, 60};
     /// Wave at which each family first appears (0-based). Lets bacteria start
     /// at wave 2 while viruses run the whole table.
-    u32 first_wave[kFamilyCount] = {0, 1};
+    u32 first_wave[kFamilyCount] = {0, 1, 1};
     f32 first_prep = 8.0f;
     f32 last_prep = 4.0f;
     u32 first_atp = 50;

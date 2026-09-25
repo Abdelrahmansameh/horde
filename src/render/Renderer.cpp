@@ -70,11 +70,16 @@ struct FamilyTables {
         // (hue 68 deg) rather than beside it.
         color[static_cast<u32>(PathogenFamily::Virus)]       = Vec4{0.20f, 0.94f, 0.38f, 1.0f};
         color[static_cast<u32>(PathogenFamily::Bacteria)]    = Vec4{0.72f, 0.80f, 0.22f, 1.0f};
+        // PARASITE IS BROWN: an earthy worm colour, a clear value step darker
+        // than the red lumen and a clear hue step off both greens.
+        color[static_cast<u32>(PathogenFamily::Parasite)]    = Vec4{0.46f, 0.28f, 0.14f, 1.0f};
 
         // silhouette = THREAT tier, tempo = SPEED tier, wobble = family
         // texture. Virus smaller and faster; bacteria bigger and slower.
         visual[static_cast<u32>(PathogenFamily::Virus)]       = FamilyVisual{3.06f, 3.4f, 0.0f};
         visual[static_cast<u32>(PathogenFamily::Bacteria)]    = FamilyVisual{4.50f, 1.5f, 0.0f};
+        // A long worm: the sprite is big, the body inside it is thin.
+        visual[static_cast<u32>(PathogenFamily::Parasite)]    = FamilyVisual{10.0f, 1.0f, 0.0f};
     }
 };
 
@@ -1649,6 +1654,33 @@ void Renderer::submit_chaff(const sim::ChaffBuffers& chaff, const sim::SpatialHa
             Vec4 throb_shape[kFamilyCount];
             Vec4 throb_skin[kFamilyCount];
             Vec4 throb_pump[kFamilyCount];
+            // The worm body and the burrow look (sim/burrow/Burrow.h). The
+            // wave number is converted to the sprite's local units here, from
+            // the same world wavelength the sim advances the phase by, which
+            // is what keeps the body's crests fixed on the ground.
+            Vec4 slither_shape[kFamilyCount];
+            Vec4 slither_extra[kFamilyCount];
+            Vec4 burrow_look[kFamilyCount];
+            Vec4 burrow_look2[kFamilyCount];
+            Vec4 burrow_dirt[kFamilyCount];
+            Vec4 burrow_hole[kFamilyCount];
+            for (u32 f = 0; f < kFamilyCount; ++f) {
+                const auto fam = static_cast<PathogenFamily>(f);
+                const sim::SlitherParams& sl = sim::family_slither(fam);
+                const f32 silhouette = family_visual(fam).silhouette;
+                const f32 k_local = sl.wavelength > math::kEpsilon
+                                        ? math::kTwoPi * silhouette / sl.wavelength
+                                        : 0.0f;
+                // body_length 0 is how chaff.frag knows this family is not a worm.
+                slither_shape[f] = Vec4{sl.amplitude, k_local, sl.enabled ? sl.body_length : 0.0f,
+                                        sl.thickness};
+                slither_extra[f] = Vec4{sl.segments, sl.head_amplitude, 0.0f, 0.0f};
+                const sim::BurrowParams& bp = sim::family_burrow(fam);
+                burrow_look[f] = Vec4{bp.mound_radius, bp.hole_radius, bp.clod_count, bp.clod_size};
+                burrow_look2[f] = Vec4{bp.clod_throw, bp.sink_fraction, 0.0f, 0.0f};
+                burrow_dirt[f] = bp.dirt_color;
+                burrow_hole[f] = bp.hole_color;
+            }
             for (u32 f = 0; f < kFamilyCount; ++f) {
                 flash_color[f] = sim::family_hit_flash(static_cast<PathogenFamily>(f)).color;
                 const sim::ReplicationSplitParams& split =
@@ -1659,13 +1691,23 @@ void Renderer::submit_chaff(const sim::ChaffBuffers& chaff, const sim::SpatialHa
                 throb_skin[f] = Vec4{throb.ripple, throb.stream, throb.squash, throb.probe};
                 throb_pump[f] = Vec4{throb.glow, 0.0f, 0.0f, 0.0f};
             }
-            glUniform4fv(2, static_cast<GLsizei>(kFamilyCount), glm::value_ptr(flash_color[0]));
-            glUniform4fv(4, static_cast<GLsizei>(kFamilyCount), glm::value_ptr(split_params[0]));
-            glUniform4fv(6, static_cast<GLsizei>(kFamilyCount), glm::value_ptr(throb_shape[0]));
-            glUniform4fv(8, static_cast<GLsizei>(kFamilyCount), glm::value_ptr(throb_skin[0]));
-            glUniform4fv(10, static_cast<GLsizei>(kFamilyCount), glm::value_ptr(throb_pump[0]));
+            // Every per-family array is kFamilyCount locations wide, packed
+            // back to back from location 2; chaff.frag spells out the same
+            // numbers for the current family count.
+            constexpr GLint F = static_cast<GLint>(kFamilyCount);
+            glUniform4fv(2, F, glm::value_ptr(flash_color[0]));
+            glUniform4fv(2 + F, F, glm::value_ptr(split_params[0]));
+            glUniform4fv(2 + 2 * F, F, glm::value_ptr(throb_shape[0]));
+            glUniform4fv(2 + 3 * F, F, glm::value_ptr(throb_skin[0]));
+            glUniform4fv(2 + 4 * F, F, glm::value_ptr(throb_pump[0]));
+            glUniform1f(2 + 5 * F, kShadowsEnabled ? 1.0f : 0.0f);
+            glUniform4fv(3 + 5 * F, F, glm::value_ptr(slither_shape[0]));
+            glUniform4fv(3 + 6 * F, F, glm::value_ptr(slither_extra[0]));
+            glUniform4fv(3 + 7 * F, F, glm::value_ptr(burrow_look[0]));
+            glUniform4fv(3 + 8 * F, F, glm::value_ptr(burrow_look2[0]));
+            glUniform4fv(3 + 9 * F, F, glm::value_ptr(burrow_dirt[0]));
+            glUniform4fv(3 + 10 * F, F, glm::value_ptr(burrow_hole[0]));
         }
-        glUniform1f(12, kShadowsEnabled ? 1.0f : 0.0f);
         imp.chaff_vao.bind();
         const u32 region_base_instance = imp.chaff_region * kFamilyCount * per_family_cap;
         for (u32 f = 0; f < kFamilyCount; ++f) {

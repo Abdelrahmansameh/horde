@@ -145,8 +145,10 @@ NeighbourSample gather_neighbours(const SpatialHash& hash,
                                   usize i, f32 sep_radius, f32 align_radius,
                                   const u8* family, const f32* contact_radii,
                                   f32 max_contact_radius, f32 contact_stiffness,
-                                  u32 max_sampled) {
+                                  u32 max_sampled, const u8* burrow, const bool* collides) {
     NeighbourSample out;
+    // A non-colliding family (ChaffFamilyParams::collides) has no crowd.
+    if (!collides[family[i] < kFamilyCount ? family[i] : 0]) return out;
     // Squad membership is deliberately irrelevant to local crowd physics.
     // Making another squad repel harder -- and excluding it from alignment --
     // phase-separated mixed waves into shells and made a surrounded family
@@ -258,6 +260,11 @@ NeighbourSample gather_neighbours(const SpatialHash& hash,
             const u32 j = indices[begin + local];
             if (++local == cell_count) local = 0u;
             if (j == i) continue;
+            // A burrowed parasite is under the tissue: it neither shoves nor
+            // steers anyone walking over it (sim/burrow/Burrow.h).
+            if (burrow[j] != burrow_state::kSurface) continue;
+            // ...and neither does a family with collisions switched off.
+            if (!collides[family[j] < kFamilyCount ? family[j] : 0]) continue;
             const f32 dx = p.x - px[j];
             const f32 dy = p.y - py[j];
             const f32 d2 = dx * dx + dy * dy;
@@ -614,6 +621,7 @@ ChaffUpdateStats ChaffSystem::update(ChaffBuffers& buffers, const FlowField& flo
     const u8* fam = buffers.family.data();
     const u8* flg = buffers.flags.data();
     const u16* sqid = buffers.squad_id.data();
+    const u8* burrow = buffers.burrow_state.data();
     const f32* slow_factor = buffers.slow_factor.data();
     const f32* old_px = old_pos_x_.data();
     const f32* old_py = old_pos_y_.data();
@@ -638,10 +646,13 @@ ChaffUpdateStats ChaffSystem::update(ChaffBuffers& buffers, const FlowField& flo
     f32 relief_step[kFamilyCount];
     f32 contact_radii[kFamilyCount];
     f32 max_contact_radius = 0.0f;
+    bool collides[kFamilyCount];
     for (u32 f = 0; f < kFamilyCount; ++f) {
         relief_step[f] = tuning.family[f].crowd_relief * tuning.family[f].radius;
         contact_radii[f] = tuning.family[f].radius * tuning.family[f].contact_spacing;
-        max_contact_radius = math::max(max_contact_radius, contact_radii[f]);
+        collides[f] = tuning.family[f].collides;
+        // Only families that can actually be touched widen everyone's scan.
+        if (collides[f]) max_contact_radius = math::max(max_contact_radius, contact_radii[f]);
     }
 
     // ---- Pass A: accumulate (parallel, gather-heavy, not vectorized) --------
@@ -820,7 +831,7 @@ ChaffUpdateStats ChaffSystem::update(ChaffBuffers& buffers, const FlowField& flo
                                   foreign_radius_mult, foreign_strength_mult, i,
                                   fp.separation_radius, fp.alignment_radius,
                                   fam, contact_radii, max_contact_radius, fp.contact_stiffness,
-                                  tuning.max_neighbors_sampled);
+                                  tuning.max_neighbors_sampled, burrow, collides);
             // Crowd relief: displacement DOWN the local pressure gradient,
             // toward the density `pressure_threshold` describes as comfortable.
             //

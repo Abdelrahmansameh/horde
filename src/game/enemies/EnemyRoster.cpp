@@ -110,9 +110,10 @@ void EnemyRoster::load_defaults() {
         d.base_density = density;
     };
     // DESIGN.md §6 table. Names mirror the sim-test schema's family strings
-    // (docs/AGENT_BRIEF.md): "virus" "bacteria".
+    // (docs/AGENT_BRIEF.md): "virus" "bacteria" "parasite".
     set(PathogenFamily::Virus, "virus", SpeedTier::Fast, 0.6f);
     set(PathogenFamily::Bacteria, "bacteria", SpeedTier::Fast, 0.9f);
+    set(PathogenFamily::Parasite, "parasite", SpeedTier::Normal, 1.6f);
 
     // Behaviour switches, straight off the frozen header's table: Virus
     // replicates. Bacteria is a plain chaff family with no behaviour of its
@@ -176,6 +177,7 @@ void EnemyRoster::apply_to_tuning(sim::ChaffTuning& tuning) const {
 
         p.drift_bias = fc.drift_bias;
         p.replication_rate = fc.replication_rate;
+        p.collides = fc.collides;
     }
 
     // NOTE: ambient_drift is deliberately NOT set here any more. This function
@@ -251,6 +253,32 @@ EnemyConfig& mutable_enemy_config() {
             bacteria.alignment_strength = 6.0f;
             bacteria.pressure_threshold = 4.0f;
             bacteria.replication_rate = 0.0f;
+
+            // The worm's collision disc is a small fraction of its sprite: the
+            // sprite is a long quad around a thin body (see `slither` below).
+            FamilyChaffParams& parasite =
+                seed.families[static_cast<u32>(PathogenFamily::Parasite)].chaff;
+            parasite = FamilyChaffParams{};
+            parasite.radius_from_silhouette = 0.16f;
+            parasite.separation_strength = 6.0f;
+            parasite.alignment_radius = 7.0f;
+            parasite.alignment_strength = 4.0f;
+            parasite.pressure_threshold = 4.0f;
+            parasite.replication_rate = 0.0f;
+            // Worms pass over and under the horde rather than jostling it.
+            parasite.collides = false;
+        }
+
+        // The parasite's whole identity: it burrows and it slithers. Seeded
+        // here so a roster that never sees enemies.json still has one; the
+        // shipped file carries the same numbers. Every other family keeps the
+        // structs' defaults, which are off.
+        {
+            FamilyConfig& parasite = seed.families[static_cast<u32>(PathogenFamily::Parasite)];
+            parasite.burrow = sim::BurrowParams{};
+            parasite.burrow.enabled = true;
+            parasite.slither = sim::SlitherParams{};
+            parasite.slither.enabled = true;
         }
 
         // How each family fights back (sim/hostile). The virus is the
@@ -284,6 +312,18 @@ EnemyConfig& mutable_enemy_config() {
             bacteria.latch_ease_power = 0.0f;
             bacteria.aura_dps = 3.0f;
             bacteria.aura_radius = 4.0f;
+            // The parasite does not attack (yet): every field zero.
+            sim::HostileFamilyParams& parasite = seed.families[static_cast<u32>(PathogenFamily::Parasite)].attack;
+            parasite.latch_dps = 0.0f;
+            parasite.latch_reach = 0.0f;
+            parasite.latch_cap_swarmer = 0u;
+            parasite.latch_cap_tower = 0u;
+            parasite.latch_cap_scar = 0u;
+            parasite.latch_speed = 0.0f;
+            parasite.latch_ease_distance = 0.0f;
+            parasite.latch_ease_power = 0.0f;
+            parasite.aura_dps = 0.0f;
+            parasite.aura_radius = 0.0f;
         }
         return seed;
     }();
@@ -305,6 +345,16 @@ sim::HostileTuning hostile_tuning(const HostileGlobals& globals) {
     t.enabled = globals.enabled;
     t.max_attackers = globals.max_attackers;
     t.max_latch_events = globals.max_latch_events;
+    return t;
+}
+
+sim::BurrowTuning burrow_tuning() {
+    sim::BurrowTuning t;
+    const EnemyConfig& cfg = mutable_enemy_config();
+    for (u32 i = 0; i < kFamilyCount; ++i) {
+        t.burrow[i] = cfg.families[i].burrow;
+        t.slither[i] = cfg.families[i].slither;
+    }
     return t;
 }
 
@@ -338,6 +388,10 @@ void apply_enemy_config(EnemyRoster& roster, const EnemyConfig& cfg) {
         // Back up to render/ for the feeding animation, which nothing in sim
         // consumes. See render/LatchThrob.h.
         render::set_family_latch_throb(family, cfg.families[i].latch_throb);
+        // Burrow look and the worm body: the renderer's copy. The sim takes
+        // its own through burrow_tuning() below.
+        sim::set_family_burrow(family, cfg.families[i].burrow);
+        sim::set_family_slither(family, cfg.families[i].slither);
     }
 
     roster.load_defaults();

@@ -97,10 +97,11 @@ TEST_CASE("a level that used to lean on the generator now authors its own table"
     REQUIRE(loader.validate(def).ok);
     REQUIRE(def.waves.size() == 8);
     // The old generated shape: virus from wave 1, bacteria joining at wave 2,
-    // a second family at wave 4, and pressure rising monotonically.
+    // a second bacteria entry at wave 4, and pressure rising monotonically.
+    // Every bacteria entry now brings a parasite horde with it.
     REQUIRE(def.waves[0].spawns.size() == 1);
-    REQUIRE(def.waves[1].spawns.size() == 2);
-    REQUIRE(def.waves[3].spawns.size() == 3);
+    REQUIRE(def.waves[1].spawns.size() == 3);
+    REQUIRE(def.waves[3].spawns.size() == 5);
     for (usize i = 1; i < def.waves.size(); ++i) {
         INFO("wave = " << def.waves[i].name);
         REQUIRE(wave_total(def.waves[i]) > wave_total(def.waves[i - 1]));
@@ -196,7 +197,9 @@ TEST_CASE("floodplain_max_horde's final wave puts ~10,000 agents on the field at
 
     const WaveDef& final_wave = def.waves.back();
     const u32 authored_peak = wave_total(final_wave);
-    REQUIRE(authored_peak == 10000);
+    // 10,000 virus + bacteria, plus the parasite hordes that ride with every
+    // bacteria entry.
+    REQUIRE(authored_peak == 10600);
     // Every wave must fit the chaff buffer with room to spare -- a table that
     // asks for more than max_chaff doesn't spawn more agents, it just silently
     // drops the overflow (WaveDirector::tick counts the shortfall as done).

@@ -61,13 +61,20 @@ ImVec4 family_tint(PathogenFamily f, const game::EnemyRoster* roster) {
         const Vec4 c = roster->family(f).color;
         return ImVec4(c.x, c.y, c.z, 1.0f);
     }
-    return f == PathogenFamily::Virus ? ImVec4(0.5f, 0.8f, 1.0f, 1.0f)
-                                      : ImVec4(0.9f, 0.75f, 0.35f, 1.0f);
+    switch (f) {
+        case PathogenFamily::Virus: return ImVec4(0.5f, 0.8f, 1.0f, 1.0f);
+        case PathogenFamily::Parasite: return ImVec4(0.46f, 0.28f, 0.14f, 1.0f);
+        default: return ImVec4(0.9f, 0.75f, 0.35f, 1.0f);
+    }
 }
 
 const char* family_label(PathogenFamily f, const game::EnemyRoster* roster) {
     if (roster) return roster->family(f).name;
-    return f == PathogenFamily::Virus ? "virus" : "bacteria";
+    switch (f) {
+        case PathogenFamily::Virus: return "virus";
+        case PathogenFamily::Parasite: return "parasite";
+        default: return "bacteria";
+    }
 }
 
 } // namespace
@@ -1351,7 +1358,7 @@ EditorRequest EditorPanels::draw_dialogs(app::EditorMode& editor,
         }
         for (u32 f = 0; f < kFamilyCount; ++f) {
             ImGui::PushID(static_cast<int>(f));
-            ImGui::SeparatorText(f == 0 ? "virus" : "bacteria");
+            ImGui::SeparatorText(family_label(static_cast<PathogenFamily>(f), nullptr));
             int a = static_cast<int>(ramp_.first_count[f]);
             int b = static_cast<int>(ramp_.last_count[f]);
             int fw = static_cast<int>(ramp_.first_wave[f]);

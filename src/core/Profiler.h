@@ -26,6 +26,8 @@ inline constexpr const char* kSquadUpdate   = "squad_update";
 /// The pathogen-vs-friendly pass (sim/hostile). An extra, like squad_update:
 /// emitted after the five canonical keys, never in their place.
 inline constexpr const char* kHostile       = "hostile_update";
+/// Burrowing and slither (sim/burrow). Another extra, same footing.
+inline constexpr const char* kBurrow        = "burrow_update";
 inline constexpr const char* kEcsTick       = "ecs_tick";
 inline constexpr const char* kRenderSubmit  = "render_submit";
 inline constexpr const char* kFrameTotal    = "frame_total";

@@ -58,7 +58,8 @@
       "atp_reward": 60,
       "spawns": [
         { "family": "virus", "count": 198, "duration": 4.67 },
-        { "family": "bacteria", "count": 90, "start_time": 0.33, "duration": 6 }
+        { "family": "bacteria", "count": 90, "start_time": 0.33, "duration": 6 },
+        { "family": "parasite", "count": 14, "start_time": 0.83, "duration": 6 }
       ]
     },
     {
@@ -68,7 +69,9 @@
       "spawns": [
         { "family": "virus", "count": 303, "duration": 4.67 },
         { "family": "bacteria", "count": 142, "start_time": 0.33, "duration": 6 },
-        { "family": "bacteria", "count": 95, "start_time": 0.83, "duration": 4 }
+        { "family": "parasite", "count": 21, "start_time": 0.83, "duration": 6 },
+        { "family": "bacteria", "count": 95, "start_time": 0.83, "duration": 4 },
+        { "family": "parasite", "count": 14, "start_time": 1.33, "duration": 4 }
       ]
     },
     {
@@ -78,7 +81,9 @@
       "spawns": [
         { "family": "virus", "count": 408, "duration": 4.67 },
         { "family": "bacteria", "count": 195, "start_time": 0.33, "duration": 6 },
-        { "family": "bacteria", "count": 130, "start_time": 0.83, "duration": 4 }
+        { "family": "parasite", "count": 29, "start_time": 0.83, "duration": 6 },
+        { "family": "bacteria", "count": 130, "start_time": 0.83, "duration": 4 },
+        { "family": "parasite", "count": 20, "start_time": 1.33, "duration": 4 }
       ]
     },
     {
@@ -88,7 +93,9 @@
       "spawns": [
         { "family": "virus", "count": 513, "duration": 4.67 },
         { "family": "bacteria", "count": 247, "start_time": 0.33, "duration": 6 },
-        { "family": "bacteria", "count": 165, "start_time": 0.83, "duration": 4 }
+        { "family": "parasite", "count": 37, "start_time": 0.83, "duration": 6 },
+        { "family": "bacteria", "count": 165, "start_time": 0.83, "duration": 4 },
+        { "family": "parasite", "count": 25, "start_time": 1.33, "duration": 4 }
       ]
     },
     {
@@ -98,7 +105,9 @@
       "spawns": [
         { "family": "virus", "count": 618, "duration": 4.67 },
         { "family": "bacteria", "count": 300, "start_time": 0.33, "duration": 6 },
-        { "family": "bacteria", "count": 200, "start_time": 0.83, "duration": 4 }
+        { "family": "parasite", "count": 45, "start_time": 0.83, "duration": 6 },
+        { "family": "bacteria", "count": 200, "start_time": 0.83, "duration": 4 },
+        { "family": "parasite", "count": 30, "start_time": 1.33, "duration": 4 }
       ]
     },
     {
@@ -108,7 +117,9 @@
       "spawns": [
         { "family": "virus", "count": 723, "duration": 4.67 },
         { "family": "bacteria", "count": 352, "start_time": 0.33, "duration": 6 },
-        { "family": "bacteria", "count": 235, "start_time": 0.83, "duration": 4 }
+        { "family": "parasite", "count": 53, "start_time": 0.83, "duration": 6 },
+        { "family": "bacteria", "count": 235, "start_time": 0.83, "duration": 4 },
+        { "family": "parasite", "count": 35, "start_time": 1.33, "duration": 4 }
       ]
     },
     {
@@ -118,7 +129,9 @@
       "spawns": [
         { "family": "virus", "count": 828, "duration": 4.67 },
         { "family": "bacteria", "count": 405, "start_time": 0.33, "duration": 6 },
-        { "family": "bacteria", "count": 270, "start_time": 0.83, "duration": 4 }
+        { "family": "parasite", "count": 61, "start_time": 0.83, "duration": 6 },
+        { "family": "bacteria", "count": 270, "start_time": 0.83, "duration": 4 },
+        { "family": "parasite", "count": 40, "start_time": 1.33, "duration": 4 }
       ]
     },
     {
@@ -128,7 +141,9 @@
       "spawns": [
         { "family": "virus", "count": 933, "duration": 4.67 },
         { "family": "bacteria", "count": 457, "start_time": 0.33, "duration": 6 },
-        { "family": "bacteria", "count": 305, "start_time": 0.83, "duration": 4 }
+        { "family": "parasite", "count": 69, "start_time": 0.83, "duration": 6 },
+        { "family": "bacteria", "count": 305, "start_time": 0.83, "duration": 4 },
+        { "family": "parasite", "count": 46, "start_time": 1.33, "duration": 4 }
       ]
     }
   ]

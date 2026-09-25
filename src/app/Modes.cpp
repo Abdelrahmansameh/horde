@@ -98,6 +98,7 @@ bool build_world(sim::SimWorld& world, const Options& opt, usize max_chaff,
             desc.squad_tuning = cfg.sim.squads;
             desc.swarmer_collision = cfg.sim.swarmer_collision;
             desc.hostile_tuning = game::hostile_tuning(cfg.sim.hostile);
+            desc.burrow_tuning = game::burrow_tuning();
             desc.spatial_cell_size = cfg.sim.globals.spatial_cell_size;
             desc.flow_rebake_budget_ms = cfg.sim.globals.flow_rebake_budget_ms;
             desc.flow_smoothing_radius = cfg.sim.globals.flow_smoothing_radius;
@@ -210,7 +211,7 @@ void populate_scenario(sim::SimWorld& world, const BenchScenario& s) {
 /// snapshot keys below and by the metric names read_metric() accepts, so a
 /// script's assertion and the report it reads spell a family identically.
 const char* family_key(u32 f) {
-    static const char* kNames[kFamilyCount] = {"virus", "bacteria"};
+    static const char* kNames[kFamilyCount] = {"virus", "bacteria", "parasite"};
     return f < kFamilyCount ? kNames[f] : "unknown";
 }
 
@@ -599,6 +600,7 @@ int run_sim_test(const Options& opt) {
             economy.configure(cfg.economy);
             game::apply_ability_config(abilities, cfg.abilities);
             world.hostile().set_tuning(game::hostile_tuning(cfg.sim.hostile));
+            world.burrow().set_tuning(game::burrow_tuning());
             return true;
         };
         gym.config_paths = [registry]() { return registry->field_paths(); };
@@ -613,7 +615,7 @@ int run_sim_test(const Options& opt) {
                 const std::string fname = a.value("family", std::string("virus"));
                 for (u32 f = 0; f < kFamilyCount; ++f) {
                     // Family names mirror EnemyRoster::load_defaults.
-                    static const char* names[kFamilyCount] = {"virus", "bacteria"};
+                    static const char* names[kFamilyCount] = {"virus", "bacteria", "parasite"};
                     if (fname == names[f]) fam = static_cast<PathogenFamily>(f);
                 }
                 const auto pos = a.value("pos", std::vector<f32>{0.0f, 0.0f});

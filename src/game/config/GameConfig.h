@@ -24,6 +24,7 @@
 #include "game/enemies/EnemyRoster.h"
 #include "game/towers/TowerSystem.h"
 #include "render/LatchThrob.h"
+#include "sim/burrow/Burrow.h"
 #include "sim/chaff/HitFlash.h"
 #include "sim/chaff/ReplicationSplit.h"
 #include "sim/fluid/Fluid.h"
@@ -285,6 +286,7 @@ struct FamilyChaffParams {
     f32 crowd_relief = 0.7f;
     f32 drift_bias = 0.0f;
     f32 replication_rate = 0.0f;
+    bool collides = true;
 };
 
 struct FamilyConfig {
@@ -313,6 +315,12 @@ struct FamilyConfig {
     /// (sim/hostile/HostileAttacks.h). Reused verbatim from sim/ for the same
     /// no-mirror reason as `hit_flash`: the pass reads exactly this struct.
     sim::HostileFamilyParams attack{};
+    /// Burrowing under the tissue and resurfacing further down the lane
+    /// (sim/burrow/Burrow.h). Off for every family but the Parasite. Reused
+    /// verbatim for the same no-mirror reason as `hit_flash`.
+    sim::BurrowParams burrow{};
+    /// The drawn worm body and its travelling wave (sim/burrow/Burrow.h).
+    sim::SlitherParams slither{};
 };
 
 /// Shared melee shape every elite starts from.

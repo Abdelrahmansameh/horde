@@ -248,6 +248,7 @@ void App::apply_tuning_config() {
     // The hostile pass reads its tuning off the world, not off a SimDesc, so
     // a reload of a family's latch or aura reaches the running level too.
     sim_.hostile().set_tuning(game::hostile_tuning(config_.sim.hostile));
+    sim_.burrow().set_tuning(game::burrow_tuning());
 
     // The loaded level gets the LAST word. Folded in here rather than called
     // beside every apply_tuning_config() site, because there are five of them
@@ -338,6 +339,7 @@ bool App::load_level_def(const game::LevelDef& level, const std::string& source_
     desc.squad_tuning = config_.sim.squads;
     desc.swarmer_collision = config_.sim.swarmer_collision;
     desc.hostile_tuning = game::hostile_tuning(config_.sim.hostile);
+    desc.burrow_tuning = game::burrow_tuning();
     desc.spatial_cell_size = config_.sim.globals.spatial_cell_size;
     desc.flow_rebake_budget_ms = config_.sim.globals.flow_rebake_budget_ms;
     desc.flow_smoothing_radius = config_.sim.globals.flow_smoothing_radius;

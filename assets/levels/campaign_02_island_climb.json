@@ -90,7 +90,8 @@
       "atp_reward": 94,
       "spawns": [
         { "family": "virus", "count": 448, "duration": 4 },
-        { "family": "bacteria", "count": 72, "start_time": 1, "duration": 3.5 }
+        { "family": "bacteria", "count": 72, "start_time": 1, "duration": 3.5 },
+        { "family": "parasite", "count": 11, "start_time": 1.5, "duration": 3.5 }
       ]
     },
     {
@@ -99,7 +100,8 @@
       "atp_reward": 116,
       "spawns": [
         { "family": "virus", "count": 589, "duration": 4 },
-        { "family": "bacteria", "count": 122, "start_time": 1, "duration": 3.5 }
+        { "family": "bacteria", "count": 122, "start_time": 1, "duration": 3.5 },
+        { "family": "parasite", "count": 18, "start_time": 1.5, "duration": 3.5 }
       ]
     },
     {
@@ -108,7 +110,8 @@
       "atp_reward": 138,
       "spawns": [
         { "family": "virus", "count": 730, "duration": 4 },
-        { "family": "bacteria", "count": 172, "start_time": 1, "duration": 3.5 }
+        { "family": "bacteria", "count": 172, "start_time": 1, "duration": 3.5 },
+        { "family": "parasite", "count": 26, "start_time": 1.5, "duration": 3.5 }
       ]
     },
     {
@@ -117,7 +120,8 @@
       "atp_reward": 160,
       "spawns": [
         { "family": "virus", "count": 871, "duration": 4 },
-        { "family": "bacteria", "count": 223, "start_time": 1, "duration": 3.5 }
+        { "family": "bacteria", "count": 223, "start_time": 1, "duration": 3.5 },
+        { "family": "parasite", "count": 33, "start_time": 1.5, "duration": 3.5 }
       ]
     }
   ]

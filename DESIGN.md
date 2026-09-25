@@ -262,6 +262,7 @@ Enemies are split into **chaff** (cheap, mass-simulated, family-colored, no indi
 |---|---|---|---|
 | Virus | Red-purple | Fast, weak, **replicates** if not killed quickly (drives exponential horde pressure) | Chaff |
 | Bacteria | Yellow-green | Tankier and slower than a virus; no special behavior — a plain mass unit that reads as raw HP pressure | Chaff |
+| Parasite | Brown | A slithering worm. On a jittered cooldown it **burrows**: sinks into the tissue, is untargetable and undamageable while under, and resurfaces further down its lane (a forward cone, max range), preferring exits outside tower coverage and away from crowds. The exit mound rises shortly before it breaks out. No attack yet | Chaff |
 
 Design rule: **color = family, silhouette size = threat tier, animation tempo = speed tier.** This trio must remain legible at every zoom level and density the camera supports.
 

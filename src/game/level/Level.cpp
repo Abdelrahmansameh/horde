@@ -315,7 +315,7 @@ PlacementZoneTag parse_placement_zone_tag(const json& j) {
 /// default: a typo'd family name changes which horde a wave sends, and that is
 /// exactly the kind of mistake a level author needs told about.
 PathogenFamily parse_family(const std::string& s, const std::string& ctx) {
-    static const char* kNames[kFamilyCount] = {"virus", "bacteria"};
+    static const char* kNames[kFamilyCount] = {"virus", "bacteria", "parasite"};
     for (u32 f = 0; f < kFamilyCount; ++f) {
         if (s == kNames[f]) return static_cast<PathogenFamily>(f);
     }

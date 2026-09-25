@@ -32,7 +32,7 @@ struct AntibodyMemory {
     std::string id;
     std::string display_name;
     /// Multiplicative damage bonus against one family (1.0 = none).
-    f32 damage_vs_family[kFamilyCount] = {1.0f, 1.0f};
+    f32 damage_vs_family[kFamilyCount] = {1.0f, 1.0f, 1.0f};
     f32 starting_atp_bonus = 0.0f;
     f32 tower_cost_multiplier = 1.0f;
     f32 income_multiplier = 1.0f;
@@ -66,7 +66,7 @@ struct AntibodyMemory {
 /// ("+X% Macrophage damage"), which compose multiplicatively by convention
 /// everywhere else in this codebase's damage/economy math.
 struct LoadoutModifiers {
-    f32 damage_vs_family[kFamilyCount] = {1.0f, 1.0f};
+    f32 damage_vs_family[kFamilyCount] = {1.0f, 1.0f, 1.0f};
     f32 starting_atp_bonus = 0.0f;
     f32 tower_cost_multiplier = 1.0f;
     f32 income_multiplier = 1.0f;

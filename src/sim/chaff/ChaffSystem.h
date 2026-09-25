@@ -215,6 +215,13 @@ struct ChaffFamilyParams {
     /// the interior of a jam boiled. See the crowd-relief block in
     /// ChaffSystem.cpp.
     f32 crowd_relief = 0.7f;
+
+    /// Whether this family takes part in crowd physics at all. False makes it
+    /// a ghost to the horde: it is skipped as everyone else's neighbour (no
+    /// contact, separation, alignment or relief from it) and gathers no
+    /// neighbours itself, so it neither shoves nor is shoved. Walls, the flow
+    /// field, squads and every damage/targeting path are unaffected.
+    bool collides = true;
 };
 
 struct ChaffTuning {

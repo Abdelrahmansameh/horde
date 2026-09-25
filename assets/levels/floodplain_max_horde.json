@@ -36,7 +36,9 @@
       "spawns": [
         { "family": "virus", "count": 900, "duration": 6, "spawn_point_id": "p_flood" },
         { "family": "bacteria", "count": 400, "start_time": 0.5, "duration": 6, "spawn_point_id": "p_flood" },
-        { "family": "bacteria", "count": 200, "start_time": 1, "duration": 5, "spawn_point_id": "p_flood" }
+        { "family": "parasite", "count": 60, "start_time": 1, "duration": 6, "spawn_point_id": "p_flood" },
+        { "family": "bacteria", "count": 200, "start_time": 1, "duration": 5, "spawn_point_id": "p_flood" },
+        { "family": "parasite", "count": 30, "start_time": 1.5, "duration": 5, "spawn_point_id": "p_flood" }
       ]
     },
     {
@@ -46,7 +48,9 @@
       "spawns": [
         { "family": "virus", "count": 1500, "duration": 6.5, "spawn_point_id": "p_flood" },
         { "family": "bacteria", "count": 600, "start_time": 0.5, "duration": 6.5, "spawn_point_id": "p_flood" },
-        { "family": "bacteria", "count": 400, "start_time": 1, "duration": 5.5, "spawn_point_id": "p_flood" }
+        { "family": "parasite", "count": 90, "start_time": 1, "duration": 6.5, "spawn_point_id": "p_flood" },
+        { "family": "bacteria", "count": 400, "start_time": 1, "duration": 5.5, "spawn_point_id": "p_flood" },
+        { "family": "parasite", "count": 60, "start_time": 1.5, "duration": 5.5, "spawn_point_id": "p_flood" }
       ]
     },
     {
@@ -55,7 +59,9 @@
       "spawns": [
         { "family": "virus", "count": 2100, "duration": 7, "spawn_point_id": "p_flood" },
         { "family": "bacteria", "count": 900, "start_time": 0.5, "duration": 7, "spawn_point_id": "p_flood" },
-        { "family": "bacteria", "count": 500, "start_time": 1, "duration": 6, "spawn_point_id": "p_flood" }
+        { "family": "parasite", "count": 135, "start_time": 1, "duration": 7, "spawn_point_id": "p_flood" },
+        { "family": "bacteria", "count": 500, "start_time": 1, "duration": 6, "spawn_point_id": "p_flood" },
+        { "family": "parasite", "count": 75, "start_time": 1.5, "duration": 6, "spawn_point_id": "p_flood" }
       ]
     },
     {
@@ -65,7 +71,9 @@
       "spawns": [
         { "family": "virus", "count": 3000, "duration": 7.5, "spawn_point_id": "p_flood" },
         { "family": "bacteria", "count": 1200, "start_time": 0.5, "duration": 7.5, "spawn_point_id": "p_flood" },
-        { "family": "bacteria", "count": 800, "start_time": 1, "duration": 6.5, "spawn_point_id": "p_flood" }
+        { "family": "parasite", "count": 180, "start_time": 1, "duration": 7.5, "spawn_point_id": "p_flood" },
+        { "family": "bacteria", "count": 800, "start_time": 1, "duration": 6.5, "spawn_point_id": "p_flood" },
+        { "family": "parasite", "count": 120, "start_time": 1.5, "duration": 6.5, "spawn_point_id": "p_flood" }
       ]
     },
     {
@@ -76,7 +84,9 @@
       "spawns": [
         { "family": "virus", "count": 3900, "duration": 8, "spawn_point_id": "p_flood" },
         { "family": "bacteria", "count": 1600, "start_time": 0.5, "duration": 8, "spawn_point_id": "p_flood" },
-        { "family": "bacteria", "count": 1000, "start_time": 1, "duration": 7, "spawn_point_id": "p_flood" }
+        { "family": "parasite", "count": 240, "start_time": 1, "duration": 8, "spawn_point_id": "p_flood" },
+        { "family": "bacteria", "count": 1000, "start_time": 1, "duration": 7, "spawn_point_id": "p_flood" },
+        { "family": "parasite", "count": 150, "start_time": 1.5, "duration": 7, "spawn_point_id": "p_flood" }
       ]
     },
     {
@@ -86,7 +96,9 @@
       "spawns": [
         { "family": "virus", "count": 4800, "duration": 8.5, "spawn_point_id": "p_flood" },
         { "family": "bacteria", "count": 2000, "start_time": 0.5, "duration": 8.5, "spawn_point_id": "p_flood" },
-        { "family": "bacteria", "count": 1200, "start_time": 1, "duration": 7.5, "spawn_point_id": "p_flood" }
+        { "family": "parasite", "count": 300, "start_time": 1, "duration": 8.5, "spawn_point_id": "p_flood" },
+        { "family": "bacteria", "count": 1200, "start_time": 1, "duration": 7.5, "spawn_point_id": "p_flood" },
+        { "family": "parasite", "count": 180, "start_time": 1.5, "duration": 7.5, "spawn_point_id": "p_flood" }
       ]
     },
     {
@@ -96,7 +108,9 @@
       "spawns": [
         { "family": "virus", "count": 5400, "duration": 9, "spawn_point_id": "p_flood" },
         { "family": "bacteria", "count": 2250, "start_time": 0.5, "duration": 9, "spawn_point_id": "p_flood" },
-        { "family": "bacteria", "count": 1350, "start_time": 1, "duration": 8, "spawn_point_id": "p_flood" }
+        { "family": "parasite", "count": 338, "start_time": 1, "duration": 9, "spawn_point_id": "p_flood" },
+        { "family": "bacteria", "count": 1350, "start_time": 1, "duration": 8, "spawn_point_id": "p_flood" },
+        { "family": "parasite", "count": 202, "start_time": 1.5, "duration": 8, "spawn_point_id": "p_flood" }
       ]
     },
     {
@@ -107,7 +121,9 @@
       "spawns": [
         { "family": "virus", "count": 6000, "duration": 9, "spawn_point_id": "p_flood" },
         { "family": "bacteria", "count": 2500, "start_time": 0.5, "duration": 9, "spawn_point_id": "p_flood" },
-        { "family": "bacteria", "count": 1500, "start_time": 1, "duration": 8, "spawn_point_id": "p_flood" }
+        { "family": "parasite", "count": 375, "start_time": 1, "duration": 9, "spawn_point_id": "p_flood" },
+        { "family": "bacteria", "count": 1500, "start_time": 1, "duration": 8, "spawn_point_id": "p_flood" },
+        { "family": "parasite", "count": 225, "start_time": 1.5, "duration": 8, "spawn_point_id": "p_flood" }
       ]
     }
   ]

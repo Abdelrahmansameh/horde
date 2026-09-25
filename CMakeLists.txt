@@ -75,6 +75,7 @@ target_link_libraries(immune_config PUBLIC immune_core immune_platform
 
 add_library(immune_sim STATIC
   src/sim/SimWorld.cpp
+  src/sim/burrow/Burrow.cpp
   src/sim/chaff/ChaffBuffers.cpp
   src/sim/chaff/ChaffSystem.cpp
   src/sim/chaff/HitFlash.cpp

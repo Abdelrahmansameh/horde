@@ -50,6 +50,7 @@ void write_schema_version(config::Json& doc);
 inline constexpr config::EnumEntry kFamilyEnum[] = {
     {"virus", static_cast<i64>(PathogenFamily::Virus)},
     {"bacteria", static_cast<i64>(PathogenFamily::Bacteria)},
+    {"parasite", static_cast<i64>(PathogenFamily::Parasite)},
     {nullptr, 0},
 };
 

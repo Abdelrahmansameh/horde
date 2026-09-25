@@ -549,6 +549,10 @@ GameConfig default_game_config() {
             // same way the size derivations below are: the roster seeds it
             // with the compiled-in numbers until a file replaces them.
             fc.attack = enemy_config().families[i].attack;
+            // Burrowing and the worm body, the same way: the roster seeds the
+            // Parasite's (and leaves every other family's off).
+            fc.burrow = enemy_config().families[i].burrow;
+            fc.slither = enemy_config().families[i].slither;
 
             // The two size derivations come from the live enemy config so the
             // bootstrap cannot disagree with what apply_to_tuning() actually

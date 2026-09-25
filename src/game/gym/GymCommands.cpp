@@ -90,7 +90,7 @@ bool parse_i64(const std::string& s, i64& out) {
 // of each family name across the whole project.
 // ---------------------------------------------------------------------------
 
-const char* const kFamilyNames[kFamilyCount] = {"virus", "bacteria"};
+const char* const kFamilyNames[kFamilyCount] = {"virus", "bacteria", "parasite"};
 
 const char* family_name(PathogenFamily f) {
     const u32 i = static_cast<u32>(f);

@@ -122,6 +122,14 @@ inline constexpr u8 kSwarmer = 1;   ///< host_index / host_generation name a Swa
 inline constexpr u8 kTower = 2;
 } // namespace host_kind
 
+/// What ChaffBuffers::burrow_state holds (sim/burrow/Burrow.h drives it).
+namespace burrow_state {
+inline constexpr u8 kSurface = 0;      ///< Walking the lane like any agent.
+inline constexpr u8 kDiving = 1;       ///< Sinking into the tissue where it stands.
+inline constexpr u8 kUnderground = 2;  ///< Gone; already parked at its exit point.
+inline constexpr u8 kEmerging = 3;     ///< Coming back up out of the exit hole.
+} // namespace burrow_state
+
 /// Stable reference to a chaff agent across compaction. Rarely needed.
 struct ChaffHandle {
     u32 index = 0;
@@ -246,6 +254,46 @@ public:
     /// reads it and state_hash() omits it. Meaningless unless kLatched is set.
     std::vector<f32> latch_heading;
 
+    /// BURROWING (sim/burrow/Burrow.h). Only a family whose BurrowParams are
+    /// enabled ever leaves burrow_state::kSurface; every other agent carries
+    /// the spawn defaults below for its whole life and nothing reads them.
+    ///
+    /// `burrow_state` and `burrow_timer` are the state machine: which phase the
+    /// agent is in and how many seconds of it are left (on the surface, the
+    /// countdown to the next attempt; negative means "not armed yet", which is
+    /// how a fresh spawn gets its first jittered cooldown from the burrow
+    /// system rather than from spawn(), which does not know the family's
+    /// tuning). `burrow_target_*` is the exit point chosen at the dive. All
+    /// four are sim state and all four are in SimWorld::state_hash().
+    ///
+    /// A burrowed agent (any state but kSurface) also carries kHidden, which is
+    /// what already keeps every tower's units and aim off it and freezes it in
+    /// the movement kernel; the state stream is what additionally makes it
+    /// immune to damage (apply_density_loss) and invisible to the crowd
+    /// (gather_neighbours), neither of which may key off kHidden because a
+    /// Macrophage's captives carry that bit too.
+    std::vector<u8>  burrow_state;
+    std::vector<f32> burrow_timer;
+    std::vector<f32> burrow_target_x;
+    std::vector<f32> burrow_target_y;
+    /// 0..1 progress through the current burrow phase, for the renderer: the
+    /// dive and the emergence ramp over their whole phase, underground ramps
+    /// over the exit telegraph only (0 until the mound starts to rise).
+    /// PURELY COSMETIC, like hit_flash: written by the burrow system, read by
+    /// the chaff batcher, absent from state_hash().
+    std::vector<f32> burrow_anim;
+
+    /// SLITHER (sim/burrow/Burrow.h SlitherParams). PURELY COSMETIC, like
+    /// hit_flash. `body_heading` is the direction the drawn body faces, turned
+    /// toward the velocity at a bounded rate so a long body swings round
+    /// instead of snapping with every shove; `slither_phase` is the body
+    /// wave's phase, advanced with distance travelled so the wave's crests
+    /// stay put on the ground while the body moves through them -- which is
+    /// what makes it read as slithering rather than wiggling. Negative phase
+    /// means "not yet initialized" (spawn default).
+    std::vector<f32> body_heading;
+    std::vector<f32> slither_phase;
+
     /// Reserves every stream to `max_agents`. Call once at level load.
     void reserve(usize max_agents);
 
@@ -272,6 +320,10 @@ public:
     /// place that cannot be forgotten by whatever the fifth damage source turns
     /// out to be. Costs one table read and a handful of float ops per damaged
     /// agent, and nothing at all for a family with `enabled = false`.
+    ///
+    /// A burrowed agent (burrow_state != kSurface) takes nothing: it is under
+    /// the tissue. Every caller measures what it removed as density before
+    /// minus density after, so a no-op here books no damage and no kill.
     void apply_density_loss(usize index, f32 amount);
 
     /// Swap-removes every kPendingKill agent. Invalidates all raw indices and

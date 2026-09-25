@@ -83,6 +83,13 @@ struct DeathTables {
         bacteria.bloom_rise = 0.80f;
 
         bacteria.inherit_velocity = 0.25f;
+
+        // The parasite comes apart like a bacterium -- heavy, lazy debris --
+        // in its own brown, with a few fewer pieces for a thinner body.
+        FamilyDeathVfx& parasite = look[static_cast<u32>(PathogenFamily::Parasite)];
+        parasite = bacteria;
+        parasite.color = Vec4{0.46f, 0.28f, 0.14f, 1.0f};
+        parasite.bit_count = 22;
     }
 };
 

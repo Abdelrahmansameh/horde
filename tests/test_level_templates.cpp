@@ -215,6 +215,8 @@ TEST_CASE("the ramp curve front- and back-loads difficulty",
     base.last_count[0] = 500;
     base.first_count[1] = 0;
     base.last_count[1] = 0;
+    base.first_count[2] = 0;
+    base.last_count[2] = 0;
 
     const auto mid_count = [](const std::vector<WaveDef>& w) {
         u32 c = 0;
