@@ -1,0 +1,26 @@
+{
+  "schema": 1,
+  "name": "bacteria_horde_reaches_the_objective",
+  "seed": 20260805,
+  "ticks": 2400,
+  "max_chaff": 20000,
+  "level": "assets/levels/capillary_test.json",
+  "actions": [
+    {
+      "tick": 0,
+      "type": "spawn_chaff",
+      "family": "bacteria",
+      "count": 40,
+      "pos": [4.89, 44.0],
+      "radius": 2.44
+    }
+  ],
+  "assertions": [
+    {
+      "tick": 2400,
+      "metric": "chaff_leaked.bacteria",
+      "op": ">",
+      "value": 0
+    }
+  ]
+}

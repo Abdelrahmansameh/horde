@@ -695,6 +695,54 @@ TEST_CASE("a body_block unit shoves an overlapping pathogen out of itself instea
     REQUIRE(wall.blocks == 1);
 }
 
+TEST_CASE("an arbor arm captures and pulls a configurable nearby chaff chunk",
+          "[swarm][sim][arbor_grabber][cluster]") {
+    Fixture f;
+    SwarmerProfile pr = f.swarm.profile_at(kArbor);
+    pr.arbor_arm_count = 1;
+    pr.arbor_max_captives = 3;
+    pr.arbor_cluster_radius = 2.0f;
+    pr.arbor_extend_seconds = 0.001f;
+    pr.arbor_latch_seconds = 0.001f;
+    pr.arbor_pull_seconds = 0.50f;
+    f.swarm.set_profile(kArbor, pr);
+
+    const usize lead = f.add_chaff(Vec2{45.0f, 40.0f}, 100.0f);
+    const usize follower_a = f.add_chaff(Vec2{46.0f, 40.5f}, 100.0f);
+    const usize follower_b = f.add_chaff(Vec2{44.4f, 39.6f}, 100.0f);
+    const usize outside = f.add_chaff(Vec2{48.0f, 40.0f}, 100.0f);
+    f.add_swarmer(Vec2{40.0f, 40.0f}, Vec2{}, kArbor);
+
+    // Select, extend, then latch. The fourth enemy is beyond the cluster
+    // radius and remains visible even though the first three are captured.
+    f.step(3);
+    REQUIRE((f.chaff.flags[lead] & chaff_flags::kHidden) != 0);
+    REQUIRE((f.chaff.flags[follower_a] & chaff_flags::kHidden) != 0);
+    REQUIRE((f.chaff.flags[follower_b] & chaff_flags::kHidden) != 0);
+    REQUIRE((f.chaff.flags[outside] & chaff_flags::kHidden) == 0);
+    const ArborArmState& arm = f.swarm.arbor_grabber[0].arms[0];
+    REQUIRE(arm.captive.chaff_count == 3u);
+
+    const Vec2 lead_before = f_pos(f, lead);
+    const Vec2 follower_before = f_pos(f, follower_a);
+    f.step(10);
+    const Vec2 lead_delta = f_pos(f, lead) - lead_before;
+    const Vec2 follower_delta = f_pos(f, follower_a) - follower_before;
+    // The cluster travels as one body: the follower retains its offset from
+    // the lead rather than converging separately on the macrophage.
+    REQUIRE(follower_delta.x == Catch::Approx(lead_delta.x).margin(0.001f));
+    REQUIRE(follower_delta.y == Catch::Approx(lead_delta.y).margin(0.001f));
+
+    u32 swallowed = 0;
+    for (int tick = 0; tick < 60; ++tick) {
+        f.step(1);
+        swallowed += f.system.last_stats().hosts_finished;
+    }
+    REQUIRE(swallowed == 3u);
+    REQUIRE(f.chaff.count() == 1);
+    REQUIRE(f.chaff.density[0] == Catch::Approx(100.0f));
+}
+
 // ---------------------------------------------------------------------------
 // Bombers
 // ---------------------------------------------------------------------------

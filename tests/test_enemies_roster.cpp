@@ -151,9 +151,17 @@ TEST_CASE("apply_to_tuning's replication_rate stays bounded at chaff10k bench sc
     // has none, so disable it explicitly (radius <= 0 turns goal consumption
     // off per ChaffSystem::update).
     world.chaff_system().set_goal(Vec2{0.0f, 0.0f}, Vec2{0.0f, 0.0f});
+    const Rect b = desc.world_bounds;
+    // This test measures replication, not despawning. Family silhouettes are
+    // now substantially larger, so contact relaxation can legitimately move
+    // edge-seeded bodies outside the small synthetic benchmark rectangle.
+    // Keep them alive with a generous despawn envelope while leaving the
+    // spatial density and every movement/replication rule unchanged.
+    world.chaff_system().set_world_bounds(
+        Rect{Vec2{b.min.x - 1000.0f, b.min.y - 1000.0f},
+             Vec2{b.max.x + 1000.0f, b.max.y + 1000.0f}});
 
     Rng& rng = world.rng();
-    const Rect b = desc.world_bounds;
     for (u32 i = 0; i < 10000; ++i) {
         sim::ChaffSpawnParams p;
         p.position = Vec2{rng.range_f(b.min.x, b.max.x), rng.range_f(b.min.y, b.max.y)};

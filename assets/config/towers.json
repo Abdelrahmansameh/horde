@@ -201,12 +201,12 @@
         {
           "payload": {
             "chase_seconds": 1.0,
-            "droplet_lifetime": 1.6,
-            "droplets": 20,
-            "mark_seconds": 2.2,
-            "splash_dps": 14.0,
-            "splash_radius": 1.0,
-            "splash_speed": 2.0
+            "droplet_lifetime": 5.6,
+            "droplets": 500,
+            "slow_duration": 3.0,
+            "slow_factor": 0.12,
+            "splash_radius": 5.0,
+            "splash_speed": 20.0
           },
           "stats": {
             "build_cost": 160,
@@ -232,8 +232,8 @@
             "chase_seconds": 1.0,
             "droplet_lifetime": 1.9,
             "droplets": 28,
-            "mark_seconds": 2.6,
-            "splash_dps": 34.0,
+            "slow_duration": 3.5,
+            "slow_factor": 0.09,
             "splash_radius": 1.2,
             "splash_speed": 2.4
           },
@@ -261,8 +261,8 @@
             "chase_seconds": 1.0,
             "droplet_lifetime": 2.2,
             "droplets": 36,
-            "mark_seconds": 3.0,
-            "splash_dps": 62.0,
+            "slow_duration": 4.0,
+            "slow_factor": 0.06,
             "splash_radius": 1.4,
             "splash_speed": 2.8
           },
@@ -293,10 +293,10 @@
         {
           "payload": {
             "chase_seconds": 1.0,
-            "slow_duration": 1.5,
-            "slow_factor": 0.5,
-            "zone_duration": 3.0,
-            "zone_radius": 3.0
+            "slow_duration": 5.5,
+            "slow_factor": 0.3,
+            "zone_duration": 5.0,
+            "zone_radius": 10.0
           },
           "stats": {
             "build_cost": 110,
@@ -380,12 +380,14 @@
           "payload": {
             "arm_count": 4,
             "body_block": 0.9,
+            "cluster_radius": 2.4,
             "extend_seconds": 0.14,
             "fake_mass": 1000.5,
             "kite_flow_weight": 1.0,
             "kite_fraction": 0.4075,
             "kite_speed_mult": 1.5,
             "latch_seconds": 0.05,
+            "max_captives": 3,
             "pull_seconds": 0.1,
             "recover_seconds": 0.017,
             "wall_spacing": 4.5
@@ -413,12 +415,14 @@
           "payload": {
             "arm_count": 3,
             "body_block": 0.9,
+            "cluster_radius": 2.8,
             "extend_seconds": 0.11,
             "fake_mass": 0.7,
             "kite_flow_weight": 1.0,
             "kite_fraction": 0.5075,
             "kite_speed_mult": 1.1,
             "latch_seconds": 0.04,
+            "max_captives": 4,
             "pull_seconds": 0.23,
             "recover_seconds": 0.06,
             "wall_spacing": 4.5
@@ -446,12 +450,14 @@
           "payload": {
             "arm_count": 3,
             "body_block": 0.9,
+            "cluster_radius": 3.2,
             "extend_seconds": 0.085,
             "fake_mass": 0.8,
             "kite_flow_weight": 1.0,
             "kite_fraction": 0.4075,
             "kite_speed_mult": 1.1,
             "latch_seconds": 0.03,
+            "max_captives": 5,
             "pull_seconds": 0.18,
             "recover_seconds": 0.04,
             "wall_spacing": 4.5

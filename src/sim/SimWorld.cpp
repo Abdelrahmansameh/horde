@@ -269,6 +269,25 @@ void SimWorld::tick(Profiler* profiler) {
     const FluidStats fluid_stats =
         fluid_system_.update(fluid_, chaff_, spatial_, sdf_, desc_.sim_bounds,
                              kFixedDt, &combat_events_);
+    // Named agents use the same wet coverage as chaff. Refresh while standing
+    // in mucus, then let the ordinary slowed upkeep expire it after leaving.
+    entt::registry& registry = ecs_.registry();
+    auto fluid_targets = registry.view<const comp::NamedAgent, const comp::Transform,
+                                       const comp::Health>();
+    for (auto e : fluid_targets) {
+        if (fluid_targets.get<const comp::Health>(e).dead()) continue;
+        f32 duration = 0.0f;
+        f32 factor = 1.0f;
+        const u8 family = static_cast<u8>(fluid_targets.get<const comp::NamedAgent>(e).family);
+        const Vec2 pos = fluid_targets.get<const comp::Transform>(e).position;
+        if (!fluid_system_.slow_at(pos, family, duration, factor)) continue;
+        if (auto* sl = registry.try_get<comp::Slowed>(e)) {
+            sl->remaining = math::max(sl->remaining, duration);
+            sl->factor = math::min(sl->factor, factor);
+        } else {
+            registry.emplace<comp::Slowed>(e, comp::Slowed{duration, factor, {}});
+        }
+    }
 
     // 4e. Kill accounting for the tick. DamageField.h's ACCOUNTING rule is
     // "removed density is attributed to the economy", and the economy reads it
@@ -370,6 +389,8 @@ u64 SimWorld::state_hash() const {
         mix(chaff_.pos_y.data(), n * sizeof(f32));
         mix(chaff_.vel_x.data(), n * sizeof(f32));
         mix(chaff_.vel_y.data(), n * sizeof(f32));
+        mix(chaff_.wander_x.data(), n * sizeof(f32));
+        mix(chaff_.wander_y.data(), n * sizeof(f32));
         mix(chaff_.density.data(), n * sizeof(f32));
         mix(chaff_.family.data(), n * sizeof(u8));
         mix(chaff_.flags.data(), n * sizeof(u8));
@@ -406,10 +427,15 @@ u64 SimWorld::state_hash() const {
                 mix(&arm.time, sizeof(arm.time));
                 mix(&arm.reach, sizeof(arm.reach));
                 mix(&arm.grip, sizeof(arm.grip));
-                mix(&arm.captive.chaff.index, sizeof(arm.captive.chaff.index));
-                mix(&arm.captive.chaff.generation, sizeof(arm.captive.chaff.generation));
                 mix(&arm.captive.named.value, sizeof(arm.captive.named.value));
-                mix(&arm.captive.offset, sizeof(arm.captive.offset));
+                mix(&arm.captive.chaff_count, sizeof(arm.captive.chaff_count));
+                for (u32 c = 0; c < arm.captive.chaff_count && c < kArborMaxCaptives; ++c) {
+                    mix(&arm.captive.chaff[c].handle.index,
+                        sizeof(arm.captive.chaff[c].handle.index));
+                    mix(&arm.captive.chaff[c].handle.generation,
+                        sizeof(arm.captive.chaff[c].handle.generation));
+                    mix(&arm.captive.chaff[c].offset, sizeof(arm.captive.chaff[c].offset));
+                }
             }
         }
     }
@@ -614,13 +640,13 @@ void SimWorld::apply_swarmer_effects() {
         }
     }
 
-    // ---- Splashes: real fluid, and a weaken mark on any named agent that
-    // was standing where it landed (the chaff half comes from coverage, in the
-    // fluid solver).
+    // ---- Splashes: real fluid whose coverage applies a timed slow.
     for (const SwarmerSplash& s : fx.splashes) {
         FluidJetParams jet;
         jet.lifetime = s.lifetime;
-        jet.damage_per_second = s.dps;
+        jet.damage_per_second = 0.0f;
+        jet.slow_duration = s.slow_duration;
+        jet.slow_factor = s.slow_factor;
         jet.family_mask = s.family_mask;
         jet.owner = s.owner;
         jet.visual_id = s.visual_id;
@@ -628,17 +654,6 @@ void SimWorld::apply_swarmer_effects() {
         jet.seed = s.seed;
         fluid_system_.splash(fluid_, jet, s.origin, s.radius, s.speed, s.droplets);
 
-        if (s.mark_seconds <= 0.0f) continue;
-        auto view = registry.view<const comp::NamedAgent, const comp::Transform, const comp::Health>();
-        for (auto e : view) {
-            if (view.get<const comp::Health>(e).dead()) continue;
-            const Vec2 pos = view.get<const comp::Transform>(e).position;
-            if (math::length_sq(pos - s.origin) > s.radius * s.radius) continue;
-            comp::Marked& mk = registry.get_or_emplace<comp::Marked>(e);
-            mk.remaining = math::max(mk.remaining, s.mark_seconds);
-            mk.damage_multiplier = chaff_flags::kMarkedDamageMultiplier;
-            mk.source = s.owner;
-        }
     }
 
     // ---- Builds: a Fibroblast's builder reached its site. The scar system

@@ -507,6 +507,10 @@ GameConfig default_game_config() {
 
     // --- enemies: read out of the roster and the renderer's tables ---------
     {
+        for (u32 tier = 0; tier < 4; ++tier) {
+            cfg.enemies.speed_tiers[tier] =
+                enemy_config().speed_tiers[tier];
+        }
         EnemyRoster roster;
         roster.load_defaults();
         sim::ChaffTuning tuning;
@@ -564,11 +568,6 @@ GameConfig default_game_config() {
             fc.chaff.drift_bias = p.drift_bias;
             fc.chaff.replication_rate = p.replication_rate;
 
-            // Every speed tier is used by at least one family, so recovering
-            // the four profiles from the per-family values costs nothing and
-            // guarantees they match what the sim runs on today.
-            SpeedProfileParams& profile = cfg.enemies.speed_tiers[static_cast<u32>(def.speed_tier)];
-            profile = SpeedProfileParams{p.max_speed, p.acceleration, p.jitter};
         }
 
         cfg.enemies.base_attack = BaseAttackParams{0.2f, 0.4f, 10.0f, 3.0f, 10.0f, 0.6f};

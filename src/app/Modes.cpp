@@ -899,7 +899,9 @@ int run_screenshot(const Options& opt) {
         renderer.submit_chaff_deaths(&event, 1, age);
     }
 
-    renderer.begin_frame(camera, 0.0f);
+    // Offline captures present the completed simulation state. Interactive
+    // frames pass the fixed-clock accumulator instead.
+    renderer.begin_frame(camera, 1.0f);
     const render::TissueDecor decor = tissue_decor(world, lanes, &render_sdf);
     renderer.submit_tissue(world.tissue(), world.sdf(), 0.0f, &decor);
     renderer.submit_chaff(world.chaff(), world.spatial());

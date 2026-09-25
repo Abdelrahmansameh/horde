@@ -156,8 +156,8 @@ struct FluidTuning {
     u32 substeps = 2;
     /// Side of one coverage-grid cell, in world units.
     f32 coverage_cell_size = 1.0f;
-    /// Particle mass in one coverage cell that counts as fully soaked. Damage
-    /// and the weaken (chaff_flags::kMarked) it applies both saturate here.
+    /// Particle mass in one coverage cell that counts as fully soaked for
+    /// optional damage. Timed slow applies wherever mucus has coverage.
     f32 coverage_full = 5.0f;
     /// Speed lost in one substep that counts as an impact worth an event.
     f32 splash_speed_threshold = 5.5f;
@@ -185,6 +185,9 @@ struct FluidJetParams {
     f32 lifetime = 2.0f;
     /// Density removed per second from a FULLY soaked coverage cell.
     f32 damage_per_second = 20.0f;
+    /// Timed movement effect carried by each droplet. Zero duration disables it.
+    f32 slow_duration = 0.0f;
+    f32 slow_factor = 1.0f;
     u8 family_mask = 0xFF;
     EntityId owner{};
     /// Cosmetic tier selector, handed to the renderer untouched.
@@ -224,6 +227,8 @@ public:
     std::vector<f32> life;       ///< Seconds remaining; <= 0 evaporates it.
     std::vector<f32> life_max;   ///< Lifetime at birth, so age can be normalized.
     std::vector<f32> dps;        ///< This particle's share of the damage rate.
+    std::vector<f32> slow_duration;
+    std::vector<f32> slow_factor;
     std::vector<u8>  family_mask;
     std::vector<u8>  flags;
     std::vector<u16> visual_id;
@@ -308,8 +313,8 @@ public:
     /// the centre, so the blob visibly bursts rather than teleporting in).
     /// This is what a Goblet Cell swarmer turns into when it pops on a
     /// pathogen; the solver then owns everything after — spreading, pooling,
-    /// coverage, damage, weakening — exactly as it does for a jet. `jet`
-    /// carries the per-droplet terms (lifetime, dps, mask, owner, visual,
+    /// coverage and timed slow — exactly as it does for a jet. `jet`
+    /// carries the per-droplet terms (lifetime, slow, mask, owner, visual,
     /// seed); its origin/direction/speed/nozzle fields are ignored.
     /// Returns the number actually spawned (the store may be full).
     u32 splash(FluidBuffers& fluid, const FluidJetParams& jet, Vec2 origin, f32 radius,
@@ -347,6 +352,8 @@ public:
 
     /// Normalized wetness at a world point, 0..1. Bilinear.
     f32 coverage_at(Vec2 world_pos) const;
+    /// Returns the strongest timed slow in the occupied coverage cell.
+    bool slow_at(Vec2 world_pos, u8 family, f32& duration, f32& factor) const;
     const f32* coverage() const { return coverage_.data(); }
     IVec2 coverage_dims() const { return coverage_dims_; }
     Vec2 coverage_origin() const { return bounds_.min; }
@@ -371,6 +378,10 @@ private:
     IVec2 coverage_dims_{0, 0};
     std::vector<f32> coverage_;     ///< Particle mass per cell, normalized on read.
     std::vector<f32> coverage_dps_; ///< Damage rate per cell, mass-weighted.
+    /// One value per coverage cell and pathogen family, so overlapping
+    /// splashes with different target masks keep their own effects.
+    std::vector<f32> coverage_slow_duration_;
+    std::vector<f32> coverage_slow_factor_;
     /// Which emitter contributed the most mass to each cell. Attribution only:
     /// nothing in the sim reads it, and it is only filled when a sink is
     /// attached.

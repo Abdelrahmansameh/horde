@@ -13,6 +13,7 @@
 #include "sim/flowfield/FlowField.h"
 #include "sim/spatial/SpatialHash.h"
 
+#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 #include <chrono>
@@ -328,6 +329,42 @@ TEST_CASE("damage is aggregate: soaked chaff loses density and is weakened",
     // it would make Interferon's cone and Neutrophil's NET redundant instead
     // of stacking with them.
     REQUIRE((h.chaff.flags[0] & chaff_flags::kSlowed) == 0);
+    REQUIRE((h.chaff.flags[1] & chaff_flags::kSlowed) == 0);
+}
+
+TEST_CASE("a non-damaging mucus film applies a configurable slow only to matching families",
+          "[fluid][slow]") {
+    Harness h;
+    FluidJetParams j = h.jet(Vec2{50.0f, 30.0f}, Vec2{1.0f, 0.0f}, 48);
+    j.lifetime = 10.0f;
+    j.damage_per_second = 0.0f;
+    j.slow_duration = 4.0f;
+    j.slow_factor = 0.07f;
+    j.family_mask = static_cast<u8>(1u << static_cast<u8>(PathogenFamily::Bacteria));
+    const f32 s = h.sys.tuning().rest_spacing;
+    for (i32 row = -4; row <= 4; ++row) {
+        for (i32 col = -4; col <= 4; ++col) {
+            h.fluid.spawn(Vec2{50.0f + static_cast<f32>(col) * s,
+                               30.0f + static_cast<f32>(row) * s}, Vec2{}, j);
+        }
+    }
+    ChaffSpawnParams bacteria;
+    bacteria.position = Vec2{50.0f, 30.0f};
+    bacteria.density = 100.0f;
+    bacteria.family = PathogenFamily::Bacteria;
+    h.chaff.spawn(bacteria);
+    ChaffSpawnParams virus = bacteria;
+    virus.family = PathogenFamily::Virus;
+    h.chaff.spawn(virus);
+    h.rebuild();
+    h.step();
+
+    REQUIRE(h.chaff.density[0] == 100.0f);
+    REQUIRE(h.chaff.density[1] == 100.0f);
+    REQUIRE((h.chaff.flags[0] & chaff_flags::kSlowed) != 0);
+    REQUIRE(h.chaff.slow_remaining[0] == Catch::Approx(4.0f));
+    REQUIRE(h.chaff.slow_factor[0] == Catch::Approx(0.07f));
+    REQUIRE((h.chaff.flags[0] & chaff_flags::kMarked) == 0);
     REQUIRE((h.chaff.flags[1] & chaff_flags::kSlowed) == 0);
 }
 

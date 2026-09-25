@@ -254,22 +254,12 @@ u16 SquadRegistry::create_squad(u16 path_index, Vec2 spawn_pos) {
     // position to hint with, so the window is the full length here by design.
     f32 arc = path.project_near(spawn_pos, path.length() * 0.5f, path.length());
 
-    // Then push forward past anything already sitting there, so two squads on
-    // one path form a column instead of spawning inside each other. Repeated
-    // because pushing clear of one squad can land on the next; bounded by the
-    // squad count, and squads on this path are few.
-    for (u32 pass = 0; pass < static_cast<u32>(squads_.size()); ++pass) {
-        bool moved = false;
-        for (u16 i = 0; i < static_cast<u16>(squads_.size()); ++i) {
-            if (i == slot || !squads_[i].active || squads_[i].path_index != path_index) continue;
-            const f32 gap = squads_[i].arc_pos - arc;
-            if (gap < tuning_.spawn_spacing && gap > -tuning_.spawn_spacing) {
-                arc = squads_[i].arc_pos + tuning_.spawn_spacing;
-                moved = true;
-            }
-        }
-        if (!moved) break;
-    }
+    // The squad starts where its bodies actually appear. Advancing this anchor
+    // past an older squad while still spawning the bodies at the authored
+    // marker created a phantom pull many units down-lane; combined with local
+    // repulsion it was a reliable source of stalls and sudden accelerations.
+    // Intake distance already turns the stream into successive cohorts once a
+    // group has moved away, so no synthetic initial spacing is needed here.
     sq.arc_pos = math::min(arc, path.length());
     sq.birth_arc = sq.arc_pos;
     sq.lateral = golden_offset(next_serial_) * 2.0f * path.half_width * tuning_.path_lateral_jitter;

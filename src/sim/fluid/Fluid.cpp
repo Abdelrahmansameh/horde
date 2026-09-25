@@ -107,6 +107,8 @@ void FluidBuffers::reserve(usize max_particles) {
     life.assign(max_particles, 0.0f);
     life_max.assign(max_particles, 1.0f);
     dps.assign(max_particles, 0.0f);
+    slow_duration.assign(max_particles, 0.0f);
+    slow_factor.assign(max_particles, 1.0f);
     family_mask.assign(max_particles, 0u);
     flags.assign(max_particles, 0u);
     visual_id.assign(max_particles, 0u);
@@ -130,6 +132,8 @@ bool FluidBuffers::spawn(Vec2 position, Vec2 velocity, const FluidJetParams& jet
     life[i] = jet.lifetime;
     life_max[i] = math::max(jet.lifetime, 1e-3f);
     dps[i] = jet.damage_per_second;
+    slow_duration[i] = jet.slow_duration;
+    slow_factor[i] = jet.slow_factor;
     family_mask[i] = jet.family_mask;
     flags[i] = fluid_flags::kAlive;
     visual_id[i] = jet.visual_id;
@@ -163,6 +167,8 @@ usize FluidBuffers::compact() {
             life[i] = life[last];
             life_max[i] = life_max[last];
             dps[i] = dps[last];
+            slow_duration[i] = slow_duration[last];
+            slow_factor[i] = slow_factor[last];
             family_mask[i] = family_mask[last];
             flags[i] = flags[last];
             visual_id[i] = visual_id[last];
@@ -207,6 +213,8 @@ void FluidSystem::configure(const Rect& world_bounds, const FluidTuning& tuning)
     const usize cov_cells = static_cast<usize>(coverage_dims_.x) * static_cast<usize>(coverage_dims_.y);
     coverage_.assign(cov_cells, 0.0f);
     coverage_dps_.assign(cov_cells, 0.0f);
+    coverage_slow_duration_.assign(cov_cells * kFamilyCount, 0.0f);
+    coverage_slow_factor_.assign(cov_cells * kFamilyCount, 1.0f);
     coverage_owner_.assign(cov_cells, EntityId{});
     coverage_owner_mass_.assign(cov_cells, 0.0f);
 }
@@ -370,6 +378,20 @@ f32 FluidSystem::coverage_at(Vec2 world_pos) const {
     return math::saturate(mass / math::max(tuning_.coverage_full, 1e-3f));
 }
 
+bool FluidSystem::slow_at(Vec2 world_pos, u8 family, f32& duration, f32& factor) const {
+    if (coverage_.empty() || family >= kFamilyCount) return false;
+    const f32 cs = math::max(tuning_.coverage_cell_size, 1e-3f);
+    const i32 x = static_cast<i32>(std::floor((world_pos.x - bounds_.min.x) / cs));
+    const i32 y = static_cast<i32>(std::floor((world_pos.y - bounds_.min.y) / cs));
+    if (x < 0 || y < 0 || x >= coverage_dims_.x || y >= coverage_dims_.y) return false;
+    const usize idx = static_cast<usize>(y) * static_cast<usize>(coverage_dims_.x) + static_cast<usize>(x);
+    if (coverage_[idx] <= 1e-4f) return false;
+    const usize slow_idx = idx * kFamilyCount + family;
+    duration = coverage_slow_duration_[slow_idx];
+    factor = coverage_slow_factor_[slow_idx];
+    return duration > 0.0f;
+}
+
 // ---------------------------------------------------------------------------
 // The tick
 // ---------------------------------------------------------------------------
@@ -388,6 +410,8 @@ FluidStats FluidSystem::update(FluidBuffers& fluid,
     if (n == 0 || dt <= 0.0f) {
         std::fill(coverage_.begin(), coverage_.end(), 0.0f);
         std::fill(coverage_dps_.begin(), coverage_dps_.end(), 0.0f);
+        std::fill(coverage_slow_duration_.begin(), coverage_slow_duration_.end(), 0.0f);
+        std::fill(coverage_slow_factor_.begin(), coverage_slow_factor_.end(), 1.0f);
         stats.solve_ms = static_cast<f32>(timer.elapsed_ms());
         last_ = stats;
         return stats;
@@ -717,6 +741,8 @@ FluidStats FluidSystem::update(FluidBuffers& fluid,
     // every consumer below reads.
     std::fill(coverage_.begin(), coverage_.end(), 0.0f);
     std::fill(coverage_dps_.begin(), coverage_dps_.end(), 0.0f);
+    std::fill(coverage_slow_duration_.begin(), coverage_slow_duration_.end(), 0.0f);
+    std::fill(coverage_slow_factor_.begin(), coverage_slow_factor_.end(), 1.0f);
     if (attribution_ != nullptr) {
         std::fill(coverage_owner_.begin(), coverage_owner_.end(), EntityId{});
         std::fill(coverage_owner_mass_.begin(), coverage_owner_mass_.end(), 0.0f);
@@ -748,6 +774,17 @@ FluidStats FluidSystem::update(FluidBuffers& fluid,
             const f32 m = w[c] * weight;
             coverage_[idx] += m;
             coverage_dps_[idx] += m * rate;
+            if (m > 1e-4f && fluid.slow_duration[i] > 0.0f) {
+                for (u8 family = 0; family < kFamilyCount; ++family) {
+                    if ((fluid.family_mask[i] & static_cast<u8>(1u << family)) == 0) continue;
+                    const usize slow_idx = idx * kFamilyCount + family;
+                    coverage_slow_duration_[slow_idx] = math::max(
+                        coverage_slow_duration_[slow_idx], fluid.slow_duration[i]);
+                    coverage_slow_factor_[slow_idx] = math::min(
+                        coverage_slow_factor_[slow_idx],
+                        math::clamp(fluid.slow_factor[i], 0.0f, 1.0f));
+                }
+            }
             if (attribution_ != nullptr && m > coverage_owner_mass_[idx]) {
                 coverage_owner_mass_[idx] = m;
                 coverage_owner_[idx] = fluid.owner[i];
@@ -766,6 +803,15 @@ FluidStats FluidSystem::update(FluidBuffers& fluid,
         const usize idx = static_cast<usize>(cy) * static_cast<usize>(cov_w) + static_cast<usize>(cx);
         const f32 mass = coverage_[idx];
         if (mass <= 1e-4f) continue;
+
+        f32 slow_duration = 0.0f;
+        f32 slow_factor = 1.0f;
+        if (slow_at(Vec2{chaff.pos_x[a], chaff.pos_y[a]}, chaff.family[a],
+                    slow_duration, slow_factor)) {
+            chaff.flags[a] |= chaff_flags::kSlowed;
+            chaff.slow_remaining[a] = math::max(chaff.slow_remaining[a], slow_duration);
+            chaff.slow_factor[a] = math::min(chaff.slow_factor[a], slow_factor);
+        }
 
         // Mass-weighted mean rate, then saturating wetness. A film half a
         // particle thick does half the damage; a puddle four deep does not do
@@ -787,20 +833,9 @@ FluidStats FluidSystem::update(FluidBuffers& fluid,
             const bool killed = (chaff.flags[a] & chaff_flags::kPendingKill) != 0;
             attribution_->record_chaff(coverage_owner_[idx], chaff.family[a], removed, killed);
         }
-        // Mucus marks its target, and nothing in the sim ever clears kMarked
-        // (see the note on the cryo cone in TowerSystem.cpp for the other
-        // permanent-flag precedent), so this is a permanent debuff on anything
-        // the Goblet Cell has soaked. It is deliberately NOT read back into
-        // `amount` above: this tower does not hit harder for having marked
-        // something, every OTHER tower does (DamageField.cpp, Projectiles.cpp,
-        // Swarmers.cpp, and strike_named's comp::Marked check all consume the
-        // same flag/component). The role stays "softens up whatever it touches
-        // for the rest of the roster," not "out-damages the roster itself" —
-        // and, on purpose, not "holds the lane" either: the Goblet Cell does
-        // NOT apply kSlowed. It weakens, it does not root, so it stacks with
-        // the towers whose whole identity IS the root (Interferon's cone,
-        // Neutrophil's NET) instead of making their kill zone redundant.
-        chaff.flags[a] |= chaff_flags::kMarked;
+        // Legacy damaging jets still mark. Goblet Cell splashes configure
+        // zero damage, so this path does not mark or hurt their targets.
+        if (amount > 0.0f) chaff.flags[a] |= chaff_flags::kMarked;
     }
 
     // ---- 9. Lifetime and retirement ---------------------------------------

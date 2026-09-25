@@ -124,7 +124,7 @@ struct NeighbourSample {
     bool has_alignment = false;
 };
 
-/// 3x3-cell neighbourhood gather for agent `i`, reading positions and
+/// Radius-sized neighbourhood gather for agent `i`, reading positions and
 /// velocities through the pre-tick snapshots (see file header for why the
 /// snapshots exist at all).
 ///
@@ -143,25 +143,31 @@ NeighbourSample gather_neighbours(const SpatialHash& hash,
                                   const u16* squad, u16 my_squad,
                                   f32 foreign_radius_mult, f32 foreign_strength_mult,
                                   usize i, f32 sep_radius, f32 align_radius,
-                                  f32 contact_radius, f32 contact_stiffness,
+                                  const u8* family, const f32* contact_radii,
+                                  f32 max_contact_radius, f32 contact_stiffness,
                                   u32 max_sampled) {
     NeighbourSample out;
-    // Foreign neighbours are pushed away from over a LARGER radius than
-    // same-squad ones -- that difference is the whole mechanism by which two
-    // squads open a visible gap instead of merging on contact.
-    const f32 foreign_sep_radius = sep_radius * foreign_radius_mult;
+    // Squad membership is deliberately irrelevant to local crowd physics.
+    // Making another squad repel harder -- and excluding it from alignment --
+    // phase-separated mixed waves into shells and made a surrounded family
+    // stall. Squads still provide broad lane/centroid cohesion below, while
+    // the bodies themselves now behave as one continuous fluid horde.
+    (void)squad;
+    (void)my_squad;
+    (void)foreign_radius_mult;
+    (void)foreign_strength_mult;
+    const f32 contact_radius = contact_radii[family[i] < kFamilyCount ? family[i] : 0];
     const f32 scan_radius =
-        math::max(math::max(foreign_sep_radius, align_radius), contact_radius);
+        math::max(math::max(sep_radius, align_radius),
+                  (contact_radius + max_contact_radius) * 0.5f);
     if (scan_radius <= 0.0f) return out;
 
     const Vec2 p{px[i], py[i]};
     const IVec2 c = hash.cell_coord(p);
     const IVec2 dims = hash.grid_dims();
     const f32 sep_r2 = sep_radius * sep_radius;
-    const f32 foreign_sep_r2 = foreign_sep_radius * foreign_sep_radius;
     const f32 align_r2 = align_radius * align_radius;
     const f32 inv_align = align_radius > 0.0f ? 1.0f / align_radius : 0.0f;
-    const f32 contact_r2 = contact_radius * contact_radius;
     const u32* indices = hash.indices();
 
     // Cell visit order: the agent's OWN cell first, then the ring around it.
@@ -191,7 +197,7 @@ NeighbourSample gather_neighbours(const SpatialHash& hash,
     // into an unbounded scan. A visit that only tests for contact is a subtract
     // and a compare -- no square root, no gather, no accumulation -- so a wider
     // walk is much cheaper per step than the sampled work it is protecting.
-    const u32 max_visited = max_sampled * 4u;
+    const u32 max_visited = max_sampled * 8u;
 
     Vec2 sep{0.0f, 0.0f};
     Vec2 vel{0.0f, 0.0f};
@@ -201,24 +207,56 @@ NeighbourSample gather_neighbours(const SpatialHash& hash,
     u32 sep_count = 0;
     u32 contact_count = 0;
     u32 align_count = 0;
-    u32 foreign_crowd = 0;
     u32 sampled = 0;
     u32 visited = 0;
 
-    for (const auto& off : kCellOrder) {
-        const i32 cx = c.x + off[0];
-        const i32 cy = c.y + off[1];
+    // A bacterium's contact/separation range can exceed a cell width. A fixed
+    // 3x3 scan then drops real contacts as either body crosses a grid boundary.
+    // Keep the original inner-cell order and budget, extending outward only
+    // as far as this agent's rules require (also works after a size hot reload).
+    const i32 rings = math::min(static_cast<i32>(std::ceil(scan_radius / hash.cell_size())),
+                               math::max(dims.x, dims.y));
+    const i32 width = 2 * rings + 1;
+    i32 ring = 0, ring_cell = 0, ring_cells = 1;
+    for (i32 cell = 0; cell < width * width; ++cell) {
+        if (ring_cell == ring_cells) {
+            ++ring;
+            ring_cell = 0;
+            ring_cells = 8 * ring;
+        }
+        const i32 offset = ring_cell++;
+        i32 ox = 0, oy = 0;
+        if (ring == 1) {
+            ox = kCellOrder[offset + 1][0];
+            oy = kCellOrder[offset + 1][1];
+        } else if (ring > 1) {
+            const i32 side = offset / (2 * ring);
+            const i32 along = offset % (2 * ring);
+            if (side == 0) { ox = -ring + along; oy = -ring; }
+            if (side == 1) { ox = ring; oy = -ring + along; }
+            if (side == 2) { ox = ring - along; oy = ring; }
+            if (side == 3) { ox = -ring; oy = ring - along; }
+        }
+        const i32 cx = c.x + ox;
+        const i32 cy = c.y + oy;
         if (cx < 0 || cy < 0 || cx >= dims.x || cy >= dims.y) continue;
         u32 begin, end;
         hash.cell_range(static_cast<u32>(cy) * static_cast<u32>(dims.x) +
                             static_cast<u32>(cx),
                         begin, end);
-        for (u32 k = begin; k < end; ++k) {
-            // Truncating in CSR order keeps this a pure function of positions
-            // (see ChaffTuning::max_neighbors_sampled) while bounding the worst
-            // case a single packed cell can cost.
+        const u32 cell_count = end - begin;
+        // Rotate the starting slot per agent. A hard CSR-prefix budget made
+        // every dense-cell resident react to the same low-index subset and
+        // permanently ignored the tail, creating directional clumps and pairs
+        // that could remain overlapped forever. Rotation keeps the same cost
+        // ceiling while distributing attention evenly through the cell.
+        u32 local = cell_count > 0
+                        ? static_cast<u32>((static_cast<u64>(i) * 2654435761ULL) % cell_count)
+                        : 0u;
+        for (u32 step_index = 0; step_index < cell_count; ++step_index) {
             if (visited >= max_visited) goto done;
-            const u32 j = indices[k];
+            const u32 j = indices[begin + local];
+            if (++local == cell_count) local = 0u;
             if (j == i) continue;
             const f32 dx = p.x - px[j];
             const f32 dy = p.y - py[j];
@@ -238,21 +276,16 @@ NeighbourSample gather_neighbours(const SpatialHash& hash,
             // load-bearing. Contact is self-limiting on its own terms anyway:
             // geometry bounds how many agents fit inside contact_radius once
             // they are no longer allowed to interpenetrate.
-            const bool in_contact = d2 < contact_r2;
+            // Both bodies must agree on their shared spacing. Using only my
+            // diameter made a small virus push less than its large neighbour,
+            // so mixed crowds acquired a spurious impulse and stayed overlapped.
+            const f32 pair_contact = (contact_radius +
+                contact_radii[family[j] < kFamilyCount ? family[j] : 0]) * 0.5f;
+            const bool in_contact = d2 < pair_contact * pair_contact;
             const bool has_budget = sampled < max_sampled;
             if (!in_contact && !has_budget) continue;
 
-            // An agent with no squad is nobody's foreigner: ungrouped chaff
-            // must keep behaving exactly as it did before squads existed.
-            // `my_squad` is tested FIRST so short-circuiting skips the
-            // squad[j] load entirely when the agent is ungrouped -- that
-            // load is a random access into a separate stream, and it would
-            // otherwise be paid once per neighbour on every level whether
-            // or not the squad layer is doing anything.
-            const bool foreign = my_squad != kNoSquad && squad[j] != kNoSquad &&
-                                 squad[j] != my_squad;
-            const f32 my_sep_r2 = foreign ? foreign_sep_r2 : sep_r2;
-            const bool in_crowd = has_budget && (d2 < align_r2 || d2 < my_sep_r2);
+            const bool in_crowd = has_budget && (d2 < align_r2 || d2 < sep_r2);
             if (!in_contact && !in_crowd) continue;
             if (in_crowd) ++sampled;
 
@@ -265,28 +298,19 @@ NeighbourSample gather_neighbours(const SpatialHash& hash,
             if (in_contact) {
                 // Half the overlap, because the neighbour independently
                 // computes and applies the other half.
-                const f32 correction = (contact_radius - d) * 0.5f * contact_stiffness;
+                const f32 correction = (pair_contact - d) * 0.5f * contact_stiffness;
                 contact.x += nx * correction;
                 contact.y += ny * correction;
                 ++contact_count;
             }
             if (!in_crowd) continue;
-            if (d2 < my_sep_r2) {
-                const f32 r = foreign ? foreign_sep_radius : sep_radius;
-                const f32 w = foreign ? foreign_strength_mult : 1.0f;
-                const f32 push = ((r - d) / r) * w;   // w at d=0, 0 at edge
+            if (d2 < sep_r2) {
+                const f32 push = (sep_radius - d) / sep_radius;
                 sep.x += nx * push;
                 sep.y += ny * push;
                 ++sep_count;
             }
-            // Foreign neighbours are EXCLUDED from alignment: steering
-            // toward another squad's mean heading is precisely how two
-            // squads would converge and merge. They still count toward
-            // `crowd` below, because a jam is a jam regardless of who is in
-            // it, and still contribute contact_push above, because physical
-            // overlap resolution has to stay squad-blind or bodies
-            // interpenetrate at every squad boundary.
-            if (!foreign && d2 < align_r2) {
+            if (d2 < align_r2) {
                 vel.x += vx[j];
                 vel.y += vy[j];
                 ++align_count;
@@ -298,7 +322,6 @@ NeighbourSample gather_neighbours(const SpatialHash& hash,
                 gradient.x += nx * aw;
                 gradient.y += ny * aw;
                 gradient_weight += aw;
-                if (foreign) ++foreign_crowd;
             }
         }
     }
@@ -309,17 +332,20 @@ done:
     // resolves in exactly the single step it always did.
     if (contact_count > 0) {
         const f32 inv = 1.0f / static_cast<f32>(contact_count);
-        out.contact_push = Vec2{contact.x * inv, contact.y * inv};
+        // A plain mean is perfect for one pair but becomes too weak in a deep
+        // pack: the drive toward the goal can hold several simultaneous
+        // overlaps in equilibrium forever. Give multi-contact jams at most a
+        // 3x relaxation step. This is still an average (and still capped by
+        // one body radius below), so it cannot recover the direction noise of
+        // the old unbounded sum.
+        const f32 jam_gain = math::min(std::sqrt(static_cast<f32>(contact_count)), 3.0f);
+        out.contact_push = Vec2{contact.x * inv * jam_gain,
+                                contact.y * inv * jam_gain};
     }
     out.crowd_gradient = gradient;
     out.crowd_weight = gradient_weight;
     if (sep_count > 0) {
-        // Plain mean over the neighbours that contributed, exactly as before
-        // squads existed. The foreign multiplier rides INSIDE each term rather
-        // than being divided back out here, which is what makes an all-foreign
-        // neighbourhood push apart harder than an all-friendly one of the same
-        // size -- while a squad's own interior sees the unchanged pre-squad
-        // value.
+        // Plain mean over the neighbours that contributed.
         const f32 inv = 1.0f / static_cast<f32>(sep_count);
         out.separation = Vec2{sep.x * inv, sep.y * inv};
     }
@@ -328,7 +354,7 @@ done:
         out.avg_velocity = Vec2{vel.x * inv, vel.y * inv};
         out.has_alignment = true;
     }
-    out.crowd = align_count + foreign_crowd;
+    out.crowd = align_count;
     return out;
 }
 
@@ -345,7 +371,8 @@ done:
 /// how hard the crowd behind it is pushing. That property is exactly what makes
 /// a dense jam against a wall hold its shape instead of squeezing through.
 void resolve_wall_contact(const DistanceField& sdf, f32& px, f32& py,
-                          f32& vx, f32& vy, f32 radius, f32 restitution, f32 splash) {
+                          f32& vx, f32& vy, f32 radius, f32 restitution, f32 splash,
+                          u32 stable_id) {
     const Vec2 p{px, py};
     const f32 clearance = sdf.sample(p);
     if (clearance >= radius) return;   // not touching anything
@@ -389,9 +416,10 @@ void resolve_wall_contact(const DistanceField& sdf, f32& px, f32& py,
     // crowd sweeping along a wall keeps sweeping the same way instead of
     // scattering. Only when the impact is dead-on (no tangential component at
     // all) is a side chosen arbitrarily -- and then it is chosen from the
-    // agent's own position bits, which splits an incoming column to BOTH sides
-    // of an obstacle. Picking a fixed side there would send every agent the
-    // same way and read as a conveyor belt, not a splash.
+    // agent's stable id, which splits an incoming column to BOTH sides of an
+    // obstacle without changing its answer as projection moves the body by a
+    // few floating-point bits. Picking a fixed side there would send every
+    // agent the same way and read as a conveyor belt, not a splash.
     const f32 blocked = -vn * splash;
     if (blocked <= 0.0f) return;
 
@@ -402,14 +430,11 @@ void resolve_wall_contact(const DistanceField& sdf, f32& px, f32& py,
         ux = tx * inv_t;
         uy = ty * inv_t;
     } else {
-        // Deterministic per-agent coin flip from the position bits: same input
-        // always gives the same side, so this stays reproducible, but adjacent
-        // agents disagree and the column splits.
-        u32 bits;
-        std::memcpy(&bits, &px, sizeof(bits));
-        u32 bits_y;
-        std::memcpy(&bits_y, &py, sizeof(bits_y));
-        bits ^= bits_y * 2654435761u;
+        // Deterministic per-agent coin flip. Unlike position bits this remains
+        // invariant through projection, so a head-on agent cannot alternate
+        // sides from one tick to the next and shiver against the wall.
+        u32 bits = stable_id * 2654435761u;
+        bits ^= bits >> 16u;
         const f32 sign = (bits & 1u) ? 1.0f : -1.0f;
         ux = -n.y * sign;
         uy = n.x * sign;
@@ -575,6 +600,8 @@ ChaffUpdateStats ChaffSystem::update(ChaffBuffers& buffers, const FlowField& flo
     // cheap relative to the hash-gather pass that follows.
     std::memcpy(old_pos_x_.data(), buffers.pos_x.data(), count * sizeof(f32));
     std::memcpy(old_pos_y_.data(), buffers.pos_y.data(), count * sizeof(f32));
+    std::memcpy(buffers.prev_pos_x.data(), buffers.pos_x.data(), count * sizeof(f32));
+    std::memcpy(buffers.prev_pos_y.data(), buffers.pos_y.data(), count * sizeof(f32));
     // Velocities need the same treatment for alignment -- see old_vel_x_'s
     // declaration in the header.
     std::memcpy(old_vel_x_.data(), buffers.vel_x.data(), count * sizeof(f32));
@@ -582,6 +609,8 @@ ChaffUpdateStats ChaffSystem::update(ChaffBuffers& buffers, const FlowField& flo
 
     f32* vx = buffers.vel_x.data();
     f32* vy = buffers.vel_y.data();
+    f32* wander_x = buffers.wander_x.data();
+    f32* wander_y = buffers.wander_y.data();
     const u8* fam = buffers.family.data();
     const u8* flg = buffers.flags.data();
     const u16* sqid = buffers.squad_id.data();
@@ -607,8 +636,12 @@ ChaffUpdateStats ChaffSystem::update(ChaffBuffers& buffers, const FlowField& flo
     // of one per agent per tick. Same reasoning as the family tables in the
     // renderer's batcher -- six lookups, not ten thousand.
     f32 relief_step[kFamilyCount];
+    f32 contact_radii[kFamilyCount];
+    f32 max_contact_radius = 0.0f;
     for (u32 f = 0; f < kFamilyCount; ++f) {
         relief_step[f] = tuning.family[f].crowd_relief * tuning.family[f].radius;
+        contact_radii[f] = tuning.family[f].radius * tuning.family[f].contact_spacing;
+        max_contact_radius = math::max(max_contact_radius, contact_radii[f]);
     }
 
     // ---- Pass A: accumulate (parallel, gather-heavy, not vectorized) --------
@@ -656,6 +689,8 @@ ChaffUpdateStats ChaffSystem::update(ChaffBuffers& buffers, const FlowField& flo
             if (hidden) {
                 vx[i] = 0.0f;
                 vy[i] = 0.0f;
+                wander_x[i] = 0.0f;
+                wander_y[i] = 0.0f;
                 max_speed_scratch[i] = 0.0f;
                 push_x[i] = 0.0f;
                 push_y[i] = 0.0f;
@@ -776,15 +811,15 @@ ChaffUpdateStats ChaffSystem::update(ChaffBuffers& buffers, const FlowField& flo
 
             Vec2 v{vx[i], vy[i]};
             v += dir * fp.acceleration * dt;
+            const Vec2 flow_velocity = v;
 
             // ONE gather feeds all four local rules: separation, alignment,
             // crowd pressure, and the positional contact correction.
-            const f32 contact_radius = fp.radius * fp.contact_spacing;
             const NeighbourSample nb =
                 gather_neighbours(hash, old_px, old_py, old_vx, old_vy, sqid, my_squad,
                                   foreign_radius_mult, foreign_strength_mult, i,
                                   fp.separation_radius, fp.alignment_radius,
-                                  contact_radius, fp.contact_stiffness,
+                                  fam, contact_radii, max_contact_radius, fp.contact_stiffness,
                                   tuning.max_neighbors_sampled);
             // Crowd relief: displacement DOWN the local pressure gradient,
             // toward the density `pressure_threshold` describes as comfortable.
@@ -901,7 +936,43 @@ ChaffUpdateStats ChaffSystem::update(ChaffBuffers& buffers, const FlowField& flo
                 v += (nb.avg_velocity - v) * fp.alignment_strength * dt;
             }
             if (fp.jitter > 0.0f) {
-                v += local_rng.unit_disc() * fp.jitter;
+                // White-noise impulses make direction discontinuous at the
+                // fixed-tick frequency. Filter the random target into a
+                // persistent, slowly changing wander vector instead: agents
+                // still look alive, but their paths curve rather than buzz.
+                constexpr f32 kWanderResponse = 0.10f;
+                const Vec2 target = local_rng.unit_disc() * fp.jitter;
+                wander_x[i] += (target.x - wander_x[i]) * kWanderResponse;
+                wander_y[i] += (target.y - wander_y[i]) * kWanderResponse;
+                v += Vec2{wander_x[i], wander_y[i]};
+            } else {
+                wander_x[i] = 0.0f;
+                wander_y[i] = 0.0f;
+            }
+
+            if (!drifting && math::length_sq(dir) > math::kEpsilon) {
+                // Treat crowd impulses as bounded offsets to a desired flow
+                // velocity for every family. Accumulating those impulses as
+                // permanent momentum let virus leaders reverse upstream and
+                // let enclosed groups stall. Contact still separates bodies
+                // through push_x/y; it does not need to reverse their travel.
+                const Vec2 forward = math::normalize_safe(dir);
+                const Vec2 lateral{-forward.y, forward.x};
+                const Vec2 previous{old_vx[i], old_vy[i]};
+                // Retain enough spacing response to open the crowd, with a
+                // forward target of at least half speed and at most a 19-degree
+                // sidestep. None of these corrections accumulate across ticks.
+                constexpr f32 kCrowdVelocityGain = 4.0f;
+                const Vec2 crowd = (v - flow_velocity) * kCrowdVelocityGain;
+                const f32 speed = fp.max_speed * (slowed ? slow_factor[i] : 1.0f);
+                const f32 along = math::clamp(speed + crowd.x * forward.x + crowd.y * forward.y,
+                                              speed * 0.5f, speed);
+                const f32 across = math::clamp(crowd.x * lateral.x + crowd.y * lateral.y,
+                                               -along * 0.35f, along * 0.35f);
+                const Vec2 desired = forward * along + lateral * across;
+                const f32 response = math::saturate(fp.acceleration * dt /
+                                                     math::max(speed, 0.01f));
+                v = previous + (desired - previous) * response;
             }
 
             vx[i] = v.x;
@@ -1001,7 +1072,8 @@ ChaffUpdateStats ChaffSystem::update(ChaffBuffers& buffers, const FlowField& flo
                 const ChaffFamilyParams& fp = tuning.family[f < kFamilyCount ? f : 0];
                 if (has_sdf) {
                     resolve_wall_contact(sdf, px[i], py[i], vx[i], vy[i], fp.radius,
-                                         fp.wall_restitution, fp.wall_splash);
+                                         fp.wall_restitution, fp.wall_splash,
+                                         buffers.generation[i]);
                 }
                 // Runs AFTER, not instead: the resolver does the splash and the
                 // shallow-contact response, this only catches what it could not
@@ -1145,7 +1217,8 @@ ChaffUpdateStats ChaffSystem::update(ChaffBuffers& buffers, const FlowField& flo
 }
 
 u32 ChaffSystem::spawn_burst(ChaffBuffers& buffers, PathogenFamily family, Vec2 spawn_pos,
-                             f32 spawn_point_radius, u32 count, Rng& rng, u16 squad_id) const {
+                             f32 spawn_point_radius, u32 count, Rng& rng, u16 squad_id,
+                             u32 pattern_offset, u32 pattern_count, f32 pattern_phase) const {
     const ChaffFamilyParams& fp = tuning_.family[static_cast<u32>(family)];
     if (count == 0) return 0;
 
@@ -1178,14 +1251,17 @@ u32 ChaffSystem::spawn_burst(ChaffBuffers& buffers, PathogenFamily family, Vec2 
     // little margin gives the 0.75 below; tests/test_chaff_system.cpp measures
     // the worst pair at several burst sizes so this constant cannot rot.
     const f32 contact_d = fp.radius * fp.contact_spacing;
-    const f32 needed = contact_d * std::sqrt(static_cast<f32>(count)) * 0.75f;
+    const u32 layout_count = math::max(math::max(pattern_count, pattern_offset + count), 1u);
+    const f32 needed = contact_d * std::sqrt(static_cast<f32>(layout_count)) * 0.75f;
     const f32 radius = math::max(spawn_point_radius, needed);
 
     // One draw, for the whole burst: a random spiral phase so successive waves
     // out of the same spawn point are not stamped identically. Rotating the pattern
     // cannot disturb the spacing, whereas per-agent jitter would reintroduce
     // exactly the overlap this is here to remove.
-    const f32 phase = rng.range_f(0.0f, math::kTwoPi);
+    const f32 phase = pattern_phase >= 0.0f
+                          ? pattern_phase
+                          : rng.range_f(0.0f, math::kTwoPi);
 
     // Centre the finished formation on the authored marker. The phyllotaxis
     // formula deliberately starts its first point away from zero, which is
@@ -1194,20 +1270,22 @@ u32 ChaffSystem::spawn_burst(ChaffBuffers& buffers, PathogenFamily family, Vec2 
     // every pairwise spacing while making the squad's actual spawn location
     // exactly `spawn_pos`.
     Vec2 centroid_offset{};
-    for (u32 i = 0; i < count; ++i) {
-        const f32 t = (static_cast<f32>(i) + 0.5f) / static_cast<f32>(count);
+    for (u32 i = 0; i < layout_count; ++i) {
+        const f32 t = (static_cast<f32>(i) + 0.5f) / static_cast<f32>(layout_count);
         const f32 r = radius * std::sqrt(t);
         const f32 a = phase + static_cast<f32>(i) * kGoldenAngle;
         centroid_offset += Vec2{std::cos(a), std::sin(a)} * r;
     }
-    centroid_offset = centroid_offset / static_cast<f32>(count);
+    centroid_offset = centroid_offset / static_cast<f32>(layout_count);
 
     u32 spawned = 0;
     for (u32 i = 0; i < count; ++i) {
         if (buffers.full()) break;
-        const f32 t = (static_cast<f32>(i) + 0.5f) / static_cast<f32>(count);
+        const u32 slot = pattern_offset + i;
+        const f32 t = (static_cast<f32>(slot) + 0.5f) /
+                      static_cast<f32>(layout_count);
         const f32 r = radius * std::sqrt(t);
-        const f32 a = phase + static_cast<f32>(i) * kGoldenAngle;
+        const f32 a = phase + static_cast<f32>(slot) * kGoldenAngle;
         ChaffSpawnParams p;
         p.position = spawn_pos + Vec2{std::cos(a), std::sin(a)} * r - centroid_offset;
         p.family = family;

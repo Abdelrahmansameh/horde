@@ -389,7 +389,7 @@ void run_two_squads(TwoSquadRun& r, bool grouping, u32 ticks, u32 per_squad = 40
 
 } // namespace
 
-TEST_CASE("two squads from one spawn point pull apart; without grouping they do not",
+TEST_CASE("squad paths guide cohorts without carving hard gaps through the horde",
           "[sim][squad][readability]") {
     TwoSquadRun grouped;
     run_two_squads(grouped, /*grouping*/ true, 300);
@@ -405,12 +405,12 @@ TEST_CASE("two squads from one spawn point pull apart; without grouping they do 
     // The control starts and stays intermixed: both halves of one burst, one
     // flow field, so their centroids sit essentially on top of each other.
     REQUIRE(control_gap < 4.0f);
-    // Grouped, each squad converges onto its own path; the two paths are 16
-    // units apart and the per-squad lateral offsets push them a little further.
-    // Asserted well below the measured ~18.6 so ordinary tuning changes do not
-    // make this brittle -- the claim under test is "clearly separated", not an
-    // exact figure.
-    REQUIRE(grouped_gap > 12.0f);
+    // The paths still steer the two cohorts to distinct parts of the lane, but
+    // squad identity no longer creates an invisible repulsive boundary. That
+    // boundary was what sorted mixed families into shells and stalled an
+    // enclosed group. Broad guidance without phase separation is the target.
+    REQUIRE(grouped_gap > control_gap + 6.0f);
+    REQUIRE(grouped_gap < 12.0f);
 }
 
 TEST_CASE("squad interiors stay as densely packed as the un-grouped horde",

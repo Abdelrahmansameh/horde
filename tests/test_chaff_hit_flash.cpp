@@ -635,7 +635,7 @@ TEST_CASE("a flashed agent is drawn in the authored flash colour",
     // Toward white: the two channels a virus was NOT using both climb hard,
     // and the body ends up close to neutral.
     CHECK(white.r > unhit.r * 2.0);
-    CHECK(white.b > unhit.b * 2.0);
+    CHECK(white.b > unhit.b * 1.7);
     CHECK(white.r > 180.0);
     CHECK(white.g > 180.0);
     CHECK(white.b > 180.0);

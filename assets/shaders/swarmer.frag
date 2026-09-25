@@ -423,18 +423,18 @@ void main() {
         if (a <= 0.0 && sh <= 0.0) discard;
 
         float depth = clamp(-body_d * 4.8, 0.0, 1.0);
-        vec3 cytoplasm = mix(vec3(1.00, 0.91, 0.92), vec3(0.64, 0.12, 0.27), depth);
+        vec3 cytoplasm = mix(vec3(1.00, 0.93, 0.82), vec3(0.78, 0.32, 0.06), depth);
         cytoplasm = mix(cytoplasm, v_tint.rgb, 0.48);
         float inside_nucleus = smoothstep(0.0, 0.05, nucleus_d);
-        cytoplasm = mix(cytoplasm, vec3(1.00, 0.70, 0.76),
+        cytoplasm = mix(cytoplasm, vec3(1.00, 0.80, 0.55),
                         granule * inside_nucleus * 0.34);
 
         float nucleus = 1.0 - smoothstep(-0.012, 0.012, nucleus_d);
-        vec3 rgb = mix(cytoplasm, vec3(0.31, 0.09, 0.20), nucleus * 0.84);
+        vec3 rgb = mix(cytoplasm, vec3(0.36, 0.16, 0.06), nucleus * 0.84);
         float finger_glow = max(finger0, max(finger1, finger2));
         rgb = mix(rgb, vec3(1.00, 0.96, 0.88), finger_glow * 0.92);
         float rim = 1.0 - smoothstep(0.0, 0.045, abs(body_d));
-        rgb = mix(rgb, vec3(1.00, 0.91, 0.94), rim * (0.66 + engaged_rim));
+        rgb = mix(rgb, vec3(1.00, 0.94, 0.84), rim * (0.66 + engaged_rim));
 
         frag_color = over_shadow(rgb, a * v_tint.a, sh * v_tint.a);
         if (frag_color.a <= 0.001) discard;

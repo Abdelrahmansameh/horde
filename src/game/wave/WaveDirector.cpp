@@ -186,6 +186,7 @@ void WaveDirector::tick(sim::SimWorld& world, Rng& rng, f32 dt) {
                                         ? reg.create_squad(path, spawn_point->position)
                                         : sim::kNoSquad;
                                 cursor.filled = 0;
+                                cursor.pattern_phase = rng.range_f(0.0f, math::kTwoPi);
                                 if (spawn_point) {
                                     cursor.spawn_point_index = static_cast<u32>(
                                         spawn_point - world.spawn_points().data());
@@ -219,7 +220,8 @@ void WaveDirector::tick(sim::SimWorld& world, Rng& rng, f32 dt) {
                                 const Vec2 at = spawn_point->position;
                                 const u32 got = world.chaff_system().spawn_burst(
                                     world.chaff(), e.family, at, spawn_point->radius, chunk, rng,
-                                    squad);
+                                    squad, cursor.filled, squad_size,
+                                    cursor.pattern_phase);
                                 spawned += got;
                                 cursor.filled += got;
                                 left -= chunk;

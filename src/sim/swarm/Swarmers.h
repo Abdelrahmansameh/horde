@@ -23,7 +23,7 @@
 //   SlowBomber   Interferon.   Detonates on contact: a timed slow zone
 //                              (sim/zone/SlowZones.h). No damage at all.
 //   MucusBomber  Goblet Cell.  Detonates on contact: a splash of real fluid
-//                              (sim/fluid/Fluid.h) that weakens what it soaks.
+//                              (sim/fluid/Fluid.h) that strongly slows what it soaks.
 //   Builder      Fibroblast.   Hunts nothing. Walks to the spot it was given
 //                              at release (SwarmerSpawnParams::goal) and, on
 //                              arrival, asks for a collagen SCAR there -- a
@@ -261,6 +261,11 @@ struct SwarmerProfile {
 
     // ---- ArborGrabber ---- (attach_radius is each tree's maximum reach)
     u32 arbor_arm_count = 3;
+    /// Total chaff enemies an arm can carry after it latches. The initial
+    /// target counts toward this cap; 1 reproduces a single-target arm.
+    u32 arbor_max_captives = 1;
+    /// Chaff within this radius of a newly latched target joins the pull.
+    f32 arbor_cluster_radius = 0.0f;
     f32 arbor_extend_seconds = 0.12f;
     f32 arbor_latch_seconds = 0.05f;
     f32 arbor_pull_seconds = 0.22f;
@@ -331,9 +336,8 @@ struct SwarmerProfile {
     f32 splash_radius = 1.2f;
     f32 splash_speed = 6.0f;
     f32 splash_lifetime = 2.0f;
-    f32 splash_dps = 10.0f;
-    /// Seconds a named agent inside the splash stays weakened (comp::Marked).
-    f32 mark_seconds = 2.5f;
+    f32 mucus_slow_duration = 3.0f;
+    f32 mucus_slow_factor = 0.1f;
 
     // ---- Builder ----
     // The wall it lays (sim/scar/Scars.h). Half-length runs along the bar,
@@ -497,13 +501,25 @@ struct NamedTargetList {
     usize find(EntityId id) const;
 };
 
-struct GrabberCaptive {
-    ChaffHandle chaff{};
-    EntityId named{};
+inline constexpr u32 kArborMaxArms = 3u;
+/// Fixed so a five-figure swarmer store never allocates while pseudopods
+/// collect a cluster. Per-tier config is clamped to this ceiling.
+inline constexpr u32 kArborMaxCaptives = 8u;
+
+struct GrabberChaffCaptive {
+    ChaffHandle handle{};
+    /// Initial offset from the macrophage. Followers keep their offset from
+    /// the lead captive while the whole cluster travels toward the body.
     Vec2 offset{0.0f, 0.0f};
 };
 
-inline constexpr u32 kArborMaxArms = 3u;
+struct GrabberCaptive {
+    /// A named agent is still a single target: its transform belongs to the
+    /// ECS, whereas chaff positions are owned by this simulation kernel.
+    EntityId named{};
+    GrabberChaffCaptive chaff[kArborMaxCaptives]{};
+    u32 chaff_count = 0;
+};
 
 enum class ArborArmPhase : u8 { Idle = 0, Extending, Latching, Pulling, Recovering };
 
@@ -556,8 +572,8 @@ struct SwarmerSplash {
     f32 radius = 1.2f;
     f32 speed = 6.0f;
     f32 lifetime = 2.0f;
-    f32 dps = 10.0f;
-    f32 mark_seconds = 2.5f;
+    f32 slow_duration = 3.0f;
+    f32 slow_factor = 0.1f;
     u8 family_mask = 0xFF;
     EntityId owner{};
     TowerType source = TowerType::GobletCell;

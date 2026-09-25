@@ -193,7 +193,7 @@ Every tower is classified along two independent axes so the roster reads as a co
 > | **Neutrophil** | Shooter | holds a standoff and fires real rounds; chases if the target leaves |
 > | **Macrophage** | Arbor grabber | up to three branching pseudopods extend, latch a target each, and pull them into the body to kill them; the unit's rank forms a wall across the lane |
 > | **Interferon** | Slow bomber | detonates into a timed circle on the ground that slows what walks through it (the slow lingers a little after leaving) |
-> | **Goblet Cell** | Mucus bomber | detonates into a splash of real mucus that weakens what it soaks |
+> | **Goblet Cell** | Mucus bomber | detonates into a splash of real mucus that strongly slows what it soaks without dealing damage |
 > | **Fibroblast** | Builder | walks a single builder out to lay a collagen scar across the lane; once it's at its cap of standing scars, the builder reinforces one instead of laying a new one |
 >
 > Swarmer bombers that run out of lifetime detonate where they stand. Shooters

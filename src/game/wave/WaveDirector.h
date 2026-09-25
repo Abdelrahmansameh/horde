@@ -119,6 +119,7 @@ private:
         u16 squad = 0xFFFFu;   ///< sim::kNoSquad; kept as a literal so this
                                ///< header does not need the sim include.
         u32 filled = 0;
+        f32 pattern_phase = 0.0f;
         /// Runtime spawn-point index where the active squad was opened. It
         /// remains fixed until that squad closes; agents are born at this
         /// authored point, then follow their selected path. The next squad

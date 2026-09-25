@@ -18,8 +18,12 @@ void ChaffBuffers::reserve(usize max_agents) {
     capacity_ = max_agents;
     pos_x.assign(max_agents, 0.0f);
     pos_y.assign(max_agents, 0.0f);
+    prev_pos_x.assign(max_agents, 0.0f);
+    prev_pos_y.assign(max_agents, 0.0f);
     vel_x.assign(max_agents, 0.0f);
     vel_y.assign(max_agents, 0.0f);
+    wander_x.assign(max_agents, 0.0f);
+    wander_y.assign(max_agents, 0.0f);
     family.assign(max_agents, 0u);
     density.assign(max_agents, 0.0f);
     flags.assign(max_agents, 0u);
@@ -69,8 +73,12 @@ ChaffHandle ChaffBuffers::spawn(const ChaffSpawnParams& p) {
     const usize i = count_++;
     pos_x[i] = p.position.x;
     pos_y[i] = p.position.y;
+    prev_pos_x[i] = p.position.x;
+    prev_pos_y[i] = p.position.y;
     vel_x[i] = p.velocity.x;
     vel_y[i] = p.velocity.y;
+    wander_x[i] = 0.0f;
+    wander_y[i] = 0.0f;
     family[i] = static_cast<u8>(p.family);
     density[i] = p.density;
     flags[i] = static_cast<u8>((p.flags | chaff_flags::kAlive) & ~chaff_flags::kPendingKill);
@@ -148,8 +156,12 @@ usize ChaffBuffers::compact(u32* removed_by_family) {
         if (i != last) {
             pos_x[i] = pos_x[last];
             pos_y[i] = pos_y[last];
+            prev_pos_x[i] = prev_pos_x[last];
+            prev_pos_y[i] = prev_pos_y[last];
             vel_x[i] = vel_x[last];
             vel_y[i] = vel_y[last];
+            wander_x[i] = wander_x[last];
+            wander_y[i] = wander_y[last];
             family[i] = family[last];
             density[i] = density[last];
             flags[i] = flags[last];
@@ -169,6 +181,10 @@ usize ChaffBuffers::compact(u32* removed_by_family) {
             latch_heading[i] = latch_heading[last];
         }
         --count_;
+        prev_pos_x[count_] = 0.0f;
+        prev_pos_y[count_] = 0.0f;
+        wander_x[count_] = 0.0f;
+        wander_y[count_] = 0.0f;
         flags[count_] = 0;
         generation[count_] = 0;   // the retired id is never reissued
         squad_id[count_] = kNoSquad;
@@ -210,7 +226,9 @@ void ChaffBuffers::assert_invariants() const {
     assert(count_ <= capacity_);
     // I2: every stream is parallel and at least `count` long.
     assert(pos_x.size() == capacity_ && pos_y.size() == capacity_);
+    assert(prev_pos_x.size() == capacity_ && prev_pos_y.size() == capacity_);
     assert(vel_x.size() == capacity_ && vel_y.size() == capacity_);
+    assert(wander_x.size() == capacity_ && wander_y.size() == capacity_);
     assert(family.size() == capacity_ && density.size() == capacity_);
     assert(flags.size() == capacity_ && generation.size() == capacity_);
     assert(squad_id.size() == capacity_);

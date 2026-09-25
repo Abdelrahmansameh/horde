@@ -176,7 +176,10 @@ void init_mechanics_once() {
             constexpr f32 kFakeMass[3] = {0.60f, 0.70f, 0.80f};
             m.swarm = SwarmParams{kRelease[tier], kLife[tier], kSpeed[tier], kSearch[tier],
                                   kReach[tier], 0.75f, kSize[tier], kHealth[tier]};
-            m.arbor_grabber = ArborGrabberParams{kArms[tier], kExtend[tier], kLatch[tier],
+            constexpr u32 kMaxCaptives[3] = {3u, 4u, 5u};
+            constexpr f32 kClusterRadius[3] = {2.4f, 2.8f, 3.2f};
+            m.arbor_grabber = ArborGrabberParams{kArms[tier], kMaxCaptives[tier],
+                                                  kClusterRadius[tier], kExtend[tier], kLatch[tier],
                                                   kPull[tier], kRecover[tier], kFakeMass[tier],
                                                   0.0f, 1.0f, 1.1f, 4.5f, 0.9f};
         }
@@ -212,7 +215,7 @@ void init_mechanics_once() {
             m.latch = LatchParams{kDps[tier]};
         }
         // MUCUS BOMBER -- Goblet Cell. Swarmers that pop into a splash of real
-        // fluid (sim/fluid) which weakens what it soaks; the splash is the
+        // fluid (sim/fluid) which slows what it soaks; the splash is the
         // attack, and the fluid solver owns it from the instant it lands.
         {
             TowerMechanics& m = g_mechanics[static_cast<u32>(TowerType::GobletCell)][tier];
@@ -225,10 +228,10 @@ void init_mechanics_once() {
             constexpr f32 kRadius[3] = {1.0f, 1.2f, 1.4f};
             constexpr f32 kSplashSpeed[3] = {6.0f, 7.0f, 8.0f};
             constexpr f32 kDropLife[3] = {1.6f, 1.9f, 2.2f};
-            constexpr f32 kDps[3] = {14.0f, 34.0f, 62.0f};
-            constexpr f32 kMark[3] = {2.2f, 2.6f, 3.0f};
+            constexpr f32 kSlowDuration[3] = {3.0f, 3.5f, 4.0f};
+            constexpr f32 kSlowFactor[3] = {0.12f, 0.09f, 0.06f};
             m.mucus_bomber = MucusBomberParams{1.0f, kDroplets[tier], kRadius[tier], kSplashSpeed[tier],
-                                               kDropLife[tier], kDps[tier], kMark[tier]};
+                                               kDropLife[tier], kSlowDuration[tier], kSlowFactor[tier]};
         }
         // BUILDER -- Fibroblast. One builder at a time, walking out to lay a
         // collagen scar across the lane (sim/scar). search_radius doubles as
@@ -292,7 +295,7 @@ void load_default_stats(TowerSystem& self) {
     self.set_stats(TowerType::CytotoxicT, 2, make_stats(0.40f, 1.6f, 130, 70, 380.0f));
     self.set_stats(TowerType::CytotoxicT, 3, make_stats(0.35f, 1.6f, 130, 0, 500.0f));
 
-    // MUCUS BOMBER -- area denial that lingers and weakens. Expensive.
+    // MUCUS BOMBER -- area denial that lingers and slows. Expensive.
     self.set_stats(TowerType::GobletCell, 1, make_stats(1.60f, 1.4f, 160, 104, 300.0f));
     self.set_stats(TowerType::GobletCell, 2, make_stats(1.40f, 1.4f, 160, 88, 420.0f));
     self.set_stats(TowerType::GobletCell, 3, make_stats(1.20f, 1.4f, 160, 0, 560.0f));
@@ -1216,10 +1219,13 @@ sim::SwarmerProfile swarmer_profile(TowerType type, u8 tier) {
     p.splash_radius = m.mucus_bomber.splash_radius;
     p.splash_speed = m.mucus_bomber.splash_speed;
     p.splash_lifetime = m.mucus_bomber.droplet_lifetime;
-    p.splash_dps = m.mucus_bomber.splash_dps;
-    p.mark_seconds = m.mucus_bomber.mark_seconds;
+    p.mucus_slow_duration = m.mucus_bomber.slow_duration;
+    p.mucus_slow_factor = m.mucus_bomber.slow_factor;
 
     p.arbor_arm_count = math::min<u32>(m.arbor_grabber.arm_count, sim::kArborMaxArms);
+    p.arbor_max_captives = math::max<u32>(1u, math::min<u32>(m.arbor_grabber.max_captives,
+                                                              sim::kArborMaxCaptives));
+    p.arbor_cluster_radius = math::max(m.arbor_grabber.cluster_radius, 0.0f);
     p.arbor_extend_seconds = m.arbor_grabber.extend_seconds;
     p.arbor_latch_seconds = m.arbor_grabber.latch_seconds;
     p.arbor_pull_seconds = m.arbor_grabber.pull_seconds;

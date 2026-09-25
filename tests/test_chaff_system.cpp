@@ -15,6 +15,8 @@
 #include "core/JobSystem.h"
 #include "core/Math.h"
 #include "core/Rng.h"
+#include "config/ConfigStore.h"
+#include "game/config/GameConfig.h"
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
@@ -772,6 +774,38 @@ TEST_CASE("spawn_burst stays deterministic and varies between bursts",
     REQUIRE(burst(7) != burst(8));
 }
 
+TEST_CASE("streamed micro-bursts fill one non-overlapping formation",
+          "[sim][chaff][spawn][wave]") {
+    ChaffTuning tuning = flat_tuning(0.0f, 6.0f, 1.2f, 8.0f, 0.0f);
+    ChaffSystem sys;
+    sys.set_tuning(tuning);
+    ChaffBuffers buffers;
+    buffers.reserve(128);
+    Rng rng(99);
+
+    constexpr u32 kSquadSize = 60;
+    constexpr u32 kChunk = 3;
+    constexpr f32 kPhase = 0.73f;
+    for (u32 offset = 0; offset < kSquadSize; offset += kChunk) {
+        REQUIRE(sys.spawn_burst(buffers, PathogenFamily::Virus, Vec2{20.0f, 20.0f},
+                                2.0f, kChunk, rng, 7u, offset, kSquadSize,
+                                kPhase) == kChunk);
+    }
+    REQUIRE(buffers.count() == kSquadSize);
+
+    const f32 contact = tuning.family[0].radius * tuning.family[0].contact_spacing;
+    f32 closest = 1000.0f;
+    for (usize a = 0; a < buffers.count(); ++a) {
+        for (usize b = a + 1; b < buffers.count(); ++b) {
+            const f32 dx = buffers.pos_x[a] - buffers.pos_x[b];
+            const f32 dy = buffers.pos_y[a] - buffers.pos_y[b];
+            closest = math::min(closest, std::sqrt(dx * dx + dy * dy));
+        }
+    }
+    INFO("closest streamed spawn pair " << closest << ", contact " << contact);
+    REQUIRE(closest >= contact);
+}
+
 TEST_CASE("a crushing crowd cannot be squeezed out through a lane wall",
           "[sim][chaff][walls]") {
     // Reported from play: past a certain local density, agents jammed against
@@ -1082,25 +1116,55 @@ TEST_CASE("a jammed crowd moves smoothly instead of shimmering",
     // it outright reverses. A crowd riding a smooth flow field should do
     // neither, however tightly it is packed -- packing is what CONTACT is for,
     // and the two are not supposed to trade against each other.
-    const Rect bounds{Vec2{0.0f, 0.0f}, Vec2{240.0f, 120.0f}};
-    FlowField flow = make_radial_flow(bounds, Vec2{230.0f, 60.0f});
+    const Rect bounds{Vec2{0.0f, 0.0f}, Vec2{400.0f, 240.0f}};
+    FlowField flow = make_radial_flow(bounds, Vec2{390.0f, 120.0f});
     DistanceField sdf;   // unbaked: open ground, isolate agent-agent behaviour
     SpatialHash hash = make_hash(bounds, 4.0f);
 
-    // Virus-shaped: the family this was reported on. radius 0.765 gives a
-    // contact distance of 1.53, so the 1.2-unit seeding below is genuinely
-    // over-packed rather than merely touching.
+    // Start from a complete tuning object, then replace its family block with
+    // the values the game actually ships for each section below.
     ChaffTuning tuning = flat_tuning(/*accel*/ 63.0f, /*max_speed*/ 16.875f,
                                      /*sep_radius*/ 1.836f, /*sep_strength*/ 6.9f,
                                      /*jitter*/ 0.45f);
-    for (u32 f = 0; f < kFamilyCount; ++f) tuning.family[f].radius = 0.765f;
+
+    PathogenFamily family = PathogenFamily::Virus;
+    SECTION("virus") {}
+    SECTION("full sized bacteria") { family = PathogenFamily::Bacteria; }
+
+    // The former virus section hardcoded its old half-sized body and therefore
+    // stayed green while the live silhouette could not see a touching
+    // neighbour inside its alignment radius.
+    config::ConfigStore store;
+    game::GameConfig config;
+    std::string error;
+    REQUIRE(game::load_game_config(store, "assets/config", config, error));
+    const auto& authored = config.enemies.families[static_cast<u32>(family)];
+    const auto& speed = config.enemies.speed_tiers[static_cast<u32>(authored.speed_tier)];
+    for (auto& fp : tuning.family) {
+        fp.radius = authored.visual.silhouette * authored.chaff.radius_from_silhouette;
+        fp.separation_radius = fp.radius * authored.chaff.separation_radius_mul;
+        fp.separation_strength = authored.chaff.separation_strength;
+        fp.alignment_radius = authored.chaff.alignment_radius;
+        fp.alignment_strength = authored.chaff.alignment_strength;
+        fp.pressure_threshold = authored.chaff.pressure_threshold;
+        fp.pressure_gain = authored.chaff.pressure_gain;
+        fp.pressure_max = authored.chaff.pressure_max;
+        fp.crowd_relief = authored.chaff.crowd_relief;
+        fp.max_speed = speed.max_speed;
+        fp.acceleration = speed.acceleration;
+        fp.jitter = speed.jitter;
+    }
+    // At ordinary separation spacing the crowd must still see neighbours to
+    // align with; otherwise coherent flocking silently switches off.
+    REQUIRE(tuning.family[0].alignment_radius > tuning.family[0].separation_radius);
 
     ChaffBuffers buffers;
     buffers.reserve(2048);
     Rng seed_rng(90210);
-    for (f32 y = 48.0f; y <= 72.0f; y += 1.2f * 0.866f) {
-        for (f32 x = 20.0f; x < 60.0f; x += 1.2f) {
+    for (f32 y = 108.0f; y <= 132.0f; y += 1.2f * 0.866f) {
+        for (f32 x = 80.0f; x < 120.0f; x += 1.2f) {
             ChaffSpawnParams p;
+            p.family = family;
             p.position = Vec2{x, y} + seed_rng.unit_disc() * 0.06f;
             buffers.spawn(p);
         }
@@ -1110,7 +1174,7 @@ TEST_CASE("a jammed crowd moves smoothly instead of shimmering",
     ChaffSystem sys;
     sys.set_tuning(tuning);
     sys.set_world_bounds(bounds);
-    sys.set_goal(Vec2{230.0f, 60.0f}, Vec2{0.0f, 0.0f});   // no goal despawn
+    sys.set_goal(Vec2{390.0f, 120.0f}, Vec2{0.0f, 0.0f});   // no goal despawn
 
     Rng rng(7);
     auto tick = [&]() {
@@ -1123,15 +1187,28 @@ TEST_CASE("a jammed crowd moves smoothly instead of shimmering",
 
     const usize count = buffers.count();
     std::vector<Vec2> prev(count), last_step(count, Vec2{0.0f, 0.0f});
+    std::vector<Vec2> last_velocity(count, Vec2{0.0f, 0.0f});
     for (usize i = 0; i < count; ++i) prev[i] = Vec2{buffers.pos_x[i], buffers.pos_y[i]};
 
     f64 turn_sum = 0.0, reversals = 0.0, samples = 0.0, step_sum = 0.0;
+    f64 facing_turn_sum = 0.0, facing_samples = 0.0;
     for (int t = 0; t < 180; ++t) {
         tick();
         REQUIRE(buffers.count() == count);   // no replication: index mapping holds
         for (usize i = 0; i < count; ++i) {
             const Vec2 p{buffers.pos_x[i], buffers.pos_y[i]};
             const Vec2 step = p - prev[i];
+            // Rods face their velocity, so measure sprite heading as well as
+            // displacement (the latter includes positional contact relief).
+            const Vec2 velocity{buffers.vel_x[i], buffers.vel_y[i]};
+            const f32 speeds = math::length(velocity) * math::length(last_velocity[i]);
+            if (speeds > 1e-5f) {
+                const f32 dot = (velocity.x * last_velocity[i].x +
+                                 velocity.y * last_velocity[i].y) / speeds;
+                facing_turn_sum += std::acos(math::clamp(dot, -1.0f, 1.0f));
+                facing_samples += 1.0;
+            }
+            last_velocity[i] = velocity;
             const f32 len = math::length(step);
             const f32 plen = math::length(last_step[i]);
             step_sum += len;
@@ -1154,9 +1231,10 @@ TEST_CASE("a jammed crowd moves smoothly instead of shimmering",
     const f64 mean_step = step_sum / samples;
     const f64 speed_budget = static_cast<f64>(tuning.family[0].max_speed * kFixedDt);
     std::fprintf(stderr,
-                 "[crowd smoothness] %zu agents packed to 1.2 (contact 1.53): "
+                 "[crowd smoothness] %zu agents packed to 1.2 (contact %.2f): "
                  "turn %.2f deg/tick, reversals %.3f, step %.4f (max_speed*dt %.4f)\n",
-                 count, mean_turn_deg, reversal_frac, mean_step, speed_budget);
+                 count, tuning.family[0].radius * tuning.family[0].contact_spacing,
+                 mean_turn_deg, reversal_frac, mean_step, speed_budget);
 
     // Measured 0.7 deg/tick after the fix; the same scenario before it sat at
     // 104, i.e. the average agent faced a different way every tick. The bound
@@ -1180,6 +1258,163 @@ TEST_CASE("a jammed crowd moves smoothly instead of shimmering",
     // budget before, 1.006x after.
     INFO("mean per-tick distance vs max_speed*dt: " << mean_step / speed_budget);
     REQUIRE(mean_step < speed_budget * 1.25);
+    REQUIRE(facing_samples > 0.0);
+    INFO("mean sprite heading change: " << facing_turn_sum / facing_samples * 57.29578);
+    REQUIRE(facing_turn_sum / facing_samples * 57.29578 < 5.0);
+
+    // The bacteria start at almost four times their intended spacing in each
+    // axis. Give that deliberately crushed pack time to expand before judging
+    // settled overlap, separately from the transient motion checked above.
+    for (int t = 0; t < 240; ++t) tick();
+    REQUIRE(buffers.count() == count);
+    f64 gap_sum = 0.0;
+    for (usize i = 0; i < count; ++i) {
+        f32 nearest = 1e10f;
+        for (usize j = 0; j < count; ++j) {
+            if (i == j) continue;
+            const Vec2 delta{buffers.pos_x[i] - buffers.pos_x[j],
+                             buffers.pos_y[i] - buffers.pos_y[j]};
+            nearest = math::min(nearest, math::length(delta));
+        }
+        gap_sum += nearest;
+    }
+    const f64 contact = tuning.family[0].radius * tuning.family[0].contact_spacing;
+    INFO("mean nearest-body gap / contact spacing: " << gap_sum / count / contact);
+    REQUIRE(gap_sum / count > contact * 0.85);
+}
+
+TEST_CASE("large bodies resolve contact across more than one hash cell",
+          "[sim][chaff][movement][crowd]") {
+    const Rect bounds{Vec2{0.0f, 0.0f}, Vec2{40.0f, 40.0f}};
+    FlowField flow = make_radial_flow(bounds, Vec2{35.0f, 20.0f});
+    SpatialHash hash = make_hash(bounds);
+    ChaffTuning tuning = flat_tuning(0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+    for (auto& fp : tuning.family) {
+        fp.radius = 2.25f;
+        fp.alignment_strength = 0.0f;
+        fp.crowd_relief = 0.0f;
+    }
+    ChaffBuffers buffers;
+    buffers.reserve(2);
+    ChaffSpawnParams p;
+    p.family = PathogenFamily::Bacteria;
+    p.position = Vec2{7.9f, 20.0f};
+    buffers.spawn(p);
+    p.position.x = 12.1f;
+    buffers.spawn(p);
+    ChaffSystem sys;
+    sys.set_tuning(tuning);
+    sys.set_world_bounds(bounds);
+    Rng rng(7);
+    rebuild(hash, buffers);
+    sys.update(buffers, flow, DistanceField{}, TissueMask{}, hash, no_squads(), rng,
+               kFixedDt, nullptr);
+    CHECK(buffers.pos_x[1] - buffers.pos_x[0] == Catch::Approx(4.5f));
+}
+
+TEST_CASE("bacteria swim with the flow while crowded squads merge",
+          "[sim][chaff][movement][crowd][bacteria]") {
+    const Rect bounds{Vec2{0.0f, 0.0f}, Vec2{600.0f, 240.0f}};
+    FlowField flow = make_radial_flow(bounds, Vec2{590.0f, 120.0f});
+    SpatialHash hash = make_hash(bounds);
+    ChaffTuning tuning = flat_tuning(63.0f, 16.875f, 5.4f, 7.5f, 0.45f);
+    for (auto& fp : tuning.family) {
+        fp.radius = 2.25f;
+        fp.alignment_radius = 7.0f;
+        fp.alignment_strength = 6.0f;
+        fp.pressure_threshold = 4.0f;
+    }
+    ChaffSystem sys;
+    sys.set_tuning(tuning);
+    sys.set_world_bounds(bounds);
+    sys.set_goal(Vec2{590.0f, 120.0f}, Vec2{0.0f, 0.0f});
+    SquadRegistry squads;
+    SquadTuning st;
+    squads.set_tuning(st);
+    std::vector<SquadPath> paths;
+    for (u32 n = 0; n < 2; ++n) {
+        SquadPath path;
+        path.id = std::to_string(n);
+        path.lane_id = "lane";
+        const f32 y = 100.0f + n * 35.0f;
+        path.points = {Vec2{20.0f, y}, Vec2{570.0f, y}};
+        path.half_width = 12.0f;
+        path.rebuild_arc();
+        paths.push_back(path);
+    }
+    squads.set_paths(std::move(paths));
+    ChaffBuffers buffers;
+    buffers.reserve(256);
+    Rng rng(71);
+    for (u32 n = 0; n < 2; ++n) {
+        const Vec2 centre{100.0f, 110.0f + n * 20.0f};
+        const u16 squad = squads.create_squad(static_cast<u16>(n), centre);
+        sys.spawn_burst(buffers, PathogenFamily::Bacteria, centre, 18.0f, 60, rng, squad);
+    }
+    REQUIRE(buffers.count() == 120);
+    u64 samples = 0, backwards = 0, sideways = 0, back_steps = 0;
+    f64 forward_sum = 0.0;
+    for (u32 t = 0; t < 480; ++t) {
+        std::vector<Vec2> before(buffers.count());
+        for (usize i = 0; i < buffers.count(); ++i)
+            before[i] = Vec2{buffers.pos_x[i], buffers.pos_y[i]};
+        squads.update(buffers, kFixedDt);
+        rebuild(hash, buffers);
+        sys.update(buffers, flow, DistanceField{}, TissueMask{}, hash, squads, rng,
+                   kFixedDt, nullptr);
+        if (t < 60) continue;
+        for (usize i = 0; i < buffers.count(); ++i) {
+            const Vec2 dir = math::normalize_safe(flow.sample(before[i]));
+            const Vec2 v{buffers.vel_x[i], buffers.vel_y[i]};
+            const f32 forward = v.x * dir.x + v.y * dir.y;
+            const f32 lateral = std::fabs(v.y * dir.x - v.x * dir.y);
+            const Vec2 step{buffers.pos_x[i] - before[i].x, buffers.pos_y[i] - before[i].y};
+            backwards += forward < -0.1f;
+            sideways += lateral > math::max(forward, 0.1f);
+            back_steps += step.x * dir.x + step.y * dir.y < -0.01f;
+            forward_sum += forward;
+            ++samples;
+        }
+    }
+    const f64 n = static_cast<f64>(samples);
+    std::fprintf(stderr, "[bacteria flow] backwards %.3f, sideways %.3f, backward steps %.3f, forward speed %.2f\n",
+                 backwards / n, sideways / n, back_steps / n, forward_sum / n);
+    REQUIRE(backwards / n < 0.01);
+    REQUIRE(sideways / n < 0.02);
+    REQUIRE(back_steps / n < 0.02);
+    REQUIRE(forward_sum / n > tuning.family[0].max_speed * 0.5f);
+}
+
+TEST_CASE("mixed pathogen contact preserves the pair centre and clears both bodies",
+          "[sim][chaff][movement][crowd]") {
+    const Rect bounds{Vec2{0.0f, 0.0f}, Vec2{40.0f, 40.0f}};
+    FlowField flow = make_radial_flow(bounds, Vec2{35.0f, 20.0f});
+    SpatialHash hash = make_hash(bounds);
+    ChaffTuning tuning = flat_tuning(0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+    for (auto& fp : tuning.family) {
+        fp.alignment_strength = 0.0f;
+        fp.crowd_relief = 0.0f;
+    }
+    tuning.family[static_cast<u32>(PathogenFamily::Virus)].radius = 1.53f;
+    tuning.family[static_cast<u32>(PathogenFamily::Bacteria)].radius = 2.25f;
+    ChaffBuffers buffers;
+    buffers.reserve(2);
+    ChaffSpawnParams p;
+    p.family = PathogenFamily::Virus;
+    p.position = Vec2{10.0f, 20.0f};
+    buffers.spawn(p);
+    p.family = PathogenFamily::Bacteria;
+    p.position.x = 13.2f;
+    buffers.spawn(p);
+    ChaffSystem sys;
+    sys.set_tuning(tuning);
+    sys.set_world_bounds(bounds);
+    Rng rng(7);
+    rebuild(hash, buffers);
+    sys.update(buffers, flow, DistanceField{}, TissueMask{}, hash, no_squads(), rng,
+               kFixedDt, nullptr);
+    CHECK(buffers.pos_x[1] - buffers.pos_x[0] == Catch::Approx(3.78f));
+    CHECK(buffers.pos_x[1] + buffers.pos_x[0] == Catch::Approx(23.2f));
 }
 
 TEST_CASE("a daughter is born beside its parent, not inside it",

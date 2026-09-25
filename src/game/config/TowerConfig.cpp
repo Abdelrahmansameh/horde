@@ -103,6 +103,8 @@ constexpr Schema kBomberSchema{"bomber", kBomberFields};
 
 constexpr Field kArborGrabberFields[] = {
     IMMUNE_CONFIG_FIELD(ArborGrabberParams, arm_count, FieldKind::U32, "Independent pseudopod trees per unit; clamped to the renderer's three arm channels"),
+    IMMUNE_CONFIG_FIELD(ArborGrabberParams, max_captives, FieldKind::U32, "Maximum ordinary enemies one pseudopod swallows in a single pull, including its initial target"),
+    IMMUNE_CONFIG_FIELD(ArborGrabberParams, cluster_radius, FieldKind::F32, "Enemies this close to the initial target join its pull; 0 disables group grabs"),
     IMMUNE_CONFIG_FIELD(ArborGrabberParams, extend_seconds, FieldKind::F32, "Seconds a new pseudopod tree takes to reach its target"),
     IMMUNE_CONFIG_FIELD(ArborGrabberParams, latch_seconds, FieldKind::F32, "Seconds the terminal fingers spend closing around a target"),
     IMMUNE_CONFIG_FIELD(ArborGrabberParams, pull_seconds, FieldKind::F32, "Seconds a latched target takes to reach the body"),
@@ -131,8 +133,8 @@ constexpr Field kMucusBomberFields[] = {
     IMMUNE_CONFIG_FIELD(MucusBomberParams, splash_radius, FieldKind::F32, "Radius the droplets fill at the instant of the splash"),
     IMMUNE_CONFIG_FIELD(MucusBomberParams, splash_speed, FieldKind::F32, "Outward launch speed of the rim droplets"),
     IMMUNE_CONFIG_FIELD(MucusBomberParams, droplet_lifetime, FieldKind::F32, "Seconds a droplet survives"),
-    IMMUNE_CONFIG_FIELD(MucusBomberParams, splash_dps, FieldKind::F32, "Density removed per second from a fully soaked coverage cell"),
-    IMMUNE_CONFIG_FIELD(MucusBomberParams, mark_seconds, FieldKind::F32, "Seconds a named agent inside the splash stays weakened"),
+    IMMUNE_CONFIG_FIELD(MucusBomberParams, slow_duration, FieldKind::F32, "Seconds an enemy stays slowed after leaving mucus"),
+    IMMUNE_CONFIG_FIELD(MucusBomberParams, slow_factor, FieldKind::F32, "Max-speed multiplier while slowed; 0.1 = 10% speed"),
 };
 constexpr Schema kMucusBomberSchema{"mucus_bomber", kMucusBomberFields};
 

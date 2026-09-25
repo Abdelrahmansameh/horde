@@ -255,6 +255,11 @@ struct ChaffBatchParams {
     /// Seconds since renderer init. Folded into anim_phase so the shader needs
     /// no per-family tempo uniform.
     f32 time = 0.0f;
+    /// Fraction of the latest fixed simulation tick to present. One preserves
+    /// the current-state behaviour used by offline tests; the live renderer
+    /// supplies its clock accumulator so movement stays continuous between
+    /// simulation ticks.
+    f32 interpolation_alpha = 1.0f;
     /// Agents outside this rect are skipped entirely. Set it to the camera's
     /// visible bounds, padded by the largest silhouette.
     Rect cull{};
@@ -299,6 +304,8 @@ inline ChaffBatchResult build_chaff_batches(const sim::ChaffBuffers& chaff,
     const usize n = chaff.count();
     const f32* px = chaff.pos_x.data();
     const f32* py = chaff.pos_y.data();
+    const f32* prev_px = chaff.prev_pos_x.data();
+    const f32* prev_py = chaff.prev_pos_y.data();
     const f32* vx = chaff.vel_x.data();
     const f32* vy = chaff.vel_y.data();
     const u8* fam = chaff.family.data();
@@ -340,7 +347,9 @@ inline ChaffBatchResult build_chaff_batches(const sim::ChaffBuffers& chaff,
     }
 
     for (usize i = 0; i < n; ++i) {
-        const Vec2 p{px[i], py[i]};
+        const f32 alpha = math::saturate(params.interpolation_alpha);
+        const Vec2 p{prev_px[i] + (px[i] - prev_px[i]) * alpha,
+                     prev_py[i] + (py[i] - prev_py[i]) * alpha};
         if (params.cull_enabled && !params.cull.contains(p)) {
             ++out.agents_culled;
             continue;

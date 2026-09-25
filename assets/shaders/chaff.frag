@@ -191,7 +191,8 @@ float latch_throb(float a, float T, float stroke, vec4 shape, float ripple) {
 }
 
 // ---------------------------------------------------------------------------
-// BACTERIA — a rod (bacillus) with a flagellum.
+// BACTERIA — a fluid rod (bacillus) studded with receptors, trailing a
+// flagellum.
 //
 // A capsule SDF is the right primitive: real bacilli are cylinders with
 // hemispherical caps, which is exactly what a capsule is. The rod is oriented
@@ -199,41 +200,150 @@ float latch_throb(float a, float T, float stroke, vec4 shape, float ripple) {
 // agent's heading, so a bacterium automatically swims lengthwise — which is
 // both correct and free.
 //
-// The flagellum is a travelling-wave (snake-like) line trailing the rod,
-// slithering at the agent's own tempo. It is a huge part of reading as "bacterium" rather than
-// "pill", and costs one extra distance evaluation.
+// But a rigid capsule read as a pill. This one is a WET SAC, borrowing the
+// Macrophage's fluid-mass treatment (entity.frag: sdf_macrophage) within the
+// budget above — where the Macrophage domain-warps with fbm, this does it with
+// two sine products, and every other deformation is one trig term:
+//
+//   flex    the whole rod bows into a slow banana, alternating sides, so the
+//           body is never straight for long;
+//   undulate a travelling wave runs nose-to-tail down the rod, the same wave
+//           the flagellum continues behind it, so body and tail read as one
+//           swimming organism;
+//   pulse   a peristaltic swell rolls down the length, with a slow whole-body
+//           breath under it;
+//   warp    the domain warp: lumps that drift over the membrane so the outline
+//           is never the same twice.
+//
+// RECEPTORS: the virus's stalk+knob lollipops, standing off the capsule's
+// outline. A capsule has no rotational symmetry to fold an angle into, so the
+// ring is done along the outline's own coordinate instead: the outline is
+// unrolled into one length (nose cap, top flank, rear cap, bottom flank), the
+// pixel's nearest point on it is looked up as a position along that length,
+// and that position is rounded to the nearest of N evenly spaced slots. The
+// slot's root and normal are recovered from the same unrolling, so one
+// stalk+knob is evaluated per pixel and stands on the capsule's true normal --
+// vertical on the flanks, radial on the caps. Done in the deformed frame, so
+// the ring flexes and pulses with the body it is rooted in.
 // ---------------------------------------------------------------------------
 float sdf_capsule(vec2 p, float half_len, float r) {
     p.x -= clamp(p.x, -half_len, half_len);
     return length(p) - r;
 }
 
-float sdf_bacteria(vec2 p, float r, float phase, float pulse, out float flagellum) {
-    // The rod is pushed FORWARD in the quad rather than centred. Local space
-    // only spans +-0.95 (chaff.vert's kPad), and a centred rod eats nearly all
-    // of it, leaving the flagellum about a tenth of a body length -- a stub
-    // that read as a rendering artifact rather than a tail. Offsetting the body
-    // buys the rear half of the quad for the flagellum without widening the
-    // quad (which would cost fill rate on all ten thousand instances). Pushed
-    // to 0.30 (from 0.20) to claw back the front margin the body wasn't using
-    // -- front cap+radius lands at ~0.91, tail tip at ~0.91 behind, both still
-    // shy of the 0.95 pad -- so the longer flagellum below has somewhere to go.
-    const float kBodyOffset = 0.30;
-    vec2 bp = p - vec2(kBodyOffset, 0.0);
+float sdf_segment_r(vec2 p, vec2 a, vec2 b, float r) {
+    vec2 ba = b - a;
+    float h = clamp(dot(p - a, ba) / dot(ba, ba), 0.0, 1.0);
+    return length(p - a - ba * h) - r;
+}
 
-    float half_len = r * 0.52;
-    float body = sdf_capsule(bp, half_len, r * 0.50 + pulse);
+const float kHalfPi = 1.57079633;
 
-    // Flagellum: a long, tapering, beating filament trailing the rear cap.
-    float rear = kBodyOffset - half_len;           // x of the rear cap centre
-    float tail_x = p.x - rear;                     // 0 at the cap, negative behind
-    float along = clamp(-tail_x / 0.90, 0.0, 1.0); // 0 at cap, 1 at the tip
+// The capsule's outline as one coordinate: 0 at the nose (+x), increasing
+// counter-clockwise -- over the nose cap, back along the top flank, round the
+// rear cap, forward along the bottom flank -- for a total of 2*pi*r + 4h.
+// Evaluated for any point, as the coordinate of its nearest outline point.
+float capsule_perimeter(vec2 p, float h, float r) {
+    float cap = kHalfPi * r;
+    vec2 v = p - vec2(clamp(p.x, -h, h), 0.0);
+    float a = atan(v.y, v.x);
+    if (p.x > h)  return r * a;
+    if (p.x < -h) return cap + 2.0 * h + r * ((a < 0.0 ? a + 6.28318530 : a) - kHalfPi);
+    return v.y > 0.0 ? cap + (h - p.x) : 3.0 * cap + 2.0 * h + (p.x + h);
+}
+
+// The inverse: the outline point at coordinate s, and its outward normal.
+vec2 capsule_point(float s, float h, float r, out vec2 n) {
+    float cap = kHalfPi * r;
+    if (s < cap) {                        // nose cap (s >= -cap by construction)
+        n = vec2(cos(s / r), sin(s / r));
+        return vec2(h, 0.0) + n * r;
+    }
+    s -= cap;
+    if (s < 2.0 * h) {                    // top flank
+        n = vec2(0.0, 1.0);
+        return vec2(h - s, r);
+    }
+    s -= 2.0 * h;
+    if (s < 2.0 * cap) {                  // rear cap
+        float a = kHalfPi + s / r;
+        n = vec2(cos(a), sin(a));
+        return vec2(-h, 0.0) + n * r;
+    }
+    s -= 2.0 * cap;                       // bottom flank
+    n = vec2(0.0, -1.0);
+    return vec2(-h + s, -r);
+}
+
+const float kBacteriaReceptors = 12.0;
+// The rod's proportions in local units, shared by the body and its receptors.
+const float kBacteriaHalfLen = 0.27;
+const float kBacteriaRadius  = 0.255;
+// The rod is pushed FORWARD in the quad rather than centred. Local space only
+// spans +-0.95 (chaff.vert's kPad), and a centred rod eats nearly all of it,
+// leaving the flagellum a stub that read as a rendering artifact rather than a
+// tail. Offsetting the body buys the rear half of the quad for the flagellum
+// without widening the quad (which would cost fill rate on all ten thousand
+// instances). Front receptor tip lands at ~0.90, tail tip ~0.92 behind, both
+// shy of the pad.
+const float kBacteriaBodyOffset = 0.25;
+
+float sdf_bacteria(vec2 p, float phase, float pulse, out float flagellum,
+                   out vec2 skin_p) {
+    const float h = kBacteriaHalfLen;
+    const float r = kBacteriaRadius;
+    vec2 bp = p - vec2(kBacteriaBodyOffset, 0.0);
+
+    // The travelling wave the body and tail share: crests advance toward -x
+    // (nose to tail, then down the flagellum) as the phase grows.
+    const float kWaveNum = 10.0;
+
+    // Flex: bow the whole rod. Quadratic in x so the middle stays put and the
+    // ends swing; the sign alternates on a slow clock.
+    float flex = 0.22 * sin(phase * 0.37);
+    bp.y -= flex * (bp.x * bp.x - 0.35 * h * h);
+    // Undulate: the wave itself, gentle in the body (the tail whips harder).
+    bp.y -= 0.028 * sin(kWaveNum * -bp.x - phase) * smoothstep(-h - r, h, bp.x);
+    // Warp: lumps drifting across the membrane.
+    float wx = sin(bp.y * 8.3 + phase * 0.90) * cos(bp.x * 5.1 - phase * 0.61);
+    float wy = sin(bp.x * 6.7 - phase * 0.73) * cos(bp.y * 4.3 + phase * 0.52);
+    bp += vec2(wx, wy) * 0.030;
+    skin_p = bp;
+
+    // Pulse: a peristaltic swell rolling tailward, over a whole-body breath.
+    float swell = 0.055 * sin(bp.x * 7.0 + phase * 0.9) + 0.025 * sin(phase * 0.55);
+    float body = sdf_capsule(bp, h, r + r * swell + pulse);
+
+    // Receptors: nearest-slot lookup along the unrolled outline (see above).
+    float perim = 6.28318530 * r + 4.0 * h;
+    float slot_len = perim / kBacteriaReceptors;
+    // A slow creep round the outline: enough that no two neighbours in a
+    // crowd share a ring, too slow to read as knobs sliding on the skin.
+    float ring_drift = phase * 0.003 * perim;
+    float s_here = capsule_perimeter(bp, h, r) - ring_drift;
+    float s_slot = floor(s_here / slot_len + 0.5) * slot_len + ring_drift;
+    // Fold back into [-cap, perim - cap), the range the unrolling produces.
+    s_slot = mod(s_slot + kHalfPi * r, perim) - kHalfPi * r;
+    vec2 n;
+    vec2 root = capsule_point(s_slot, h, r, n);
+    // Each receptor nods on its own beat so the ring never reads as a stamp.
+    float reach = 0.085 + 0.02 * sin(phase * 1.3 + s_slot * 11.0);
+    vec2 tip = root + n * reach;
+    float stalk = sdf_segment_r(bp, root - n * 0.06, tip, 0.038);
+    float knob = length(bp - tip) - 0.062;
+    float receptors = min(stalk, knob);
+    body = min(body, receptors);
+
+    // Flagellum: a long, tapering, beating filament trailing the rear cap,
+    // continuing the body's wave in the UNDEFORMED frame so it stays rooted
+    // where the cap actually is.
+    float rear = kBacteriaBodyOffset - h;           // x of the rear cap centre
+    float tail_x = p.x - rear;                      // 0 at the cap, negative behind
+    float along = clamp(-tail_x / 0.90, 0.0, 1.0);  // 0 at cap, 1 at the tip
 
     // Snake-like undulation: a travelling wave that runs FROM the body TOWARD
     // the tip. `s` counts distance behind the cap, so sin(k*s - w*t) advances
     // in +s as t grows -- the crests slither down the tail and off the end.
-    // (The old form used tail_x directly, which made the wave crawl the wrong
-    // way, up the tail into the body, and never read as slithering.)
     //
     // Tuned for GAMEPLAY zoom, not the close-up: at the campaign view height a
     // bacterium is ~14 px long, so a subtle wave is sub-pixel. About 1.5
@@ -242,8 +352,7 @@ float sdf_bacteria(vec2 p, float r, float phase, float pulse, out float flagellu
     // it -- fast enough to be alive, slow enough that the eye follows a bend
     // down the tail instead of seeing a buzz.
     float s = -tail_x;
-    const float kWaveNum = 10.0;
-    float amp = 0.26 * along * along;              // rooted at the cap, whips at the tip
+    float amp = 0.26 * along * along;               // rooted at the cap, whips at the tip
     float wave_arg = kWaveNum * s - phase;
     float beat = sin(wave_arg) * amp;
 
@@ -252,7 +361,7 @@ float sdf_bacteria(vec2 p, float r, float phase, float pulse, out float flagellu
     // by the curve's arc-length factor keeps the snake a uniform width around
     // every bend.
     float slope = cos(wave_arg) * kWaveNum * amp;
-    float thickness = mix(0.065, 0.014, along);    // tapers to a point
+    float thickness = mix(0.065, 0.014, along);     // tapers to a point
     float tail_d = abs(p.y - beat) * inversesqrt(1.0 + slope * slope) - thickness;
 
     // Behind the rod only, and fading out at the tip so it does not end in a
@@ -298,6 +407,8 @@ void main() {
     float body_d;
     float flagellum = 0.0;
     float rim_scale = 1.0;   // per-species rim tightness
+    float core_shade = 0.62; // per-species interior darkening (see depth below)
+    vec2 bacteria_skin = v_local;
 
     if (family == FAM_VIRUS) {
         body_d = sdf_virus(body_p, 0.36, spike_phase, pulse, spike_scale);
@@ -318,8 +429,10 @@ void main() {
             body_d = min(body_d, length(q) - thick);
         }
     } else if (family == FAM_BACTERIA) {
-        body_d = sdf_bacteria(v_local, 0.60, v_anim_phase, pulse, flagellum);
+        body_d = sdf_bacteria(v_local, v_anim_phase, pulse, flagellum, bacteria_skin);
         rim_scale = 1.2;     // softer; a bacterium is a wet sac
+        core_shade = 1.18;   // ...and a lit one: the interior stays as bright as
+                             // the membrane, no darkening at all under the streaks
     } else {
         body_d = length(v_local) - (0.5 + pulse);
     }
@@ -393,7 +506,7 @@ void main() {
     // cytoplasm. This is the whole "biological" budget at this sprite size, and
     // it is what separates a cell from a flat dot.
     float depth = clamp(-body_d * 3.4, 0.0, 1.0);          // 0 at edge, 1 deep inside
-    rgb *= mix(1.30, 0.62, depth);                          // bright rim, dark core
+    rgb *= mix(1.30, core_shade, depth);                    // bright rim, dark core
     // The push lights the whole body. Colour survives any zoom; at gameplay
     // distance this is most of what "feeding" looks like.
     if (latched) rgb *= 1.0 - u_latch_throb_pump[fam_slot].x * stroke;
@@ -427,16 +540,35 @@ void main() {
             rgb = mix(rgb, mix(v_tint.rgb, vec3(1.0), 0.55), throb_skin.y * chan * beads);
         }
     } else if (family == FAM_BACTERIA) {
-        // Nucleoid: a lengthwise darker band, the DNA mass down the rod.
-        // Centred on the offset body, not on the quad.
-        vec2 bp = v_local - vec2(0.20, 0.0);
-        float band = 1.0 - smoothstep(0.0, 0.14, abs(bp.y));
-        float along = 1.0 - smoothstep(0.14, 0.38, abs(bp.x));
-        rgb *= mix(1.0, 0.72, band * along * (1.0 - rim));
+        // Cytoplasm streaks: pale veins running the length of the rod, bowing
+        // and pulsing with it (bacteria_skin is the deformed frame), branching
+        // where the line families cross. There is deliberately NO dark
+        // nucleoid any more: the reference for this body is a lit translucent
+        // sac, and a dark band down the middle read as a pill's shadow.
+        vec2 sp = bacteria_skin;
+        // The veins fan out from the centre line: wider apart mid-rod, drawn
+        // together toward the caps, like grain in a leaf.
+        float fan = 1.0 + 0.9 * sp.x * sp.x;
+        float vein_y = sp.y * fan + 0.04 * sin(sp.x * 5.5 + 0.4);
+        float v1 = sin(vein_y * 44.0 + 1.3 * sin(sp.x * 9.0 + 1.3));
+        float v2 = sin(vein_y * 27.0 - 1.1 * sin(sp.x * 7.0 - 0.7) + 2.1);
+        float v3 = sin(vein_y * 61.0 + 0.9 * sin(sp.x * 12.0 + 2.6) + 0.8);
+        float streak = max(max(smoothstep(0.84, 0.98, v1) * 0.9,
+                               smoothstep(0.86, 0.99, v2)),
+                           smoothstep(0.90, 0.99, v3) * 0.55);
+        // Interior only, fading before the rim and just short of the caps.
+        float inner = smoothstep(0.0, 0.45, depth) *
+                      (1.0 - smoothstep(0.24, 0.36, abs(sp.x)));
+        rgb = mix(rgb, mix(v_tint.rgb, vec3(1.0), 0.6), streak * inner * 0.8);
     }
 
     if ((v_flags & FLAG_MARKED) != 0u) rgb = mix(rgb, vec3(1.0), 0.25);
-    if ((v_flags & FLAG_SLOWED) != 0u) rgb = mix(rgb, vec3(0.55, 0.75, 1.0), 0.35);
+    if ((v_flags & FLAG_SLOWED) != 0u) {
+        // A dark mucus-coated body reads at gameplay zoom; the cool edge keeps
+        // its silhouette distinct from the contact shadow beneath it.
+        rgb = mix(rgb, vec3(0.05, 0.19, 0.27), 0.78);
+        rgb = mix(rgb, vec3(0.48, 0.82, 0.88), rim * 0.32);
+    }
 
     // ---- Hit flash ---------------------------------------------------------
     // LAST, so it wins over both debuff tints above and over all of the

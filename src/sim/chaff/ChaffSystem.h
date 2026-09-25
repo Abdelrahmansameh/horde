@@ -8,7 +8,7 @@
 //     dir = flow.sample(p)                          // one bilinear field fetch
 //     if dir is (0,0): dir = sdf.gradient(p)         // recovery, see below
 //     v  += dir * speed
-//     v  += separation(p) * k                        // 3x3 spatial-hash cell scan
+//     v  += separation(p) * k                        // radius-sized spatial-hash scan
 //     v   = clamp_length(v, max_speed)
 //     p  += v * dt
 // No A*, no per-agent state machine, no virtual call. Everything else the horde
@@ -99,8 +99,8 @@ struct ChaffFamilyParams {
     // an extra spatial-hash pass.
 
     /// Radius over which velocities are averaged. Should be >= separation_radius
-    /// (a neighbour close enough to shove you is close enough to steer you) and
-    /// must stay within the 3x3 cell scan, i.e. <= spatial cell_size.
+    /// (a neighbour close enough to shove you is close enough to steer you).
+    /// The cell scan expands to cover the configured range.
     f32 alignment_radius = 2.4f;
     /// How hard an agent steers toward its neighbours' average heading. THIS is
     /// what makes a mass read as one moving body instead of independent dots:
@@ -309,9 +309,13 @@ public:
     /// default) produces ungrouped chaff that steers exactly as it did before
     /// the squad layer existed, which is what the gym and the headless CLI
     /// modes want unless they explicitly ask for a squad.
+    /// `pattern_offset` and `pattern_count` let a streamed wave fill stable
+    /// slots in one shared formation instead of stamping a fresh overlapping
+    /// mini-burst every tick. A negative `pattern_phase` draws one from `rng`.
     u32 spawn_burst(ChaffBuffers& buffers, PathogenFamily family, Vec2 spawn_pos,
                     f32 spawn_point_radius, u32 count, Rng& rng,
-                    u16 squad_id = kNoSquad) const;
+                    u16 squad_id = kNoSquad, u32 pattern_offset = 0,
+                    u32 pattern_count = 0, f32 pattern_phase = -1.0f) const;
 
     /// Despawn bounds. Agents leaving this rect are removed; the level loader
     /// sets it to the tissue bounds plus a margin.

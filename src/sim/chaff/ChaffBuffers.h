@@ -164,8 +164,18 @@ public:
 
     std::vector<f32> pos_x;
     std::vector<f32> pos_y;
+    /// Position at the beginning of the latest fixed simulation tick. The
+    /// renderer interpolates from this snapshot to pos_x/pos_y, so a 120 Hz
+    /// simulation remains visually continuous on displays that refresh at a
+    /// different rate. Purely visual: gameplay always reads pos_x/pos_y.
+    std::vector<f32> prev_pos_x;
+    std::vector<f32> prev_pos_y;
     std::vector<f32> vel_x;
     std::vector<f32> vel_y;
+    /// Low-pass-filtered per-agent wander. Keeping this state turns the old
+    /// independent impulse every tick into a slowly changing organic drift.
+    std::vector<f32> wander_x;
+    std::vector<f32> wander_y;
     std::vector<u8>  family;      ///< PathogenFamily as u8; the renderer batches on this.
     std::vector<f32> density;     ///< HP-as-density contribution (see ChaffSpawnParams).
     std::vector<u8>  flags;       ///< chaff_flags bitset.

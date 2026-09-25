@@ -140,14 +140,14 @@ Each branch's stat lines are drawn directly from what's already tunable per towe
 
 | Line | What it governs |
 |---|---|
-| Splash DPS | damage per second in the mucus splash |
+| Slow Strength | how sharply mucus reduces movement speed |
 | Splash Radius | the splash's size |
 | Droplet Count | droplets released per shot |
-| Mark Duration | how long a hit target stays marked |
+| Slow Duration | how long a soaked target stays slowed after leaving mucus |
 | Deploy Cadence | how often the tower fires |
 | Tower Health | the tower's own max HP |
 
-**Capstone — Anaphylactic Shock:** a marked target's death spreads the mark to nearby chaff — revives the original marking-combo fiction (`DESIGN.md` §5.5) as a spreading effect rather than a flat damage amplifier, so it reads distinctly from Interferon's capstone rather than duplicating it.
+**Capstone — Anaphylactic Shock:** a slowed target's death spreads the slow to nearby chaff, extending the Goblet Cell's lane-control role.
 
 ### 5.6 Fibroblast (Builder) — Antibody-gated unlock
 

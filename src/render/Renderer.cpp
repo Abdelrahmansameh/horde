@@ -73,8 +73,8 @@ struct FamilyTables {
 
         // silhouette = THREAT tier, tempo = SPEED tier, wobble = family
         // texture. Virus smaller and faster; bacteria bigger and slower.
-        visual[static_cast<u32>(PathogenFamily::Virus)]       = FamilyVisual{1.53f, 3.4f, 0.55f};
-        visual[static_cast<u32>(PathogenFamily::Bacteria)]    = FamilyVisual{2.25f, 1.5f, 0.30f};
+        visual[static_cast<u32>(PathogenFamily::Virus)]       = FamilyVisual{3.06f, 3.4f, 0.0f};
+        visual[static_cast<u32>(PathogenFamily::Bacteria)]    = FamilyVisual{4.50f, 1.5f, 0.0f};
     }
 };
 
@@ -200,7 +200,7 @@ constexpr f32 kRoundDrawScale = 0.75f;
 Vec4 swarmer_tint(TowerType source) {
     switch (source) {
     case TowerType::Neutrophil: return Vec4{1.00f, 0.96f, 0.68f, 1.0f};
-    case TowerType::Macrophage: return Vec4{0.98f, 0.42f, 0.58f, 1.0f};
+    case TowerType::Macrophage: return Vec4{1.00f, 0.56f, 0.14f, 1.0f};
     case TowerType::Interferon: return Vec4{0.52f, 0.84f, 1.00f, 1.0f};
     case TowerType::CytotoxicT: return Vec4{0.78f, 0.68f, 1.00f, 1.0f};
     case TowerType::GobletCell: return Vec4{0.55f, 0.98f, 0.74f, 1.0f};
@@ -1545,6 +1545,7 @@ void Renderer::submit_chaff(const sim::ChaffBuffers& chaff, const sim::SpatialHa
     params.lod_blob_full = desc_.lod_blob_full;
     params.per_family_capacity = per_family_cap;
     params.time = imp.time;
+    params.interpolation_alpha = imp.alpha;
     params.cull_enabled = false;
 
     imp.density_grid.set_extent(imp.visible_bounds);
@@ -1739,7 +1740,17 @@ void Renderer::submit_entities(const sim::EcsWorld& ecs) {
         inst.y = t.position.y;
         inst.scale = t.scale * sp.size;
         inst.rotation = t.rotation;
-        inst.tint_rgba8 = pack_rgba8(sp.tint);
+        Vec4 tint = sp.tint;
+        if (registry.all_of<sim::comp::NamedAgent, sim::comp::Slowed>(entity)) {
+            const auto& slow = registry.get<const sim::comp::Slowed>(entity);
+            if (slow.remaining > 0.0f) {
+                // Named enemies use the same dark, cool slow cue as chaff.
+                tint.r = tint.r * 0.22f + 0.05f * 0.78f;
+                tint.g = tint.g * 0.22f + 0.19f * 0.78f;
+                tint.b = tint.b * 0.22f + 0.27f * 0.78f;
+            }
+        }
+        inst.tint_rgba8 = pack_rgba8(tint);
         inst.shape_id = sp.atlas_index;
         // Same "don't pulse in lockstep" trick as the chaff batcher, keyed off
         // the entity id since named agents have no generation counter exposed.

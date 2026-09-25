@@ -109,7 +109,7 @@ inline Vec4 mix4(const Vec4& a, const Vec4& b, f32 t) { return a + (b - a) * t; 
 // what they leave behind are all one colour.
 //
 //   Neutrophil SHOOTER       warm white-yellow
-//   Macrophage ARBOR GRABBER rose / magenta (digestive, not fire — no reds)
+//   Macrophage ARBOR GRABBER orange (digestive, not fire — no reds)
 //   Interferon SLOW BOMBER   blue-white / cyan
 //   CytotoxicT LATCH         violet-white
 //   GobletCell MUCUS BOMBER  jade green (mucin)
@@ -123,7 +123,7 @@ struct TowerPalette {
 TowerPalette palette_for(TowerType t) {
     switch (t) {
     case TowerType::Neutrophil: return {Vec4{1.00f, 0.96f, 0.68f, 1.0f}, Vec4{1.00f, 1.00f, 0.94f, 1.0f}};
-    case TowerType::Macrophage: return {Vec4{0.98f, 0.42f, 0.58f, 1.0f}, Vec4{1.00f, 0.91f, 0.95f, 1.0f}};
+    case TowerType::Macrophage: return {Vec4{1.00f, 0.56f, 0.14f, 1.0f}, Vec4{1.00f, 0.95f, 0.88f, 1.0f}};
     case TowerType::Interferon: return {Vec4{0.52f, 0.84f, 1.00f, 1.0f}, Vec4{0.88f, 0.98f, 1.00f, 1.0f}};
     case TowerType::CytotoxicT: return {Vec4{0.76f, 0.66f, 1.00f, 1.0f}, Vec4{1.00f, 1.00f, 1.00f, 1.0f}};
     case TowerType::GobletCell: return {Vec4{0.55f, 0.98f, 0.74f, 1.0f}, Vec4{0.90f, 1.00f, 0.92f, 1.0f}};

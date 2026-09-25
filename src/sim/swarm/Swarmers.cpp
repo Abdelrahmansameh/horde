@@ -544,8 +544,8 @@ SwarmerStats SwarmerSystem::update(SwarmerBuffers& sw,
             s.radius = pr.splash_radius;
             s.speed = pr.splash_speed;
             s.lifetime = pr.splash_lifetime;
-            s.dps = pr.splash_dps;
-            s.mark_seconds = pr.mark_seconds;
+            s.slow_duration = pr.mucus_slow_duration;
+            s.slow_factor = pr.mucus_slow_factor;
             s.family_mask = sw.family_mask[i];
             s.owner = sw.owner[i];
             s.source = pr.source;
@@ -650,14 +650,17 @@ SwarmerStats SwarmerSystem::update(SwarmerBuffers& sw,
         h = next;
     };
 
-    // A macrophage owns one captive per independent branch. Releasing the
-    // unit (death, expiry, or leaving the arena) must make every live captive
-    // ordinary chaff again before the fixed arm state is cleared.
+    // A macrophage owns a small fixed cluster per independent branch.
+    // Releasing the unit (death, expiry, or leaving the arena) must make
+    // every live captive ordinary chaff again before the fixed arm state is
+    // cleared.
     const auto release_arbor_captives = [&](ArborGrabberState& arbor) {
         for (ArborArmState& arm : arbor.arms) {
-            const usize host = chaff.resolve(arm.captive.chaff);
-            if (host != ChaffBuffers::npos) {
-                chaff.flags[host] &= static_cast<u8>(~chaff_flags::kHidden);
+            for (u32 c = 0; c < arm.captive.chaff_count && c < kArborMaxCaptives; ++c) {
+                const usize host = chaff.resolve(arm.captive.chaff[c].handle);
+                if (host != ChaffBuffers::npos) {
+                    chaff.flags[host] &= static_cast<u8>(~chaff_flags::kHidden);
+                }
             }
         }
         const Vec2 heading = arbor.heading;
@@ -783,16 +786,22 @@ SwarmerStats SwarmerSystem::update(SwarmerBuffers& sw,
                     if (other.phase == ArborArmPhase::Idle ||
                         other.phase == ArborArmPhase::Recovering) continue;
                     if (named_id.valid() && other.captive.named == named_id) return true;
-                    if (!named_id.valid() && other.captive.chaff.valid() &&
-                        other.captive.chaff.index == chaff_index) return true;
+                    if (!named_id.valid()) {
+                        for (u32 c = 0; c < other.captive.chaff_count && c < kArborMaxCaptives; ++c) {
+                            if (other.captive.chaff[c].handle.valid() &&
+                                other.captive.chaff[c].handle.index == chaff_index) return true;
+                        }
+                    }
                 }
                 return false;
             };
 
             const auto begin_recovery = [&](ArborArmState& arm) {
-                const usize host = chaff.resolve(arm.captive.chaff);
-                if (host != ChaffBuffers::npos) {
-                    chaff.flags[host] &= static_cast<u8>(~chaff_flags::kHidden);
+                for (u32 c = 0; c < arm.captive.chaff_count && c < kArborMaxCaptives; ++c) {
+                    const usize host = chaff.resolve(arm.captive.chaff[c].handle);
+                    if (host != ChaffBuffers::npos) {
+                        chaff.flags[host] &= static_cast<u8>(~chaff_flags::kHidden);
+                    }
                 }
                 arm.captive = GrabberCaptive{};
                 arm.phase = ArborArmPhase::Recovering;
@@ -831,7 +840,11 @@ SwarmerStats SwarmerSystem::update(SwarmerBuffers& sw,
                         valid = true;
                     }
                 } else {
-                    host = chaff.resolve(arm.captive.chaff);
+                    if (arm.captive.chaff_count == 0) {
+                        begin_recovery(arm);
+                        continue;
+                    }
+                    host = chaff.resolve(arm.captive.chaff[0].handle);
                     if (host != ChaffBuffers::npos) {
                         const bool pulling = arm.phase == ArborArmPhase::Pulling;
                         valid = pulling || targetable(chaff, static_cast<u32>(host), mask);
@@ -875,11 +888,49 @@ SwarmerStats SwarmerSystem::update(SwarmerBuffers& sw,
                                             body_rim, max_reach);
                     arm.grip = math::smoothstep01(t);
                     if (t >= 1.0f) {
-                        arm.captive.offset = target - p;
                         if (host != ChaffBuffers::npos) {
-                            chaff.flags[host] |= chaff_flags::kHidden;
-                            chaff.vel_x[host] = 0.0f;
-                            chaff.vel_y[host] = 0.0f;
+                            // Claim the lead target first, then deterministically
+                            // gather the nearest still-free neighbours around it.
+                            // The followers keep their relative offsets during the
+                            // pull, so this reads as one captured clump rather than
+                            // several unrelated enemies converging on the cell.
+                            arm.captive.chaff[0].offset = target - p;
+                            const u32 cap = math::min<u32>(pr.arbor_max_captives,
+                                                           kArborMaxCaptives);
+                            if (cap > 1u && pr.arbor_cluster_radius > 0.0f) {
+                                scratch_.clear();
+                                hash.query_circle(target, pr.arbor_cluster_radius, scratch_);
+                                std::sort(scratch_.begin(), scratch_.end(), [&](u32 lhs, u32 rhs) {
+                                    const f32 ldx = chaff.pos_x[lhs] - target.x;
+                                    const f32 ldy = chaff.pos_y[lhs] - target.y;
+                                    const f32 rdx = chaff.pos_x[rhs] - target.x;
+                                    const f32 rdy = chaff.pos_y[rhs] - target.y;
+                                    const f32 ld2 = ldx * ldx + ldy * ldy;
+                                    const f32 rd2 = rdx * rdx + rdy * rdy;
+                                    return ld2 != rd2 ? ld2 < rd2 : lhs < rhs;
+                                });
+                                const f32 cluster_r2 = pr.arbor_cluster_radius * pr.arbor_cluster_radius;
+                                for (const u32 idx : scratch_) {
+                                    if (arm.captive.chaff_count >= cap) break;
+                                    if (idx == static_cast<u32>(host) ||
+                                        !targetable(chaff, idx, mask) ||
+                                        target_is_held(idx, EntityId{})) continue;
+                                    const f32 dx = chaff.pos_x[idx] - target.x;
+                                    const f32 dy = chaff.pos_y[idx] - target.y;
+                                    if (dx * dx + dy * dy > cluster_r2) continue;
+                                    GrabberChaffCaptive& follower =
+                                        arm.captive.chaff[arm.captive.chaff_count++];
+                                    follower.handle = ChaffHandle{idx, chaff.generation[idx]};
+                                    follower.offset = Vec2{chaff.pos_x[idx], chaff.pos_y[idx]} - p;
+                                }
+                            }
+                            for (u32 c = 0; c < arm.captive.chaff_count; ++c) {
+                                const usize captive = chaff.resolve(arm.captive.chaff[c].handle);
+                                if (captive == ChaffBuffers::npos) continue;
+                                chaff.flags[captive] |= chaff_flags::kHidden;
+                                chaff.vel_x[captive] = 0.0f;
+                                chaff.vel_y[captive] = 0.0f;
+                            }
                         }
                         arm.phase = ArborArmPhase::Pulling;
                         arm.time = 0.0f;
@@ -890,15 +941,23 @@ SwarmerStats SwarmerSystem::update(SwarmerBuffers& sw,
                         arm.time / math::max(pr.arbor_pull_seconds, 0.001f));
                     const f32 eased = math::smoothstep01(t);
                     arm.reach = math::max(body_rim * 0.25f,
-                                          math::length(arm.captive.offset) * (1.0f - eased));
+                                          math::length(arm.captive.chaff_count > 0
+                                                           ? arm.captive.chaff[0].offset
+                                                           : Vec2{}) * (1.0f - eased));
                     arm.grip = 1.0f;
-                    if (host != ChaffBuffers::npos) {
+                    if (host != ChaffBuffers::npos && arm.captive.chaff_count > 0) {
                         const Vec2 swallowed = arm.heading * (body_rim * 0.08f);
-                        const Vec2 q = p + arm.captive.offset * (1.0f - eased) + swallowed * eased;
-                        chaff.pos_x[host] = q.x;
-                        chaff.pos_y[host] = q.y;
-                        chaff.vel_x[host] = 0.0f;
-                        chaff.vel_y[host] = 0.0f;
+                        const Vec2 lead_offset = arm.captive.chaff[0].offset;
+                        for (u32 c = 0; c < arm.captive.chaff_count; ++c) {
+                            const usize captive = chaff.resolve(arm.captive.chaff[c].handle);
+                            if (captive == ChaffBuffers::npos) continue;
+                            const Vec2 q = p + lead_offset * (1.0f - eased) +
+                                           (arm.captive.chaff[c].offset - lead_offset) + swallowed * eased;
+                            chaff.pos_x[captive] = q.x;
+                            chaff.pos_y[captive] = q.y;
+                            chaff.vel_x[captive] = 0.0f;
+                            chaff.vel_y[captive] = 0.0f;
+                        }
                     }
                     if (t >= 1.0f) {
                         PathogenFamily family = PathogenFamily::Count;
@@ -909,18 +968,33 @@ SwarmerStats SwarmerSystem::update(SwarmerBuffers& sw,
                             hit_named(i, named_idx, named.health_left[named_idx]);
                             killed = true;
                         } else if (host != ChaffBuffers::npos) {
-                            family = static_cast<PathogenFamily>(chaff.family[host]);
-                            chaff.flags[host] &= static_cast<u8>(~chaff_flags::kHidden);
-                            const f32 before = chaff.density[host];
-                            chaff.apply_density_loss(host, before);
-                            stats.density_removed += before;
-                            killed = true;
-                            if (attribution_ != nullptr && sw.owner[i].valid()) {
-                                attribution_->record_chaff(sw.owner[i], chaff.family[host], before, true);
+                            // Every member of a captured chunk completes on
+                            // the same tick. The leading family's radius is
+                            // retained for the single swallow event below.
+                            for (u32 c = 0; c < arm.captive.chaff_count; ++c) {
+                                const usize captive = chaff.resolve(arm.captive.chaff[c].handle);
+                                if (captive == ChaffBuffers::npos) continue;
+                                if (!killed) {
+                                    family = static_cast<PathogenFamily>(chaff.family[captive]);
+                                    radius = math::max(radius, chaff_radius_[chaff.family[captive] <
+                                                                          kFamilyCount
+                                                                      ? chaff.family[captive]
+                                                                      : 0u]);
+                                }
+                                chaff.flags[captive] &= static_cast<u8>(~chaff_flags::kHidden);
+                                const f32 before = chaff.density[captive];
+                                chaff.apply_density_loss(captive, before);
+                                stats.density_removed += before;
+                                ++stats.hosts_finished;
+                                killed = true;
+                                if (attribution_ != nullptr && sw.owner[i].valid()) {
+                                    attribution_->record_chaff(sw.owner[i], chaff.family[captive], before,
+                                                               true);
+                                }
                             }
                         }
                         if (killed) {
-                            ++stats.hosts_finished;
+                            if (named_idx != NamedTargetList::npos) ++stats.hosts_finished;
                             if (events) {
                                 CombatEvent e = make_event(CombatEventType::ProjectileImpact,
                                                            pr.source, p, arm.heading,
@@ -991,8 +1065,9 @@ SwarmerStats SwarmerSystem::update(SwarmerBuffers& sw,
                 if (best.named_index != NamedTargetList::npos) {
                     arm.captive.named = named.items[best.named_index].id;
                 } else {
-                    arm.captive.chaff = ChaffHandle{best.chaff_index,
-                                                    chaff.generation[best.chaff_index]};
+                    arm.captive.chaff[0].handle = ChaffHandle{best.chaff_index,
+                                                              chaff.generation[best.chaff_index]};
+                    arm.captive.chaff_count = 1;
                 }
                 ++stats.arms_launched;
             }

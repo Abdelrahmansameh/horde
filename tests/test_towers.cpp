@@ -251,6 +251,9 @@ TEST_CASE("default stats table covers every type/tier with real, distinguishing 
             if (type == TowerType::Macrophage) {
                 REQUIRE(m.arbor_grabber.arm_count > 0u);
                 REQUIRE(m.arbor_grabber.arm_count <= kArborMaxArms);
+                REQUIRE(m.arbor_grabber.max_captives > 0u);
+                REQUIRE(m.arbor_grabber.max_captives <= kArborMaxCaptives);
+                REQUIRE(m.arbor_grabber.cluster_radius > 0.0f);
                 REQUIRE(m.arbor_grabber.extend_seconds > 0.0f);
                 REQUIRE(m.arbor_grabber.latch_seconds > 0.0f);
                 REQUIRE(m.arbor_grabber.pull_seconds > 0.0f);
@@ -336,6 +339,8 @@ TEST_CASE("the five towers occupy genuinely different niches in the table", "[to
     REQUIRE(grabber.fire_interval > latch.fire_interval);
     const SwarmParams& grab_sw = tower_mechanics(TowerType::Macrophage, 1).swarm;
     REQUIRE(grab.arm_count >= 2u);
+    REQUIRE(grab.max_captives >= 2u);
+    REQUIRE(grab.cluster_radius > 0.0f);
     REQUIRE(grab_sw.attach_radius > 2.0f * grab_sw.size);
     REQUIRE(grab_sw.size > shooter_sw.size);
     REQUIRE(swarmer_profile(TowerType::Macrophage, 1).max_health >
@@ -378,7 +383,7 @@ TEST_CASE("tower_type_name/parse_tower_type round-trip for every roster type", "
 //   BOMBER        bursts per second x damage     release/interval x burst_damage
 //   ARBOR GRABBER arm count x catch area          arms x r^2 / cycle
 //   SLOW BOMBER   circle-area-seconds of slow    release/interval x r^2 x dur x (1-factor)
-//   MUCUS BOMBER  droplet-seconds x dps          release/interval x droplets x life x dps
+//   MUCUS BOMBER  slow coverage                   release/interval x droplets x life x slow strength
 //   BUILDER       wall laid per second           release/interval x scar_health x length
 // ---------------------------------------------------------------------------
 
@@ -406,7 +411,7 @@ f32 tower_output(TowerType type, u8 tier, const TowerStats& s) {
                m.slow_bomber.zone_duration * (1.0f - m.slow_bomber.slow_factor);
     case SwarmerKind::MucusBomber:
         return per_sec * static_cast<f32>(m.mucus_bomber.droplets) *
-               m.mucus_bomber.droplet_lifetime * m.mucus_bomber.splash_dps;
+               m.mucus_bomber.droplet_lifetime * (1.0f - m.mucus_bomber.slow_factor);
     case SwarmerKind::Builder:
         // Integrity of wall laid per second: hit points the horde has to chew
         // through, times how much lane each wall closes.
@@ -1168,7 +1173,7 @@ TEST_CASE("a slowed chaff agent actually moves slower, by its own factor", "[tow
 // MUCUS BOMBER -- Goblet Cell.
 // ---------------------------------------------------------------------------
 
-TEST_CASE("MUCUS BOMBER swarmers splash into real fluid that weakens what it soaks",
+TEST_CASE("MUCUS BOMBER swarmers splash into real fluid that strongly slows without damage",
           "[towers][combat][mucus]") {
     SimWorld world = make_world();
     TowerSystem ts;
@@ -1180,7 +1185,7 @@ TEST_CASE("MUCUS BOMBER swarmers splash into real fluid that weakens what it soa
     const Vec2 at = kRoomCenterLeft + Vec2{7.0f, 0.0f};
     spawn_chaff_cluster(world, at, 40, 30.0f, 0.5f);
     REQUIRE(world.fluid().count() == 0);
-    REQUIRE(marked_count(world) == 0);
+    const f32 original_density = world.chaff().density[0];
 
     for (int i = 0; i < 240 && world.fluid().count() == 0; ++i) step_combat(world);
     REQUIRE(world.fluid().count() > 0);
@@ -1188,9 +1193,17 @@ TEST_CASE("MUCUS BOMBER swarmers splash into real fluid that weakens what it soa
     REQUIRE(pop != nullptr);
     REQUIRE((pop->visual_id & kSwarmerEventBit) != 0);
 
-    // The fluid is the attack: coverage weakens (kMarked) what it lands on.
+    // Mucus is crowd control: covered enemies retain density and take a timed slow.
     for (int i = 0; i < 120; ++i) step_combat(world);
-    REQUIRE(marked_count(world) > 0);
+    REQUIRE(slowed_count(world) > 0);
+    REQUIRE(marked_count(world) == 0);
+    REQUIRE(world.chaff().density[0] == original_density);
+    const auto& mucus = tower_mechanics(TowerType::GobletCell, 1).mucus_bomber;
+    for (usize i = 0; i < world.chaff().count(); ++i) {
+        if ((world.chaff().flags[i] & chaff_flags::kSlowed) == 0) continue;
+        REQUIRE(world.chaff().slow_factor[i] == Catch::Approx(mucus.slow_factor));
+        REQUIRE(world.chaff().slow_remaining[i] > 0.0f);
+    }
 
     // And it is a moment, not terrain: with the supply cut it evaporates.
     ts.sell(world, tower);
@@ -1198,6 +1211,35 @@ TEST_CASE("MUCUS BOMBER swarmers splash into real fluid that weakens what it soa
     const f32 life = tower_mechanics(TowerType::GobletCell, 1).mucus_bomber.droplet_lifetime;
     for (int i = 0; i < static_cast<int>(life / kFixedDt) + 30; ++i) step_combat(world);
     REQUIRE(world.fluid().count() == 0);
+    for (int i = 0; i < static_cast<int>(mucus.slow_duration / kFixedDt) + 30; ++i) step_combat(world);
+    REQUIRE(slowed_count(world) == 0);
+}
+
+TEST_CASE("mucus coverage slows named enemies without reducing health",
+          "[towers][combat][mucus][named]") {
+    SimWorld world = make_world();
+    TowerSystem ts;
+    ts.register_systems(world);
+    const Vec2 at{18.0f, 10.0f};
+    const EntityId target = spawn_named(world, at);
+    REQUIRE(target.valid());
+    const f32 before = named_health(world, target);
+
+    FluidJetParams jet;
+    jet.lifetime = 2.0f;
+    jet.damage_per_second = 0.0f;
+    jet.slow_duration = 3.0f;
+    jet.slow_factor = 0.08f;
+    REQUIRE(world.fluid_system().splash(world.fluid(), jet, at, 0.5f, 0.0f, 100) > 0);
+    world.tick();
+
+    const entt::entity entity = world.ecs().from_id(target);
+    REQUIRE(named_health(world, target) == before);
+    REQUIRE(world.ecs().registry().all_of<comp::Slowed>(entity));
+    const comp::Slowed& slow = world.ecs().registry().get<comp::Slowed>(entity);
+    REQUIRE(slow.remaining > 0.0f);
+    REQUIRE(slow.factor == Catch::Approx(0.08f));
+    REQUIRE_FALSE(world.ecs().registry().all_of<comp::Marked>(entity));
 }
 
 // ---------------------------------------------------------------------------

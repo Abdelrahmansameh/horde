@@ -112,7 +112,7 @@ void EnemyRoster::load_defaults() {
     // DESIGN.md §6 table. Names mirror the sim-test schema's family strings
     // (docs/AGENT_BRIEF.md): "virus" "bacteria".
     set(PathogenFamily::Virus, "virus", SpeedTier::Fast, 0.6f);
-    set(PathogenFamily::Bacteria, "bacteria", SpeedTier::Normal, 1.8f);
+    set(PathogenFamily::Bacteria, "bacteria", SpeedTier::Fast, 0.9f);
 
     // Behaviour switches, straight off the frozen header's table: Virus
     // replicates. Bacteria is a plain chaff family with no behaviour of its
@@ -159,15 +159,7 @@ void EnemyRoster::apply_to_tuning(sim::ChaffTuning& tuning) const {
         const f32 silhouette = render::family_visual(d.family).silhouette;
         p.radius = silhouette * fc.radius_from_silhouette;
         p.separation_radius = p.radius * fc.separation_radius_mul;
-        // Until a config is applied, the three values enemies.json now owns are
-        // still DERIVED here, exactly as they always were. Without this a bare
-        // EnemyRoster -- a unit test, and more importantly default_game_config()
-        // generating the shipped files -- would read the empty seed and produce
-        // a virus that does not replicate.
-        const bool from_config = enemy_config_applied();
-        p.separation_strength = from_config
-                                    ? fc.separation_strength
-                                    : math::min(6.0f + d.base_density * 1.5f, 12.0f);
+        p.separation_strength = fc.separation_strength;
 
         // The fluid-feel block. Every one of these was unreachable from any
         // data path before the config existed: struct defaults nothing wrote.
@@ -182,8 +174,8 @@ void EnemyRoster::apply_to_tuning(sim::ChaffTuning& tuning) const {
         p.contact_stiffness = fc.contact_stiffness;
         p.crowd_relief = fc.crowd_relief;
 
-        p.drift_bias = from_config ? fc.drift_bias : 0.0f;
-        p.replication_rate = from_config ? fc.replication_rate : (d.replicates ? 0.2f : 0.0f);
+        p.drift_bias = fc.drift_bias;
+        p.replication_rate = fc.replication_rate;
     }
 
     // NOTE: ambient_drift is deliberately NOT set here any more. This function
@@ -238,6 +230,29 @@ EnemyConfig& mutable_enemy_config() {
         seed.speed_tiers[static_cast<u32>(SpeedTier::Erratic)] =
             SpeedProfileParams{12.375f, 45.0f, 1.00f};
 
+        // The bootstrap values are the shipped enemies.json values. Keeping
+        // the no-file path identical matters for tests, tools, and recovery
+        // from a missing config -- movement must not silently switch physics.
+        {
+            FamilyChaffParams& virus =
+                seed.families[static_cast<u32>(PathogenFamily::Virus)].chaff;
+            virus = FamilyChaffParams{};
+            virus.separation_strength = 6.9f;
+            virus.alignment_radius = 5.0f;
+            virus.alignment_strength = 5.0f;
+            virus.pressure_threshold = 6.0f;
+            virus.replication_rate = 0.05f;
+
+            FamilyChaffParams& bacteria =
+                seed.families[static_cast<u32>(PathogenFamily::Bacteria)].chaff;
+            bacteria = FamilyChaffParams{};
+            bacteria.separation_strength = 7.5f;
+            bacteria.alignment_radius = 7.0f;
+            bacteria.alignment_strength = 6.0f;
+            bacteria.pressure_threshold = 4.0f;
+            bacteria.replication_rate = 0.0f;
+        }
+
         // How each family fights back (sim/hostile). The virus is the
         // grappler: cheap, replicating, and every one that touches a cell
         // hangs on and feeds -- weak alone, lethal by the dozen, which is what
@@ -253,7 +268,7 @@ EnemyConfig& mutable_enemy_config() {
             virus.latch_cap_swarmer = 3u;
             virus.latch_cap_tower = 16u;
             virus.latch_cap_scar = 40u;
-            virus.latch_speed = 30.0f;
+            virus.latch_speed = 20.0f;
             virus.latch_ease_distance = 1.2f;
             virus.latch_ease_power = 3.0f;
             virus.aura_dps = 0.0f;

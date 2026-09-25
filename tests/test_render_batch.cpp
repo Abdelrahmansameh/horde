@@ -76,6 +76,30 @@ TEST_CASE("build_chaff_batches issues one contiguous range per family", "[render
     }
 }
 
+TEST_CASE("chaff rendering interpolates between fixed simulation ticks",
+          "[render][batch][movement]") {
+    ChaffBuffers chaff = make_chaff(4);
+    ChaffSpawnParams spawn;
+    spawn.family = PathogenFamily::Virus;
+    spawn.position = Vec2{10.0f, 20.0f};
+    chaff.spawn(spawn);
+    chaff.pos_x[0] = 30.0f;
+    chaff.pos_y[0] = 40.0f;
+
+    OccupancyGrid occ = flat_grid(Rect{Vec2{0.0f, 0.0f}, Vec2{100.0f, 100.0f}});
+    ChaffBatchParams params;
+    params.lod_blob_enabled = false;
+    params.per_family_capacity = 4;
+    params.interpolation_alpha = 0.25f;
+    std::vector<ChaffInstance> dest(kFamilyCount * params.per_family_capacity);
+
+    const ChaffBatchResult result =
+        build_chaff_batches(chaff, occ, params, dest.data(), nullptr);
+    REQUIRE(result.instances_total == 1u);
+    REQUIRE(dest[0].x == Approx(15.0f));
+    REQUIRE(dest[0].y == Approx(25.0f));
+}
+
 TEST_CASE("build_chaff_batches never writes past per_family_capacity", "[render][batch]") {
     ChaffBuffers chaff = make_chaff(32);
     const Rect bounds{Vec2{0.0f, 0.0f}, Vec2{100.0f, 100.0f}};

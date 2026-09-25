@@ -129,6 +129,13 @@ struct BomberParams {
 /// opposite directions; ship kite_fraction 0 with a body_block above 0.
 struct ArborGrabberParams {
     u32 arm_count = 3;
+    /// Total ordinary enemies one pseudopod can swallow in one pull. The
+    /// initial target counts toward the limit; named agents remain single
+    /// targets because their movement lives outside the chaff simulation.
+    u32 max_captives = 1;
+    /// Enemies within this distance of the initial target join its pull.
+    /// 0 keeps the original single-target behavior.
+    f32 cluster_radius = 0.0f;
     f32 extend_seconds = 0.12f;
     f32 latch_seconds = 0.05f;
     f32 pull_seconds = 0.22f;
@@ -163,10 +170,10 @@ struct MucusBomberParams {
     f32 splash_speed = 6.0f;
     /// Seconds each droplet survives.
     f32 droplet_lifetime = 2.0f;
-    /// Density removed per second from a FULLY soaked coverage cell.
-    f32 splash_dps = 10.0f;
-    /// Seconds a named agent inside the splash stays weakened (comp::Marked).
-    f32 mark_seconds = 2.5f;
+    /// Seconds an enemy stays slowed after leaving the mucus.
+    f32 slow_duration = 3.0f;
+    /// Max-speed multiplier while slowed; 0.1 means 10% speed.
+    f32 slow_factor = 0.1f;
 };
 
 /// The Fibroblast's builders and the collagen scars they lay

@@ -942,16 +942,16 @@ void main() {
         if (a <= 0.0 && sh <= 0.0) discard;
 
         float depth = clamp(-body_d * 4.7, 0.0, 1.0);
-        const vec3 kMacroHue = vec3(0.98, 0.42, 0.58);
-        vec3 cytoplasm = mix(vec3(1.00, 0.91, 0.92), vec3(0.64, 0.12, 0.27), depth);
+        const vec3 kMacroHue = vec3(1.00, 0.56, 0.14);
+        vec3 cytoplasm = mix(vec3(1.00, 0.93, 0.82), vec3(0.78, 0.32, 0.06), depth);
         cytoplasm = mix(cytoplasm, kMacroHue, 0.46);
         float in_cyto = smoothstep(0.0, 0.05, nucleus_d);
-        vec3 rgb = mix(cytoplasm, vec3(1.00, 0.72, 0.78), granule * in_cyto * 0.35);
+        vec3 rgb = mix(cytoplasm, vec3(1.00, 0.80, 0.55), granule * in_cyto * 0.35);
 
         float nuc = 1.0 - smoothstep(-0.012, 0.012, nucleus_d);
-        rgb = mix(rgb, vec3(0.31, 0.09, 0.20), nuc * 0.86);
+        rgb = mix(rgb, vec3(0.36, 0.16, 0.06), nuc * 0.86);
         float rim = 1.0 - smoothstep(0.0, 0.042, abs(body_d));
-        rgb = mix(rgb, vec3(1.00, 0.91, 0.94), rim * 0.68);
+        rgb = mix(rgb, vec3(1.00, 0.94, 0.84), rim * 0.68);
 
         o_color = over_shadow(wounded(rgb, body_d, v_tint.a), a, sh);
         if (o_color.a <= 0.001) discard;

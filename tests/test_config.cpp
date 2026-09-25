@@ -453,9 +453,14 @@ TEST_CASE("every config field is addressable from the registry", "[config][game]
     REQUIRE(value == "3");
     REQUIRE(registry.set("towers.cytotoxic_t.1.swarm.release_per_shot", "12", err));
     REQUIRE(cfg.towers.mechanics[static_cast<u32>(TowerType::CytotoxicT)][0].swarm.release_per_shot == 12u);
+    REQUIRE(registry.set("towers.goblet_cell.1.payload.slow_duration", "6", err));
+    REQUIRE(registry.set("towers.goblet_cell.1.payload.slow_factor", "0.05", err));
+    const auto& mucus = cfg.towers.mechanics[static_cast<u32>(TowerType::GobletCell)][0].mucus_bomber;
+    REQUIRE(mucus.slow_duration == 6.0f);
+    REQUIRE(mucus.slow_factor == 0.05f);
 
     REQUIRE(registry.get("enemies.families.virus.visual.silhouette", value, err));
-    REQUIRE(value == "1.53");
+    REQUIRE(value == "3.06");
     REQUIRE(registry.set("enemies.families.virus.chaff.max_speed", "1", err) == false);
 
     REQUIRE(registry.set("enemies.base_attack.damage", "12", err));
