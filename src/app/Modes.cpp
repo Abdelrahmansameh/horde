@@ -21,6 +21,7 @@
 #include "vfx/Particles.h"
 #include "app/UiBridge.h"
 #include "gui/core/Gui.h"
+#include "ui/front/FrontEnd.h"
 #include "ui/hud/HudScreen.h"
 #include "platform/FileIO.h"
 #include "platform/Window.h"
@@ -834,6 +835,17 @@ int run_screenshot(const Options& opt) {
     std::unique_ptr<ui::HudScreen> ui_hud;
     ui::HudModel ui_model;
     Vec2 ui_pointer{-100.0f, -100.0f};
+    // `ui screen <name>` shows a front-end screen (menu, level select, pause,
+    // results) over the level instead of the HUD.
+    std::unique_ptr<ui::FrontEnd> ui_front;
+    ui::FrontScreen ui_screen = ui::FrontScreen::None;
+    ui::FrontModel ui_front_model;
+    auto show_front = [&] {
+        // A lost run pays no Antibody.
+        ui::FrontModel m = ui_front_model;
+        if (ui_screen == ui::FrontScreen::Defeat) m.run.antibodies = 0;
+        ui_front->show(ui_screen, m);
+    };
     if (opt.ui) {
         if (!ui_gui.init(gui::Gui::Assets{platform::asset_path("fonts"), platform::asset_path("ui/icons"),
                                           platform::asset_path("config/ui_theme.json")})) {
@@ -842,6 +854,8 @@ int run_screenshot(const Options& opt) {
         }
         ui_gui.set_viewport(Vec2{static_cast<f32>(opt.width), static_cast<f32>(opt.height)});
         ui_hud = std::make_unique<ui::HudScreen>(ui_gui);
+        ui_front = std::make_unique<ui::FrontEnd>(ui_gui);
+        ui_front_model = make_screenshot_front_model(level_def, opt.level);
     }
 
     if (!opt.exec.empty()) {
@@ -862,12 +876,26 @@ int run_screenshot(const Options& opt) {
                 // The screen acts on what it last saw (an ability's readiness,
                 // a card's affordability), so it sees the world as it is now.
                 ui_hud->sync(ui_model, Vec2{0.0f, 0.0f});
+                ui_hud->set_visible(ui_screen == ui::FrontScreen::None);
+                show_front();
+                ui_front->finish_transitions();
+                // One layout pass, so a click lands on where things are.
+                gui::PointerInput p;
+                p.pos = ui_pointer;
+                ui_gui.frame(p, 0.0f);
                 UiDriver d;
                 d.gui = &ui_gui;
                 d.hud = ui_hud.get();
                 d.model = &ui_model;
                 d.pointer = &ui_pointer;
-                return run_ui_command(d, tokens);
+                d.front = ui_front.get();
+                d.screen = &ui_screen;
+                const game::GymResult r = run_ui_command(d, tokens);
+                const ui::MenuResult clicked = ui_front->take_result();
+                if (clicked.action != ui::MenuAction::None) {
+                    IMMUNE_LOG_INFO("--ui: the front end reported action %d", static_cast<int>(clicked.action));
+                }
+                return r;
             };
         }
         const game::GymResult r = game::gym_execute_script(gym, opt.exec);
@@ -1003,8 +1031,9 @@ int run_screenshot(const Options& opt) {
         HudSources src{&world, &exec_economy, &exec_waves, &towers, &exec_abilities, &level_def, 1.0f};
         for (int f = 0; f < 60; ++f) {
             ui_model = make_hud_model(src, *ui_hud, world_cursor);
-            ui_hud->set_visible(true);
+            ui_hud->set_visible(ui_screen == ui::FrontScreen::None);
             ui_hud->sync(ui_model, world_cursor);
+            show_front();
             gui::PointerInput p;
             p.pos = ui_pointer;
             ui_gui.frame(p, 1.0f / 60.0f);
@@ -1013,6 +1042,7 @@ int run_screenshot(const Options& opt) {
         IMMUNE_LOG_INFO("--ui: %u draw calls, %u shapes, %u vertices", ui_gui.render_stats().draw_calls,
                         ui_gui.render_stats().shapes, ui_gui.render_stats().vertices);
         // Declared before the window, so it would outlive the GL context.
+        ui_front.reset();
         ui_hud.reset();
         ui_gui.shutdown();
     }

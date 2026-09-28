@@ -108,7 +108,7 @@ bool Gui::is_hovered(const Widget* w) const {
 }
 
 Widget* Gui::pick(Widget& w, Vec2 p) {
-    if (!w.visible) return nullptr;
+    if (!w.visible || !w.accepts_pointer) return nullptr;
     if (w.clip_children && !w.rect().contains(p)) {
         return (w.interactive || w.blocks_pointer) && w.hit_test(p) ? &w : nullptr;
     }
@@ -259,9 +259,9 @@ void Gui::render(i32 framebuffer_width, i32 framebuffer_height) {
 
 bool Gui::click(std::string_view path) {
     Widget* w = find(path);
-    if (w == nullptr || !w->visible) return false;
+    if (w == nullptr || !w->visible || !w->accepts_pointer) return false;
     for (const Widget* p = w->parent(); p != nullptr; p = p->parent()) {
-        if (!p->visible) return false;
+        if (!p->visible || !p->accepts_pointer) return false;
     }
     Widget* prev_hover = hover_target_;
     hover_target_ = w;

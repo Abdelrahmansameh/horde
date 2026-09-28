@@ -75,6 +75,7 @@ bool App::init(const Options& options) {
     };
     hud_screen_ = std::make_unique<ui::HudScreen>(gui_);
     hud_screen_->set_visible(false);
+    front_ = std::make_unique<ui::FrontEnd>(gui_);
 
     // Tuning first: every system below is configured from it. A config that
     // will not load is fatal rather than papered over -- the files are
@@ -137,6 +138,7 @@ bool App::init(const Options& options) {
 
 void App::discover_levels() {
     levels_.clear();
+    std::vector<game::LevelDef> defs;
     const std::string dir = platform::asset_path("levels");
     for (const std::string& path : platform::list_files(dir, ".json")) {
         game::LevelLoader loader;
@@ -167,39 +169,59 @@ void App::discover_levels() {
         }
         e.lane_count = static_cast<u32>(seen.size());
         levels_.push_back(std::move(e));
+        defs.push_back(std::move(def));
     }
-    IMMUNE_LOG_INFO("discovered %zu level(s) in %s", levels_.size(), dir.c_str());
+    // The player's level list is the campaign, in order; the rest (tests,
+    // legacy, gym) stay reachable through the gym's `level` command and the
+    // editor.
+    campaign_ = make_campaign(levels_, defs);
+    IMMUNE_LOG_INFO("discovered %zu level(s) in %s, %zu in the campaign", levels_.size(), dir.c_str(),
+                    campaign_.size());
 }
 
-void App::build_menus() {
-    const i32 w = window_.width();
-    const i32 h = window_.height();
-    ui::MenuResult r;
-
+ui::FrontScreen App::front_screen() const {
     switch (state_.current()) {
-    case GameStateId::MainMenu:     r = menu_.build_main_menu(w, h); break;
-    case GameStateId::LevelSelect:
-        // Clears change under the list (a run just ended), so the flags are
-        // refreshed from the save rather than trusted from discovery.
-        for (ui::LevelEntry& e : levels_) e.cleared = meta_.level_cleared(e.level_id);
-        r = menu_.build_level_select(levels_, w, h);
-        break;
-    case GameStateId::StrengthenImmunity:
-        r = menu_.build_immunity_tree(meta_, config_.meta, w, h);
-        break;
-    case GameStateId::LevelFailed:
-        r = menu_.build_level_failed_screen(w, h, editor_playtest_, last_run_);
-        break;
-    case GameStateId::LevelComplete:
-        r = menu_.build_level_complete_screen(w, h, editor_playtest_, last_run_);
-        break;
-    case GameStateId::Paused:        r = menu_.build_pause_menu(w, h); break;
-    // The editor draws its own chrome (ui/editor/EditorPanels); a front-end
-    // screen on top of it would be a second, competing menu bar.
-    case GameStateId::Editor: return;
-    default: return;
+        case GameStateId::MainMenu: return ui::FrontScreen::MainMenu;
+        case GameStateId::LevelSelect: return ui::FrontScreen::LevelSelect;
+        case GameStateId::Paused: return ui::FrontScreen::Pause;
+        case GameStateId::LevelComplete: return ui::FrontScreen::Victory;
+        case GameStateId::LevelFailed: return ui::FrontScreen::Defeat;
+        default: return ui::FrontScreen::None;
     }
+}
 
+ui::FrontModel App::front_model() {
+    // Clears change under the map (a run just ended), so the flags are
+    // refreshed from the save rather than trusted from discovery.
+    for (ui::LevelEntry& e : levels_) e.cleared = meta_.level_cleared(e.level_id);
+    refresh_campaign(campaign_, levels_);
+    ui::FrontModel m;
+    m.campaign = campaign_;
+    m.run = last_run_;
+    m.playtest = editor_playtest_;
+    m.level_name = !current_level_def_.display_name.empty() ? current_level_def_.display_name
+                                                             : current_level_def_.name;
+    for (usize i = 0; i < campaign_.size(); ++i) {
+        if (levels_[campaign_[i].level_index].path == current_level_path_) m.campaign_slot = static_cast<i32>(i);
+    }
+    m.unlocked_next = last_run_.first_clear;
+    return m;
+}
+
+void App::sync_front() {
+    front_->show(front_screen(), front_model());
+}
+
+void App::finish_front() {
+    ui::MenuResult r = front_->take_result();
+    if (state_.current() == GameStateId::StrengthenImmunity) {
+        const ui::MenuResult tree = menu_.build_immunity_tree(meta_, config_.meta, window_.width(), window_.height());
+        if (r.action == ui::MenuAction::None) r = tree;
+    }
+    apply_menu_result(r);
+}
+
+void App::apply_menu_result(const ui::MenuResult& r) {
     switch (r.action) {
     case ui::MenuAction::OpenLevelSelect:
         state_.request(GameStateId::LevelSelect);
@@ -355,6 +377,7 @@ void App::poll_config_reload(f32 dt) {
         const bool was_visible = hud_screen_->visible();
         hud_screen_ = std::make_unique<ui::HudScreen>(gui_);
         hud_screen_->set_visible(was_visible);
+        front_ = std::make_unique<ui::FrontEnd>(gui_);
         IMMUNE_LOG_INFO("ui theme reloaded");
     } else if (!theme_err.empty()) {
         IMMUNE_LOG_WARN("ui theme reload failed, keeping the last good one: %s", theme_err.c_str());
@@ -735,6 +758,7 @@ void App::build_editor() {
 }
 
 void App::shutdown() {
+    front_.reset();
     hud_screen_.reset();
     gui_.shutdown();
     dev_ui_.shutdown();
@@ -770,6 +794,12 @@ void App::handle_input() {
     // the frame whose keystrokes are being classified here.
     if (input_.ui_capture_keyboard()) return;
 
+    // F4 on the title screen opens the editor on a blank level (the menu
+    // itself is the player's, and has no editor button).
+    if (state_.current() == GameStateId::MainMenu && input_.action_pressed(platform::Action::OpenEditor)) {
+        enter_editor({});
+        return;
+    }
     // F4 from a live level opens the editor on the level being played.
     // current_level_def_ is already kept alive for the balance bot, so this
     // costs a state request and nothing else.
@@ -795,7 +825,10 @@ void App::handle_input() {
     // pause menu itself offers resume/restart/main-menu.
     if (input_.action_pressed(platform::Action::CancelPlacement)) {
         switch (state_.current()) {
+        // The front end is a chain: menu -> Strengthen Immunity -> levels.
         case GameStateId::LevelSelect:
+            state_.request(GameStateId::StrengthenImmunity);
+            break;
         case GameStateId::StrengthenImmunity:
             state_.request(GameStateId::MainMenu);
             break;
@@ -1108,6 +1141,7 @@ game::GymContext App::make_gym_context() {
         d.gui = &gui_;
         d.hud = hud_screen_.get();
         d.model = &hud_model_;
+        d.front = front_.get();
         return run_ui_command(d, tokens);
     };
     ctx.set_overlay = [this](const std::string& name, bool on) {
@@ -1162,6 +1196,7 @@ void App::render_frame() {
 
         dev_ui_.begin_frame(input_);
         hud_screen_->set_visible(false);
+        front_->show(ui::FrontScreen::None, ui::FrontModel{});
         run_gui_frame();
         // Canvas first (it owns the camera and the background draw list), then
         // panels, so a click on a panel is already flagged in WantCaptureMouse
@@ -1181,8 +1216,9 @@ void App::render_frame() {
         renderer_.end_frame();
         dev_ui_.begin_frame(input_);
         hud_screen_->set_visible(false);
+        sync_front();
         run_gui_frame();
-        build_menus();
+        finish_front();
         // Available from the front end too: `level gym` is the fastest way in,
         // and a panel that vanished with the world would be useless exactly
         // when a level failed to load.
@@ -1267,15 +1303,13 @@ void App::render_frame() {
     dev_ui_.begin_frame(input_);
     intents_.clear();
 
-    // For LevelFailed, LevelComplete, and Paused, show a front-end screen
-    // instead of the interactive HUD over the (frozen, for Paused) game frame.
-    const bool hud_live = state_.current() != GameStateId::LevelFailed &&
-                          state_.current() != GameStateId::LevelComplete &&
-                          state_.current() != GameStateId::Paused;
+    // For LevelFailed, LevelComplete, and Paused, a front-end screen shows
+    // instead of the interactive HUD, over the (frozen, for Paused) game frame.
+    const bool hud_live = front_screen() == ui::FrontScreen::None;
     hud_screen_->set_visible(hud_live);
     const Vec2 world_cursor = camera_.screen_to_world(input_.mouse_pos());
     if (hud_live) sync_hud(world_cursor);
-    else build_menus();
+    sync_front();
 
     // After the model is in and before the world reads the pointer: the gui
     // decides whether this frame's click belongs to the HUD.
@@ -1285,6 +1319,7 @@ void App::render_frame() {
         hud_screen_->handle_input(input_, world_cursor, gui_.wants_pointer() || imgui_pointer, intents_);
         apply_intents(intents_);
     }
+    finish_front();
 
     // Drawn last so it sits above the HUD and the pause/results screens, and
     // outside the state switch above so it stays usable while paused.

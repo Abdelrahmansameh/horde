@@ -77,9 +77,16 @@ public:
     /// Blocks the pointer from the world without being interactive itself (a
     /// panel's background).
     bool blocks_pointer = false;
+    /// False: the pointer passes through this whole subtree (a screen that is
+    /// fading out still draws but takes no clicks).
+    bool accepts_pointer = true;
     /// Children are clipped to this widget's rect.
     bool clip_children = false;
     f32 opacity = 1.0f;
+    /// Fade this subtree as one picture: while `opacity` < 1 it is drawn into
+    /// an offscreen layer and composited once, so overlapping parts (a button
+    /// on its panel) do not show through each other. Screen transitions.
+    bool group_opacity = false;
     /// Extra transform about the widget's centre: animations (beat, wobble,
     /// press squash) that must not disturb layout.
     Affine2 anim_transform{};

@@ -7,6 +7,7 @@
 
 #include "core/Types.h"
 #include "game/gym/GymCommands.h"
+#include "ui/front/FrontModel.h"
 #include "ui/hud/HudModel.h"
 
 #include <string>
@@ -21,7 +22,7 @@ class ActiveAbilitySystem;
 struct LevelDef;
 }
 
-namespace immune::ui { class HudScreen; }
+namespace immune::ui { class HudScreen; class FrontEnd; enum class FrontScreen : u8; }
 namespace immune::gui { class Gui; }
 
 namespace immune::app {
@@ -40,6 +41,23 @@ struct HudSources {
 /// preview can be validated at `world_cursor`.
 ui::HudModel make_hud_model(const HudSources& src, const ui::HudScreen& screen, Vec2 world_cursor);
 
+/// A level's lanes, obstacles and spawns normalized into a level-select
+/// thumbnail (y flipped: the world is y-up, the thumbnail y-down).
+ui::LevelThumb make_level_thumb(const game::LevelDef& def);
+
+/// True for the player's campaign files: campaign_NN_*.json.
+bool is_campaign_level(const std::string& path);
+
+/// The campaign, in file-name order, from the discovered level list and the
+/// matching LevelDefs (`defs[i]` for `levels[i]`). Cleared/locked flags are
+/// filled by refresh_campaign.
+std::vector<ui::CampaignLevel> make_campaign(const std::vector<ui::LevelEntry>& levels,
+                                             const std::vector<game::LevelDef>& defs);
+
+/// Re-reads each level's cleared flag from `levels` (kept current from the
+/// save) and applies the unlock rule (ui::campaign_unlocked).
+void refresh_campaign(std::vector<ui::CampaignLevel>& campaign, const std::vector<ui::LevelEntry>& levels);
+
 /// What the gym's `ui` command drives.
 struct UiDriver {
     gui::Gui* gui = nullptr;
@@ -48,10 +66,20 @@ struct UiDriver {
     /// Screenshot mode: the pointer the UI frames use, logical px. Null in
     /// interactive play, where the real mouse is the pointer.
     Vec2* pointer = nullptr;
+    /// The out-of-match screens (level select's `ui level <n>`). May be null.
+    ui::FrontEnd* front = nullptr;
+    /// Screenshot mode: which front-end screen to show (`ui screen <name>`).
+    /// Null in interactive play, where the state machine decides.
+    ui::FrontScreen* screen = nullptr;
 };
 
+/// Screenshot mode's front-end data: the campaign found on disk (cleared up
+/// to `current_level_path`'s slot), `level` as the level just played, and a
+/// sample first-clear payout for the results screens.
+ui::FrontModel make_screenshot_front_model(const game::LevelDef& level, const std::string& current_level_path);
+
 /// `ui dump | click <path> | hover <path> | pointer <x> <y> | select <n> |
-/// cancel` -- tokens as the gym tokenized them, tokens[0] == "ui".
+/// cancel | level <n> | screen <name>` -- tokens as the gym tokenized them, tokens[0] == "ui".
 game::GymResult run_ui_command(const UiDriver& d, const std::vector<std::string>& tokens);
 
 } // namespace immune::app

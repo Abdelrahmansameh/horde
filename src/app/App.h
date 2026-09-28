@@ -38,6 +38,7 @@
 #include "ui/GymPanel.h"
 #include "ui/DevUi.h"
 #include "ui/Menu.h"
+#include "ui/front/FrontEnd.h"
 #include "ui/hud/HudScreen.h"
 #include "ui/editor/EditorCanvas.h"
 #include "ui/editor/EditorPanels.h"
@@ -112,9 +113,19 @@ private:
     /// at startup (a dozen small JSON parses) and keeps the level list a pure
     /// function of what is on disk rather than a hardcoded table.
     void discover_levels();
-    /// Draws whichever front-end screen the current state calls for and
-    /// applies the resulting MenuAction. Runs inside DevUi's ImGui frame.
-    void build_menus();
+    /// Which out-of-match screen the current state shows (None in a live
+    /// match, the editor, and the tree while it is still on ImGui).
+    ui::FrontScreen front_screen() const;
+    /// The front end's plain data: the campaign with its unlocks, the run
+    /// that just ended.
+    ui::FrontModel front_model();
+    /// Before gui.frame(): shows the screen the state calls for.
+    void sync_front();
+    /// After gui.frame(): takes what the player clicked (and draws the
+    /// ImGui tree screen, which reports the same way) and applies it.
+    void finish_front();
+    /// Applies a front-end click to the state machine.
+    void apply_menu_result(const ui::MenuResult& r);
     /// Binds the live subsystems (and the app-level hooks the command layer
     /// cannot reach on its own: level loading, HUD overlays, the cursor) into
     /// one context for the gym panel. Rebuilt every frame rather than cached
@@ -151,14 +162,17 @@ private:
     /// zoom out to. Zero until a level is loaded (zoom disabled).
     f32 level_view_height_ = 0.0f;
     audio::AudioEngine audio_;
-    /// ImGui: the developer tools (gym panel, level editor) and, until they
-    /// move to gui, the front-end screens.
+    /// ImGui: the developer tools (gym panel, level editor) and, until it
+    /// moves to gui, the Strengthen Immunity screen.
     ui::DevUi dev_ui_;
     /// The player-facing UI framework (src/gui, docs/UI_FRAMEWORK.md) and its
     /// in-match HUD. Declared after dev_ui_ so the HUD screen is destroyed first.
     gui::Gui gui_;
     std::unique_ptr<ui::HudScreen> hud_screen_;
     ui::HudModel hud_model_;
+    /// Main menu, level select, pause and results (src/ui/front).
+    std::unique_ptr<ui::FrontEnd> front_;
+    /// The Strengthen Immunity tree, still on ImGui until it moves to gui.
     ui::Menu menu_;
     /// The gym level's control window (game/gym). Opens itself on that level
     /// and is toggleable with ` or F2 anywhere; costs nothing while hidden.
@@ -175,6 +189,8 @@ private:
     /// replaying waves 1-6.
     i32 editor_play_from_wave_ = 0;
     std::vector<ui::LevelEntry> levels_;
+    /// levels_' campaign_NN_*.json files in order, with their thumbnails.
+    std::vector<ui::CampaignLevel> campaign_;
     std::string current_level_path_;  ///< Path to the currently loaded level, for restart.
     /// The most recent level-instantiation failure, retained so editor Play can
     /// show the exact reason in its warning popup instead of only logging it.

@@ -1,16 +1,16 @@
-// ui/Menu.h — front-end screens: main menu and level select.
+// ui/Menu.h — the front end's contract with app/: MenuAction, MenuResult,
+// LevelEntry, RunSummary; and the ImGui Strengthen Immunity screen.
 //
-// WHY THIS IS NOT PART OF THE HUD
-// The HUD (ui/hud) shows the live level. The menus need none of that — they
-// run when there is no level loaded at all.
+// The screens themselves are ui/front/FrontEnd (gui framework). The HUD
+// (ui/hud) shows the live level; the front end needs none of that.
 //
 // WHY IT DOES NOT KNOW ABOUT GameStateId
 // GameStateId lives in app/, and ui/ must not depend on app/ — that would
 // invert the dependency direction the rest of this layer follows (the same
 // reason the HUD reports ui::Intent rather than touching the state machine).
-// So Menu reports what the player *clicked*, as a MenuAction, and app/ decides
-// what that means for the state machine. Menu owns no game state and no
-// transition logic; it is a pure input/output screen.
+// So the screens report what the player *clicked*, as a MenuAction, and app/
+// decides what that means for the state machine. The screens own no game state and
+// no transition logic; they are pure input/output.
 #pragma once
 
 #include "core/Types.h"
@@ -18,13 +18,12 @@
 #include <string>
 #include <vector>
 
-namespace immune::platform { class InputState; }
 namespace immune::game { class MetaProgression; struct MetaConfig; }
 
 namespace immune::ui {
 
 /// One selectable level, discovered by scanning the levels directory. Built by
-/// app/ (which owns level loading); Menu only displays what it is handed.
+/// app/ (which owns level loading); the screens only display what they are handed.
 struct LevelEntry {
     std::string path;         ///< Full path, passed straight back to the loader.
     std::string display_name; ///< LevelDef::display_name, else name, else the filename.
@@ -72,51 +71,20 @@ struct MenuResult {
     u32 node = 0;
 };
 
+/// The Strengthen Immunity screen, still on ImGui. The rest of the front end
+/// (main menu, level select, pause, results) is ui/front/FrontEnd on the gui
+/// framework; this moves there in phase 5 of docs/UI_FRAMEWORK.md.
 class Menu {
 public:
-    /// Draws the title screen. Assumes an ImGui frame is already open — DevUi
-    /// owns begin_frame()/render(), and these screens draw inside that same
-    /// frame rather than starting a competing one.
-    MenuResult build_main_menu(i32 screen_width, i32 screen_height);
-
-    /// Draws the level list. `levels` may be empty, which is shown as an
-    /// explicit "no levels found" message rather than an empty window — a
-    /// missing asset root is otherwise indistinguishable from a broken build.
-    MenuResult build_level_select(const std::vector<LevelEntry>& levels,
-                                  i32 screen_width, i32 screen_height);
-
-    /// Draws the level failed screen with restart and back buttons.
-    ///
-    /// `playtest` marks a run launched from the level editor: the way out is
-    /// back to the document being tested, not to the main menu, and the level
-    /// on offer to restart is that same document.
-    MenuResult build_level_failed_screen(i32 screen_width, i32 screen_height,
-                                         bool playtest = false,
-                                         const RunSummary& summary = RunSummary{});
-
-    /// Draws the level complete screen with continue and back buttons. A
-    /// playtest also gets Restart here: the run ending is not a reason to have
-    /// to walk back through the editor to test the same waves again.
-    MenuResult build_level_complete_screen(i32 screen_width, i32 screen_height,
-                                           bool playtest = false,
-                                           const RunSummary& summary = RunSummary{});
-
     /// The Strengthen Immunity tree (PROGRESSION.md): both currencies, every
     /// branch drawn as a column of nodes off one vessel, each node showing its
     /// level, its price and -- when it cannot be bought -- why not. Reports a
     /// click as PurchaseNode; buying is app/'s job, through MetaProgression,
-    /// so this screen can never disagree with the rules it displays.
+    /// so this screen can never disagree with the rules it displays. Assumes
+    /// DevUi's ImGui frame is open.
     MenuResult build_immunity_tree(const game::MetaProgression& meta,
                                    const game::MetaConfig& cfg, i32 screen_width,
                                    i32 screen_height);
-
-    /// Draws the in-level pause menu: resume, restart, or return to the main
-    /// menu. Drawn as an overlay over a frozen (but still rendered) game frame.
-    MenuResult build_pause_menu(i32 screen_width, i32 screen_height);
-
-private:
-    /// Survives across frames so the list keeps its highlight between clicks.
-    int selected_ = 0;
 };
 
 } // namespace immune::ui

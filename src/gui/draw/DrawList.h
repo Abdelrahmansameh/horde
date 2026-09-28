@@ -135,6 +135,8 @@ public:
     void stroke_polyline(std::span<const Vec2> points, bool closed, const StrokeStyle& style);
     /// Convex polygon fill with an AA fringe.
     void fill_convex(std::span<const Vec2> points, Color color);
+    /// Any simple polygon (concave allowed, no holes), ear-clipped, AA fringe.
+    void fill_polygon(std::span<const Vec2> points, Color color);
 
     /// Adds a text style record for glyph quads; returns its index.
     u32 text_style(const TextStyleRecord& s);
@@ -156,6 +158,7 @@ public:
 
 private:
     void ensure_draw_cmd();
+    void fill_polygon_impl(std::span<const Vec2> points, Color color, bool convex);
     void quad(Vec2 p0, Vec2 p1, Vec2 p2, Vec2 p3, Vec2 uv0, Vec2 uv1, Vec2 uv2, Vec2 uv3,
               u32 color, u32 mode_record);
     u32 push_record(const ShapeRecord& r);

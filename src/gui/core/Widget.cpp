@@ -253,12 +253,15 @@ void Widget::draw(DrawList& dl) {
     const bool xf = !anim_transform.is_identity();
     if (xf) dl.push_transform(Affine2::about(center(), anim_transform));
     const bool faded = opacity < 1.0f;
-    if (faded) dl.push_alpha(opacity);
+    const bool layered = faded && group_opacity;
+    if (layered) dl.push_layer(opacity);
+    else if (faded) dl.push_alpha(opacity);
     draw_self(dl);
     if (clip_children) dl.push_clip_rect(rect_);
     for (auto& c : children_) c->draw(dl);
     if (clip_children) dl.pop_clip_rect();
-    if (faded) dl.pop_alpha();
+    if (layered) dl.pop_layer();
+    else if (faded) dl.pop_alpha();
     if (xf) dl.pop_transform();
 }
 

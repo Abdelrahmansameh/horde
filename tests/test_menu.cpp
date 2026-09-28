@@ -1,199 +1,446 @@
-// Front-end screen coverage: main menu and level select (ui/Menu.h).
+// tests/test_menu.cpp — the out-of-match screens (ui/front/FrontEnd): main
+// menu, campaign level select, pause and results, from hand-built models;
+// and the Strengthen Immunity screen, still on ImGui (ui/Menu.h).
 //
-// These drive the REAL ImGui stack against a headless GL context, the same way
-// tests/test_render_gl.cpp verifies the render passes, and then read the
-// framebuffer back. A menu that compiles but draws nothing is exactly the
-// failure that "it builds and doesn't crash" misses, so the pixel checks here
-// are the point, not decoration.
+// The logic tests need no GL: they build the widget trees, click widgets by
+// path (what the gym's `ui click` does) and check the MenuResult each click
+// reports. A GL test then renders every screen to PNGs for review
+// (front_*.png in the working directory) and checks it drew.
+#include "app/UiBridge.h"
+#include "game/config/GameConfig.h"
+#include "game/level/Level.h"
+#include "game/meta/MetaProgression.h"
+#include "gui/core/Gui.h"
+#include "gui/widgets/Widgets.h"
+#include "platform/FileIO.h"
 #include "platform/Input.h"
 #include "platform/Window.h"
 #include "render/Camera.h"
 #include "render/Renderer.h"
+#include "render/Screenshot.h"
 #include "ui/DevUi.h"
-#include "ui/Menu.h"
+#include "ui/front/FrontEnd.h"
+#include "ui/front/FrontModel.h"
+#include "ui/front/LevelCell.h"
 
-#include "game/config/GameConfig.h"
-#include "game/meta/MetaProgression.h"
+#include <glad/glad.h>
 
 #include <catch2/catch_test_macros.hpp>
 
 #include <functional>
+#include <memory>
+#include <string>
 #include <vector>
 
 using namespace immune;
+using namespace immune::ui;
 
 namespace {
 
-struct HeadlessUi {
-    platform::Window window;
-    platform::InputState input;
-    ui::DevUi hud;
-    render::Renderer renderer;
-    bool ok = false;
+struct Harness {
+    gui::Gui gui;
+    std::unique_ptr<FrontEnd> front;
 
-    HeadlessUi(i32 w = 1280, i32 h = 720) {
-        if (!platform::create_headless_gl(window, w, h)) return;
-        render::RendererDesc rd;
-        rd.framebuffer_width = w;
-        rd.framebuffer_height = h;
-        if (!renderer.init(rd)) return;
-        input.bind_defaults();
-        ok = hud.init(window, input);
+    explicit Harness(bool gl = false) {
+        REQUIRE(gui.init(gui::Gui::Assets{platform::asset_path("fonts"), platform::asset_path("ui/icons"),
+                                          platform::asset_path("config/ui_theme.json")}));
+        if (gl) REQUIRE(gui.init_renderer());
+        gui.set_viewport(Vec2{1920, 1080});
+        front = std::make_unique<FrontEnd>(gui);
+    }
+    ~Harness() {
+        front.reset();
+        gui.shutdown();
     }
 
-    ~HeadlessUi() {
-        if (ok) hud.shutdown();
-        renderer.shutdown();
-        window.destroy();
+    void frame(FrontScreen s, const FrontModel& m, f32 dt = 1.0f / 60.0f) {
+        front->show(s, m);
+        gui::PointerInput p;
+        p.pos = Vec2{-100, -100};
+        gui.frame(p, dt);
     }
-
-    /// Fraction of pixels that are not the cleared background. A drawn panel
-    /// covers a real share of the screen; a no-op draw covers none of it.
-    f32 draw_one_frame(const std::function<void()>& build) {
-        render::Camera camera;
-        camera.set_viewport(window.width(), window.height());
-        renderer.begin_frame(camera, 0.0f);
-        hud.begin_frame(input);
-        build();
-        hud.render();
-
-        std::vector<u8> pixels;
-        i32 pw = 0, ph = 0;
-        if (!renderer.read_pixels(pixels, pw, ph)) return -1.0f;
-
-        // Measured against the actual cleared background, not a fixed
-        // brightness. The previous absolute `> 24` cutoff silently depended on
-        // Renderer::begin_frame's clear colour being brighter than it: with the
-        // old (0.129, 0.086, 0.106) the red channel cleared to 33, so EVERY
-        // pixel counted as drawn content and every assertion below passed at
-        // ~1.0 coverage no matter what the menu rendered. Sampling the corner —
-        // which no centred panel ever touches — keeps this honest whatever the
-        // substrate palette does next.
-        const u8 bg_r = pixels[0], bg_g = pixels[1], bg_b = pixels[2];
-        const auto differs = [](u8 a, u8 b) { return a > b ? a - b > 8 : b - a > 8; };
-        usize lit = 0;
-        for (usize i = 0; i + 3 < pixels.size(); i += 4) {
-            if (differs(pixels[i], bg_r) || differs(pixels[i + 1], bg_g) ||
-                differs(pixels[i + 2], bg_b)) {
-                ++lit;
-            }
+    /// Shows `s` and lets its transition finish.
+    void open(FrontScreen s, const FrontModel& m) {
+        frame(s, m);
+        front->finish_transitions();
+        frame(s, m);
+    }
+    MenuResult click(const std::string& path) {
+        INFO(path);
+        REQUIRE(gui.click(path));
+        return front->take_result();
+    }
+    bool shown(const std::string& path) {
+        gui::Widget* x = gui.find(path);
+        if (x == nullptr) return false;
+        for (gui::Widget* p = x; p != nullptr; p = p->parent()) {
+            if (!p->visible) return false;
         }
-        const usize total = pixels.size() / 4;
-        return total == 0 ? -1.0f : static_cast<f32>(lit) / static_cast<f32>(total);
+        return true;
     }
 };
 
-std::vector<ui::LevelEntry> sample_levels() {
-    return {
-        {"assets/levels/skin_1_breach.json", "skin_1_breach", "skin", 1},
-        {"assets/levels/capillary_2_forking_vessels.json", "capillary_2", "capillary", 2},
-        {"assets/levels/organ_chamber_1_lymph_node_core.json", "organ_core", "organ_chamber", 5},
-    };
+/// Ten campaign levels, the first `cleared` of them cleared. Their indices
+/// into app's level list are deliberately not 0..9 (other levels sit between
+/// them there).
+FrontModel campaign(usize cleared) {
+    static const char* kNames[10] = {"First Bend", "Island Climb", "Two Chambers", "Twin Channels", "Ring Road",
+                                     "Circuit Board", "Chevron Sieve", "Blob Field", "The Funnel", "Core Breach"};
+    FrontModel m;
+    for (usize i = 0; i < 10; ++i) {
+        CampaignLevel l;
+        l.number = static_cast<u32>(i + 1);
+        l.name = kNames[i];
+        l.level_index = 100 + i * 2;
+        l.cleared = i < cleared;
+        l.thumb.lanes.push_back(LevelThumb::Lane{{Vec2{-0.2f, 0.3f}, Vec2{0.5f, 0.3f}, Vec2{0.5f, 0.7f},
+                                                  Vec2{1.2f, 0.7f}},
+                                                 0.14f});
+        l.thumb.obstacles.push_back(LevelThumb::Obstacle{{Vec2{0.3f, 0.45f}, Vec2{0.45f, 0.45f},
+                                                          Vec2{0.45f, 0.6f}, Vec2{0.38f, 0.52f},
+                                                          Vec2{0.3f, 0.6f}}});
+        l.thumb.spawns.push_back(Vec2{0.05f, 0.3f});
+        m.campaign.push_back(l);
+    }
+    for (usize i = 0; i < m.campaign.size(); ++i) m.campaign[i].locked = !campaign_unlocked(m.campaign, i);
+    return m;
 }
 
 } // namespace
 
-TEST_CASE("the main menu actually draws pixels", "[ui][menu]") {
-    HeadlessUi ui;
-    if (!ui.ok) {
-        WARN("headless GL/ImGui unavailable; skipping");
-        return;
-    }
-    ui::Menu menu;
-    const f32 coverage = ui.draw_one_frame([&] { menu.build_main_menu(1280, 720); });
-    CAPTURE(coverage);
-    REQUIRE(coverage > 0.0f);
-    // A centred 420x300 panel over 1280x720 is ~13.7% of the screen; require a
-    // clear fraction of that so an empty or collapsed window fails.
-    REQUIRE(coverage > 0.02f);
+TEST_CASE("campaign gating: each level opens when the one before is cleared", "[ui][menu]") {
+    FrontModel m = campaign(3);
+    CHECK_FALSE(m.campaign[0].locked);
+    CHECK_FALSE(m.campaign[3].locked);   // the next to play
+    CHECK(m.campaign[4].locked);
+    CHECK(m.campaign[9].locked);
+    CHECK(campaign_frontier(m.campaign) == 3);
+    CHECK(campaign_frontier(campaign(0).campaign) == 0);
+    // Everything cleared: the frontier stays on the last level.
+    CHECK(campaign_frontier(campaign(10).campaign) == 9);
 }
 
-TEST_CASE("level select draws its entries", "[ui][menu]") {
-    HeadlessUi ui;
-    if (!ui.ok) {
-        WARN("headless GL/ImGui unavailable; skipping");
-        return;
+TEST_CASE("the shipped campaign: ten levels in file order, gated, with thumbnails", "[ui][menu]") {
+    std::vector<LevelEntry> entries;
+    std::vector<game::LevelDef> defs;
+    for (const std::string& path : platform::list_files(platform::asset_path("levels"), ".json")) {
+        game::LevelLoader loader;
+        game::LevelDef def;
+        if (!loader.load_file(path, def).ok) continue;
+        LevelEntry e;
+        e.path = path;
+        e.level_id = def.name;
+        e.display_name = def.display_name.empty() ? def.name : def.display_name;
+        entries.push_back(e);
+        defs.push_back(std::move(def));
     }
-    ui::Menu menu;
-    const auto levels = sample_levels();
-    const f32 coverage = ui.draw_one_frame([&] { menu.build_level_select(levels, 1280, 720); });
-    CAPTURE(coverage);
-    REQUIRE(coverage > 0.02f);
+    std::vector<CampaignLevel> c = app::make_campaign(entries, defs);
+    REQUIRE(c.size() == 10);
+    CHECK(c[0].name == "First Bend");
+    CHECK(c[9].name == "Core Breach");
+    for (usize i = 0; i < c.size(); ++i) {
+        CAPTURE(c[i].name);
+        CHECK(c[i].number == i + 1);
+        CHECK(app::is_campaign_level(entries[c[i].level_index].path));
+        CHECK(c[i].locked == (i > 0));
+        // Every level has a lane in its thumbnail, inside the square.
+        REQUIRE_FALSE(c[i].thumb.lanes.empty());
+        for (const LevelThumb::Lane& l : c[i].thumb.lanes) {
+            CHECK(l.width > 0.01f);
+            CHECK(l.width < 0.5f);
+        }
+        CHECK_FALSE(c[i].thumb.spawns.empty());
+    }
+    // Clearing the first opens the second, and nothing past it.
+    entries[c[0].level_index].cleared = true;
+    app::refresh_campaign(c, entries);
+    CHECK_FALSE(c[1].locked);
+    CHECK(c[2].locked);
+    // First Bend's lane enters from the left along the top of the thumbnail
+    // (the world is y-up, the thumbnail y-down), as in the canvas.
+    const std::vector<Vec2>& lane = c[0].thumb.lanes.front().points;
+    CHECK(lane.front().x < 0.1f);
+    CHECK(lane.front().y < 0.5f);
+    CHECK(lane.back().y > 0.5f);
 }
 
-TEST_CASE("level select survives an empty level list", "[ui][menu]") {
-    // The "no levels found" path is what a broken asset root looks like, so it
-    // must render an explanation rather than crash or draw an empty box.
-    HeadlessUi ui;
-    if (!ui.ok) {
-        WARN("headless GL/ImGui unavailable; skipping");
-        return;
-    }
-    ui::Menu menu;
-    const std::vector<ui::LevelEntry> none;
-    const f32 coverage = ui.draw_one_frame([&] { menu.build_level_select(none, 1280, 720); });
-    CAPTURE(coverage);
-    // A lower bar than the populated cases on purpose: this panel is a header
-    // plus three wrapped lines of explanation, no 320px level list, so it
-    // genuinely covers about 1.3% of the screen. The bar still has to sit well
-    // clear of zero, because "drew an empty box" is exactly what this guards.
-    REQUIRE(coverage > 0.005f);
+TEST_CASE("main menu: Play Game goes to Strengthen Immunity, Quit quits", "[ui][menu]") {
+    Harness h;
+    h.open(FrontScreen::MainMenu, FrontModel{});
+    CHECK(h.front->current() == FrontScreen::MainMenu);
+    CHECK(h.shown("menu/title"));
+    CHECK(h.shown("menu/mascot"));
+    // Nothing clicked, nothing reported: a default of anything else would
+    // fire a transition on its own.
+    CHECK(h.front->take_result().action == MenuAction::None);
+    CHECK(h.click("menu/play").action == MenuAction::OpenImmunityTree);
+    CHECK(h.click("menu/quit").action == MenuAction::Quit);
 }
 
-TEST_CASE("menus report no action when nothing is clicked", "[ui][menu]") {
-    // The default every frame must be None -- anything else would fire a
-    // transition on its own and make the front end unusable.
-    HeadlessUi ui;
-    if (!ui.ok) {
-        WARN("headless GL/ImGui unavailable; skipping");
-        return;
-    }
-    ui::Menu menu;
-    ui::MenuResult main_result, select_result;
-    const auto levels = sample_levels();
-    ui.draw_one_frame([&] {
-        main_result = menu.build_main_menu(1280, 720);
-        select_result = menu.build_level_select(levels, 1280, 720);
-    });
-    REQUIRE(main_result.action == ui::MenuAction::None);
-    REQUIRE(select_result.action == ui::MenuAction::None);
+TEST_CASE("level select: picks up at the frontier; locked levels refuse; Play starts", "[ui][menu]") {
+    Harness h;
+    const FrontModel m = campaign(3);
+    h.open(FrontScreen::LevelSelect, m);
+    for (int n = 1; n <= 10; ++n) CHECK(h.shown("levels/cell" + std::to_string(n)));
+    // Level 4 is next: selected on arrival, gold halo, Play on offer.
+    CHECK(h.front->selected_level() == 3);
+    auto* cell4 = dynamic_cast<LevelCell*>(h.gui.find("levels/cell4"));
+    REQUIRE(cell4 != nullptr);
+    CHECK(cell4->frontier);
+    CHECK(cell4->selected);
+    CHECK(h.shown("levels/play"));
+
+    // A locked level shakes and says why; the selection does not move.
+    auto* cell6 = dynamic_cast<LevelCell*>(h.gui.find("levels/cell6"));
+    REQUIRE(cell6 != nullptr);
+    CHECK_FALSE(cell6->enabled);
+    CHECK(cell6->tooltip.find("Ring Road") != std::string::npos);
+    CHECK(h.click("levels/cell6").action == MenuAction::None);
+    CHECK(h.front->selected_level() == 3);
+
+    // A cleared level selects on the first click and starts on the second.
+    CHECK(h.click("levels/cell2").action == MenuAction::None);
+    CHECK(h.front->selected_level() == 1);
+    const MenuResult again = h.click("levels/cell2");
+    CHECK(again.action == MenuAction::StartLevel);
+    CHECK(again.level_index == m.campaign[1].level_index);
+
+    const MenuResult play = h.click("levels/play");
+    CHECK(play.action == MenuAction::StartLevel);
+    CHECK(play.level_index == m.campaign[1].level_index);
+    CHECK(h.click("levels/back").action == MenuAction::OpenImmunityTree);
+
+    // The gym's `ui level <n>` path.
+    CHECK(h.front->select_level(0));
+    CHECK_FALSE(h.front->select_level(7));
+    CHECK(h.front->selected_level() == 0);
 }
 
-TEST_CASE("the results screens draw in both play and playtest mode", "[ui][menu]") {
-    // A playtest swaps the way out (Back to Editor, not Menu) and gives the
-    // complete screen a Restart it does not have in normal play. Both variants
-    // have to draw: an editor run that ends on an empty panel is a dead end.
-    HeadlessUi ui;
-    if (!ui.ok) {
-        WARN("headless GL/ImGui unavailable; skipping");
+TEST_CASE("level select: an empty campaign says why instead of showing an empty map", "[ui][menu]") {
+    Harness h;
+    h.open(FrontScreen::LevelSelect, FrontModel{});
+    CHECK(h.shown("levels/empty"));
+    CHECK_FALSE(h.shown("levels/play"));
+    CHECK(h.front->selected_level() == -1);
+}
+
+TEST_CASE("results: level cleared pays out and offers the next level", "[ui][menu]") {
+    Harness h;
+    FrontModel m = campaign(1);
+    m.level_name = "First Bend";
+    m.campaign_slot = 0;
+    m.unlocked_next = true;
+    m.run.valid = true;
+    m.run.memory_cells = 203;
+    m.run.antibodies = 1;
+    m.run.first_clear = true;
+    h.open(FrontScreen::Victory, m);
+    CHECK(h.shown("victory/panel/rewards/memory"));
+    CHECK(h.shown("victory/panel/rewards/antibody"));
+    CHECK(h.shown("victory/panel/rewards/unlocked"));
+    auto* unlocked = dynamic_cast<gui::Label*>(h.gui.find("victory/panel/rewards/unlocked/name"));
+    REQUIRE(unlocked != nullptr);
+    CHECK(unlocked->text() == "Island Climb unlocked");
+
+    CHECK(h.click("victory/panel/buttons/tree").action == MenuAction::OpenImmunityTree);
+    const MenuResult next = h.click("victory/panel/buttons/next");
+    CHECK(next.action == MenuAction::StartLevel);
+    CHECK(next.level_index == m.campaign[1].level_index);
+    CHECK(h.click("victory/panel/buttons/replay").action == MenuAction::RestartLevel);
+
+    // A replay of a cleared level: no Antibody row, no unlock row.
+    m.run.antibodies = 0;
+    m.unlocked_next = false;
+    h.open(FrontScreen::Victory, m);
+    CHECK(h.shown("victory/panel/rewards/memory"));
+    CHECK_FALSE(h.shown("victory/panel/rewards/antibody"));
+    CHECK_FALSE(h.shown("victory/panel/rewards/unlocked"));
+
+    // The last campaign level has no next one: Levels instead.
+    FrontModel last = campaign(10);
+    last.campaign_slot = 9;
+    last.run.valid = true;
+    h.open(FrontScreen::Victory, last);
+    CHECK_FALSE(h.shown("victory/panel/buttons/next"));
+    CHECK(h.click("victory/panel/buttons/levels").action == MenuAction::OpenLevelSelect);
+}
+
+TEST_CASE("results: level failed still pays, and offers retry", "[ui][menu]") {
+    Harness h;
+    FrontModel m = campaign(3);
+    m.level_name = "Twin Channels";
+    m.campaign_slot = 3;
+    m.run.valid = true;
+    m.run.memory_cells = 70;
+    h.open(FrontScreen::Defeat, m);
+    auto* title = dynamic_cast<gui::Label*>(h.gui.find("defeat/panel/title"));
+    REQUIRE(title != nullptr);
+    CHECK(title->text() == "Level failed");
+    CHECK(h.shown("defeat/panel/rewards/memory"));
+    CHECK(h.click("defeat/panel/buttons/tree").action == MenuAction::OpenImmunityTree);
+    CHECK(h.click("defeat/panel/buttons/retry").action == MenuAction::RestartLevel);
+    CHECK(h.click("defeat/panel/buttons/levels").action == MenuAction::OpenLevelSelect);
+}
+
+TEST_CASE("results: a playtest goes back to the editor, a sandbox run says it paid nothing", "[ui][menu]") {
+    Harness h;
+    for (FrontScreen s : {FrontScreen::Victory, FrontScreen::Defeat}) {
+        FrontModel m;
+        m.playtest = true;
+        m.run.valid = true;
+        m.run.sandbox = true;
+        h.open(s, m);
+        const std::string root = front_screen_name(s);
+        CHECK_FALSE(h.shown(root + "/panel/rewards"));
+        CHECK_FALSE(h.shown(root + "/panel/buttons/tree"));
+        CHECK(h.click(root + "/panel/buttons/restart").action == MenuAction::RestartLevel);
+        CHECK(h.click(root + "/panel/buttons/editor").action == MenuAction::BackToEditor);
+    }
+    FrontModel sandbox;
+    sandbox.run.valid = true;
+    sandbox.run.sandbox = true;
+    h.open(FrontScreen::Defeat, sandbox);
+    CHECK(h.shown("defeat/panel/rewards/sandbox"));
+    CHECK_FALSE(h.shown("defeat/panel/rewards/memory"));
+}
+
+TEST_CASE("pause: resume, restart, abandon", "[ui][menu]") {
+    Harness h;
+    FrontModel m;
+    m.level_name = "Ring Road";
+    h.open(FrontScreen::Pause, m);
+    CHECK(h.click("pause/panel/buttons/resume").action == MenuAction::Resume);
+    CHECK(h.click("pause/panel/buttons/restart").action == MenuAction::RestartLevel);
+    CHECK(h.click("pause/panel/buttons/menu").action == MenuAction::Back);
+}
+
+TEST_CASE("screens crossfade; a screen on its way out takes no clicks", "[ui][menu]") {
+    Harness h;
+    h.open(FrontScreen::MainMenu, FrontModel{});
+    h.frame(FrontScreen::LevelSelect, campaign(0));
+    // Both trees exist mid-transition; only the incoming one is live.
+    REQUIRE(h.gui.find("menu/play") != nullptr);
+    CHECK_FALSE(h.gui.click("menu/play"));
+    CHECK(h.front->take_result().action == MenuAction::None);
+    for (int i = 0; i < 40; ++i) h.frame(FrontScreen::LevelSelect, campaign(0));
+    CHECK(h.gui.find("menu/play") == nullptr);
+    CHECK(h.shown("levels/play"));
+
+    // None fades the front end away (a level starting).
+    for (int i = 0; i < 40; ++i) h.frame(FrontScreen::None, FrontModel{});
+    CHECK(h.gui.find("levels") == nullptr);
+    CHECK(h.front->current() == FrontScreen::None);
+}
+
+TEST_CASE("the front-end screens render (PNGs for review)", "[ui][menu][gl]") {
+    platform::Window window;
+    if (!platform::create_headless_gl(window, 1920, 1080)) {
+        WARN("headless GL context unavailable in this environment; skipping");
         return;
     }
-    ui::Menu menu;
-    for (bool playtest : {false, true}) {
-        CAPTURE(playtest);
-        ui::MenuResult failed, complete;
-        const f32 coverage = ui.draw_one_frame([&] {
-            failed = menu.build_level_failed_screen(1280, 720, playtest);
-            complete = menu.build_level_complete_screen(1280, 720, playtest);
-        });
-        CAPTURE(coverage);
-        REQUIRE(coverage > 0.02f);
-        // Nothing was clicked, so neither screen may ask for a transition.
-        REQUIRE(failed.action == ui::MenuAction::None);
-        REQUIRE(complete.action == ui::MenuAction::None);
+    Harness h(true);
+    FrontModel results = campaign(1);
+    results.level_name = "First Bend";
+    results.campaign_slot = 0;
+    results.unlocked_next = true;
+    results.run.valid = true;
+    results.run.memory_cells = 203;
+    results.run.antibodies = 1;
+    struct Shot { FrontScreen screen; FrontModel model; const char* file; };
+    const Shot shots[] = {
+        {FrontScreen::MainMenu, FrontModel{}, "front_menu.png"},
+        {FrontScreen::LevelSelect, campaign(3), "front_levels.png"},
+        {FrontScreen::Victory, results, "front_victory.png"},
+        {FrontScreen::Defeat, results, "front_defeat.png"},
+        {FrontScreen::Pause, results, "front_pause.png"},
+    };
+    for (const Shot& s : shots) {
+        CAPTURE(s.file);
+        h.open(s.screen, s.model);
+        for (int i = 0; i < 10; ++i) h.frame(s.screen, s.model);
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        glViewport(0, 0, 1920, 1080);
+        glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+        h.gui.render(1920, 1080);
+        glFinish();
+        std::vector<u8> px;
+        render::read_framebuffer_rgba(px, 1920, 1080);
+        render::write_png_rgba(s.file, px.data(), 1920, 1080);
+        // Every screen covers the frame (a backdrop or a veil): no pixel
+        // left at the black clear colour in the corners.
+        const usize corners[4] = {0, 1919, 1919u * 1080u, 1920u * 1080u - 1};
+        for (usize c : corners) {
+            CAPTURE(c);
+            CHECK(px[c * 4] + px[c * 4 + 1] + px[c * 4 + 2] > 0);
+        }
+        // Each stencil-clipped level thumbnail splits the batch (write the clip,
+        // draw inside it, pop it), so the level map is the busiest screen.
+        CHECK(h.gui.render_stats().draw_calls <= 64);
     }
 }
+
+namespace {
+
+/// The ImGui stack against a headless GL context, for the one front-end
+/// screen still on ImGui.
+struct HeadlessImGui {
+    platform::Window window;
+    platform::InputState input;
+    DevUi dev;
+    render::Renderer renderer;
+    bool ok = false;
+
+    HeadlessImGui() {
+        if (!platform::create_headless_gl(window, 1280, 720)) return;
+        render::RendererDesc rd;
+        rd.framebuffer_width = 1280;
+        rd.framebuffer_height = 720;
+        if (!renderer.init(rd)) return;
+        input.bind_defaults();
+        ok = dev.init(window, input);
+    }
+    ~HeadlessImGui() {
+        if (ok) dev.shutdown();
+        renderer.shutdown();
+        window.destroy();
+    }
+
+    /// Fraction of pixels that differ from the cleared background (sampled
+    /// at the corner, which the centred panel never touches).
+    f32 draw_one_frame(const std::function<void()>& build) {
+        render::Camera camera;
+        camera.set_viewport(window.width(), window.height());
+        renderer.begin_frame(camera, 0.0f);
+        dev.begin_frame(input);
+        build();
+        dev.render();
+        std::vector<u8> px;
+        i32 pw = 0, ph = 0;
+        if (!renderer.read_pixels(px, pw, ph)) return -1.0f;
+        const u8 bg_r = px[0], bg_g = px[1], bg_b = px[2];
+        const auto differs = [](u8 a, u8 b) { return a > b ? a - b > 8 : b - a > 8; };
+        usize lit = 0;
+        for (usize i = 0; i + 3 < px.size(); i += 4) {
+            if (differs(px[i], bg_r) || differs(px[i + 1], bg_g) || differs(px[i + 2], bg_b)) ++lit;
+        }
+        const usize total = px.size() / 4;
+        return total == 0 ? -1.0f : static_cast<f32>(lit) / static_cast<f32>(total);
+    }
+};
+
+} // namespace
 
 TEST_CASE("the Strengthen Immunity screen draws for a new and a well-funded campaign", "[ui][menu][meta]") {
     // A fresh save (almost everything locked) and one that can afford a lot
     // exercise every card state the screen has: locked, unaffordable,
     // buyable, owned and maxed.
-    HeadlessUi ui;
+    HeadlessImGui ui;
     if (!ui.ok) {
         WARN("headless GL/ImGui unavailable; skipping");
         return;
     }
-    ui::Menu menu;
+    Menu menu;
     const game::MetaConfig cfg;
     for (bool funded : {false, true}) {
         CAPTURE(funded);
@@ -201,15 +448,14 @@ TEST_CASE("the Strengthen Immunity screen draws for a new and a well-funded camp
         meta.reset_to_new_game();
         if (funded) {
             meta.credit(5000, 3);
-            REQUIRE(meta.purchase(game::TreeNode::MacrophageRoot, cfg) ==
-                    game::MetaProgression::PurchaseResult::Ok);
+            REQUIRE(meta.purchase(game::TreeNode::MacrophageRoot, cfg) == game::MetaProgression::PurchaseResult::Ok);
             REQUIRE(meta.purchase(game::TreeNode::NeutrophilAccuracy, cfg) ==
                     game::MetaProgression::PurchaseResult::Ok);
         }
-        ui::MenuResult r;
+        MenuResult r;
         const f32 coverage = ui.draw_one_frame([&] { r = menu.build_immunity_tree(meta, cfg, 1280, 720); });
         CAPTURE(coverage);
         REQUIRE(coverage > 0.2f);
-        REQUIRE(r.action == ui::MenuAction::None);
+        REQUIRE(r.action == MenuAction::None);
     }
 }

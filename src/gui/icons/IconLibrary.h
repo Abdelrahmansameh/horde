@@ -38,8 +38,12 @@ struct IconSprite {
 
 class IconLibrary {
 public:
-    /// Fraction of the viewBox added on every side when baking.
+    /// Fraction of the viewBox added on every side when baking. An icon's
+    /// root <svg data-pad="..."> overrides it.
     static constexpr f32 kPadFraction = 0.25f;
+    /// Largest bake, framebuffer px along the longer side (the menu mascot at
+    /// 4K is about this big).
+    static constexpr i32 kMaxBakeSize = 1100;
     static constexpr i32 kAtlasSize = 2048;
 
     IconLibrary();

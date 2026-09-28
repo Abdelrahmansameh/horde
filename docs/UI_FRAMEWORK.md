@@ -73,8 +73,8 @@ gui/  core     Gui context · Widget tree · layout · layers · input routing �
 | 1 | Foundation: fonts, draw layer (SDF shapes, paths, stencil clips, layers), text, icons, GL backend, showcase test | **Done** |
 | 2 | Core: widget tree, flex / anchored / world-anchored layout, `Gui` context and layers, pointer state machine (hover, capture, click/deny, drag, wheel, tooltips), animation (`Tween`, `Spring`, the canvas loops beat/pulse/wobble/throb/halo/spin/flow), theme (`assets/config/ui_theme.json`), base widgets (`Panel`, `Label`, `Icon`, `Button`, `Meter`, `Ring`, `Spacer`) | **Done** |
 | 3 | In-match HUD: `HudModel` + `app/UiBridge`, `HudScreen` (with the selection and armed cursors that were `Hud.cpp`'s statics) for the five canvas states, world overlays, `Gui` in `App`, the ImGui HUD removed (`Hud` became `DevUi`), `--screenshot --ui`, gym `ui` and `integrity` commands | **Done** |
-| 4 | Out-of-match screens: main menu (with the macrophage mascot), level select with campaign gating, pause, victory and defeat, screen transitions; remove ImGui from `Menu.cpp` | Next |
-| 5 | Skill tree: pan canvas, vessel edges, `TreeScreen` over the 75 nodes of `ImmunityTree.cpp` | |
+| 4 | Out-of-match screens: main menu (with the macrophage mascot), level select with campaign gating, pause, victory and defeat, screen transitions; ImGui left in `Menu.cpp` only for the tree | **Done** |
+| 5 | Skill tree: pan canvas, vessel edges, `TreeScreen` over the 75 nodes of `ImmunityTree.cpp` | Next |
 | 6 | Polish: side-by-side pass against every artboard, motion tuning, UI scale option, perf (< 0.5 ms CPU per frame) | |
 
 ### Core (built)
@@ -121,16 +121,50 @@ gui/  core     Gui context · Widget tree · layout · layers · input routing �
   Inspect, Prep, Critical). The whole HUD is one draw call.
 - Input: 1–5 arm towers in dock order, Q W E R abilities, Space sends the
   wave during prep, Escape disarms or closes the popup before it opens the
-  pause menu. `InputState` latches button presses from SDL events so a tap
-  whose press and release fall between two frames still clicks.
+  pause menu. `InputState` latches button presses and action key-downs from
+  SDL events, so a tap whose press and release fall between two frames still
+  counts.
 - Verification: `--screenshot <level> --ui` with `ui …` gym commands (see the
   run-immune skill for the five canvas states).
+
+### Out-of-match screens (built)
+
+- `ui/front/FrontEnd` owns the main menu, the campaign level select, pause and
+  the results (level cleared / failed, with the editor-playtest and sandbox
+  variants), from the Menu, Levels, Victory and Defeat artboards. app/ picks
+  the screen from `GameStateId` (`App::front_screen`) and fills a
+  `ui::FrontModel` (`App::front_model`, `UiBridge`); a click comes back as the
+  same `ui::MenuResult` the ImGui menus reported, applied by
+  `App::apply_menu_result`.
+- Flow, as in the canvas: title → Strengthen Immunity → Campaign → level;
+  results offer Strengthen Immunity, then Next level / Replay or Retry /
+  Levels. Escape walks back the same chain. F4 on the title opens the editor.
+- **Campaign**: the `assets/levels/campaign_NN_*.json` files in name order;
+  a level opens when the one before it is cleared (`ui::campaign_unlocked`).
+  Other level files stay reachable through the gym `level` command and the
+  editor. The map opens on the next level to play (gold halo), draws the
+  opened stretch of vessel in blood colours with plasma flowing, and a second
+  click on a selected cell plays it.
+- **Level thumbnails** are the real level: `UiBridge::make_level_thumb`
+  samples each vessel's Catmull-Rom and turns obstacles into polygons, fitted
+  into the cell; the cell stencil-clips them to its membrane.
+- **Backdrop**: `TissueBackdrop` lays out wobbling SDF tissue cells on a
+  seeded, staggered grid (any aspect ratio); `VesselStroke` strokes a path as
+  layered bands with an optional flowing dash.
+- **Mascot**: the macrophage is cut from the Menu artboard as an illustration
+  icon (`mascot_macrophage.svg`, `data-pad` keeps its bake tight); the
+  bacterium in its grip wobbles on its own.
+- **Transitions**: the outgoing screen fades out and takes no pointer
+  (`Widget::accepts_pointer`); the incoming one buds in from 97% scale. Both
+  fade as a group through an offscreen layer (`Widget::group_opacity`).
 
 ## Building and testing
 
 - Unit tests: `tests/test_gui_draw.cpp`, `test_gui_text.cpp`,
-  `test_gui_icons.cpp`, `test_gui_core.cpp`, `test_ui_hud.cpp` (no GL); `test_gui_render.cpp` (headless GL) writes
-  `gui_showcase.png` to the working directory.
+  `test_gui_icons.cpp`, `test_gui_core.cpp`, `test_ui_hud.cpp`, the logic
+  half of `test_menu.cpp` (no GL); `test_gui_render.cpp` and the GL half of
+  `test_menu.cpp` (headless GL) write `gui_showcase.png` and `front_*.png`
+  to the working directory.
 - Regenerate fonts: `python tools/build_fonts.py` (needs fontTools).
 - Refresh icons after the canvas changes: `python tools/extract_icons.py`;
   `--check` reports icons that are stale.

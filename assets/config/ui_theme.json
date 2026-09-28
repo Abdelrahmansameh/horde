@@ -40,7 +40,25 @@
     "sell_bg": "#FFE8DC",
     "range_ring": "#FFFFFF",
     "aim": "#E0559A",
-    "invalid": "#E2475F"
+    "invalid": "#E2475F",
+    "tissue_cell": "#6C1834",
+    "tissue_nucleus": "#8C2A4B",
+    "tissue_nucleolus": "#A63C5F",
+    "vessel_wall": "#5E1F48",
+    "vessel_rim": "#E3808F",
+    "vessel_lumen": "#F9C8A8",
+    "vessel_core": "#FDDAB8",
+    "vessel_pale": "#D9C6CF",
+    "vessel_pale_core": "#EBDDE3",
+    "dim": "#1E0010",
+    "spawn": "#FFE39A",
+    "level_ring_locked": "#A79DB2",
+    "level_lock_veil": "#3B2140",
+    "level_pill": "#4E1638",
+    "level_pill_locked": "#5B4A60",
+    "memory_ink": "#2E5AA8",
+    "antibody_ink": "#9A5A00",
+    "fail_cytoplasm": "#FFF0F0"
   },
   "text": {
     "label": {
@@ -267,6 +285,106 @@
       "line_height": 1.0,
       "color": "ink",
       "tabular": true
+    },
+    "menu_title": {
+      "font": "fredoka-700",
+      "size": 188,
+      "line_height": 0.95,
+      "letter_spacing": 0.02,
+      "color": "lavender",
+      "outline": "plum",
+      "outline_width": 9,
+      "shadow": "dim@0.45",
+      "shadow_offset": [
+        0,
+        10
+      ]
+    },
+    "menu_cta": {
+      "font": "fredoka-600",
+      "size": 46,
+      "line_height": 1.0,
+      "color": "white",
+      "shadow": "plum",
+      "shadow_offset": [
+        0,
+        3
+      ]
+    },
+    "menu_button": {
+      "font": "fredoka-600",
+      "size": 30,
+      "line_height": 1.0,
+      "color": "ink"
+    },
+    "screen_title": {
+      "font": "fredoka-700",
+      "size": 44,
+      "line_height": 1.05,
+      "color": "cytoplasm",
+      "outline": "plum",
+      "outline_width": 5
+    },
+    "result_title": {
+      "font": "fredoka-700",
+      "size": 56,
+      "line_height": 1.0,
+      "color": "ink"
+    },
+    "result_title_fail": {
+      "font": "fredoka-700",
+      "size": 56,
+      "line_height": 1.0,
+      "color": "critical"
+    },
+    "result_sub": {
+      "font": "fredoka-500",
+      "size": 24,
+      "line_height": 1.0,
+      "color": "ink_soft"
+    },
+    "reward_name": {
+      "font": "nunito-900",
+      "size": 20,
+      "color": "ink"
+    },
+    "reward_memory": {
+      "font": "fredoka-600",
+      "size": 32,
+      "line_height": 1.0,
+      "color": "memory_ink",
+      "tabular": true
+    },
+    "reward_antibody": {
+      "font": "fredoka-600",
+      "size": 32,
+      "line_height": 1.0,
+      "color": "antibody_ink",
+      "tabular": true
+    },
+    "result_button": {
+      "font": "fredoka-600",
+      "size": 26,
+      "line_height": 1.0,
+      "color": "ink"
+    },
+    "result_button_cta": {
+      "font": "fredoka-600",
+      "size": 26,
+      "line_height": 1.0,
+      "color": "white"
+    },
+    "level_pill": {
+      "font": "nunito-900",
+      "size": 15,
+      "line_height": 1.0,
+      "color": "white"
+    },
+    "level_number": {
+      "font": "fredoka-600",
+      "size": 24,
+      "line_height": 1.0,
+      "color": "white"
     }
   },
   "shapes": {
@@ -532,6 +650,72 @@
     "button.round.active": {
       "base": "button.round",
       "fill": "lavender_deep"
+    },
+    "button.cta": {
+      "base": "membrane.player",
+      "radius": 999,
+      "fill": "lavender",
+      "fill2": "lavender_deep",
+      "decor_count": 0,
+      "wobble_amp": 1.2
+    },
+    "button.soft": {
+      "base": "membrane.player",
+      "radius": 999,
+      "decor_count": 0,
+      "wobble_amp": 1.2
+    },
+    "button.flesh": {
+      "base": "membrane.host",
+      "radius": 999,
+      "decor_count": 0,
+      "wobble_amp": 1.2
+    },
+    "button.back": {
+      "base": "button.round",
+      "fill": "lavender_pale"
+    },
+    "panel.result": {
+      "base": "membrane.player",
+      "radius": 110,
+      "band": 8,
+      "decor_count": 30,
+      "wobble_amp": 2.0,
+      "wobble_wavelength": 140
+    },
+    "panel.result_fail": {
+      "base": "panel.result",
+      "fill": "critical_membrane",
+      "fill2": "fail_cytoplasm",
+      "decor": "critical_membrane@0.28"
+    },
+    "row.reward": {
+      "kind": "box",
+      "radius": 20,
+      "fill": "white",
+      "stroke": "lavender",
+      "stroke_width": 2.5
+    },
+    "veil": {
+      "kind": "box",
+      "fill": "dim@0.55"
+    },
+    "level.badge": {
+      "kind": "ellipse",
+      "fill": "lavender_ink",
+      "stroke": "plum",
+      "stroke_width": 3.5
+    },
+    "level.check": {
+      "kind": "ellipse",
+      "fill": "lavender_deep",
+      "stroke": "plum",
+      "stroke_width": 3.5
+    },
+    "level.pill": {
+      "kind": "box",
+      "radius": 999,
+      "fill": "level_pill"
     }
   },
   "numbers": {

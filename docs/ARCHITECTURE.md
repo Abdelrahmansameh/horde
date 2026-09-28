@@ -886,8 +886,11 @@ build phases are in `docs/UI_FRAMEWORK.md`. What matters structurally:
 - The in-match HUD is `ui/hud/HudScreen`, fed plain `ui::HudModel` data by
   `app/UiBridge.cpp` each frame; it reports `ui::Intent` (`ui/Intent.h`) like
   the rest of `ui`.
+- The out-of-match screens (main menu, campaign level select, pause, results)
+  are `ui/front/FrontEnd`, fed a `ui::FrontModel`; they report
+  `ui::MenuResult` and `App::apply_menu_result` drives the state machine.
 - ImGui (`ui/DevUi`) stays for developer tools (gym panel, level editor) and,
-  until they move to gui, the front-end screens.
+  until it moves to gui, the Strengthen Immunity screen (`ui/Menu`).
 
 `ui` emits **intents**, it does not mutate the sim. `app/` translates intents
 into sim commands so every state change goes through one auditable path — which

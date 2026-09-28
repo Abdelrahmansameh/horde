@@ -478,7 +478,58 @@ void DrawList::stroke_polyline(std::span<const Vec2> points, bool closed, const 
     cmds_.back().index_count = static_cast<u32>(indices_.size()) - cmds_.back().first_index;
 }
 
-void DrawList::fill_convex(std::span<const Vec2> points, Color color) {
+namespace {
+
+/// Ear-clipping triangulation of a simple polygon (either winding). Appends
+/// index triples into `out` (indices into `pts`). O(n^2), fine for the few
+/// dozen points of a UI outline.
+void ear_clip(const std::vector<Vec2>& pts, std::vector<u32>& out) {
+    const usize n = pts.size();
+    std::vector<u32> idx(n);
+    f32 area = 0.0f;
+    for (usize i = 0; i < n; ++i) {
+        idx[i] = static_cast<u32>(i);
+        const Vec2 a = pts[i], b = pts[(i + 1) % n];
+        area += a.x * b.y - b.x * a.y;
+    }
+    const f32 sign = area >= 0.0f ? 1.0f : -1.0f;
+    auto cross = [](Vec2 o, Vec2 a, Vec2 b) { return (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x); };
+    auto inside = [&](Vec2 p, Vec2 a, Vec2 b, Vec2 c) {
+        return cross(a, b, p) * sign >= 0.0f && cross(b, c, p) * sign >= 0.0f && cross(c, a, p) * sign >= 0.0f;
+    };
+    usize guard = 0;
+    while (idx.size() > 3 && guard++ < n * n) {
+        bool clipped = false;
+        for (usize i = 0; i < idx.size(); ++i) {
+            const u32 ia = idx[(i + idx.size() - 1) % idx.size()], ib = idx[i], ic = idx[(i + 1) % idx.size()];
+            const Vec2 a = pts[ia], b = pts[ib], c = pts[ic];
+            if (cross(a, b, c) * sign <= 0.0f) continue;  // reflex corner
+            bool ear = true;
+            for (u32 j : idx) {
+                if (j == ia || j == ib || j == ic) continue;
+                if (inside(pts[j], a, b, c)) {
+                    ear = false;
+                    break;
+                }
+            }
+            if (!ear) continue;
+            out.insert(out.end(), {ia, ib, ic});
+            idx.erase(idx.begin() + static_cast<std::ptrdiff_t>(i));
+            clipped = true;
+            break;
+        }
+        if (!clipped) break;  // degenerate input: fan the rest
+    }
+    for (usize i = 1; i + 1 < idx.size(); ++i) out.insert(out.end(), {idx[0], idx[i], idx[i + 1]});
+}
+
+} // namespace
+
+void DrawList::fill_convex(std::span<const Vec2> points, Color color) { fill_polygon_impl(points, color, true); }
+
+void DrawList::fill_polygon(std::span<const Vec2> points, Color color) { fill_polygon_impl(points, color, false); }
+
+void DrawList::fill_polygon_impl(std::span<const Vec2> points, Color color, bool convex) {
     if (points.size() < 3 || color.a <= 0.0f) return;
     ensure_draw_cmd();
     const Affine2& t = transform();
@@ -505,9 +556,15 @@ void DrawList::fill_convex(std::span<const Vec2> points, Color color) {
         vertices_.push_back(Vertex{p - m * fr, Vec2{}, core, mode});
         vertices_.push_back(Vertex{p + m * fr, Vec2{}, 0u, mode});
     }
-    for (usize i = 1; i + 1 < n; ++i) {
-        const u32 tri[3] = {base, base + static_cast<u32>(i) * 2, base + static_cast<u32>(i + 1) * 2};
-        indices_.insert(indices_.end(), tri, tri + 3);
+    if (convex) {
+        for (usize i = 1; i + 1 < n; ++i) {
+            const u32 tri[3] = {base, base + static_cast<u32>(i) * 2, base + static_cast<u32>(i + 1) * 2};
+            indices_.insert(indices_.end(), tri, tri + 3);
+        }
+    } else {
+        std::vector<u32> tris;
+        ear_clip(pts, tris);
+        for (u32 v : tris) indices_.push_back(base + v * 2);
     }
     for (usize i = 0; i < n; ++i) {
         const u32 a = base + static_cast<u32>(i) * 2, b = base + static_cast<u32>((i + 1) % n) * 2;

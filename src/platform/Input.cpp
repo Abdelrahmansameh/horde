@@ -45,6 +45,7 @@ void InputState::poll(Window& window) {
     wheel_ = 0.0f;
     pressed_latch_.fill(false);
     released_latch_.fill(false);
+    key_latch_.fill(false);
     const Vec2 prev_pos = mouse_pos_;
 
     SDL_Event ev;
@@ -61,6 +62,12 @@ void InputState::poll(Window& window) {
                 } else if (ev.window.event == SDL_WINDOWEVENT_CLOSE) {
                     quit_requested_ = true;
                     window.request_close();
+                }
+                break;
+            case SDL_KEYDOWN:
+                if (ev.key.repeat != 0) break;
+                for (u32 i = 0; i < kActionCount; ++i) {
+                    if (scancode_[i] == static_cast<i32>(ev.key.keysym.scancode)) key_latch_[i] = true;
                 }
                 break;
             case SDL_MOUSEWHEEL:

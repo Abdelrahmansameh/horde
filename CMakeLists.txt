@@ -161,6 +161,7 @@ add_library(immune_ui STATIC src/ui/DevUi.cpp src/ui/Menu.cpp src/ui/Fonts.cpp
   src/ui/GymPanel.cpp
   src/ui/hud/HudParts.cpp
   src/ui/hud/HudScreen.cpp
+  src/ui/front/Backdrop.cpp src/ui/front/LevelCell.cpp src/ui/front/FrontEnd.cpp
   src/ui/editor/EditorCanvas.cpp
   src/ui/editor/EditorGizmos.cpp
   src/ui/editor/EditorPanels.cpp)

@@ -134,7 +134,9 @@ cam <x,y|spawn_pt|objective|fit> [h]              invuln [on|off]  overlay <debu
 stats   spawn_points   restart   level <name>  autoplay [on|off] [profile]
 config get|set|list <dotted.path> [v]          (interactive / sim-test only)
 ui dump | click <path> | hover <path> | pointer <x> <y> | select <n> | cancel
-                                               (interactive and --screenshot --ui)
+ui level <n>                                   (level select: pick campaign level n)
+ui screen none|menu|levels|pause|victory|defeat   (--screenshot --ui only)
+                                               (the rest: interactive and --screenshot --ui)
 ```
 
 `ui` drives the HUD by widget path (`ui dump` lists them): `hud/dock/<tower>`
@@ -159,6 +161,23 @@ $S --tick 460 --exec "$T; wave start; integrity 18; ui click hud/abilities/hista
 stderr prints `--ui: N draw calls, N shapes, N vertices`; the whole HUD is one
 draw call unless a stencil clip or a layer is in use.
 
+The out-of-match screens (src/ui/front) show over the same capture with
+`ui screen <name>`. The results use a sample first-clear payout; the level
+map treats every campaign level before `$L` as cleared, so pick `$L` to set
+how far along the campaign looks. Their widget paths: `menu/play`,
+`menu/quit`, `levels/cell<n>`, `levels/play`, `levels/back`,
+`<victory|defeat>/panel/buttons/<tree|next|replay|retry|levels>`,
+`pause/panel/buttons/<resume|restart|menu>`.
+
+```bash
+L=assets/levels/campaign_04_twin_channels.json
+S="$E --screenshot $L --ui --width 1920 --height 1080"
+$S --tick 10  --exec "ui screen menu" --out "$SCRATCH/menu.png"
+$S --tick 10  --exec "ui screen levels" --out "$SCRATCH/levels.png"      # 1-3 cleared, 4 next
+$S --tick 900 --exec "ui screen victory" --out "$SCRATCH/victory.png"    # over the level
+$S --tick 900 --exec "ui screen defeat" --out "$SCRATCH/defeat.png"
+```
+
 ## 6. Interactive play
 
 ```bash
@@ -171,7 +190,7 @@ Launch windowed runs with `run_in_background`. They don't exit on their own, so 
 
 - **Never touch the user's real save** (`%APPDATA%/IMMUNE/IMMUNE/save.json`). Pass `--save <scratch>` or `--sandbox`.
 - `--exec` also runs in interactive play, right after the level loads.
-- Keys: **F1** debug overlay · **TAB** threat overlay · **` / F2** gym panel (opens by itself on `gym.json`) · **F4** level editor · **SPACE** pause (during prep: send the wave now) · **, / .** speed · **1–5** arm a tower in dock order (Neutrophil, Cytotoxic T, Macrophage, Goblet Cell, Fibroblast) · **Q W E R** abilities · **Esc** cancel the armed cursor / close the tower popup, else the pause menu · **F12** screenshot.
+- Keys: **F1** debug overlay · **TAB** threat overlay · **` / F2** gym panel (opens by itself on `gym.json`) · **F4** level editor (from a level, or a blank one from the title) · **SPACE** pause (during prep: send the wave now) · **, / .** speed · **1–5** arm a tower in dock order (Neutrophil, Cytotoxic T, Macrophage, Goblet Cell, Fibroblast) · **Q W E R** abilities · **Esc** cancel the armed cursor / close the tower popup, else the pause menu; in the front end it walks back levels → Strengthen Immunity → title · **F12** screenshot.
 - To force a loss quickly on campaign_01: `--exec "spawn all 400 at 200,31 radius 4; time 4"`.
 
 You can't see or click the live window. For proof, use a headless `--screenshot` of the same state, the log, or `stats`.

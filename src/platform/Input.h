@@ -53,7 +53,13 @@ public:
     void poll(Window& window);
 
     bool action_down(Action a) const { return down_[static_cast<u32>(a)]; }
-    bool action_pressed(Action a) const { return down_[static_cast<u32>(a)] && !prev_down_[static_cast<u32>(a)]; }
+    /// Went down this frame. Also true for a tap that went down AND up
+    /// between two polls (the key-down event is latched), which a state
+    /// comparison alone would miss.
+    bool action_pressed(Action a) const {
+        const u32 i = static_cast<u32>(a);
+        return key_latch_[i] || (down_[i] && !prev_down_[i]);
+    }
     bool action_released(Action a) const { return !down_[static_cast<u32>(a)] && prev_down_[static_cast<u32>(a)]; }
 
     bool mouse_down(MouseButton b) const { return mouse_down_[static_cast<u32>(b)]; }
@@ -101,6 +107,7 @@ public:
 private:
     std::array<bool, kActionCount> down_{};
     std::array<bool, kActionCount> prev_down_{};
+    std::array<bool, kActionCount> key_latch_{};
     std::array<i32, kActionCount> scancode_{};
     std::array<bool, static_cast<u32>(MouseButton::Count)> mouse_down_{};
     std::array<bool, static_cast<u32>(MouseButton::Count)> prev_mouse_down_{};

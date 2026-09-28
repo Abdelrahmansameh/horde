@@ -3,7 +3,9 @@
 #include "core/Math.h"
 #include "gui/draw/DrawList.h"
 
+#include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -15,6 +17,7 @@ namespace immune::gui {
 
 struct IconLibrary::Icon {
     NSVGimage* image = nullptr;
+    f32 pad_fraction = kPadFraction;
     std::map<i32, IconSprite> bakes;
     ~Icon() {
         if (image != nullptr) nsvgDelete(image);
@@ -45,6 +48,16 @@ usize IconLibrary::load_dir(const std::string& dir) {
 }
 
 bool IconLibrary::load_svg(const std::string& name, std::string svg_text) {
+    // data-pad on the root <svg> overrides the bake padding (an illustration
+    // whose viewBox already holds the whole drawing needs almost none).
+    f32 pad_fraction = kPadFraction;
+    if (const usize root = svg_text.find("<svg"); root != std::string::npos) {
+        const usize root_end = svg_text.find('>', root);
+        const usize attr = svg_text.find("data-pad=\"", root);
+        if (attr != std::string::npos && attr < root_end) {
+            pad_fraction = math::clamp(std::strtof(svg_text.c_str() + attr + 10, nullptr), 0.0f, 1.0f);
+        }
+    }
     // nsvgParse tokenizes in place, so it needs a mutable, terminated buffer.
     svg_text.push_back('\0');
     NSVGimage* image = nsvgParse(svg_text.data(), "px", 96.0f);
@@ -55,6 +68,7 @@ bool IconLibrary::load_svg(const std::string& name, std::string svg_text) {
     }
     auto icon = std::make_unique<Icon>();
     icon->image = image;
+    icon->pad_fraction = pad_fraction;
     icons_[name] = std::move(icon);
     return true;
 }
@@ -84,14 +98,14 @@ const IconSprite& IconLibrary::sprite(std::string_view name, i32 pixel_size) {
     const auto it = icons_.find(name);
     if (it == icons_.end()) return missing_;
     Icon& icon = *it->second;
-    pixel_size = math::clamp(pixel_size, 4, 512);
+    pixel_size = math::clamp(pixel_size, 4, kMaxBakeSize);
     if (auto b = icon.bakes.find(pixel_size); b != icon.bakes.end()) return b->second;
 
     IconSprite sp;
     const f32 vw = math::max(icon.image->width, 1.0f);
     const f32 vh = math::max(icon.image->height, 1.0f);
     sp.view_size = Vec2{vw, vh};
-    sp.pad = math::max(vw, vh) * kPadFraction;
+    sp.pad = math::max(vw, vh) * icon.pad_fraction;
     const f32 scale = static_cast<f32>(pixel_size) / math::max(vw, vh);
     const i32 w = static_cast<i32>(std::ceil((vw + 2.0f * sp.pad) * scale));
     const i32 h = static_cast<i32>(std::ceil((vh + 2.0f * sp.pad) * scale));

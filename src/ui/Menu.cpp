@@ -1,6 +1,6 @@
-// ui/Menu.cpp — main menu and level select. See Menu.h for why these screens
-// are separate from Hud and why they report clicks rather than driving the
-// state machine themselves.
+// ui/Menu.cpp — the Strengthen Immunity screen, on ImGui until it moves to the
+// gui framework (docs/UI_FRAMEWORK.md, phase 5). See Menu.h for why it
+// reports clicks rather than driving the state machine itself.
 #include "ui/Menu.h"
 
 #include "game/config/GameConfig.h"
@@ -62,279 +62,8 @@ void draw_title(const char* text, f32 scale) {
 const ImVec4 kAccent(0.30f, 0.90f, 0.80f, 1.0f);
 const ImVec4 kGold(1.0f, 0.82f, 0.35f, 1.0f);
 
-/// A centred line of body text in `color`.
-void centered_text(const char* text, const ImVec4& color) {
-    ImGui::PushStyleColor(ImGuiCol_Text, color);
-    center_next_item(ImGui::CalcTextSize(text).x);
-    ImGui::TextUnformatted(text);
-    ImGui::PopStyleColor();
-}
-
-/// What the run paid (PROGRESSION.md §3): Memory Cells every time, the
-/// Antibody only on a first clear -- said out loud either way, so a replay
-/// that earned no Antibody reads as the rule rather than as a bug.
-void draw_run_summary(const RunSummary& s, bool won) {
-    if (!s.valid) return;
-    char line[128];
-    if (s.sandbox) {
-        centered_text("Sandbox run: no Memory Cells or Antibodies.",
-                      ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-        return;
-    }
-    std::snprintf(line, sizeof(line), "+%u Memory Cells", s.memory_cells);
-    centered_text(line, kAccent);
-    if (s.antibodies > 0) {
-        std::snprintf(line, sizeof(line), "+%u Antibod%s  (first clear)", s.antibodies,
-                      s.antibodies == 1 ? "y" : "ies");
-        centered_text(line, kGold);
-    } else if (won) {
-        centered_text("No Antibody: already cleared before.",
-                      ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-    }
-}
-
-/// The campaign's way out of a finished run: again, stronger, or elsewhere.
-void draw_campaign_exits(MenuResult& result, const char* again_label) {
-    const ImVec2 button{240.0f, 38.0f};
-    center_next_item(button.x);
-    if (ImGui::Button(again_label, button)) result.action = MenuAction::RestartLevel;
-    ImGui::Dummy(ImVec2(0.0f, 4.0f));
-    center_next_item(button.x);
-    if (ImGui::Button("Strengthen Immunity", button)) result.action = MenuAction::OpenImmunityTree;
-    ImGui::Dummy(ImVec2(0.0f, 4.0f));
-    center_next_item(button.x);
-    if (ImGui::Button("Level Select", button)) result.action = MenuAction::OpenLevelSelect;
-    ImGui::Dummy(ImVec2(0.0f, 4.0f));
-    center_next_item(button.x);
-    if (ImGui::Button("Main Menu", button)) result.action = MenuAction::Back;
-}
 
 } // namespace
-
-MenuResult Menu::build_main_menu(i32 screen_width, i32 screen_height) {
-    MenuResult result;
-    center_next_window(screen_width, screen_height, 560.0f, 380.0f);
-    if (ImGui::Begin("##main_menu", nullptr, kPanelFlags)) {
-        ImGui::Dummy(ImVec2(0.0f, 12.0f));
-        draw_title("IMMUNE", 2.4f);
-        ImGui::Dummy(ImVec2(0.0f, 4.0f));
-        // Wrapped rather than centred-on-measured-width. CalcTextSize outside
-        // an open window under-reports against what actually gets rasterised
-        // (font scaling is not applied the same way), which silently clipped
-        // this line mid-word. Wrapping cannot clip at any font scale.
-        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-        ImGui::PushTextWrapPos(0.0f);
-        ImGui::TextUnformatted("Hold the line inside the body.");
-        ImGui::PopTextWrapPos();
-        ImGui::PopStyleColor();
-
-        ImGui::Dummy(ImVec2(0.0f, 28.0f));
-        const ImVec2 button{240.0f, 42.0f};
-
-        center_next_item(button.x);
-        if (ImGui::Button("Play", button)) result.action = MenuAction::OpenLevelSelect;
-
-        ImGui::Dummy(ImVec2(0.0f, 8.0f));
-        center_next_item(button.x);
-        if (ImGui::Button("Strengthen Immunity", button)) result.action = MenuAction::OpenImmunityTree;
-
-        ImGui::Dummy(ImVec2(0.0f, 8.0f));
-        center_next_item(button.x);
-        if (ImGui::Button("Level Editor", button)) result.action = MenuAction::OpenEditor;
-
-        ImGui::Dummy(ImVec2(0.0f, 8.0f));
-        center_next_item(button.x);
-        if (ImGui::Button("Quit", button)) result.action = MenuAction::Quit;
-    }
-    ImGui::End();
-    return result;
-}
-
-MenuResult Menu::build_level_select(const std::vector<LevelEntry>& levels,
-                                    i32 screen_width, i32 screen_height) {
-    MenuResult result;
-    center_next_window(screen_width, screen_height, 620.0f, 480.0f);
-    if (ImGui::Begin("##level_select", nullptr, kPanelFlags)) {
-        ImGui::Dummy(ImVec2(0.0f, 8.0f));
-        draw_title("Select a Level", 1.6f);
-        ImGui::Dummy(ImVec2(0.0f, 10.0f));
-        ImGui::Separator();
-
-        if (levels.empty()) {
-            // An empty list almost always means the asset root did not resolve,
-            // not that the campaign is genuinely empty -- say so, rather than
-            // showing a blank panel that looks like a broken build.
-            ImGui::Dummy(ImVec2(0.0f, 24.0f));
-            ImGui::TextWrapped(
-                "No levels found. Expected .json level files under the 'assets/levels' "
-                "directory of the asset root. Set IMMUNE_ASSET_ROOT if the game is "
-                "running from outside the repository.");
-        } else {
-            if (selected_ >= static_cast<int>(levels.size())) selected_ = 0;
-
-            ImGui::BeginChild("##level_list", ImVec2(0.0f, 320.0f), true);
-            for (int i = 0; i < static_cast<int>(levels.size()); ++i) {
-                const LevelEntry& e = levels[static_cast<usize>(i)];
-                ImGui::PushID(i);
-                if (ImGui::Selectable(e.display_name.c_str(), selected_ == i,
-                                      ImGuiSelectableFlags_AllowDoubleClick)) {
-                    selected_ = i;
-                    // Double-click is the conventional "open it now" gesture;
-                    // single click only highlights, so the subtitle below can
-                    // be read before committing.
-                    if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
-                        result.action = MenuAction::StartLevel;
-                        result.level_index = static_cast<usize>(i);
-                    }
-                }
-                ImGui::SameLine();
-                if (e.lane_count > 0) {
-                    ImGui::TextDisabled("  %s - %u lane%s", e.region.c_str(), e.lane_count,
-                                        e.lane_count == 1 ? "" : "s");
-                } else {
-                    ImGui::TextDisabled("  %s", e.region.c_str());
-                }
-                if (e.difficulty > 0) {
-                    ImGui::SameLine();
-                    ImGui::TextDisabled("- difficulty %d/10", e.difficulty);
-                }
-                // The first clear is what pays an Antibody (PROGRESSION.md
-                // §3.2), so which levels still have one is worth a glance.
-                ImGui::SameLine();
-                if (e.cleared) {
-                    ImGui::TextColored(kAccent, "  [cleared]");
-                } else {
-                    ImGui::TextColored(kGold, "  [+1 Antibody]");
-                }
-                ImGui::PopID();
-            }
-            ImGui::EndChild();
-
-            ImGui::Dummy(ImVec2(0.0f, 6.0f));
-            const ImVec2 button{200.0f, 38.0f};
-            if (ImGui::Button("Start", button)) {
-                result.action = MenuAction::StartLevel;
-                result.level_index = static_cast<usize>(selected_);
-            }
-            ImGui::SameLine();
-            if (ImGui::Button("Back", button)) result.action = MenuAction::Back;
-        }
-    }
-    ImGui::End();
-    return result;
-}
-
-MenuResult Menu::build_level_failed_screen(i32 screen_width, i32 screen_height, bool playtest,
-                                           const RunSummary& summary) {
-    MenuResult result;
-    center_next_window(screen_width, screen_height, 480.0f, playtest ? 280.0f : 400.0f);
-    if (ImGui::Begin("##level_failed", nullptr, kPanelFlags)) {
-        ImGui::Dummy(ImVec2(0.0f, 20.0f));
-        draw_title("Level Failed", 1.8f);
-        ImGui::Dummy(ImVec2(0.0f, 16.0f));
-
-        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-        center_next_item(ImGui::CalcTextSize("Objective destroyed.").x);
-        ImGui::TextUnformatted("Objective destroyed.");
-        ImGui::PopStyleColor();
-
-        if (!playtest) {
-            // Losing still pays (PROGRESSION.md §3.1): the point of this
-            // screen in the campaign is "spend it and go again".
-            ImGui::Dummy(ImVec2(0.0f, 10.0f));
-            draw_run_summary(summary, false);
-            ImGui::Dummy(ImVec2(0.0f, 16.0f));
-            draw_campaign_exits(result, "Try Again");
-            ImGui::End();
-            return result;
-        }
-
-        ImGui::Dummy(ImVec2(0.0f, 24.0f));
-        const ImVec2 button{180.0f, 42.0f};
-
-        center_next_item(button.x);
-        if (ImGui::Button("Restart", button)) result.action = MenuAction::RestartLevel;
-
-        ImGui::Dummy(ImVec2(0.0f, 8.0f));
-        center_next_item(button.x);
-        if (playtest) {
-            if (ImGui::Button("Back to Editor", button)) result.action = MenuAction::BackToEditor;
-        } else if (ImGui::Button("Menu", button)) {
-            result.action = MenuAction::Back;
-        }
-    }
-    ImGui::End();
-    return result;
-}
-
-MenuResult Menu::build_level_complete_screen(i32 screen_width, i32 screen_height, bool playtest,
-                                             const RunSummary& summary) {
-    MenuResult result;
-    center_next_window(screen_width, screen_height, 480.0f, playtest ? 280.0f : 420.0f);
-    if (ImGui::Begin("##level_complete", nullptr, kPanelFlags)) {
-        ImGui::Dummy(ImVec2(0.0f, 20.0f));
-        draw_title("Level Complete", 1.8f);
-        ImGui::Dummy(ImVec2(0.0f, 16.0f));
-
-        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-        center_next_item(ImGui::CalcTextSize("All waves cleared!").x);
-        ImGui::TextUnformatted("All waves cleared!");
-        ImGui::PopStyleColor();
-
-        if (!playtest) {
-            ImGui::Dummy(ImVec2(0.0f, 10.0f));
-            draw_run_summary(summary, true);
-            ImGui::Dummy(ImVec2(0.0f, 16.0f));
-            // DESIGN.md §7.4: replaying for more Memory Cells is as legitimate
-            // a next step as moving on, so it is offered first.
-            draw_campaign_exits(result, "Replay");
-            ImGui::End();
-            return result;
-        }
-
-        ImGui::Dummy(ImVec2(0.0f, 24.0f));
-        const ImVec2 button{180.0f, 42.0f};
-
-        if (playtest) {
-            center_next_item(button.x);
-            if (ImGui::Button("Restart", button)) result.action = MenuAction::RestartLevel;
-            ImGui::Dummy(ImVec2(0.0f, 8.0f));
-        }
-
-        center_next_item(button.x);
-        if (playtest) {
-            if (ImGui::Button("Back to Editor", button)) result.action = MenuAction::BackToEditor;
-        } else if (ImGui::Button("Menu", button)) {
-            result.action = MenuAction::Back;
-        }
-    }
-    ImGui::End();
-    return result;
-}
-
-MenuResult Menu::build_pause_menu(i32 screen_width, i32 screen_height) {
-    MenuResult result;
-    center_next_window(screen_width, screen_height, 420.0f, 320.0f);
-    if (ImGui::Begin("##pause_menu", nullptr, kPanelFlags)) {
-        ImGui::Dummy(ImVec2(0.0f, 12.0f));
-        draw_title("Paused", 1.8f);
-        ImGui::Dummy(ImVec2(0.0f, 20.0f));
-        const ImVec2 button{220.0f, 42.0f};
-
-        center_next_item(button.x);
-        if (ImGui::Button("Resume", button)) result.action = MenuAction::Resume;
-
-        ImGui::Dummy(ImVec2(0.0f, 8.0f));
-        center_next_item(button.x);
-        if (ImGui::Button("Restart", button)) result.action = MenuAction::RestartLevel;
-
-        ImGui::Dummy(ImVec2(0.0f, 8.0f));
-        center_next_item(button.x);
-        if (ImGui::Button("Main Menu", button)) result.action = MenuAction::Back;
-    }
-    ImGui::End();
-    return result;
-}
 
 // ---------------------------------------------------------------------------
 // Strengthen Immunity
@@ -499,7 +228,7 @@ MenuResult Menu::build_immunity_tree(const game::MetaProgression& meta, const ga
         const ImVec2 small{150.0f, 30.0f};
         ImGui::SameLine();
         {
-            const f32 room = ImGui::GetContentRegionAvail().x - (small.x * 2.0f + 8.0f);
+            const f32 room = ImGui::GetContentRegionAvail().x - (small.x * 3.0f + 16.0f);
             if (room > 0.0f) ImGui::SetCursorPosX(ImGui::GetCursorPosX() + room);
         }
         const bool can_respec = meta.can_respec(cfg);
@@ -512,6 +241,8 @@ MenuResult Menu::build_immunity_tree(const game::MetaProgression& meta, const ga
         }
         ImGui::SameLine();
         if (ImGui::Button("Back", small)) result.action = MenuAction::Back;
+        ImGui::SameLine();
+        if (ImGui::Button("Play", small)) result.action = MenuAction::OpenLevelSelect;
         ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
         ImGui::TextWrapped("Every run earns Memory Cells (MC): they buy levels. A level's first "
                            "clear earns an Antibody (AB): it buys towers, abilities and capstones.");

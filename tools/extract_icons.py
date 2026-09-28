@@ -11,6 +11,11 @@ Every icon is normalized to a 64x64 viewBox with the Kit's root convention
 (fill="none", round caps and joins): the canvas relies on that for its
 stroke-only paths.
 
+Big illustrations are cut out of their artboard by hand-picked group (see
+ILLUSTRATIONS). Each carries its own data-pad: a big illustration's viewBox
+already holds the whole drawing, so IconLibrary bakes it with almost no
+padding.
+
 Hand-authored icons live beside the extracted ones and are left alone:
 glyph_arrow.svg (the canvas's "->" came from a browser fallback font; the
 game's fonts have no arrows).
@@ -62,6 +67,37 @@ BUTTON_GLYPHS = {
     "Menu": "glyph_menu",
     "Back to Strengthen Immunity": "glyph_back",
 }
+
+# Illustrations and one-off glyphs: (artboard, the <g ...> opening tag that
+# starts the group, viewBox for the group's own coordinates, bake padding as a
+# fraction of the viewBox, icon name). Nested groups named in
+# DROP are cut out (the mascot's prey wobbles on its own in the game).
+ILLUSTRATIONS = [
+    ("Menu.dc.html", '<g transform="translate(1080 360) scale(1.25)">', "0 0 420 320", 0.02, "mascot_macrophage"),
+    ("Levels.dc.html", '<g transform="translate(-14 -18)">', "0 0 28 36", 0.25, "glyph_lock"),
+]
+DROP = ['<g class="anim-wobble"']
+
+
+def group_body(s: str, start: int) -> str:
+    """The inner markup of the <g> opening at `start`, balanced on <g>/</g>."""
+    open_end = s.index(">", start) + 1
+    depth, i = 1, open_end
+    while depth:
+        m = re.compile(r"<g\b|</g>").search(s, i)
+        depth += 1 if m.group(0) == "<g" else -1
+        i = m.end()
+    return s[open_end:i - len("</g>")]
+
+
+def drop_groups(body: str) -> str:
+    for tag in DROP:
+        while (k := body.find(tag)) >= 0:
+            inner = group_body(body, k)
+            end = body.index(">", k) + 1 + len(inner) + len("</g>")
+            body = body[:k] + body[end:]
+    return body
+
 
 SVG_RE = re.compile(r'<svg\b([^>]*)>(.*?)</svg>', re.S)
 
@@ -115,6 +151,13 @@ def extract() -> dict[str, str]:
                 glyph = re.sub(r"<defs>.*?</defs>", "", glyph, flags=re.S)
                 if re.search(r"<(path|rect|circle|ellipse|g)\b", glyph):
                     icons[name] = HEADER.format(vb="0 0 64 64") + glyph.strip() + "\n</svg>\n"
+    for board, tag, vb, pad, name in ILLUSTRATIONS:
+        s = (CANVAS / board).read_text(encoding="utf-8")
+        body = drop_groups(group_body(s, s.index(tag)))
+        w, h = vb.split()[2:]
+        icons[name] = (f'<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{h}" viewBox="{vb}" '
+                       f'fill="none" stroke-linecap="round" stroke-linejoin="round" data-pad="{pad}">\n'
+                       + body + "\n</svg>\n")
     return icons
 
 
