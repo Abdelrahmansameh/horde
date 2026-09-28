@@ -71,16 +71,44 @@ gui/  core     Gui context · Widget tree · layout · layers · input routing �
 | # | Phase | Status |
 |---|---|---|
 | 1 | Foundation: fonts, draw layer (SDF shapes, paths, stencil clips, layers), text, icons, GL backend, showcase test | **Done** |
-| 2 | Core: widget tree, flex / anchored / world-anchored layout, `Gui` context and layers, input fan-out from `InputState` and capture merge with ImGui, hotkeys, animation (`Tween`, `Spring`, canvas loops beat/pulse/wobble/throb/halo/spin/flow), theme with hot reload, base widgets | Next |
-| 3 | In-match HUD: `HudModel` + `app/UiBridge`, `HudController` (selection and cursors out of `Hud.cpp`'s statics), `HudScreen` for the five canvas states (wave, placing, inspect, prep, critical), world-anchored range ring, frame-order wiring, UI sounds, remove the ImGui HUD, `--ui` in screenshot mode, `ui.click/hover/dump` gym commands | |
+| 2 | Core: widget tree, flex / anchored / world-anchored layout, `Gui` context and layers, pointer state machine (hover, capture, click/deny, drag, wheel, tooltips), animation (`Tween`, `Spring`, the canvas loops beat/pulse/wobble/throb/halo/spin/flow), theme (`assets/config/ui_theme.json`), base widgets (`Panel`, `Label`, `Icon`, `Button`, `Meter`, `Ring`, `Spacer`) | **Done** |
+| 3 | In-match HUD: `HudModel` + `app/UiBridge`, `HudController` (selection and cursors out of `Hud.cpp`'s statics), `HudScreen` for the five canvas states (wave, placing, inspect, prep, critical), world-anchored range ring, `Gui` in `App` (frame order, `PointerInput` from `InputState`, pointer capture OR-ed with ImGui's, theme hot reload, UI sounds), remove the ImGui HUD, `--ui` in screenshot mode, `ui.click/hover/dump` gym commands | Next |
 | 4 | Out-of-match screens: main menu (with the macrophage mascot), level select with campaign gating, pause, victory and defeat, screen transitions; remove ImGui from `Menu.cpp` | |
 | 5 | Skill tree: pan canvas, vessel edges, `TreeScreen` over the 75 nodes of `ImmunityTree.cpp` | |
 | 6 | Polish: side-by-side pass against every artboard, motion tuning, UI scale option, perf (< 0.5 ms CPU per frame) | |
 
+### Core (built)
+
+- **Retained tree** (`gui/core/Widget.h`): screens build widgets once and set
+  properties as the game changes. Every widget has an id; `path()` joins them
+  ("hud/dock/neutrophil", anonymous containers skipped) and `Gui::find`,
+  `Gui::click`, `Gui::hover`, `Gui::dump` address widgets that way, for tests
+  and the planned `ui.*` gym commands.
+- **Layout** (`gui/core/Layout.h`) is a small flexbox: row, column or stack;
+  padding, gap, cross-axis align, main-axis justify, grow; sizes fit / px /
+  fill / percent with min and max. Children can instead be anchored to a point
+  of the parent, or to a world point projected through the game camera each
+  frame (`Gui::set_projection`). Layout is recomputed every frame.
+- **Pointer routing** (`gui/core/Gui.h`): layers take the pointer top-down;
+  events go to the nearest interactive widget and bubble to its ancestors;
+  press capture, drags with a 4 px threshold, Click on release over the
+  pressed widget, **Deny** instead of Click on a disabled one (the shake and
+  the "can't afford" sound), right-click, wheel, tooltips after a delay.
+  Panels block the pointer by their drawn outline, not their rect;
+  `wants_pointer()` tells the game to keep that click off the world.
+- The UI needs no raw SDL events (it has no text fields), so `InputState`
+  stays as it is: app/ fills a `PointerInput` from its mouse API.
+- **Theme**: colours (hex, names, `name@alpha`), text styles, shape presets
+  with `base` inheritance, and numbers, from `assets/config/ui_theme.json`. A
+  malformed reload keeps the last good theme. Pathogen family colours are set
+  at runtime from `render::family_color`, never duplicated.
+- **Animation** runs on the render clock: `Tween`, `Spring`, and the canvas's
+  CSS keyframes ported one to one (`gui/anim/Anim.h`).
+
 ## Building and testing
 
 - Unit tests: `tests/test_gui_draw.cpp`, `test_gui_text.cpp`,
-  `test_gui_icons.cpp` (no GL); `test_gui_render.cpp` (headless GL) writes
+  `test_gui_icons.cpp`, `test_gui_core.cpp` (no GL); `test_gui_render.cpp` (headless GL) writes
   `gui_showcase.png` to the working directory.
 - Regenerate fonts: `python tools/build_fonts.py` (needs fontTools).
 - Refresh icons after the canvas changes: `python tools/extract_icons.py`;

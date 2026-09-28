@@ -114,6 +114,14 @@ public:
     void push_clip_shape(const ShapeDesc& shape);
     void pop_clip_shape();
 
+    /// Multiplies the alpha of everything drawn until the matching pop
+    /// (nested pushes multiply). Cheap per-widget opacity; overlapping parts
+    /// of a translucent group show through each other — use push_layer when
+    /// the group must fade as one.
+    void push_alpha(f32 alpha);
+    void pop_alpha();
+    f32 alpha() const { return alphas_.back(); }
+
     /// Draws following content into an offscreen layer, composited at
     /// `opacity` on pop — for fading a group as one (no overlap seams).
     void push_layer(f32 opacity);
@@ -166,6 +174,7 @@ private:
     std::vector<DrawCmd> cmds_;
 
     std::vector<Affine2> transforms_{Affine2{}};
+    std::vector<f32> alphas_{1.0f};
     std::vector<Rect> clips_;
 
     struct StencilEntry {

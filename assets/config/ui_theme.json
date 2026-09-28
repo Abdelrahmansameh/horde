@@ -1,0 +1,110 @@
+{
+  "_comment": "UI design tokens (src/gui/style/Theme.h), taken from the design canvas docs/ui-concepts/canvas. Colours: #RRGGBB, #RRGGBBAA, a colour name, or name@alpha. Pathogen family colours are set at runtime from render::family_color and are not listed here. Hot-reloaded in play.",
+
+  "colors": {
+    "plum": "#4E1638",
+    "ink": "#2B1030",
+    "ink_soft": "#5E4470",
+    "tissue": "#992848",
+    "white": "#FFFFFF",
+
+    "flesh": "#EE95A0",
+    "cytoplasm": "#FFF0E6",
+    "blood": "#F08A9C",
+    "blood_track": "#F7D9D3",
+
+    "lavender": "#A48CF0",
+    "lavender_deep": "#6A4FD0",
+    "lavender_ink": "#48297F",
+    "lavender_pale": "#F2EDFF",
+    "player_cell": "#FBF8FF",
+
+    "atp": "#FF8A5B",
+    "gold": "#F2B233",
+    "critical": "#D7263D",
+    "locked": "#D4CCD9",
+    "locked_ink": "#6B5E78",
+
+    "shadow": "#28001447",
+
+    "ability_complement": "#F2B233",
+    "ability_histamine": "#E0559A",
+    "ability_fever": "#F26A3D",
+    "ability_clot": "#D7334A"
+  },
+
+  "text": {
+    "label":      { "font": "nunito-800", "size": 13, "letter_spacing": 0.1, "uppercase": true, "color": "ink_soft" },
+    "body":       { "font": "nunito-700", "size": 16, "color": "ink" },
+    "body_small": { "font": "nunito-700", "size": 14, "color": "ink_soft" },
+    "name":       { "font": "nunito-800", "size": 16, "color": "ink" },
+    "value":      { "font": "fredoka-600", "size": 26, "tabular": true, "color": "ink" },
+    "value_big":  { "font": "fredoka-600", "size": 40, "line_height": 1.0, "tabular": true, "color": "ink" },
+    "hotkey":     { "font": "nunito-900", "size": 15, "color": "white" },
+    "button":     { "font": "fredoka-600", "size": 24, "color": "white" },
+    "timer":      { "font": "fredoka-600", "size": 28, "color": "ink", "outline": "white", "outline_width": 2.5 },
+    "title":      { "font": "fredoka-700", "size": 64, "line_height": 1.0, "color": "cytoplasm",
+                    "outline": "plum", "outline_width": 4.5, "shadow": "#1E001073", "shadow_offset": [0, 10] }
+  },
+
+  "shapes": {
+    "membrane.host": {
+      "kind": "box", "radius": 34, "fill": "flesh", "fill2": "cytoplasm", "band": 6,
+      "stroke": "plum", "stroke_width": 3.5, "rim": "white@0.55", "rim_width": 2,
+      "shadow": "shadow", "shadow_offset": [0, 5], "bulge": 3,
+      "wobble_amp": 0.8, "wobble_wavelength": 90, "wobble_speed": 0.6,
+      "decor": "flesh@0.5", "decor_count": 3
+    },
+    "membrane.player": {
+      "base": "membrane.host", "radius": 30, "fill": "lavender", "fill2": "lavender_pale",
+      "decor": "lavender@0.35"
+    },
+    "membrane.locked": {
+      "base": "membrane.host", "fill": "locked", "fill2": "#F4F1F6", "decor_count": 0
+    },
+    "button.round": {
+      "kind": "ellipse", "fill": "player_cell", "stroke": "plum", "stroke_width": 3.5,
+      "shadow": "shadow", "shadow_offset": [0, 4], "wobble_amp": 1.2, "wobble_wavelength": 60, "wobble_speed": 0.8
+    },
+    "button.primary": {
+      "kind": "box", "radius": 999, "fill": "lavender_deep", "stroke": "plum", "stroke_width": 3.5,
+      "rim": "white@0.35", "rim_width": 2, "shadow": "shadow", "shadow_offset": [0, 5], "bulge": 2,
+      "wobble_amp": 0.6, "wobble_speed": 0.7
+    },
+    "button.disabled": {
+      "base": "button.primary", "fill": "locked", "rim": "white@0.25"
+    },
+    "badge": {
+      "kind": "box", "radius": 999, "fill": "lavender_deep", "stroke": "plum", "stroke_width": 2.5
+    },
+    "bar.blood": {
+      "kind": "fluid", "radius": 12, "fill": "blood_track", "stroke": "plum", "stroke_width": 3,
+      "liquid": "blood", "bubble": "white@0.35", "liquid_inset": 3, "wave_amp": 1.5
+    },
+    "bar.health": {
+      "kind": "fluid", "radius": 7, "fill": "blood_track", "stroke": "plum", "stroke_width": 2.5,
+      "liquid": "#6BC96B", "bubble": "white@0.3", "liquid_inset": 2.5, "wave_amp": 0.8
+    },
+    "cell.ability": {
+      "kind": "fluid", "radius": 999, "fill": "player_cell", "stroke": "plum", "stroke_width": 3,
+      "rim_width": 6, "fill_axis": "vertical", "liquid_inset": 0, "wave_amp": 1.5,
+      "shadow": "shadow", "shadow_offset": [0, 4], "wobble_amp": 1.2, "wobble_wavelength": 60, "wobble_speed": 0.9
+    },
+    "ring.halo": {
+      "kind": "arc", "stroke_width": 4, "dash_length": 14, "dash_gap": 10
+    },
+    "vignette.critical": {
+      "kind": "radial", "fill": "#FF2A4A00", "fill2": "#FF2A4A8C", "radial_inner": 0.55
+    },
+    "tooltip": {
+      "kind": "box", "radius": 14, "fill": "cytoplasm", "stroke": "plum", "stroke_width": 3,
+      "shadow": "shadow", "shadow_offset": [0, 4]
+    }
+  },
+
+  "numbers": {
+    "tooltip_delay": 0.45,
+    "hover_scale": 1.04,
+    "press_scale": 0.95
+  }
+}

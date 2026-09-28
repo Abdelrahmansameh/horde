@@ -50,6 +50,7 @@ void DrawList::reset(Vec2 viewport, f32 device_px, f32 time) {
     records_.clear();
     cmds_.clear();
     transforms_.assign(1, Affine2{});
+    alphas_.assign(1, 1.0f);
     clips_.assign(1, Rect{Vec2{0.0f, 0.0f}, viewport});
     stencil_stack_.clear();
     stencil_depth_stack_.assign(1, 0);
@@ -64,6 +65,13 @@ void DrawList::push_transform(const Affine2& t) { transforms_.push_back(transfor
 void DrawList::pop_transform() {
     assert(transforms_.size() > 1 && "unbalanced pop_transform");
     if (transforms_.size() > 1) transforms_.pop_back();
+}
+
+void DrawList::push_alpha(f32 alpha) { alphas_.push_back(alphas_.back() * math::saturate(alpha)); }
+
+void DrawList::pop_alpha() {
+    assert(alphas_.size() > 1 && "unbalanced pop_alpha");
+    if (alphas_.size() > 1) alphas_.pop_back();
 }
 
 void DrawList::push_clip_rect(Rect r) {
@@ -233,6 +241,12 @@ u32 DrawList::shape(const ShapeDesc& in) {
     d.dash_offset *= s;
     d.liquid_inset *= s;
     d.wave_amp *= s;
+    const f32 a = alphas_.back();
+    if (a < 1.0f) {
+        for (Color* c : {&d.fill, &d.fill2, &d.stroke, &d.rim, &d.shadow, &d.decor, &d.liquid, &d.bubble}) {
+            c->a *= a;
+        }
+    }
     const ShapeRecord r = make_record(d);
     ensure_draw_cmd();
     const u32 idx = push_record(r);
@@ -248,7 +262,7 @@ u32 DrawList::text_style(const TextStyleRecord& s) {
     const f32 k = transform().uniform_scale();
     r.geom[0] = s.outline_width * k;
     r.geom[1] = s.softness * k;
-    r.colors0[2] = pack_premul(s.outline);
+    r.colors0[2] = pack_premul(with_alpha(s.outline, s.outline.a * alphas_.back()));
     return push_record(r);
 }
 
@@ -257,7 +271,7 @@ void DrawList::glyph(Rect dst, Vec2 uv0, Vec2 uv1, Color color, u32 style_record
     const Affine2& t = transform();
     quad(t.apply(dst.min), t.apply(Vec2{dst.max.x, dst.min.y}), t.apply(dst.max),
          t.apply(Vec2{dst.min.x, dst.max.y}), uv0, Vec2{uv1.x, uv0.y}, uv1, Vec2{uv0.x, uv1.y},
-         pack_premul(color), pack_mode(VertexMode::Text, style_record));
+         pack_premul(with_alpha(color, color.a * alphas_.back())), pack_mode(VertexMode::Text, style_record));
     cmds_.back().index_count = static_cast<u32>(indices_.size()) - cmds_.back().first_index;
 }
 
@@ -266,7 +280,7 @@ void DrawList::image(Rect dst, Vec2 uv0, Vec2 uv1, Color tint) {
     const Affine2& t = transform();
     quad(t.apply(dst.min), t.apply(Vec2{dst.max.x, dst.min.y}), t.apply(dst.max),
          t.apply(Vec2{dst.min.x, dst.max.y}), uv0, Vec2{uv1.x, uv0.y}, uv1, Vec2{uv0.x, uv1.y},
-         pack_premul(tint), pack_mode(VertexMode::Image, 0));
+         pack_premul(with_alpha(tint, tint.a * alphas_.back())), pack_mode(VertexMode::Image, 0));
     cmds_.back().index_count = static_cast<u32>(indices_.size()) - cmds_.back().first_index;
 }
 
@@ -413,7 +427,7 @@ void DrawList::stroke_polyline(std::span<const Vec2> points, bool closed, const 
     pts.reserve(points.size() + 1);
     for (const Vec2& p : points) pts.push_back(t.apply(p));
     const f32 width = style.width * s;
-    const u32 color = pack_premul(style.color);
+    const u32 color = pack_premul(with_alpha(style.color, style.color.a * alphas_.back()));
 
     const f32 dash = style.dash_length * s, gap = style.dash_gap * s;
     if (dash <= 0.0f || gap <= 0.0f) {
@@ -476,7 +490,7 @@ void DrawList::fill_convex(std::span<const Vec2> points, Color color) {
     }
     const f32 outward = area > 0.0f ? -1.0f : 1.0f;  // screen y points down
     const f32 fr = device_px_ * 0.5f;
-    const u32 core = pack_premul(color);
+    const u32 core = pack_premul(with_alpha(color, color.a * alphas_.back()));
     const u32 mode = pack_mode(VertexMode::Solid, 0);
     const usize n = pts.size();
     const u32 base = static_cast<u32>(vertices_.size());

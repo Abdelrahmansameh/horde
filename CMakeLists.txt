@@ -140,14 +140,19 @@ target_link_libraries(immune_game PUBLIC immune_core immune_config immune_sim im
 add_library(immune_gui STATIC
   src/gui/Color.cpp
   src/gui/backend/GlBackend.cpp
+  src/gui/core/Gui.cpp
+  src/gui/core/Widget.cpp
   src/gui/draw/DrawList.cpp
   src/gui/draw/Shape.cpp
   src/gui/icons/IconLibrary.cpp
   src/gui/icons/NanoSvgImpl.cpp
+  src/gui/style/Theme.cpp
   src/gui/text/Font.cpp
-  src/gui/text/Text.cpp)
+  src/gui/text/Text.cpp
+  src/gui/widgets/Widgets.cpp)
 target_include_directories(immune_gui PRIVATE "${NANOSVG_INCLUDE_DIR}")
-target_link_libraries(immune_gui PUBLIC immune_core immune_platform immune_render)
+target_link_libraries(immune_gui PUBLIC immune_core immune_platform immune_render
+  PRIVATE nlohmann_json::nlohmann_json)
 # Third-party C compiled at this project's warning level would drown the build.
 set_source_files_properties(src/gui/icons/NanoSvgImpl.cpp PROPERTIES
   COMPILE_OPTIONS "$<IF:$<CXX_COMPILER_ID:MSVC>,/w,-w>")
