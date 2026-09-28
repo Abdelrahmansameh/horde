@@ -1,5 +1,24 @@
 # In-match HUD overhaul concepts
 
+## Final direction — "Living Membrane" canvas
+
+The chosen design lives in a Design canvas: https://claude.ai/artifact/BmwSmwUEERL8X7rbVyfvWp. `canvas/project/` is a snapshot of the canvas source, taken 2026-09-28: `canvas.json` is the index and there is one `.dc.html` file per artboard. These files need the canvas runtime (`support.js`) to render, so open the canvas link to see them.
+
+| Artboard | Screen |
+|---|---|
+| `Menu` | Main menu: Play Game, Quit |
+| `Tree` | Strengthen Immunity tree: 75 nodes from `ImmunityTree.cpp`, top bar shows the selected node's cost and effect |
+| `Levels` | Level select: 10 campaign levels on a vessel; Play appears once a level is selected |
+| `Main` | Wave in progress |
+| `Placing` | Placing a tower on the lane floor |
+| `Inspect` | Tower selected: name, health bar, Sell |
+| `Prep` | Prep between waves |
+| `Critical` | Organ integrity critical |
+| `Victory` / `Defeat` | Results screens |
+| `Kit` | HUD component kit |
+
+The rules behind it are in `DESIGN.md` §4.7 and §8. The images below are earlier explorations.
+
 These are visual previews generated from the current match screenshot on 2026-09-28. They explore layout and art direction; labels, enemy counts, cooldowns, and some in-image descriptions are illustrative.
 
 ## Biological revision — current direction
