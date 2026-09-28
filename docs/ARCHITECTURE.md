@@ -40,12 +40,14 @@ One CMake library target per module. Directory ownership is exclusive.
 | `immune_sim` | `src/sim/` | 1A/1B/1D, 2A | core, EnTT |
 | `immune_render` | `src/render/` | 1C, 3D | core, platform, sim |
 | `immune_game` | `src/game/` | 2B/2C/2D, 3A, 4A/4B | core, sim, render, json |
-| `immune_ui` | `src/ui/` | 3B | core, platform, render, game, imgui |
+| `immune_gui` | `src/gui/` | UI framework | core, platform, render (GL wrappers, shaders), stb, nanosvg |
+| `immune_ui` | `src/ui/` | 3B | core, platform, render, game, gui, imgui |
 | `immune_audio` | `src/audio/` | 3C | core, SDL2 |
 | `immune_app` | `src/app/` | 0 | everything |
 
 Dependencies point one way only: `core → platform → sim → render → game → ui →
-app`. `sim` never includes `render`; `render` never mutates `sim`.
+app`, with `gui` beside `game` (`render → gui → ui`). `sim` never includes
+`render`; `render` never mutates `sim`; `gui` never includes `game` or `sim`.
 
 ---
 
@@ -670,9 +672,9 @@ grid-free continuous tower placement needs. World Y is foreshortened by
 `cos(tilt)`; height above the plane is a constant vertical offset plus a drop
 shadow. No 3D geometry anywhere.
 
-`ShaderManager` hot-reloads from `assets/shaders/*.glsl`. Since the project ships
-zero binary assets, shader source is the *only* on-disk art, so hot reload is the
-entire art iteration loop. A failed recompile logs the GLSL error and **keeps the
+`ShaderManager` hot-reloads from `assets/shaders/*.glsl`. Apart from the UI fonts
+(`assets/fonts/`) and the UI's SVG icons (`assets/ui/icons/`), shader source is
+the *only* on-disk art, so hot reload is the entire art iteration loop. A failed recompile logs the GLSL error and **keeps the
 previous working program**, so a typo never blanks the screen.
 
 **Tower art lives in three shaders, and they have to agree.** A tower's *body* is
@@ -744,7 +746,7 @@ PNG top-down flip. This is the project's primary visual verification channel.
   pathogen colour, shared by UI, VFX, and instance tints.
 - **`level/`** — levels are **splines with per-point width in JSON**, not painted
   masks. Agents can author and diff text; nobody can author a mask PNG without a
-  visual editor, and this project ships no binary assets. At load, splines
+  visual editor, and this project ships no binary art. At load, splines
   rasterize into TissueMask → DistanceField → FlowField. Schema v1 is documented
   in `Level.h`; a missing `"schema"` is an error, not a default.
   The optional `obstacles` array is the **subtractive** half of that: five
@@ -863,7 +865,25 @@ PNG top-down flip. This is the project's primary visual verification channel.
 
 ---
 
-## 7. `ui` and `audio`
+## 7. `gui`, `ui` and `audio`
+
+`gui` is the player-facing UI framework: game-agnostic, retained-mode, drawn in
+the design canvas's "Living Membrane" language (docs/ui-concepts). Its design and
+build phases are in `docs/UI_FRAMEWORK.md`. What matters structurally:
+
+- **Every widget shape is a signed distance field evaluated in `gui.frag`**:
+  one quad per shape, and the edge, outline, shadow, cytoplasm inset, rim,
+  organelle dots, dashes and fluid fill all come from that one distance. The
+  wobble animates in the shader from `u_time`. `gui/draw/ShapeSdf.h` mirrors the
+  outline on the CPU for hit testing, and a GL test holds the two to agreement.
+- **One vertex format, one program.** Shapes, stroked curves, SDF text and icons
+  share a 24-byte vertex; shape parameters live in an SSBO. Draws split only on
+  scissor, stencil clip or offscreen layer, so a whole HUD is a handful of draws.
+- **Fonts and icons are baked lazily** into CPU atlases (`gui/Atlas.h`) and
+  uploaded by dirty rectangle: fonts as SDF (`assets/fonts`, stb_truetype),
+  icons from SVG text (`assets/ui/icons`, nanosvg) extracted from the canvas by
+  `tools/extract_icons.py`.
+- ImGui stays for developer tools only (gym panel, level editor).
 
 `ui` emits **intents**, it does not mutate the sim. `app/` translates intents
 into sim commands so every state change goes through one auditable path — which

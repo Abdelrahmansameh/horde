@@ -24,6 +24,7 @@
       ]
     },
     "stb",
+    "nanosvg",
     "catch2"
   ],
   "overrides": [

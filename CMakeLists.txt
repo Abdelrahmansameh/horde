@@ -27,6 +27,10 @@ find_package(nlohmann_json CONFIG REQUIRED)
 find_package(imgui CONFIG REQUIRED)
 find_package(Stb REQUIRED)
 find_package(Catch2 3 CONFIG REQUIRED)
+# nanosvg (vcpkg port `nanosvg`) is used header-only: its implementation is
+# compiled once in src/gui/icons/NanoSvgImpl.cpp, so only the include path is
+# needed and the port's own library targets are not linked.
+find_path(NANOSVG_INCLUDE_DIR nanosvg.h PATH_SUFFIXES nanosvg REQUIRED)
 
 # ---------------------------------------------------------------------------
 # Shared settings target — every module links this for include paths and flags.
@@ -131,12 +135,29 @@ add_library(immune_game STATIC
 target_link_libraries(immune_game PUBLIC immune_core immune_config immune_sim immune_render
   nlohmann_json::nlohmann_json)
 
+# The UI framework (docs/ui-concepts, src/gui): SDF shapes, text, icons, and
+# the GL backend. Game-agnostic: it never includes game/ or sim/.
+add_library(immune_gui STATIC
+  src/gui/Color.cpp
+  src/gui/backend/GlBackend.cpp
+  src/gui/draw/DrawList.cpp
+  src/gui/draw/Shape.cpp
+  src/gui/icons/IconLibrary.cpp
+  src/gui/icons/NanoSvgImpl.cpp
+  src/gui/text/Font.cpp
+  src/gui/text/Text.cpp)
+target_include_directories(immune_gui PRIVATE "${NANOSVG_INCLUDE_DIR}")
+target_link_libraries(immune_gui PUBLIC immune_core immune_platform immune_render)
+# Third-party C compiled at this project's warning level would drown the build.
+set_source_files_properties(src/gui/icons/NanoSvgImpl.cpp PROPERTIES
+  COMPILE_OPTIONS "$<IF:$<CXX_COMPILER_ID:MSVC>,/w,-w>")
+
 add_library(immune_ui STATIC src/ui/Hud.cpp src/ui/Menu.cpp src/ui/Fonts.cpp
   src/ui/GymPanel.cpp
   src/ui/editor/EditorCanvas.cpp
   src/ui/editor/EditorGizmos.cpp
   src/ui/editor/EditorPanels.cpp)
-target_link_libraries(immune_ui PUBLIC immune_core immune_platform immune_render immune_game
+target_link_libraries(immune_ui PUBLIC immune_core immune_platform immune_render immune_game immune_gui
   PRIVATE imgui::imgui)
 
 add_library(immune_audio STATIC src/audio/Audio.cpp)

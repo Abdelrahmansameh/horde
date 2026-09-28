@@ -167,6 +167,10 @@ Bare `TODO` without an owner is not acceptable in this codebase.
 - Build output lives outside the source tree
   (`$LOCALAPPDATA/horde-build/<preset>`) because the repo sits inside OneDrive
   and a build directory there causes sync churn and locked-file failures.
-- **No binary assets, ever.** No PNGs, WAVs, fonts, or meshes in the repo. All
-  visuals are shader-generated; all audio is synthesized at runtime. The only
-  files in `assets/` are `.glsl` and `.json`.
+- **No binary assets, with one exception: UI fonts.** No PNGs, WAVs, or meshes
+  in the repo. All visuals are shader-generated; all audio is synthesized at
+  runtime. `assets/` holds `.glsl`, `.json`, `.svg` (UI icons, which are text)
+  and the static UI fonts in `assets/fonts/` (OFL-licensed Fredoka and Nunito,
+  built by `tools/build_fonts.py`; `assets/fonts/OFL.txt` must ship with them).
+  The design needs those exact typefaces, and there is no way to generate a
+  typeface. No other binary file type is allowed.
