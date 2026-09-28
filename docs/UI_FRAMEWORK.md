@@ -75,7 +75,7 @@ gui/  core     Gui context · Widget tree · layout · layers · input routing �
 | 3 | In-match HUD: `HudModel` + `app/UiBridge`, `HudScreen` (with the selection and armed cursors that were `Hud.cpp`'s statics) for the five canvas states, world overlays, `Gui` in `App`, the ImGui HUD removed (`Hud` became `DevUi`), `--screenshot --ui`, gym `ui` and `integrity` commands | **Done** |
 | 4 | Out-of-match screens: main menu (with the macrophage mascot), level select with campaign gating, pause, victory and defeat, screen transitions | **Done** |
 | 5 | Skill tree: `TreeScreen` over the 75 nodes of `ImmunityTree.cpp`, laid out from the canvas; ImGui `Menu.cpp` removed | **Done** |
-| 6 | Polish: side-by-side pass against every artboard, motion tuning, UI scale option, perf (< 0.5 ms CPU per frame) | Next |
+| 6 | Polish: fit-to-screen scaling and a UI scale option, perf (< 0.5 ms CPU per frame), fixes from the side-by-side pass | **Done** |
 
 ### Core (built)
 
@@ -178,6 +178,24 @@ gui/  core     Gui context · Widget tree · layout · layers · input routing �
   screen), Play (to the campaign). Grow reports `MenuAction::PurchaseNode`;
   app/ buys through `MetaProgression`, so the screen cannot disagree with
   the rules.
+
+### Scale and performance
+
+- **Scale**: the UI lays out on the canvas's 1920x1080 reference frame,
+  scaled to fit the window: by height on 16:9 and wider screens, by width on
+  narrower ones (4:3, 16:10), so nothing designed on the reference frame is
+  cut off; the full-screen art (menu, tree, level map) keeps its composition
+  on a 1920x1080 stage. The player's setting `--ui-scale` (0.75 to 1.5, also
+  `ui scale <f>` in the gym) multiplies that.
+- **Budget**: under 0.5 ms of CPU per frame for the whole gui side (layout,
+  input, animation, recording draws). `tests/test_menu.cpp` prints it per
+  screen; on the dev container (RelWithDebInfo) the tree is about 0.45 ms,
+  the level map 0.33, the menu 0.14, results 0.01.
+- What keeps it there: static strokes (vessels) are tessellated once into a
+  `SolidMesh` and replayed with `DrawList::append_solid`; `Label` caches its
+  measurement; kerning pairs are cached; icon bakes are bucketed (~6% steps
+  above 32 px) so a looping scale does not re-rasterize the SVG every frame;
+  shapes under a plain translate/scale transform skip the sqrt/atan2.
 
 ## Building and testing
 

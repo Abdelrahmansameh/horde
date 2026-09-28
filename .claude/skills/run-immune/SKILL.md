@@ -75,6 +75,7 @@ stderr also prints `screenshot: placed N/M towers` and `screenshot: N live round
 | `--towers [--tower <name>]` | Auto-place one of every tower type (or just `<name>`) along the level's mid-line. |
 | `--scenario <bench name>` | Pre-populate agents from a bench scenario. |
 | `--ui` | Draw the in-match HUD (src/ui/hud) over the capture. The level then runs as in play: waves spawn and ATP flows (step_level, not a bare sim tick), and `ui …` gym commands work in `--exec` (see §5). Use `--width 1920 --height 1080` to match the design canvas. |
+| `--ui-scale <f>` | Size of the game UI, 0.75 to 1.5 (default 1), on top of the fit-to-screen scale. Works in play and in `--screenshot --ui`. |
 | `--config <dir>` | Use a copied and edited `assets/config` for tuning experiments. |
 | `--width/--height` | Framebuffer size. Default 1600×900. |
 | `--seed N`, `--threads N` | `state_hash` only matches across runs that use the same `--threads`. |
@@ -135,6 +136,7 @@ stats   spawn_points   restart   level <name>  autoplay [on|off] [profile]
 config get|set|list <dotted.path> [v]          (interactive / sim-test only)
 ui dump | click <path> | hover <path> | pointer <x> <y> | select <n> | cancel
 ui level <n>                                   (level select: pick campaign level n)
+ui scale <0.75..1.5>                           (UI size; also --ui-scale at launch)
 ui screen none|menu|tree|levels|pause|victory|defeat   (--screenshot --ui only)
                                                (the rest: interactive and --screenshot --ui)
 ```

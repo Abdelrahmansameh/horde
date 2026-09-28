@@ -105,7 +105,9 @@ float hash1(float n) { return fract(sin(n * 12.9898) * 43758.5453); }
 // Organelle dots: a few faint ellipses just inside the cytoplasm's edge, as
 // the canvas scatters them (Main.dc.html's organ panel).
 float decor_dots(Shape s, vec2 p) {
-    int n = int(s.fx.w);
+    // At most 12 (the loop bound); spacing uses the capped count so the
+    // dots always go all the way round.
+    int n = min(int(s.fx.w), 12);
     float band = s.geom.z;
     float r = max(band * 0.8, 3.0);
     vec2 inner = max(s.rect.zw - band - r * 1.3, vec2(1.0));

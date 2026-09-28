@@ -59,6 +59,13 @@ public:
     std::vector<Layer> layers;
 
     void draw_self(gui::DrawList& dl) override;
+
+private:
+    // The still layers before the first flowing one, tessellated once.
+    gui::SolidMesh mesh_;
+    Vec2 mesh_origin_{-1e9f, -1e9f};
+    f32 mesh_device_px_ = 0.0f;
+    usize mesh_layers_ = 0;
 };
 
 } // namespace immune::ui

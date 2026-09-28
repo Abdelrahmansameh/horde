@@ -7,10 +7,12 @@
 // reports. A GL test then renders every screen to PNGs for review
 // (front_*.png in the working directory) and checks it drew.
 #include "app/UiBridge.h"
+#include "core/Clock.h"
 #include "game/config/GameConfig.h"
 #include "game/level/Level.h"
 #include "game/meta/MetaProgression.h"
 #include "gui/core/Gui.h"
+#include "gui/draw/DrawList.h"
 #include "gui/widgets/Widgets.h"
 #include "platform/FileIO.h"
 #include "platform/Window.h"
@@ -24,6 +26,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <cstdio>
 #include <memory>
 #include <string>
 #include <vector>
@@ -487,4 +490,54 @@ TEST_CASE("tree model: the game's rules, as the screen shows them", "[ui][menu][
     CHECK(marrow->state == TreeNodeState::Short);  // a new save has no Memory Cells
     CHECK(marrow->cost_memory > 0);
     CHECK(t.branch_points[0] == 0);
+}
+
+TEST_CASE("front-end screens: CPU cost per frame", "[ui][menu][perf]") {
+    // Layout, input, animation and recording the draw list: the gui's whole
+    // CPU side of a frame (the GL upload is the backend's, measured by the
+    // render tests). The UI budget is 0.5 ms a frame on a release build;
+    // the bound here is looser because the tests may run unoptimized and
+    // alongside other work.
+    Harness h;
+    FrontModel tree;
+    {
+        const game::MetaConfig cfg;
+        game::MetaProgression meta;
+        meta.reset_to_new_game();
+        tree.tree = app::make_tree_model(meta, cfg);
+    }
+    FrontModel results = campaign(1);
+    results.run.valid = true;
+    results.campaign_slot = 0;
+    struct Case { FrontScreen screen; const FrontModel* model; };
+    const FrontModel levels = campaign(3);
+    const FrontModel none;
+    const Case cases[] = {{FrontScreen::MainMenu, &none}, {FrontScreen::Tree, &tree},
+                          {FrontScreen::LevelSelect, &levels}, {FrontScreen::Victory, &results}};
+    for (const Case& c : cases) {
+        CAPTURE(front_screen_name(c.screen));
+        h.open(c.screen, *c.model);
+        gui::DrawList dl;
+        // Warm up: glyphs and icons bake on first use, once.
+        for (int i = 0; i < 10; ++i) {
+            h.frame(c.screen, *c.model);
+            dl.reset(Vec2{1920, 1080}, 1.0f, 0.0f);
+            h.gui.draw(dl);
+        }
+        constexpr int kFrames = 120;
+        f64 frame_ms = 0.0, draw_ms = 0.0;
+        for (int i = 0; i < kFrames; ++i) {
+            WallClock a;
+            h.frame(c.screen, *c.model);
+            frame_ms += a.elapsed_ms();
+            WallClock b;
+            dl.reset(Vec2{1920, 1080}, 1.0f, static_cast<f32>(i) / 60.0f);
+            h.gui.draw(dl);
+            draw_ms += b.elapsed_ms();
+        }
+        const f64 ms = (frame_ms + draw_ms) / kFrames;
+        std::fprintf(stderr, "[ui perf] %-8s %.3f ms/frame (update %.3f, draw %.3f; %zu vertices)\n",
+                     front_screen_name(c.screen), ms, frame_ms / kFrames, draw_ms / kFrames, dl.vertices().size());
+        CHECK(ms < 4.0);
+    }
 }

@@ -57,6 +57,11 @@ public:
 
 private:
     std::string text_;
+    // The last measurement: layout runs every frame, text rarely changes.
+    std::string measured_text_;
+    TextStyle measured_style_{};
+    f32 measured_wrap_ = -1.0f;
+    Vec2 measured_size_{0.0f, 0.0f};
 };
 
 /// An icon from the IconLibrary, fitted into the widget's rect.

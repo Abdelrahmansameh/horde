@@ -97,10 +97,23 @@ void TissueBackdrop::draw_self(DrawList& dl) {
 VesselStroke::VesselStroke(std::string id) : Widget(std::move(id)) {}
 
 void VesselStroke::draw_self(DrawList& dl) {
+    usize still = 0;
+    while (still < layers.size() && layers[still].flow_speed == 0.0f) ++still;
+    if (mesh_origin_ != rect().min || mesh_device_px_ != dl.device_px() || mesh_layers_ != still) {
+        DrawList scratch;
+        scratch.reset(dl.viewport(), dl.device_px(), 0.0f);
+        scratch.push_transform(gui::Affine2::translate(rect().min));
+        for (usize i = 0; i < still; ++i) path.stroke(scratch, layers[i].style);
+        mesh_.capture(scratch);
+        mesh_origin_ = rect().min;
+        mesh_device_px_ = dl.device_px();
+        mesh_layers_ = still;
+    }
+    dl.append_solid(mesh_.vertices, mesh_.indices);
     dl.push_transform(gui::Affine2::translate(rect().min));
-    for (const Layer& l : layers) {
-        gui::StrokeStyle s = l.style;
-        if (l.flow_speed != 0.0f) s.dash_offset -= dl.time() * l.flow_speed;
+    for (usize i = still; i < layers.size(); ++i) {
+        gui::StrokeStyle s = layers[i].style;
+        if (layers[i].flow_speed != 0.0f) s.dash_offset -= dl.time() * layers[i].flow_speed;
         path.stroke(dl, s);
     }
     dl.pop_transform();

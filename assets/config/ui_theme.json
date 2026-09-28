@@ -763,7 +763,7 @@
       "base": "membrane.player",
       "radius": 110,
       "band": 8,
-      "decor_count": 30,
+      "decor_count": 12,
       "wobble_amp": 2.0,
       "wobble_wavelength": 140
     },

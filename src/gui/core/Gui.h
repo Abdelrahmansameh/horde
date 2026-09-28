@@ -50,7 +50,11 @@ struct PointerInput {
 class Gui {
 public:
     /// The design canvas is drawn at 1920x1080; layout happens at that scale.
+    static constexpr f32 kReferenceWidth = 1920.0f;
     static constexpr f32 kReferenceHeight = 1080.0f;
+    /// The player's UI-scale setting is clamped to this range.
+    static constexpr f32 kMinUiScale = 0.75f;
+    static constexpr f32 kMaxUiScale = 1.5f;
 
     struct Assets {
         std::string fonts_dir;   ///< assets/fonts
@@ -80,9 +84,12 @@ public:
     bool reload_theme_if_changed(std::string* error = nullptr);
 
     // ---- Viewport -------------------------------------------------------------
-    /// `framebuffer` in pixels. The UI scale is framebuffer height / 1080
-    /// unless `scale_override` > 0 (a player UI-scale setting).
-    void set_viewport(Vec2 framebuffer, f32 scale_override = 0.0f);
+    /// `framebuffer` in pixels. The UI is scaled so the 1920x1080 reference
+    /// frame fits the framebuffer (by height on 16:9 and wider screens, by
+    /// width on narrower ones, so nothing laid out on the reference frame
+    /// is ever cut off), times `ui_scale`, the player's setting
+    /// (kMinUiScale..kMaxUiScale; bigger = larger UI).
+    void set_viewport(Vec2 framebuffer, f32 ui_scale = 1.0f);
     f32 scale() const { return scale_; }
     Vec2 viewport() const { return viewport_; }
     Vec2 to_logical(Vec2 framebuffer_px) const { return framebuffer_px / scale_; }

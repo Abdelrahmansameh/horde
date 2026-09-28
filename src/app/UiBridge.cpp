@@ -450,6 +450,15 @@ game::GymResult run_ui_command(const UiDriver& d, const std::vector<std::string>
         }
         return okay("selected level " + tok[2]);
     }
+    if (sub == "scale") {
+        if (d.ui_scale == nullptr) return fail("no UI scale in this context");
+        const f32 v = tok.size() > 2 ? std::strtof(tok[2].c_str(), nullptr) : 0.0f;
+        if (!(v >= gui::Gui::kMinUiScale && v <= gui::Gui::kMaxUiScale)) {
+            return fail("usage: ui scale <0.75..1.5>");
+        }
+        *d.ui_scale = v;
+        return okay("ui scale " + tok[2]);
+    }
     if (sub == "screen") {
         if (d.screen == nullptr) return fail("ui screen only works in --screenshot --ui (the game's state decides)");
         const std::string name = tok.size() > 2 ? tok[2] : std::string();

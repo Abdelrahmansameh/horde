@@ -53,7 +53,13 @@ Vec2 Label::content_size(Vec2 available) {
         return Vec2{0.0f, style.size * style.line_height};
     }
     const f32 wrap_width = wrap && !std::isinf(available.x) ? available.x : 0.0f;
-    Vec2 s = gui()->text().measure(text_, style, wrap_width);
+    if (wrap_width != measured_wrap_ || text_ != measured_text_ || !(style == measured_style_)) {
+        measured_size_ = gui()->text().measure(text_, style, wrap_width);
+        measured_text_ = text_;
+        measured_style_ = style;
+        measured_wrap_ = wrap_width;
+    }
+    Vec2 s = measured_size_;
     if (ellipsize && !std::isinf(available.x)) s.x = math::min(s.x, available.x);
     return s;
 }

@@ -39,6 +39,8 @@ struct TextStyle {
     Color shadow = kTransparent;
     Vec2 shadow_offset{0.0f, 0.0f};
     f32 shadow_blur = 0.0f;
+
+    bool operator==(const TextStyle&) const = default;
 };
 
 struct TextLine {

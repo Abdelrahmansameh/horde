@@ -83,35 +83,54 @@ public:
         bool lit = true;
     };
     std::vector<Entry> entries;
+    /// Set when a vessel's lit state changes: the walls and lumens are
+    /// tessellated once into a mesh and only re-recorded then.
+    bool dirty = true;
 
     TreeVessels() : Widget("vessels") {}
 
     void draw_self(DrawList& dl) override {
-        const Theme& th = gui()->theme();
-        const Color wall = th.color("plum");
-        const Color lit = th.color("lavender");
-        const Color unlit = th.color("vein_off");
-        const Color flow = with_alpha(kWhite, 0.35f);
+        if (dirty || mesh_origin_ != rect().min || mesh_device_px_ != dl.device_px()) record(dl);
+        dl.append_solid(mesh_.vertices, mesh_.indices);
+        // Plasma flowing along the trunks, on top.
+        StrokeStyle s;
+        s.color = with_alpha(kWhite, 0.35f);
+        s.dash_length = 4.0f;
+        s.dash_gap = 18.0f;
+        s.dash_offset = -loop::flow_dash_offset(dl.time());
         dl.push_transform(Affine2::translate(rect().min));
         for (const Entry& e : entries) {
-            StrokeStyle s;
-            s.width = e.wall;
-            s.color = wall;
+            if (e.flow <= 0.0f) continue;
+            s.width = e.flow;
             e.path.stroke(dl, s);
-            s.width = e.lumen;
-            s.color = e.lit ? lit : unlit;
-            e.path.stroke(dl, s);
-            if (e.flow > 0.0f) {
-                s.width = e.flow;
-                s.color = flow;
-                s.dash_length = 4.0f;
-                s.dash_gap = 18.0f;
-                s.dash_offset = -loop::flow_dash_offset(dl.time());
-                e.path.stroke(dl, s);
-            }
         }
         dl.pop_transform();
     }
+
+private:
+    void record(const DrawList& dl) {
+        const Theme& th = gui()->theme();
+        DrawList scratch;
+        scratch.reset(dl.viewport(), dl.device_px(), 0.0f);
+        scratch.push_transform(Affine2::translate(rect().min));
+        for (const Entry& e : entries) {
+            StrokeStyle s;
+            s.width = e.wall;
+            s.color = th.color("plum");
+            e.path.stroke(scratch, s);
+            s.width = e.lumen;
+            s.color = th.color(e.lit ? "lavender" : "vein_off");
+            e.path.stroke(scratch, s);
+        }
+        mesh_.capture(scratch);
+        mesh_origin_ = rect().min;
+        mesh_device_px_ = dl.device_px();
+        dirty = false;
+    }
+
+    SolidMesh mesh_;
+    Vec2 mesh_origin_{-1e9f, -1e9f};
+    f32 mesh_device_px_ = 0.0f;
 };
 
 /// One node: a wobbly cell (a spiky star for a capstone) whose fill and rim
@@ -272,9 +291,11 @@ TreeScreen::TreeScreen(Gui& gui, Widget& root, const TreeLayout& layout, std::fu
     veil.shape.fill = with_alpha(th.color("dim"), 0.5f);
     fill_parent(veil);
 
-    // The tree itself, in canvas pixels, centred.
+    // The tree itself, in canvas pixels, centred across and pinned to the
+    // top, so on a taller-than-16:9 screen its top bar stays level with the
+    // title and the wallet.
     Widget& stage = root.emplace<Widget>();
-    anchor(stage, Vec2{0.5f, 0.5f}, Vec2{0.5f, 0.5f});
+    anchor(stage, Vec2{0.5f, 0.0f}, Vec2{0.5f, 0.0f});
     fixed_size(stage, 1920.0f, 1080.0f);
 
     vessels_ = &stage.emplace<TreeVessels>();
@@ -436,7 +457,9 @@ void TreeScreen::sync(const TreeModel& m) {
     }
     for (TreeVessels::Entry& e : vessels_->entries) {
         const TreeNodeView* n = e.node.empty() ? nullptr : m.find(e.node);
-        e.lit = e.node.empty() || (n != nullptr && n->level > 0);
+        const bool lit = e.node.empty() || (n != nullptr && n->level > 0);
+        if (lit != e.lit) vessels_->dirty = true;
+        e.lit = lit;
     }
     for (usize i = 0; i < capstone_labels_.size(); ++i) {
         capstone_labels_[i].first->set_text(with_dot_points(capstone_names_[i],

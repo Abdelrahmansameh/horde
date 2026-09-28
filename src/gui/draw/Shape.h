@@ -90,7 +90,7 @@ struct ShapeDesc {
 
     /// Organelle dots scattered along the band (Box/Ellipse with band > 0).
     Color decor = kTransparent;
-    u32 decor_count = 0;
+    u32 decor_count = 0;               ///< At most 12 are drawn.
 
     /// Dashes on the stroke (and on Arc). Zero length = solid.
     f32 dash_length = 0.0f;

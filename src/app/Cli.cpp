@@ -67,6 +67,7 @@ const char* usage_text() {
 "  --height N       framebuffer height (default 900)\n"
 "  --threads N      worker threads; 1 forces a fully serial run\n"
 "  --no-vsync       disable vsync in interactive mode\n"
+"  --ui-scale F     size of the game UI, 0.75 to 1.5 (default 1)\n"
 "  --verbose        log at debug level\n"
 "  --quiet          suppress all logging (stdout stays pure JSON)\n"
 "  --help           this text\n";
@@ -111,6 +112,14 @@ Options parse_args(int argc, char** argv) {
             if (!next_value(argc, argv, i, a, o.out_path, o.error)) break;
         } else if (a == "--ui") {
             o.ui = true;
+        } else if (a == "--ui-scale") {
+            std::string v;
+            if (!next_value(argc, argv, i, a, v, o.error)) break;
+            o.ui_scale = std::strtof(v.c_str(), nullptr);
+            if (!(o.ui_scale >= 0.75f && o.ui_scale <= 1.5f)) {
+                o.error = "--ui-scale expects a number from 0.75 to 1.5";
+                break;
+            }
         } else if (a == "--towers") {
             o.place_towers = true;
         } else if (a == "--tower") {

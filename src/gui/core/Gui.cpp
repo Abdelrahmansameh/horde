@@ -88,9 +88,10 @@ bool Gui::reload_theme_if_changed(std::string* error) {
     return theme_.parse(theme_text_, error);
 }
 
-void Gui::set_viewport(Vec2 framebuffer, f32 scale_override) {
+void Gui::set_viewport(Vec2 framebuffer, f32 ui_scale) {
     framebuffer_ = Vec2{math::max(framebuffer.x, 1.0f), math::max(framebuffer.y, 1.0f)};
-    const f32 s = scale_override > 0.0f ? scale_override : framebuffer_.y / kReferenceHeight;
+    const f32 fit = math::min(framebuffer_.y / kReferenceHeight, framebuffer_.x / kReferenceWidth);
+    const f32 s = fit * math::clamp(ui_scale, kMinUiScale, kMaxUiScale);
     if (std::fabs(s - scale_) > 1e-4f) icons_.clear_bakes();  // re-bake icons pixel-exact
     scale_ = s;
     viewport_ = framebuffer_ / scale_;

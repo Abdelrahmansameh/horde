@@ -66,6 +66,9 @@ struct Options {
     /// sim tick), and `ui ...` gym commands available to --exec to set it up
     /// ("ui click hud/dock/neutrophil; ui pointer 900 600").
     bool ui = false;
+    /// --ui-scale <f>: the player UI's size, a multiplier on the fit-to-screen
+    /// scale (gui::Gui::kMinUiScale..kMaxUiScale). Also `ui scale <f>` live.
+    f32 ui_scale = 1.0f;
     /// --view-height <world units>: camera framing for --screenshot. Defaults
     /// to the whole level. Needed to inspect per-agent art at all: at full-level
     /// framing a chaff agent covers about six pixels, which is the size the

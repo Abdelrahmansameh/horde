@@ -840,6 +840,7 @@ int run_screenshot(const Options& opt) {
     std::unique_ptr<ui::FrontEnd> ui_front;
     ui::FrontScreen ui_screen = ui::FrontScreen::None;
     ui::FrontModel ui_front_model;
+    f32 ui_scale = opt.ui_scale;
     auto show_front = [&] {
         // A lost run pays no Antibody.
         ui::FrontModel m = ui_front_model;
@@ -852,7 +853,7 @@ int run_screenshot(const Options& opt) {
             IMMUNE_LOG_ERROR("--ui: %s", ui_gui.error().c_str());
             return 1;
         }
-        ui_gui.set_viewport(Vec2{static_cast<f32>(opt.width), static_cast<f32>(opt.height)});
+        ui_gui.set_viewport(Vec2{static_cast<f32>(opt.width), static_cast<f32>(opt.height)}, opt.ui_scale);
         ui_hud = std::make_unique<ui::HudScreen>(ui_gui);
         ui_front = std::make_unique<ui::FrontEnd>(ui_gui);
         ui_front_model = make_screenshot_front_model(level_def, opt.level);
@@ -890,6 +891,7 @@ int run_screenshot(const Options& opt) {
                 d.pointer = &ui_pointer;
                 d.front = ui_front.get();
                 d.screen = &ui_screen;
+                d.ui_scale = &ui_scale;
                 const game::GymResult r = run_ui_command(d, tokens);
                 const ui::MenuResult clicked = ui_front->take_result();
                 if (clicked.action != ui::MenuAction::None) {
@@ -1022,7 +1024,7 @@ int run_screenshot(const Options& opt) {
             IMMUNE_LOG_ERROR("--ui: %s", ui_gui.error().c_str());
             return 1;
         }
-        ui_gui.set_viewport(Vec2{static_cast<f32>(window.width()), static_cast<f32>(window.height())});
+        ui_gui.set_viewport(Vec2{static_cast<f32>(window.width()), static_cast<f32>(window.height())}, ui_scale);
         ui_gui.set_projection([&](Vec2 w) { return camera.world_to_screen(w) / ui_gui.scale(); });
         // A second of UI frames at 60 Hz, so springs settle, bars ease to
         // their levels and the entry animations finish before the capture.

@@ -1137,6 +1137,7 @@ game::GymContext App::make_gym_context() {
         d.hud = hud_screen_.get();
         d.model = &hud_model_;
         d.front = front_.get();
+        d.ui_scale = &options_.ui_scale;
         return run_ui_command(d, tokens);
     };
     ctx.set_overlay = [this](const std::string& name, bool on) {
@@ -1327,7 +1328,8 @@ void App::render_frame() {
 }
 
 void App::run_gui_frame() {
-    gui_.set_viewport(Vec2{static_cast<f32>(window_.width()), static_cast<f32>(window_.height())});
+    gui_.set_viewport(Vec2{static_cast<f32>(window_.width()), static_cast<f32>(window_.height())},
+                      options_.ui_scale);
     gui_.set_projection([this](Vec2 world) { return camera_.world_to_screen(world) / gui_.scale(); });
     gui::PointerInput p;
     p.pos = gui_.to_logical(input_.mouse_pos());

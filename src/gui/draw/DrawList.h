@@ -145,6 +145,11 @@ public:
     /// One icon-atlas quad; `grayscale` desaturates it.
     void image(Rect dst, Vec2 uv0, Vec2 uv1, Color tint, bool grayscale = false);
 
+    /// Appends tessellated geometry recorded earlier (a SolidMesh), through
+    /// the current transform and alpha. Static strokes (vessels) are
+    /// tessellated once and replayed, instead of every frame.
+    void append_solid(std::span<const Vertex> vertices, std::span<const u32> indices);
+
     // ---- Output -----------------------------------------------------------
     const std::vector<Vertex>& vertices() const { return vertices_; }
     const std::vector<u32>& indices() const { return indices_; }
@@ -191,6 +196,19 @@ private:
     std::vector<f32> layer_opacity_;
     u32 max_layer_depth_ = 0;
     std::vector<Vec2> scratch_;
+};
+
+/// Solid (tessellated) geometry captured once and replayed each frame with
+/// DrawList::append_solid. Record it by stroking into a scratch DrawList
+/// (identity transform, full alpha) and calling capture().
+struct SolidMesh {
+    std::vector<Vertex> vertices;
+    std::vector<u32> indices;
+    void capture(const DrawList& scratch) {
+        vertices = scratch.vertices();
+        indices = scratch.indices();
+    }
+    bool empty() const { return indices.empty(); }
 };
 
 /// Builds flattened polylines from path commands (beziers are subdivided to

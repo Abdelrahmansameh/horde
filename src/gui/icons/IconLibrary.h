@@ -67,6 +67,10 @@ public:
     /// (framebuffer pixels), baking it on first request.
     const IconSprite& sprite(std::string_view name, i32 pixel_size);
 
+    /// The pixel size an icon drawn `on_screen_px` big is baked at: exact up
+    /// to 32 px, then in steps of ~6% so animated sizes share bakes.
+    static i32 bake_size(f32 on_screen_px);
+
     /// Draws `name` fitted into `dst` (logical px; the viewBox maps onto dst,
     /// overflow draws outside it as in the canvas). `device_scale` is
     /// framebuffer px per logical px so the bake is pixel-exact.

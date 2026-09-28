@@ -48,6 +48,9 @@ struct FontLibrary::Face {
     f32 units_per_em_inv = 1.0f;
     i32 ascent = 0, descent = 0, line_gap = 0;  ///< Font units.
     std::unordered_map<u32, Glyph> glyphs;
+    /// Kerning in font units by (a << 32 | b); looked up for every glyph pair
+    /// of every layout, and stb's table walk is not cheap.
+    mutable std::unordered_map<u64, i32> kerning;
 };
 
 FontLibrary::FontLibrary() = default;
@@ -97,8 +100,13 @@ f32 FontLibrary::line_gap(FontId f, f32 size) const {
 
 f32 FontLibrary::kern(FontId f, u32 a, u32 b, f32 size) const {
     const Face& face = *faces_[static_cast<usize>(f)];
-    const int k = stbtt_GetCodepointKernAdvance(&face.info, static_cast<int>(a), static_cast<int>(b));
-    return static_cast<f32>(k) * face.units_per_em_inv * size;
+    const u64 pair = (static_cast<u64>(a) << 32) | b;
+    auto it = face.kerning.find(pair);
+    if (it == face.kerning.end()) {
+        it = face.kerning.emplace(pair, stbtt_GetCodepointKernAdvance(&face.info, static_cast<int>(a),
+                                                                        static_cast<int>(b))).first;
+    }
+    return static_cast<f32>(it->second) * face.units_per_em_inv * size;
 }
 
 const Glyph& FontLibrary::glyph(FontId f, u32 codepoint) {

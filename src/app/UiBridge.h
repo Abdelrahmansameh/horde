@@ -75,6 +75,8 @@ struct UiDriver {
     Vec2* pointer = nullptr;
     /// The out-of-match screens (level select's `ui level <n>`). May be null.
     ui::FrontEnd* front = nullptr;
+    /// The player UI scale (`ui scale <f>`). May be null.
+    f32* ui_scale = nullptr;
     /// Screenshot mode: which front-end screen to show (`ui screen <name>`).
     /// Null in interactive play, where the state machine decides.
     ui::FrontScreen* screen = nullptr;
@@ -86,7 +88,7 @@ struct UiDriver {
 ui::FrontModel make_screenshot_front_model(const game::LevelDef& level, const std::string& current_level_path);
 
 /// `ui dump | click <path> | hover <path> | pointer <x> <y> | select <n> |
-/// cancel | level <n> | screen <name>` -- tokens as the gym tokenized them, tokens[0] == "ui".
+/// cancel | level <n> | screen <name> | scale <f>` -- tokens as the gym tokenized them, tokens[0] == "ui".
 game::GymResult run_ui_command(const UiDriver& d, const std::vector<std::string>& tokens);
 
 } // namespace immune::app

@@ -131,11 +131,25 @@ const IconSprite& IconLibrary::sprite(std::string_view name, i32 pixel_size) {
     return icon.bakes.emplace(pixel_size, sp).first->second;
 }
 
+i32 IconLibrary::bake_size(f32 on_screen_px) {
+    const i32 px = static_cast<i32>(std::ceil(on_screen_px));
+    if (px <= 32) return px;
+    // Above 32 px, round up to 1/16 of the power of two below: a looping
+    // scale (a throbbing mascot, a hovered button) then reuses one or two
+    // bakes instead of rasterizing the SVG again at every size it passes
+    // through. The bake is at most ~6% larger than drawn, which the linear
+    // filter shrinks cleanly.
+    i32 p2 = 32;
+    while (p2 * 2 <= px) p2 *= 2;
+    const i32 step = p2 / 16;
+    return (px + step - 1) / step * step;
+}
+
 void IconLibrary::draw(DrawList& dl, std::string_view name, Rect dst, Color tint, f32 device_scale,
                        bool grayscale) {
     const Vec2 size = dst.size();
     const f32 on_screen = math::max(size.x, size.y) * device_scale * dl.transform().uniform_scale();
-    const IconSprite& sp = sprite(name, static_cast<i32>(std::ceil(on_screen)));
+    const IconSprite& sp = sprite(name, bake_size(on_screen));
     if (!sp.valid) return;
     // Map the viewBox onto dst, then grow by the baked padding.
     const Vec2 k{size.x / sp.view_size.x, size.y / sp.view_size.y};

@@ -220,13 +220,16 @@ void DrawList::shape_quad(const ShapeRecord& r, u32 record_index, f32 margin) {
 
 u32 DrawList::shape(const ShapeDesc& in) {
     const Affine2& t = transform();
-    const f32 s = t.uniform_scale();
+    // The common transforms (a translation, a uniform scale) need no sqrt
+    // or atan2; this runs for every shape of every frame.
+    const bool axis_aligned = t.b == 0.0f && t.c == 0.0f && t.a == t.d && t.a > 0.0f;
+    const f32 s = axis_aligned ? t.a : t.uniform_scale();
     ShapeDesc d = in;
     if (d.kind == ShapeKind::Arc) d.half_size.y = d.half_size.x;
     d.center = t.apply(d.center);
     d.half_size *= s;
     d.radius *= s;
-    d.rotation += t.rotation();
+    if (!axis_aligned) d.rotation += t.rotation();
     d.band *= s;
     d.stroke_width *= s;
     d.rim_width *= s;
@@ -571,6 +574,32 @@ void DrawList::fill_polygon_impl(std::span<const Vec2> points, Color color, bool
         const u32 q[6] = {a, a + 1, b + 1, a, b + 1, b};
         indices_.insert(indices_.end(), q, q + 6);
     }
+    cmds_.back().index_count = static_cast<u32>(indices_.size()) - cmds_.back().first_index;
+}
+
+void DrawList::append_solid(std::span<const Vertex> vertices, std::span<const u32> indices) {
+    if (indices.empty()) return;
+    ensure_draw_cmd();
+    const Affine2& t = transform();
+    const f32 a = alphas_.back();
+    const u32 base = static_cast<u32>(vertices_.size());
+    vertices_.reserve(vertices_.size() + vertices.size());
+    for (const Vertex& v : vertices) {
+        Vertex o = v;
+        o.pos = t.apply(v.pos);
+        if (a < 1.0f) {
+            // Premultiplied: every channel scales with alpha.
+            u32 c = 0;
+            for (u32 k = 0; k < 4; ++k) {
+                const u32 ch = (v.color >> (k * 8)) & 0xFFu;
+                c |= static_cast<u32>(static_cast<f32>(ch) * a + 0.5f) << (k * 8);
+            }
+            o.color = c;
+        }
+        vertices_.push_back(o);
+    }
+    indices_.reserve(indices_.size() + indices.size());
+    for (u32 i : indices) indices_.push_back(base + i);
     cmds_.back().index_count = static_cast<u32>(indices_.size()) - cmds_.back().first_index;
 }
 
