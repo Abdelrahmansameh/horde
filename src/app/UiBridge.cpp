@@ -2,7 +2,10 @@
 
 #include "game/abilities/ActiveAbilities.h"
 #include "game/economy/Economy.h"
+#include "game/config/GameConfig.h"
 #include "game/level/Level.h"
+#include "game/meta/ImmunityTree.h"
+#include "game/meta/MetaProgression.h"
 #include "game/towers/TowerMechanics.h"
 #include "game/towers/TowerSystem.h"
 #include "game/wave/WaveDirector.h"
@@ -230,11 +233,85 @@ ui::FrontModel make_screenshot_front_model(const game::LevelDef& level, const st
     for (i32 i = 0; i < m.campaign_slot; ++i) entries[m.campaign[static_cast<usize>(i)].level_index].cleared = true;
     refresh_campaign(m.campaign, entries);
     m.level_name = !level.display_name.empty() ? level.display_name : level.name;
+    // The tree as the canvas's Tree artboard shows it: a few levels bought,
+    // 486 Memory Cells and an Antibody to spend.
+    {
+        const game::MetaConfig cfg;
+        using T = game::TreeNode;
+        const T buys[] = {T::NeutrophilRoundDamage, T::NeutrophilRoundDamage, T::NeutrophilRoundDamage,
+                          T::NeutrophilVolleyCadence, T::NeutrophilVolleyCadence, T::NeutrophilAggroRange,
+                          T::NeutrophilHealth, T::NeutrophilHealth, T::CytotoxicRoot, T::CytotoxicDrain,
+                          T::BoneMarrowReserve, T::BoneMarrowReserve, T::RapidMetabolism, T::CellularResilience,
+                          T::HistamineUnlock, T::HistamineCooldown};
+        game::MetaProgression rich;
+        rich.reset_to_new_game();
+        rich.credit(100000, 100);
+        for (T b : buys) rich.purchase(b, cfg);
+        game::MetaProgression meta;
+        meta.reset_to_new_game();
+        meta.credit(486 + rich.spent_memory_cells(), 1 + rich.spent_antibodies());
+        for (T b : buys) meta.purchase(b, cfg);
+        m.tree = make_tree_model(meta, cfg);
+    }
     m.run.valid = true;
     m.run.memory_cells = 120;
     m.run.antibodies = 1;
     m.run.first_clear = true;
     m.unlocked_next = true;
+    return m;
+}
+
+ui::TreeModel make_tree_model(const game::MetaProgression& meta, const game::MetaConfig& cfg) {
+    using PR = game::MetaProgression::PurchaseResult;
+    ui::TreeModel m;
+    m.memory_cells = meta.memory_cells();
+    m.antibodies = meta.antibodies();
+    m.capstone_threshold = cfg.capstone_threshold;
+    m.can_respec = meta.can_respec(cfg);
+    m.respec_cost = cfg.respec_cost;
+    for (usize b = 0; b < m.branch_points.size(); ++b) {
+        m.branch_points[b] = meta.branch_points(static_cast<game::TreeBranch>(b + 1));
+    }
+    for (u32 i = 0; i < game::kTreeNodeCount; ++i) {
+        const auto n = static_cast<game::TreeNode>(i);
+        const game::TreeNodeDef& d = game::tree_node(n);
+        ui::TreeNodeView v;
+        v.key = d.key;
+        v.node = i;
+        v.name = d.name;
+        v.effect = d.effect;
+        v.level = meta.level(n);
+        v.max_level = d.max_level;
+        switch (d.kind) {
+            case game::TreeNodeKind::TowerRoot: v.role = ui::TreeNodeRole::TowerRoot; break;
+            case game::TreeNodeKind::AbilityRoot: v.role = ui::TreeNodeRole::AbilityRoot; break;
+            case game::TreeNodeKind::Capstone: v.role = ui::TreeNodeRole::Capstone; break;
+            default: v.role = ui::TreeNodeRole::Stat; break;
+        }
+        const PR r = meta.check_purchase(n, cfg);
+        switch (r) {
+            case PR::Ok: v.state = ui::TreeNodeState::Available; break;
+            case PR::Maxed: v.state = ui::TreeNodeState::Maxed; break;
+            case PR::Locked:
+            case PR::BelowThreshold: v.state = ui::TreeNodeState::Locked; break;
+            case PR::NeedMemoryCells:
+            case PR::NeedAntibodies: v.state = ui::TreeNodeState::Short; break;
+        }
+        if (r == PR::BelowThreshold) {
+            v.requirement = "Needs " + std::to_string(cfg.capstone_threshold) + " points in " +
+                            game::branch_name(d.branch);
+        } else if (r == PR::Locked) {
+            const game::TreeNode root = d.ability != game::AbilityId::Count ? game::ability_root(d.ability)
+                                                                             : game::tower_root(game::branch_tower(d.branch));
+            v.requirement = std::string("Needs ") + game::tree_node(root).name;
+        }
+        if (v.state != ui::TreeNodeState::Maxed) {
+            const game::TreeCost c = meta.next_cost(n, cfg);
+            v.cost_memory = c.memory_cells;
+            v.cost_antibodies = c.antibodies;
+        }
+        m.nodes.push_back(std::move(v));
+    }
     return m;
 }
 
@@ -376,14 +453,15 @@ game::GymResult run_ui_command(const UiDriver& d, const std::vector<std::string>
     if (sub == "screen") {
         if (d.screen == nullptr) return fail("ui screen only works in --screenshot --ui (the game's state decides)");
         const std::string name = tok.size() > 2 ? tok[2] : std::string();
-        for (ui::FrontScreen s : {ui::FrontScreen::None, ui::FrontScreen::MainMenu, ui::FrontScreen::LevelSelect,
+        for (ui::FrontScreen s : {ui::FrontScreen::None, ui::FrontScreen::MainMenu, ui::FrontScreen::Tree,
+                                  ui::FrontScreen::LevelSelect,
                                   ui::FrontScreen::Pause, ui::FrontScreen::Victory, ui::FrontScreen::Defeat}) {
             if (name == ui::front_screen_name(s)) {
                 *d.screen = s;
                 return okay("showing " + name);
             }
         }
-        return fail("usage: ui screen none|menu|levels|pause|victory|defeat");
+        return fail("usage: ui screen none|menu|tree|levels|pause|victory|defeat");
     }
     return fail("unknown ui subcommand '" + sub + "'");
 }

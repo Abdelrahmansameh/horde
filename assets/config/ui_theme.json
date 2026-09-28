@@ -58,7 +58,13 @@
     "level_pill_locked": "#5B4A60",
     "memory_ink": "#2E5AA8",
     "antibody_ink": "#9A5A00",
-    "fail_cytoplasm": "#FFF0F0"
+    "fail_cytoplasm": "#FFF0F0",
+    "tree_fill_maxed": "#A58DF2",
+    "tree_fill_owned": "#DCD2FD",
+    "tree_fill_open": "#F7F3FF",
+    "tree_rim_short": "#BDB3CE",
+    "vein_off": "#CFC7D6",
+    "antibody_bg": "#FFF2D2"
   },
   "text": {
     "label": {
@@ -385,6 +391,84 @@
       "size": 24,
       "line_height": 1.0,
       "color": "white"
+    },
+    "tree_name": {
+      "font": "fredoka-600",
+      "size": 22,
+      "line_height": 1.1,
+      "color": "ink"
+    },
+    "tree_level": {
+      "font": "fredoka-600",
+      "size": 17,
+      "line_height": 1.1,
+      "color": "lavender_deep",
+      "tabular": true
+    },
+    "tree_desc": {
+      "font": "nunito-700",
+      "size": 15,
+      "color": "ink_soft"
+    },
+    "tree_req": {
+      "font": "nunito-900",
+      "size": 13,
+      "color": "critical"
+    },
+    "tree_cost": {
+      "font": "fredoka-600",
+      "size": 21,
+      "line_height": 1.0,
+      "color": "ink",
+      "tabular": true
+    },
+    "tree_grow": {
+      "font": "fredoka-600",
+      "size": 22,
+      "line_height": 1.0,
+      "color": "white"
+    },
+    "tree_grow_off": {
+      "font": "fredoka-600",
+      "size": 22,
+      "line_height": 1.0,
+      "color": "locked_ink"
+    },
+    "tree_respec": {
+      "font": "fredoka-600",
+      "size": 17,
+      "line_height": 1.0,
+      "color": "ink"
+    },
+    "tree_play": {
+      "font": "fredoka-600",
+      "size": 34,
+      "line_height": 1.0,
+      "color": "white",
+      "shadow": "plum",
+      "shadow_offset": [
+        0,
+        3
+      ]
+    },
+    "tree_pill_small": {
+      "font": "nunito-900",
+      "size": 13,
+      "line_height": 1.0,
+      "color": "white"
+    },
+    "tree_capstone": {
+      "font": "nunito-900",
+      "size": 14,
+      "line_height": 1.0,
+      "color": "ink"
+    },
+    "wallet": {
+      "font": "fredoka-600",
+      "size": 24,
+      "line_height": 1.0,
+      "color": "ink",
+      "tabular": true
     }
   },
   "shapes": {
@@ -716,6 +800,52 @@
       "kind": "box",
       "radius": 999,
       "fill": "level_pill"
+    },
+    "panel.info": {
+      "base": "membrane.player",
+      "radius": 44,
+      "decor_count": 5
+    },
+    "tree.glyph": {
+      "kind": "ellipse",
+      "fill": "white",
+      "stroke": "lavender",
+      "stroke_width": 3
+    },
+    "button.grow": {
+      "kind": "box",
+      "radius": 20,
+      "fill": "lavender_deep",
+      "stroke": "plum",
+      "stroke_width": 3,
+      "shadow": "shadow",
+      "shadow_offset": [
+        0,
+        3
+      ]
+    },
+    "button.grow.off": {
+      "base": "button.grow",
+      "fill": "locked",
+      "shadow": "#00000000"
+    },
+    "pill.wallet": {
+      "kind": "box",
+      "radius": 999,
+      "fill": "lavender_pale",
+      "stroke": "plum",
+      "stroke_width": 3
+    },
+    "pill.wallet.ab": {
+      "base": "pill.wallet",
+      "fill": "antibody_bg"
+    },
+    "pill.capstone": {
+      "kind": "box",
+      "radius": 999,
+      "fill": "gold",
+      "stroke": "plum",
+      "stroke_width": 2.5
     }
   },
   "numbers": {

@@ -15,6 +15,8 @@
 
 namespace immune::sim { class SimWorld; }
 namespace immune::game {
+class MetaProgression;
+struct MetaConfig;
 class Economy;
 class WaveDirector;
 class TowerSystem;
@@ -57,6 +59,11 @@ std::vector<ui::CampaignLevel> make_campaign(const std::vector<ui::LevelEntry>& 
 /// Re-reads each level's cleared flag from `levels` (kept current from the
 /// save) and applies the unlock rule (ui::campaign_unlocked).
 void refresh_campaign(std::vector<ui::CampaignLevel>& campaign, const std::vector<ui::LevelEntry>& levels);
+
+/// The Strengthen Immunity tree as the screen shows it: every node's level,
+/// state (from MetaProgression::check_purchase), next price and missing
+/// prerequisite; the wallet; branch points; respec.
+ui::TreeModel make_tree_model(const game::MetaProgression& meta, const game::MetaConfig& cfg);
 
 /// What the gym's `ui` command drives.
 struct UiDriver {

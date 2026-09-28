@@ -73,9 +73,9 @@ gui/  core     Gui context · Widget tree · layout · layers · input routing �
 | 1 | Foundation: fonts, draw layer (SDF shapes, paths, stencil clips, layers), text, icons, GL backend, showcase test | **Done** |
 | 2 | Core: widget tree, flex / anchored / world-anchored layout, `Gui` context and layers, pointer state machine (hover, capture, click/deny, drag, wheel, tooltips), animation (`Tween`, `Spring`, the canvas loops beat/pulse/wobble/throb/halo/spin/flow), theme (`assets/config/ui_theme.json`), base widgets (`Panel`, `Label`, `Icon`, `Button`, `Meter`, `Ring`, `Spacer`) | **Done** |
 | 3 | In-match HUD: `HudModel` + `app/UiBridge`, `HudScreen` (with the selection and armed cursors that were `Hud.cpp`'s statics) for the five canvas states, world overlays, `Gui` in `App`, the ImGui HUD removed (`Hud` became `DevUi`), `--screenshot --ui`, gym `ui` and `integrity` commands | **Done** |
-| 4 | Out-of-match screens: main menu (with the macrophage mascot), level select with campaign gating, pause, victory and defeat, screen transitions; ImGui left in `Menu.cpp` only for the tree | **Done** |
-| 5 | Skill tree: pan canvas, vessel edges, `TreeScreen` over the 75 nodes of `ImmunityTree.cpp` | Next |
-| 6 | Polish: side-by-side pass against every artboard, motion tuning, UI scale option, perf (< 0.5 ms CPU per frame) | |
+| 4 | Out-of-match screens: main menu (with the macrophage mascot), level select with campaign gating, pause, victory and defeat, screen transitions | **Done** |
+| 5 | Skill tree: `TreeScreen` over the 75 nodes of `ImmunityTree.cpp`, laid out from the canvas; ImGui `Menu.cpp` removed | **Done** |
+| 6 | Polish: side-by-side pass against every artboard, motion tuning, UI scale option, perf (< 0.5 ms CPU per frame) | Next |
 
 ### Core (built)
 
@@ -158,6 +158,27 @@ gui/  core     Gui context · Widget tree · layout · layers · input routing �
   (`Widget::accepts_pointer`); the incoming one buds in from 97% scale. Both
   fade as a group through an offscreen layer (`Widget::group_opacity`).
 
+### Strengthen Immunity (built)
+
+- `ui/front/TreeScreen`, shown by `FrontEnd` for `FrontScreen::Tree`. The
+  canvas's Tree artboard places every node, vessel and label by hand;
+  `tools/extract_tree_layout.py` writes that to `assets/ui/tree_layout.json`
+  (keyed by the game's node keys), and the screen draws from it. No pan or
+  zoom: the tree fits the 1920x1080 frame, as designed.
+- `ui::TreeModel` (`app/UiBridge::make_tree_model`) carries each node's
+  level, state (`MetaProgression::check_purchase`: locked, short, available,
+  maxed), next price and missing prerequisite, the wallet and branch points.
+  The screen syncs in place every frame, so a purchase keeps the selection.
+- Nodes are SDF cells: fill and rim by state, a white halo when buyable, a
+  spinning dashed ring when selected, level pips round the lower rim, and an
+  8-lobed star with a gold ring for capstones. A vessel's lumen lights when
+  its node is owned; the trunks carry flowing plasma.
+- Top bar: the selected node (glyph, name, level, effect, what it needs, its
+  price, Grow), the wallet, Respec (not in the canvas; kept from the old
+  screen), Play (to the campaign). Grow reports `MenuAction::PurchaseNode`;
+  app/ buys through `MetaProgression`, so the screen cannot disagree with
+  the rules.
+
 ## Building and testing
 
 - Unit tests: `tests/test_gui_draw.cpp`, `test_gui_text.cpp`,
@@ -167,4 +188,5 @@ gui/  core     Gui context · Widget tree · layout · layers · input routing �
   to the working directory.
 - Regenerate fonts: `python tools/build_fonts.py` (needs fontTools).
 - Refresh icons after the canvas changes: `python tools/extract_icons.py`;
-  `--check` reports icons that are stale.
+  `--check` reports icons that are stale. The tree layout likewise:
+  `python tools/extract_tree_layout.py [--check]`.

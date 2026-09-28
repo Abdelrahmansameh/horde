@@ -1,6 +1,6 @@
 // tests/test_menu.cpp — the out-of-match screens (ui/front/FrontEnd): main
-// menu, campaign level select, pause and results, from hand-built models;
-// and the Strengthen Immunity screen, still on ImGui (ui/Menu.h).
+// menu, the Strengthen Immunity tree, campaign level select, pause and
+// results, from hand-built models (the tree from a real MetaProgression).
 //
 // The logic tests need no GL: they build the widget trees, click widgets by
 // path (what the gym's `ui click` does) and check the MenuResult each click
@@ -13,21 +13,17 @@
 #include "gui/core/Gui.h"
 #include "gui/widgets/Widgets.h"
 #include "platform/FileIO.h"
-#include "platform/Input.h"
 #include "platform/Window.h"
-#include "render/Camera.h"
-#include "render/Renderer.h"
 #include "render/Screenshot.h"
-#include "ui/DevUi.h"
 #include "ui/front/FrontEnd.h"
 #include "ui/front/FrontModel.h"
 #include "ui/front/LevelCell.h"
+#include "ui/front/TreeScreen.h"
 
 #include <glad/glad.h>
 
 #include <catch2/catch_test_macros.hpp>
 
-#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -346,9 +342,23 @@ TEST_CASE("the front-end screens render (PNGs for review)", "[ui][menu][gl]") {
     results.run.valid = true;
     results.run.memory_cells = 203;
     results.run.antibodies = 1;
+    FrontModel tree;
+    {
+        const game::MetaConfig cfg;
+        game::MetaProgression meta;
+        meta.reset_to_new_game();
+        meta.credit(900, 3);
+        for (game::TreeNode n : {game::TreeNode::NeutrophilRoundDamage, game::TreeNode::NeutrophilRoundDamage,
+                                 game::TreeNode::NeutrophilVolleyCadence, game::TreeNode::CytotoxicRoot,
+                                 game::TreeNode::BoneMarrowReserve}) {
+            meta.purchase(n, cfg);
+        }
+        tree.tree = app::make_tree_model(meta, cfg);
+    }
     struct Shot { FrontScreen screen; FrontModel model; const char* file; };
     const Shot shots[] = {
         {FrontScreen::MainMenu, FrontModel{}, "front_menu.png"},
+        {FrontScreen::Tree, tree, "front_tree.png"},
         {FrontScreen::LevelSelect, campaign(3), "front_levels.png"},
         {FrontScreen::Victory, results, "front_victory.png"},
         {FrontScreen::Defeat, results, "front_defeat.png"},
@@ -380,82 +390,101 @@ TEST_CASE("the front-end screens render (PNGs for review)", "[ui][menu][gl]") {
     }
 }
 
-namespace {
 
-/// The ImGui stack against a headless GL context, for the one front-end
-/// screen still on ImGui.
-struct HeadlessImGui {
-    platform::Window window;
-    platform::InputState input;
-    DevUi dev;
-    render::Renderer renderer;
-    bool ok = false;
+// ---- Strengthen Immunity --------------------------------------------------------------
 
-    HeadlessImGui() {
-        if (!platform::create_headless_gl(window, 1280, 720)) return;
-        render::RendererDesc rd;
-        rd.framebuffer_width = 1280;
-        rd.framebuffer_height = 720;
-        if (!renderer.init(rd)) return;
-        input.bind_defaults();
-        ok = dev.init(window, input);
+TEST_CASE("tree layout: every node of the game's tree has its place from the canvas", "[ui][menu][meta]") {
+    TreeLayout layout;
+    std::string err;
+    REQUIRE(load_tree_layout(platform::asset_path("ui/tree_layout.json"), layout, &err));
+    INFO(err);
+    CHECK(layout.nodes.size() == game::kTreeNodeCount);
+    for (u32 i = 0; i < game::kTreeNodeCount; ++i) {
+        const char* key = game::tree_node(static_cast<game::TreeNode>(i)).key;
+        CAPTURE(key);
+        CHECK(layout.nodes.count(key) == 1);
     }
-    ~HeadlessImGui() {
-        if (ok) dev.shutdown();
-        renderer.shutdown();
-        window.destroy();
-    }
-
-    /// Fraction of pixels that differ from the cleared background (sampled
-    /// at the corner, which the centred panel never touches).
-    f32 draw_one_frame(const std::function<void()>& build) {
-        render::Camera camera;
-        camera.set_viewport(window.width(), window.height());
-        renderer.begin_frame(camera, 0.0f);
-        dev.begin_frame(input);
-        build();
-        dev.render();
-        std::vector<u8> px;
-        i32 pw = 0, ph = 0;
-        if (!renderer.read_pixels(px, pw, ph)) return -1.0f;
-        const u8 bg_r = px[0], bg_g = px[1], bg_b = px[2];
-        const auto differs = [](u8 a, u8 b) { return a > b ? a - b > 8 : b - a > 8; };
-        usize lit = 0;
-        for (usize i = 0; i + 3 < px.size(); i += 4) {
-            if (differs(px[i], bg_r) || differs(px[i + 1], bg_g) || differs(px[i + 2], bg_b)) ++lit;
+    // Every vessel but the two that loop out to the abilities belongs to a node.
+    usize owned = 0;
+    for (const TreeLayout::Vessel& v : layout.vessels) {
+        if (!v.node.empty()) {
+            ++owned;
+            CHECK(layout.nodes.count(v.node) == 1);
         }
-        const usize total = px.size() / 4;
-        return total == 0 ? -1.0f : static_cast<f32>(lit) / static_cast<f32>(total);
     }
-};
+    CHECK(owned == game::kTreeNodeCount);
+    CHECK(layout.labels.size() == 14);
+}
 
-} // namespace
-
-TEST_CASE("the Strengthen Immunity screen draws for a new and a well-funded campaign", "[ui][menu][meta]") {
-    // A fresh save (almost everything locked) and one that can afford a lot
-    // exercise every card state the screen has: locked, unaffordable,
-    // buyable, owned and maxed.
-    HeadlessImGui ui;
-    if (!ui.ok) {
-        WARN("headless GL/ImGui unavailable; skipping");
-        return;
-    }
-    Menu menu;
+TEST_CASE("tree: select a node, Grow buys it, Play goes to the campaign", "[ui][menu][meta]") {
+    Harness h;
     const game::MetaConfig cfg;
-    for (bool funded : {false, true}) {
-        CAPTURE(funded);
-        game::MetaProgression meta;
-        meta.reset_to_new_game();
-        if (funded) {
-            meta.credit(5000, 3);
-            REQUIRE(meta.purchase(game::TreeNode::MacrophageRoot, cfg) == game::MetaProgression::PurchaseResult::Ok);
-            REQUIRE(meta.purchase(game::TreeNode::NeutrophilAccuracy, cfg) ==
-                    game::MetaProgression::PurchaseResult::Ok);
-        }
-        MenuResult r;
-        const f32 coverage = ui.draw_one_frame([&] { r = menu.build_immunity_tree(meta, cfg, 1280, 720); });
-        CAPTURE(coverage);
-        REQUIRE(coverage > 0.2f);
-        REQUIRE(r.action == MenuAction::None);
-    }
+    game::MetaProgression meta;
+    meta.reset_to_new_game();
+    meta.credit(500, 1);
+    FrontModel m;
+    m.tree = app::make_tree_model(meta, cfg);
+    h.open(FrontScreen::Tree, m);
+    TreeScreen* tree = h.front->tree();
+    REQUIRE(tree != nullptr);
+    CHECK(h.shown("tree/info/grow"));
+    // The Neutrophil comes owned; the first thing on offer is selected.
+    const TreeNodeView* sel = m.tree.find(tree->selected());
+    REQUIRE(sel != nullptr);
+    CHECK(sel->state == TreeNodeState::Available);
+
+    // A locked node (a capstone before its threshold) selects, says why,
+    // and Grow refuses.
+    CHECK(h.click("tree/neutrophil.capstone").action == MenuAction::None);
+    CHECK(tree->selected() == "neutrophil.capstone");
+    auto* req = dynamic_cast<gui::Label*>(h.gui.find("tree/info/words/req"));
+    REQUIRE(req != nullptr);
+    CHECK(req->visible);
+    CHECK(req->text().find("6 points") != std::string::npos);
+    CHECK(h.click("tree/info/grow").action == MenuAction::None);
+
+    // Round Damage is buyable: Grow reports the purchase of that node.
+    CHECK(h.click("tree/neutrophil.round_damage").action == MenuAction::None);
+    auto* name = dynamic_cast<gui::Label*>(h.gui.find("tree/info/words/name"));
+    REQUIRE(name != nullptr);
+    CHECK(name->text() == "Round Damage");
+    const MenuResult grow = h.click("tree/info/grow");
+    CHECK(grow.action == MenuAction::PurchaseNode);
+    CHECK(grow.node == static_cast<u32>(game::TreeNode::NeutrophilRoundDamage));
+
+    // app/ buys it; the next model shows level 1 without losing the selection.
+    REQUIRE(meta.purchase(game::TreeNode::NeutrophilRoundDamage, cfg) == game::MetaProgression::PurchaseResult::Ok);
+    m.tree = app::make_tree_model(meta, cfg);
+    h.frame(FrontScreen::Tree, m);
+    CHECK(tree == h.front->tree());
+    CHECK(tree->selected() == "neutrophil.round_damage");
+    auto* level = dynamic_cast<gui::Label*>(h.gui.find("tree/info/words/level"));
+    REQUIRE(level != nullptr);
+    CHECK(level->text() == "1/5");
+
+    CHECK(h.click("tree/play").action == MenuAction::OpenLevelSelect);
+    CHECK(h.click("tree/back").action == MenuAction::Back);
+    // Nothing refundable yet beyond one level, but respec is on offer once
+    // something was bought and the fee is affordable.
+    CHECK(h.click("tree/wallet/respec").action == MenuAction::Respec);
+}
+
+TEST_CASE("tree model: the game's rules, as the screen shows them", "[ui][menu][meta]") {
+    const game::MetaConfig cfg;
+    game::MetaProgression meta;
+    meta.reset_to_new_game();
+    TreeModel t = app::make_tree_model(meta, cfg);
+    REQUIRE(t.nodes.size() == game::kTreeNodeCount);
+    const TreeNodeView* neutrophil = t.find("neutrophil.unlock");
+    REQUIRE(neutrophil != nullptr);
+    CHECK(neutrophil->state == TreeNodeState::Maxed);
+    const TreeNodeView* drain = t.find("cytotoxic.drain");
+    REQUIRE(drain != nullptr);
+    CHECK(drain->state == TreeNodeState::Locked);
+    CHECK(drain->requirement == "Needs Cytotoxic T");
+    const TreeNodeView* marrow = t.find("hub.bone_marrow_reserve");
+    REQUIRE(marrow != nullptr);
+    CHECK(marrow->state == TreeNodeState::Short);  // a new save has no Memory Cells
+    CHECK(marrow->cost_memory > 0);
+    CHECK(t.branch_points[0] == 0);
 }

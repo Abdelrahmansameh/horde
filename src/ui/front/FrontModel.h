@@ -1,12 +1,13 @@
 // ui/front/FrontModel.h — what the out-of-match screens show, as plain data.
 //
-// Filled by app/UiBridge (make_front_model) from the level list, the save and
-// the run that just ended; the screens never read LevelDef, MetaProgression
+// Filled by app/ (App::front_model, with UiBridge's builders) from the level
+// list, the save and the run that just ended; the screens never read LevelDef, MetaProgression
 // or the state machine. Tests build these by hand.
 #pragma once
 
 #include "core/Types.h"
 #include "ui/Menu.h"
+#include "ui/front/TreeModel.h"
 
 #include <string>
 #include <vector>
@@ -68,6 +69,9 @@ struct FrontModel {
     i32 campaign_slot = -1;
     /// This run unlocked the next campaign level (a first clear).
     bool unlocked_next = false;
+
+    // ---- Strengthen Immunity ----
+    TreeModel tree;
 };
 
 } // namespace immune::ui

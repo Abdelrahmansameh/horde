@@ -5,6 +5,8 @@
 #include "gui/style/Theme.h"
 #include "gui/widgets/Builders.h"
 #include "gui/widgets/Widgets.h"
+#include "core/Log.h"
+#include "platform/FileIO.h"
 #include "ui/front/Backdrop.h"
 #include "ui/front/LevelCell.h"
 
@@ -167,6 +169,7 @@ const char* front_screen_name(FrontScreen s) {
     switch (s) {
         case FrontScreen::None: return "none";
         case FrontScreen::MainMenu: return "menu";
+        case FrontScreen::Tree: return "tree";
         case FrontScreen::LevelSelect: return "levels";
         case FrontScreen::Pause: return "pause";
         case FrontScreen::Victory: return "victory";
@@ -175,7 +178,10 @@ const char* front_screen_name(FrontScreen s) {
     return "none";
 }
 
-FrontEnd::FrontEnd(Gui& gui) : gui_(gui) {
+FrontEnd::FrontEnd(Gui& gui, const std::string& tree_layout_path) : gui_(gui) {
+    const std::string path = tree_layout_path.empty() ? platform::asset_path("ui/tree_layout.json") : tree_layout_path;
+    std::string err;
+    if (!load_tree_layout(path, tree_layout_, &err)) IMMUNE_LOG_ERROR("%s", err.c_str());
     // Anonymous: screen paths start at the screen ("levels/cell4").
     layer_root_ = &gui_.layer(LayerId::Modal).emplace<Widget>();
     fill_parent(*layer_root_);
@@ -228,10 +234,19 @@ void FrontEnd::show(FrontScreen s, const FrontModel& m) {
     }
 
     const u64 sig = signature(s, m);
-    if (s == current_ && sig == signature_) return;
+    if (s == current_ && sig == signature_) {
+        // The tree updates in place: a purchase changes one node, and a
+        // rebuild would drop hover and selection.
+        if (tree_ != nullptr) tree_->sync(m.tree);
+        return;
+    }
     const bool same_screen = s == current_;
     current_ = s;
     signature_ = sig;
+    if (tree_ != nullptr) {
+        tree_selected_ = tree_->selected();
+        tree_.reset();
+    }
 
     if (live_ != nullptr) {
         if (same_screen) {
@@ -281,6 +296,7 @@ void FrontEnd::emit(MenuResult r) {
 void FrontEnd::build(ScreenRoot& root, FrontScreen s, const FrontModel& m) {
     switch (s) {
         case FrontScreen::MainMenu: build_main(root); break;
+        case FrontScreen::Tree: build_tree(root, m); break;
         case FrontScreen::LevelSelect: build_levels(root, m); break;
         case FrontScreen::Pause: build_pause(root, m); break;
         case FrontScreen::Victory: build_results(root, m, true); break;
@@ -356,6 +372,14 @@ void FrontEnd::build_main(Widget& root) {
     Button& quit = labelled_button(left, th, "quit", "button.flesh", Vec2{400, 86}, "Quit to Desktop", "menu_button");
     place(quit, Vec2{190.0f, 672.0f}, Vec2{0, 0});
     quit.on_click = [this] { emit(MenuResult{MenuAction::Quit}); };
+}
+
+// ---- Strengthen Immunity ------------------------------------------------------------
+
+void FrontEnd::build_tree(Widget& root, const FrontModel& m) {
+    tree_ = std::make_unique<TreeScreen>(gui_, root, tree_layout_, [this](MenuResult r) { emit(r); });
+    if (!tree_selected_.empty()) tree_->select(tree_selected_);
+    tree_->sync(m.tree);
 }
 
 // ---- Level select -------------------------------------------------------------------

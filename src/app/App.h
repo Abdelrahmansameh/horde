@@ -114,15 +114,14 @@ private:
     /// function of what is on disk rather than a hardcoded table.
     void discover_levels();
     /// Which out-of-match screen the current state shows (None in a live
-    /// match, the editor, and the tree while it is still on ImGui).
+    /// match and in the editor).
     ui::FrontScreen front_screen() const;
     /// The front end's plain data: the campaign with its unlocks, the run
     /// that just ended.
     ui::FrontModel front_model();
     /// Before gui.frame(): shows the screen the state calls for.
     void sync_front();
-    /// After gui.frame(): takes what the player clicked (and draws the
-    /// ImGui tree screen, which reports the same way) and applies it.
+    /// After gui.frame(): takes what the player clicked and applies it.
     void finish_front();
     /// Applies a front-end click to the state machine.
     void apply_menu_result(const ui::MenuResult& r);
@@ -162,18 +161,16 @@ private:
     /// zoom out to. Zero until a level is loaded (zoom disabled).
     f32 level_view_height_ = 0.0f;
     audio::AudioEngine audio_;
-    /// ImGui: the developer tools (gym panel, level editor) and, until it
-    /// moves to gui, the Strengthen Immunity screen.
+    /// ImGui: the developer tools (gym panel, level editor).
     ui::DevUi dev_ui_;
     /// The player-facing UI framework (src/gui, docs/UI_FRAMEWORK.md) and its
     /// in-match HUD. Declared after dev_ui_ so the HUD screen is destroyed first.
     gui::Gui gui_;
     std::unique_ptr<ui::HudScreen> hud_screen_;
     ui::HudModel hud_model_;
-    /// Main menu, level select, pause and results (src/ui/front).
+    /// Main menu, Strengthen Immunity, level select, pause and results
+    /// (src/ui/front).
     std::unique_ptr<ui::FrontEnd> front_;
-    /// The Strengthen Immunity tree, still on ImGui until it moves to gui.
-    ui::Menu menu_;
     /// The gym level's control window (game/gym). Opens itself on that level
     /// and is toggleable with ` or F2 anywhere; costs nothing while hidden.
     ui::GymPanel gym_panel_;

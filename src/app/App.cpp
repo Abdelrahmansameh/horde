@@ -182,6 +182,7 @@ void App::discover_levels() {
 ui::FrontScreen App::front_screen() const {
     switch (state_.current()) {
         case GameStateId::MainMenu: return ui::FrontScreen::MainMenu;
+        case GameStateId::StrengthenImmunity: return ui::FrontScreen::Tree;
         case GameStateId::LevelSelect: return ui::FrontScreen::LevelSelect;
         case GameStateId::Paused: return ui::FrontScreen::Pause;
         case GameStateId::LevelComplete: return ui::FrontScreen::Victory;
@@ -205,6 +206,7 @@ ui::FrontModel App::front_model() {
         if (levels_[campaign_[i].level_index].path == current_level_path_) m.campaign_slot = static_cast<i32>(i);
     }
     m.unlocked_next = last_run_.first_clear;
+    if (state_.current() == GameStateId::StrengthenImmunity) m.tree = make_tree_model(meta_, config_.meta);
     return m;
 }
 
@@ -212,14 +214,7 @@ void App::sync_front() {
     front_->show(front_screen(), front_model());
 }
 
-void App::finish_front() {
-    ui::MenuResult r = front_->take_result();
-    if (state_.current() == GameStateId::StrengthenImmunity) {
-        const ui::MenuResult tree = menu_.build_immunity_tree(meta_, config_.meta, window_.width(), window_.height());
-        if (r.action == ui::MenuAction::None) r = tree;
-    }
-    apply_menu_result(r);
-}
+void App::finish_front() { apply_menu_result(front_->take_result()); }
 
 void App::apply_menu_result(const ui::MenuResult& r) {
     switch (r.action) {

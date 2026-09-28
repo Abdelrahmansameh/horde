@@ -18,8 +18,8 @@ namespace {
 /// Bio/immune-themed reskin over ImGui's dark defaults: deep clotted-navy
 /// panels, a bioluminescent teal accent, and rounded "cell membrane" shapes
 /// in place of the stock hard-edged debug-tool look. Applied once at init --
-/// every tool window and Menu.cpp share this ImGui context, so one
-/// style pass covers both.
+/// every tool window shares this ImGui context, so one style pass covers
+/// them all.
 void apply_immune_theme() {
     ImGui::StyleColorsDark();
     ImGuiStyle& style = ImGui::GetStyle();

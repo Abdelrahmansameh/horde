@@ -1,10 +1,10 @@
 // ui/DevUi.h — the ImGui context, for developer tools.
 //
-// The player-facing UI is the gui framework (src/gui, ui/hud). ImGui stays
-// for the tools a player never sees -- the gym panel and the level editor --
-// and, until they move to gui, the front-end screens in Menu.cpp. This class
-// owns ImGui's context and SDL2/GL3 backends, opens and draws its frame, and
-// carries the debug-overlay switches the gym's `overlay` command flips.
+// The player-facing UI is the gui framework (src/gui, ui/hud, ui/front).
+// ImGui stays for the tools a player never sees -- the gym panel and the
+// level editor. This class owns ImGui's context and SDL2/GL3 backends, opens
+// and draws its frame, and carries the debug-overlay switches the gym's
+// `overlay` command flips.
 #pragma once
 
 namespace immune::platform { class InputState; class Window; }

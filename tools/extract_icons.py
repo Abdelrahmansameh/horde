@@ -75,6 +75,9 @@ BUTTON_GLYPHS = {
 ILLUSTRATIONS = [
     ("Menu.dc.html", '<g transform="translate(1080 360) scale(1.25)">', "0 0 420 320", 0.02, "mascot_macrophage"),
     ("Levels.dc.html", '<g transform="translate(-14 -18)">', "0 0 28 36", 0.25, "glyph_lock"),
+    # Centred on the hub (960, 945), so the game can place it by its centre.
+    ("Tree.dc.html", '<g transform="translate(960 945) scale(0.72) translate(-960 -945)">', "846 831 228 228", 0.02,
+     "tree_hub"),
 ]
 DROP = ['<g class="anim-wobble"']
 

@@ -1,8 +1,9 @@
 // ui/front/FrontEnd.h — the out-of-match screens, built on the gui framework.
 //
-// Main menu, campaign level select, pause, and the results of a run (level
-// cleared / level failed, with the editor-playtest variants), following the
-// design canvas's Menu, Levels, Victory and Defeat artboards.
+// Main menu, the Strengthen Immunity tree (ui/front/TreeScreen), campaign
+// level select, pause, and the results of a run (level cleared / level
+// failed, with the editor-playtest variants), following the design canvas's
+// Menu, Tree, Levels, Victory and Defeat artboards.
 //
 // Like the HUD, these screens never touch the state machine: a click becomes
 // a ui::MenuResult (Menu.h), taken by app/ each frame, which decides what it
@@ -19,7 +20,10 @@
 #include "core/Types.h"
 #include "ui/Menu.h"
 #include "ui/front/FrontModel.h"
+#include "ui/front/TreeScreen.h"
 
+#include <memory>
+#include <string>
 #include <vector>
 
 namespace immune::gui { class Gui; class Widget; }
@@ -31,6 +35,7 @@ class LevelCell;
 enum class FrontScreen : u8 {
     None = 0,     ///< Nothing (in a live match, in the editor).
     MainMenu,
+    Tree,         ///< Strengthen Immunity.
     LevelSelect,
     Pause,
     Victory,
@@ -41,7 +46,8 @@ const char* front_screen_name(FrontScreen s);
 
 class FrontEnd {
 public:
-    explicit FrontEnd(gui::Gui& gui);
+    /// `tree_layout_path` is assets/ui/tree_layout.json (empty: the default).
+    explicit FrontEnd(gui::Gui& gui, const std::string& tree_layout_path = {});
     ~FrontEnd();
     FrontEnd(const FrontEnd&) = delete;
     FrontEnd& operator=(const FrontEnd&) = delete;
@@ -63,12 +69,16 @@ public:
     /// Skips running transitions (tests, screenshots).
     void finish_transitions();
 
+    /// The tree screen while it is showing (null otherwise).
+    TreeScreen* tree() { return tree_.get(); }
+
 private:
     class ScreenRoot;
 
     void build(ScreenRoot& root, FrontScreen s, const FrontModel& m);
     void build_main(gui::Widget& root);
     void build_levels(gui::Widget& root, const FrontModel& m);
+    void build_tree(gui::Widget& root, const FrontModel& m);
     void build_pause(gui::Widget& root, const FrontModel& m);
     void build_results(gui::Widget& root, const FrontModel& m, bool victory);
     void sync_selection();
@@ -88,6 +98,12 @@ private:
     std::vector<LevelCell*> cells_;
     gui::Widget* play_button_ = nullptr;
     i32 selected_ = -1;
+
+    // Tree state: the layout (loaded once), the live screen, and the node
+    // the top bar showed last, kept across visits.
+    TreeLayout tree_layout_;
+    std::unique_ptr<TreeScreen> tree_;
+    std::string tree_selected_;
 };
 
 } // namespace immune::ui

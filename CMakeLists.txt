@@ -157,11 +157,12 @@ target_link_libraries(immune_gui PUBLIC immune_core immune_platform immune_rende
 set_source_files_properties(src/gui/icons/NanoSvgImpl.cpp PROPERTIES
   COMPILE_OPTIONS "$<IF:$<CXX_COMPILER_ID:MSVC>,/w,-w>")
 
-add_library(immune_ui STATIC src/ui/DevUi.cpp src/ui/Menu.cpp src/ui/Fonts.cpp
+add_library(immune_ui STATIC src/ui/DevUi.cpp src/ui/Fonts.cpp
   src/ui/GymPanel.cpp
   src/ui/hud/HudParts.cpp
   src/ui/hud/HudScreen.cpp
   src/ui/front/Backdrop.cpp src/ui/front/LevelCell.cpp src/ui/front/FrontEnd.cpp
+  src/ui/front/TreeScreen.cpp
   src/ui/editor/EditorCanvas.cpp
   src/ui/editor/EditorGizmos.cpp
   src/ui/editor/EditorPanels.cpp)

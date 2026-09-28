@@ -1,5 +1,5 @@
-// ui/Fonts.cpp — see Fonts.h. Loads a system-installed TTF instead of
-// shipping one, keeping the repo's zero-binary-asset rule intact.
+// ui/Fonts.cpp — see Fonts.h. Loads a system-installed TTF for the ImGui
+// developer tools.
 #include "ui/Fonts.h"
 
 #include "core/Types.h"
@@ -11,10 +11,7 @@
 namespace immune::ui {
 namespace {
 
-ImFont* g_title_font = nullptr;
-
 constexpr f32 kBodySize = 18.0f;
-constexpr f32 kTitleSize = 34.0f;
 
 /// Courier New (or the closest monospace equivalent on non-Windows
 /// platforms), most-preferred first. First one found on disk wins.
@@ -56,13 +53,8 @@ void load_system_fonts() {
     cfg.OversampleH = 3;
     cfg.OversampleV = 3;
 
-    // First font added becomes ImGui's default; bake a second, larger
-    // instance of the same face for headings (draw_title() in Menu.cpp).
-    ImFont* body = io.Fonts->AddFontFromFileTTF(path, kBodySize, &cfg);
-    if (!body) return;
-    g_title_font = io.Fonts->AddFontFromFileTTF(path, kTitleSize, &cfg);
+    // The first font added becomes ImGui's default.
+    io.Fonts->AddFontFromFileTTF(path, kBodySize, &cfg);
 }
-
-ImFont* title_font() { return g_title_font; }
 
 } // namespace immune::ui

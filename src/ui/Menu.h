@@ -1,5 +1,5 @@
 // ui/Menu.h — the front end's contract with app/: MenuAction, MenuResult,
-// LevelEntry, RunSummary; and the ImGui Strengthen Immunity screen.
+// LevelEntry, RunSummary.
 //
 // The screens themselves are ui/front/FrontEnd (gui framework). The HUD
 // (ui/hud) shows the live level; the front end needs none of that.
@@ -17,8 +17,6 @@
 
 #include <string>
 #include <vector>
-
-namespace immune::game { class MetaProgression; struct MetaConfig; }
 
 namespace immune::ui {
 
@@ -69,22 +67,6 @@ struct MenuResult {
     usize level_index = 0;
     /// PurchaseNode payload: a game::TreeNode, as its integer value.
     u32 node = 0;
-};
-
-/// The Strengthen Immunity screen, still on ImGui. The rest of the front end
-/// (main menu, level select, pause, results) is ui/front/FrontEnd on the gui
-/// framework; this moves there in phase 5 of docs/UI_FRAMEWORK.md.
-class Menu {
-public:
-    /// The Strengthen Immunity tree (PROGRESSION.md): both currencies, every
-    /// branch drawn as a column of nodes off one vessel, each node showing its
-    /// level, its price and -- when it cannot be bought -- why not. Reports a
-    /// click as PurchaseNode; buying is app/'s job, through MetaProgression,
-    /// so this screen can never disagree with the rules it displays. Assumes
-    /// DevUi's ImGui frame is open.
-    MenuResult build_immunity_tree(const game::MetaProgression& meta,
-                                   const game::MetaConfig& cfg, i32 screen_width,
-                                   i32 screen_height);
 };
 
 } // namespace immune::ui
