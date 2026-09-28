@@ -49,6 +49,7 @@ namespace immune::sim {
 class SimWorld;
 class CombatEventSink;
 class FlowField;
+class DistanceField;
 struct SwarmerProfile;
 struct Bar;
 
@@ -89,6 +90,16 @@ ScarDesc scar_desc_from_profile(const SwarmerProfile& profile);
 /// against the bar that will actually be laid), and so a replay gets the
 /// same walls.
 f32 scar_rotation(const FlowField& flow, Vec2 center, EntityId owner, f32 tilt);
+
+/// Shortens `bar` along its length so neither end runs past the authored
+/// tissue: each half is traced out along the bar's axis through the SDF and
+/// stops at the rock face, and the centre moves to the middle of what is
+/// left. A wall laid near a lane's edge, or across a lane narrower than it
+/// is long, ends AT the edge instead of reaching into the rock. Pure, and
+/// the SDF never hears about runtime blocks, so the site picker at release
+/// and the build on arrival fit the same bar. A bar whose centre is not on
+/// tissue, or an unbaked SDF, is left as it is (returns false for the first).
+bool fit_scar_to_tissue(const DistanceField& sdf, Bar& bar);
 
 enum class ScarBuildResult : u8 {
     Built = 0,

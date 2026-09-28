@@ -565,6 +565,55 @@ TEST_CASE("a scar that would seal the lane, or lie off the tissue, is refused", 
     REQUIRE(r == ScarBuildResult::Built);
 }
 
+TEST_CASE("a scar laid near the lane's edge stops at the edge instead of reaching into the rock",
+          "[sim][scar]") {
+    // A 12-tall lane (rows 4..15, world y in [4, 16]) and a 10-long bar laid
+    // square across it 2 units below the top edge: unfitted it would run
+    // from y = 9 to y = 19, three units into the rock.
+    Field f(14, /*lane_height=*/12, false);
+    ScarDesc d = f.desc_at(Vec2{30.0f, 14.0f});
+    d.tilt = 0.0f;
+    ScarBuildResult r;
+    const EntityId id = f.world.scars().build(f.world, d, &r, nullptr);
+    REQUIRE(r == ScarBuildResult::Built);
+    const Bar bar = f.bar_of(f.world.ecs().from_id(id));
+    const Vec2 axis{bar.cs(), bar.sn()};
+    const Vec2 a = bar.center + axis * bar.half_extents.x;
+    const Vec2 b = bar.center - axis * bar.half_extents.x;
+    const f32 top = math::max(a.y, b.y);
+    const f32 bottom = math::min(a.y, b.y);
+    // The top end sits on the rock face, not past it; the bottom end keeps
+    // the full reach it had (the lane is open there), so the wall is shorter
+    // by what it gave up and its centre moved down by half that.
+    // (Margins allow for the few degrees the local arrow bends toward the
+    // single goal cell, which tilts "square across" off vertical.)
+    REQUIRE(top == Catch::Approx(16.0f).margin(0.15f));
+    REQUIRE(bottom == Catch::Approx(9.0f).margin(0.1f));
+    REQUIRE(bar.half_extents.x == Catch::Approx(3.5f).margin(0.1f));
+    REQUIRE(bar.center.y == Catch::Approx(12.5f).margin(0.1f));
+    REQUIRE(bar.center.x == Catch::Approx(30.0f).margin(0.3f));
+
+    // The pure fit agrees with what the build laid, and leaves a bar with
+    // room to spare alone.
+    Bar probe;
+    probe.center = Vec2{30.0f, 14.0f};
+    probe.half_extents = Vec2{5.0f, 0.9f};
+    probe.rotation = bar.rotation;
+    REQUIRE(fit_scar_to_tissue(f.world.sdf(), probe));
+    REQUIRE(probe.center.y == Catch::Approx(bar.center.y));
+    REQUIRE(probe.half_extents.x == Catch::Approx(bar.half_extents.x));
+    Bar roomy = probe;
+    roomy.center = Vec2{40.0f, 10.0f};
+    roomy.half_extents = Vec2{3.0f, 0.9f};
+    REQUIRE(fit_scar_to_tissue(f.world.sdf(), roomy));
+    REQUIRE(roomy.center.y == Catch::Approx(10.0f));
+    REQUIRE(roomy.half_extents.x == Catch::Approx(3.0f));
+    // A centre on rock is not fitted.
+    Bar off = probe;
+    off.center = Vec2{30.0f, 2.0f};
+    REQUIRE_FALSE(fit_scar_to_tissue(f.world.sdf(), off));
+}
+
 TEST_CASE("a scar lies across the local flow, give or take its configured tilt", "[sim][scar]") {
     // Square to the arrows with no tilt: the field runs +x, so every bar
     // runs along +-y wherever it is laid.
@@ -658,15 +707,20 @@ TEST_CASE("a Fibroblast releases builders that lay scars in its reach, up to its
     REQUIRE(f.scar_count() == pr.max_scars);
     // Past the cap the builders reinforce rather than build.
     REQUIRE(st.reinforced_total > 0);
-    // Every wall stands inside the tower's reach and off the tower itself,
-    // owned by it, across the flow.
+    // Every wall stands inside the tower's reach, owned by it, across the
+    // flow, and within the lane: its site was in the annulus, and fitting it
+    // to the lane moves its centre along its own length by at most what it
+    // gave up, so the centre is within a half-length of the annulus. Both
+    // ends stop on the tissue, never past it.
     for (auto e : f.world.ecs().registry().view<comp::Scar>()) {
         const Bar bar = f.bar_of(e);
         const f32 d = math::length(bar.center - at);
-        REQUIRE(d <= pr.build_radius + 0.01f);
-        REQUIRE(d >= pr.build_min_radius - 0.01f);
+        REQUIRE(d <= pr.build_radius + pr.scar_half_length + 0.01f);
         REQUIRE(f.world.ecs().registry().get<comp::Scar>(e).owner == tower);
         REQUIRE(std::fabs(std::sin(bar.rotation)) == Catch::Approx(1.0f).margin(0.1f));
+        const Vec2 axis{bar.cs(), bar.sn()};
+        REQUIRE(f.world.sdf().sample(bar.center + axis * bar.half_extents.x) > -0.15f);
+        REQUIRE(f.world.sdf().sample(bar.center - axis * bar.half_extents.x) > -0.15f);
     }
     // No two walls lie on top of each other, even though several builders
     // were in flight at once.

@@ -53,7 +53,37 @@ CombatEvent scar_event(CombatEventType type, const comp::Scar& scar, Vec2 origin
     return e;
 }
 
+/// How far the tissue runs from `from` along the unit `dir`, capped at
+/// `limit`. Sphere-traced: a step of the SDF's own value cannot cross the
+/// rock face, and the floor on the step keeps a line that grazes a face
+/// side-on from crawling. A step that does land past the face (by at most
+/// the floor) is pulled back by the overshoot, which is what the SDF reads
+/// out there.
+f32 tissue_reach(const DistanceField& sdf, Vec2 from, Vec2 dir, f32 limit) {
+    constexpr f32 kMinStep = 0.1f;
+    constexpr u32 kMaxSteps = 512;
+    f32 t = 0.0f;
+    for (u32 k = 0; k < kMaxSteps && t < limit; ++k) {
+        const f32 d = sdf.sample(from + dir * t);
+        if (d <= 0.0f) return math::clamp(t + d, 0.0f, limit);
+        t += math::max(d, kMinStep);
+    }
+    return math::min(t, limit);
+}
+
 } // namespace
+
+bool fit_scar_to_tissue(const DistanceField& sdf, Bar& bar) {
+    if (sdf.width() <= 0 || sdf.height() <= 0) return true;
+    if (sdf.sample(bar.center) <= 0.0f) return false;
+    const f32 hl = bar.half_extents.x;
+    const Vec2 axis{bar.cs(), bar.sn()};
+    const f32 fwd = tissue_reach(sdf, bar.center, axis, hl);
+    const f32 back = tissue_reach(sdf, bar.center, -axis, hl);
+    bar.center = bar.center + axis * (0.5f * (fwd - back));
+    bar.half_extents.x = 0.5f * (fwd + back);
+    return true;
+}
 
 f32 scar_rotation(const FlowField& flow, Vec2 center, EntityId owner, f32 tilt) {
     const f32 across = across_flow_rotation(flow, center);
@@ -170,6 +200,9 @@ EntityId ScarSystem::build(SimWorld& world, const ScarDesc& desc, ScarBuildResul
     bar.center = desc.center;
     bar.half_extents = desc.half_extents;
     bar.rotation = scar_rotation(world.flow(), desc.center, desc.owner, desc.tilt);
+    // Ends at the lane's edge rather than in the rock. A centre off the
+    // tissue fits nothing and is refused by the tissue test below.
+    fit_scar_to_tissue(world.sdf(), bar);
 
     // In the way, by geometry: spacing only sees other scars' CENTERS, and a
     // long wall's far end reaches well past that. The site was clear when the

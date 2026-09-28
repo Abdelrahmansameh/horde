@@ -120,7 +120,24 @@ struct NeighbourSample {
     /// disabled entirely. A diverging solver is worse than no solver.
     /// Averaging converges instead: same jam, 0.32, at 1.1 degrees per tick.
     Vec2 contact_push{0.0f, 0.0f};
-    u32 crowd = 0;                 ///< Neighbours inside alignment_radius; drives pressure.
+    /// Neighbours inside alignment_radius, each counted as its body AREA
+    /// relative to mine; drives pressure and relief. In a single-family crowd
+    /// every share is exactly 1 and this is the plain head count.
+    ///
+    /// WHY AREA AND NOT HEADS. The thresholds that read this were tuned on
+    /// crowds of one family, where a head is a fixed amount of occupied space.
+    /// In a mixed crowd it is not: a bacterium's disc holds four times as many
+    /// virus bodies as bacterial ones at the same packing, so counted by heads
+    /// a bacterium enclosed by viruses always read as crushed, and crowd relief
+    /// sat at full strength -- 0.7 radii a tick, several times its walking
+    /// speed -- in whatever direction the gradient happened to point. The
+    /// mirror image held for a virus: the bacterium beside it was one light
+    /// neighbour on that side, so relief read its body as open space and
+    /// pressed the virus into it. Measured on a bacterium in a compressed virus
+    /// crowd: 127 degrees of heading change a tick, reversing on 77% of ticks,
+    /// travelling 1.84x its speed budget while going nowhere -- against 0.10x
+    /// for the same jam made of bacteria alone.
+    f32 crowd = 0.0f;
     bool has_alignment = false;
 };
 
@@ -209,7 +226,16 @@ NeighbourSample gather_neighbours(const SpatialHash& hash,
     u32 sep_count = 0;
     u32 contact_count = 0;
     u32 align_count = 0;
-    u32 sampled = 0;
+    f32 crowd_area = 0.0f;
+    // Spent in the same area units as `crowd_area`, so the budget buys a fixed
+    // amount of NEIGHBOURHOOD rather than a fixed number of bodies. Counted in
+    // heads, a bacterium in a virus crowd ran out partway round the ring of
+    // cells it was scanning, and the survivors were whichever side the walk
+    // reached first -- a lopsided sample whose lean flipped as viruses crossed
+    // cell lines, which is exactly the noise relief then amplified.
+    f32 sampled = 0.0f;
+    const f32 budget = static_cast<f32>(max_sampled);
+    const f32 inv_my_area = contact_radius > 0.0f ? 1.0f / (contact_radius * contact_radius) : 0.0f;
     u32 visited = 0;
 
     // A bacterium's contact/separation range can exceed a cell width. A fixed
@@ -286,15 +312,20 @@ NeighbourSample gather_neighbours(const SpatialHash& hash,
             // Both bodies must agree on their shared spacing. Using only my
             // diameter made a small virus push less than its large neighbour,
             // so mixed crowds acquired a spurious impulse and stayed overlapped.
-            const f32 pair_contact = (contact_radius +
-                contact_radii[family[j] < kFamilyCount ? family[j] : 0]) * 0.5f;
+            const f32 their_contact = contact_radii[family[j] < kFamilyCount ? family[j] : 0];
+            const f32 pair_contact = (contact_radius + their_contact) * 0.5f;
             const bool in_contact = d2 < pair_contact * pair_contact;
-            const bool has_budget = sampled < max_sampled;
+            const bool has_budget = sampled < budget;
             if (!in_contact && !has_budget) continue;
 
             const bool in_crowd = has_budget && (d2 < align_r2 || d2 < sep_r2);
             if (!in_contact && !in_crowd) continue;
-            if (in_crowd) ++sampled;
+            // This neighbour's share of the crowd, as body area relative to
+            // mine (see NeighbourSample::crowd). Exactly 1 between equals.
+            const f32 share = inv_my_area > 0.0f
+                                  ? their_contact * their_contact * inv_my_area
+                                  : 1.0f;
+            if (in_crowd) sampled += share;
 
             // One square root, shared by every rule that needs a real distance.
             const f32 d = std::sqrt(d2);
@@ -325,10 +356,13 @@ NeighbourSample gather_neighbours(const SpatialHash& hash,
             if (d2 < align_r2) {
                 // Squad-blind, like contact and unlike alignment: standing in
                 // someone's way is not a question of whose squad they are in.
-                const f32 aw = 1.0f - d * inv_align;
+                // Weighted by share too: a big body beside me is a big
+                // piece of my neighbourhood that is not open space.
+                const f32 aw = (1.0f - d * inv_align) * share;
                 gradient.x += nx * aw;
                 gradient.y += ny * aw;
                 gradient_weight += aw;
+                crowd_area += share;
             }
         }
     }
@@ -361,7 +395,7 @@ done:
         out.avg_velocity = Vec2{vel.x * inv, vel.y * inv};
         out.has_alignment = true;
     }
-    out.crowd = align_count;
+    out.crowd = crowd_area;
     return out;
 }
 
@@ -878,10 +912,10 @@ ChaffUpdateStats ChaffSystem::update(ChaffBuffers& buffers, const FlowField& flo
             Vec2 relief{0.0f, 0.0f};
             const f32 fits = math::max(fp.pressure_threshold, 1.0f);
             const f32 step = relief_step[f < kFamilyCount ? f : 0];
-            if (step > 0.0f && static_cast<f32>(nb.crowd) > fits &&
+            if (step > 0.0f && nb.crowd > fits &&
                 nb.crowd_weight > kSeparationEpsSq) {
                 const f32 over =
-                    math::saturate((static_cast<f32>(nb.crowd) - fits) / fits);
+                    math::saturate((nb.crowd - fits) / fits);
                 relief = nb.crowd_gradient * (step * over / nb.crowd_weight);
             }
 
@@ -926,8 +960,8 @@ ChaffUpdateStats ChaffSystem::update(ChaffBuffers& buffers, const FlowField& flo
             // instead of adding noise on top.
             f32 push = fp.separation_strength;
             if (fp.pressure_gain > 0.0f &&
-                static_cast<f32>(nb.crowd) > fp.pressure_threshold) {
-                const f32 excess = static_cast<f32>(nb.crowd) - fp.pressure_threshold;
+                nb.crowd > fp.pressure_threshold) {
+                const f32 excess = nb.crowd - fp.pressure_threshold;
                 const f32 mul = 1.0f + excess * fp.pressure_gain;
                 push *= mul < fp.pressure_max ? mul : fp.pressure_max;
             }

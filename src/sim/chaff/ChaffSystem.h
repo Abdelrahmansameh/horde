@@ -110,6 +110,9 @@ struct ChaffFamilyParams {
 
     /// Neighbour count above which the local crowd counts as "packed". Below
     /// this, separation alone handles spacing and pressure contributes nothing.
+    /// Counted in bodies of THIS family's size: a neighbour of another family
+    /// counts as its area relative to ours (NeighbourSample::crowd in
+    /// ChaffSystem.cpp), so a bacterium among viruses is not "packed" early.
     f32 pressure_threshold = 6.0f;
     /// Extra separation gain per neighbour past the threshold. Turns a jam into
     /// something that visibly builds and then releases sideways, instead of

@@ -482,6 +482,8 @@ bool acquire_aim_point(TowerSystem& self, sim::SystemContext& ctx, Vec2 origin, 
 // clearance, keep scar_spacing from every live scar, stay clear of every
 // tower's footprint, not overlap a standing wall or one a builder is already
 // on its way to lay, and -- the expensive test, last -- not seal the lane.
+// The wall is cut back to the lane's edges first (fit_scar_to_tissue), so
+// every one of those tests sees the wall as it will actually stand.
 // The draws come from the builder's own seed stream, never the shared sim
 // Rng, for the same reason the volley scatter does.
 //
@@ -532,6 +534,7 @@ bool pick_scar_site(const sim::SimWorld& world, const std::vector<EntityId>& pla
         b.center = Vec2{sw.goal_x[i], sw.goal_y[i]};
         b.half_extents = Vec2{math::max(other.scar_half_length, 0.0f), math::max(other.scar_half_width, 0.0f)};
         b.rotation = sim::scar_rotation(flow, b.center, sw.owner[i], other.scar_tilt);
+        sim::fit_scar_to_tissue(world.sdf(), b);
         planned.push_back(b);
     }
 
@@ -562,12 +565,14 @@ bool pick_scar_site(const sim::SimWorld& world, const std::vector<EntityId>& pla
         }
         if (on_tower) continue;
 
-        // The same bar the scar system will lay on arrival, tilt included,
-        // or the sever check answers for a different wall.
+        // The same bar the scar system will lay on arrival, tilt included
+        // and cut back to the lane's edges, or the sever check answers for
+        // a different wall.
         sim::Bar bar;
         bar.center = p;
         bar.half_extents = he;
         bar.rotation = sim::scar_rotation(flow, p, owner, pr.scar_tilt);
+        if (!sim::fit_scar_to_tissue(world.sdf(), bar)) continue;
 
         // scar_spacing above only rejected sites near another scar's CENTER;
         // a long wall's far end reaches well past that, so check the actual

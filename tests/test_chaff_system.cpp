@@ -21,6 +21,7 @@
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
+#include <array>
 #include <cmath>
 #include <cstdio>
 #include <vector>
@@ -1506,4 +1507,199 @@ TEST_CASE("a daughter is born beside its parent, not inside it",
                                           << contact_radius);
     REQUIRE(birth_gap > contact_radius * 0.9f);
     REQUIRE(birth_gap < contact_radius * 1.1f);
+}
+
+namespace {
+
+struct EnclosureMetrics {
+    f64 turn_deg = 0.0;        ///< Mean per-tick change of displacement heading.
+    f64 reversals = 0.0;       ///< Fraction of ticks whose step points backwards.
+    f64 step = 0.0;            ///< Mean per-tick distance / (max_speed * dt).
+    f64 push = 0.0;            ///< Mean |positional push| / (max_speed * dt).
+    f64 facing_deg = 0.0;      ///< Mean per-tick change of velocity heading.
+};
+
+/// Shipped config for every family, the same mapping SimWorld receives.
+ChaffTuning shipped_chaff_tuning() {
+    config::ConfigStore store;
+    game::GameConfig config;
+    std::string error;
+    REQUIRE(game::load_game_config(store, "assets/config", config, error));
+    ChaffTuning tuning;
+    for (u32 f = 0; f < kFamilyCount; ++f) {
+        const auto& family = config.enemies.families[f];
+        const auto& speed = config.enemies.speed_tiers[static_cast<u32>(family.speed_tier)];
+        auto& fp = tuning.family[f];
+        fp.max_speed = speed.max_speed;
+        fp.acceleration = speed.acceleration;
+        fp.jitter = speed.jitter;
+        fp.radius = family.visual.silhouette * family.chaff.radius_from_silhouette;
+        fp.separation_radius = fp.radius * family.chaff.separation_radius_mul;
+        fp.separation_strength = family.chaff.separation_strength;
+        fp.alignment_radius = family.chaff.alignment_radius;
+        fp.alignment_strength = family.chaff.alignment_strength;
+        fp.pressure_threshold = family.chaff.pressure_threshold;
+        fp.pressure_gain = family.chaff.pressure_gain;
+        fp.pressure_max = family.chaff.pressure_max;
+        fp.crowd_relief = family.chaff.crowd_relief;
+        fp.contact_spacing = family.chaff.contact_spacing;
+        fp.contact_stiffness = family.chaff.contact_stiffness;
+        fp.collides = family.chaff.collides;
+        fp.replication_rate = 0.0f;   // keep the index mapping stable
+    }
+    tuning.max_neighbors_sampled = config.sim.globals.max_neighbors_sampled;
+    return tuning;
+}
+
+/// A handful of bacteria embedded in a packed virus crowd. `sink` puts the
+/// flow goal in the middle of the crowd so it stays compressed around them.
+std::array<EnclosureMetrics, kFamilyCount> measure_enclosure(const ChaffTuning& tuning,
+                                                             bool sink) {
+    const Rect bounds{Vec2{0.0f, 0.0f}, Vec2{400.0f, 240.0f}};
+    const Vec2 centre{100.0f, 120.0f};
+    const Vec2 goal = sink ? centre : Vec2{390.0f, 120.0f};
+    FlowField flow = make_radial_flow(bounds, goal);
+    DistanceField sdf;
+    SpatialHash hash = make_hash(bounds, 4.0f);
+
+    const std::vector<Vec2> bacteria = {
+        {88.0f, 110.0f}, {112.0f, 110.0f}, {100.0f, 120.0f},
+        {88.0f, 130.0f}, {112.0f, 130.0f}, {76.0f, 120.0f}, {124.0f, 120.0f}};
+    const auto contact_of = [&](PathogenFamily f) {
+        const ChaffFamilyParams& fp = tuning.family[static_cast<u32>(f)];
+        return fp.radius * fp.contact_spacing;
+    };
+    const f32 virus_contact = contact_of(PathogenFamily::Virus);
+    const f32 pair = (contact_of(PathogenFamily::Bacteria) + virus_contact) * 0.5f;
+
+    ChaffBuffers buffers;
+    buffers.reserve(4096);
+    Rng seed_rng(4242);
+    for (const Vec2& b : bacteria) {
+        ChaffSpawnParams p;
+        p.family = PathogenFamily::Bacteria;
+        p.position = b;
+        buffers.spawn(p);
+    }
+    const f32 spacing = virus_contact * 0.95f;
+    i32 row = 0;
+    for (f32 y = 96.0f; y <= 144.0f; y += spacing * 0.866f, ++row) {
+        const f32 shift = (row & 1) ? spacing * 0.5f : 0.0f;
+        for (f32 x = 64.0f + shift; x <= 136.0f; x += spacing) {
+            const Vec2 v{x, y};
+            bool blocked = false;
+            for (const Vec2& b : bacteria) blocked |= math::length(v - b) < pair;
+            if (blocked) continue;
+            ChaffSpawnParams p;
+            p.family = PathogenFamily::Virus;
+            p.position = v + seed_rng.unit_disc() * 0.05f;
+            buffers.spawn(p);
+        }
+    }
+
+    ChaffSystem sys;
+    sys.set_tuning(tuning);
+    sys.set_world_bounds(bounds);
+    sys.set_goal(goal, Vec2{0.0f, 0.0f});
+    Rng rng(11);
+    auto tick = [&]() {
+        rebuild(hash, buffers);
+        sys.update(buffers, flow, sdf, TissueMask{}, hash, no_squads(), rng, kFixedDt, nullptr);
+        buffers.compact();
+    };
+    for (int t = 0; t < 120; ++t) tick();
+
+    const usize count = buffers.count();
+    std::vector<Vec2> prev(count), last_step(count, Vec2{}), last_vel(count, Vec2{});
+    for (usize i = 0; i < count; ++i) prev[i] = Vec2{buffers.pos_x[i], buffers.pos_y[i]};
+    std::array<EnclosureMetrics, kFamilyCount> m{};
+    std::array<f64, kFamilyCount> samples{}, steps{}, facings{};
+    for (int t = 0; t < 300; ++t) {
+        tick();
+        REQUIRE(buffers.count() == count);
+        for (usize i = 0; i < count; ++i) {
+            const u32 f = buffers.family[i];
+            const f32 budget = tuning.family[f].max_speed * kFixedDt;
+            const Vec2 p{buffers.pos_x[i], buffers.pos_y[i]};
+            const Vec2 v{buffers.vel_x[i], buffers.vel_y[i]};
+            const Vec2 step = p - prev[i];
+            const Vec2 push = step - v * kFixedDt;   // unbaked SDF: no wall term
+            m[f].step += math::length(step) / budget;
+            m[f].push += math::length(push) / budget;
+            steps[f] += 1.0;
+            const f32 len = math::length(step), plen = math::length(last_step[i]);
+            if (len > 1e-5f && plen > 1e-5f) {
+                const f32 dot = math::clamp(
+                    (step.x * last_step[i].x + step.y * last_step[i].y) / (len * plen), -1.0f, 1.0f);
+                m[f].turn_deg += std::acos(dot) * 57.29578;
+                m[f].reversals += dot < 0.0f ? 1.0 : 0.0;
+                samples[f] += 1.0;
+            }
+            const f32 vl = math::length(v) * math::length(last_vel[i]);
+            if (vl > 1e-5f) {
+                const f32 dot = math::clamp((v.x * last_vel[i].x + v.y * last_vel[i].y) / vl,
+                                            -1.0f, 1.0f);
+                m[f].facing_deg += std::acos(dot) * 57.29578;
+                facings[f] += 1.0;
+            }
+            last_step[i] = step;
+            last_vel[i] = v;
+            prev[i] = p;
+        }
+    }
+    for (u32 f = 0; f < kFamilyCount; ++f) {
+        if (samples[f] > 0.0) {
+            m[f].turn_deg /= samples[f];
+            m[f].reversals /= samples[f];
+        }
+        if (steps[f] > 0.0) {
+            m[f].step /= steps[f];
+            m[f].push /= steps[f];
+        }
+        if (facings[f] > 0.0) m[f].facing_deg /= facings[f];
+    }
+    return m;
+}
+
+void print_enclosure(const char* label, const std::array<EnclosureMetrics, kFamilyCount>& m) {
+    for (PathogenFamily f : {PathogenFamily::Bacteria, PathogenFamily::Virus}) {
+        const EnclosureMetrics& e = m[static_cast<u32>(f)];
+        std::fprintf(stderr,
+                     "[enclosure] %-26s %-8s turn %6.2f deg  rev %.3f  step %.2fx  push %.2fx  "
+                     "facing %6.2f deg\n",
+                     label, f == PathogenFamily::Bacteria ? "bacteria" : "virus", e.turn_deg,
+                     e.reversals, e.step, e.push, e.facing_deg);
+    }
+}
+
+} // namespace
+
+TEST_CASE("a bacterium enclosed by a compressed virus crowd holds still",
+          "[sim][chaff][movement][crowd][bacteria]") {
+    // The bug this pins: a bacterium caught inside a jam of viruses shimmered
+    // in place -- a bacteria-only jam of the same shape did not. Crowd relief
+    // counted neighbours by heads, so the dozens of small viruses in a
+    // bacterium's disc read as a crush far past its threshold, relief ran at
+    // full strength (several times the walking speed, as raw displacement) in
+    // the direction of a truncated, lopsided neighbour sample, and contact
+    // shoved it back the next tick. See NeighbourSample::crowd.
+    //
+    // Measured before the fix: 127 deg/tick of heading change, reversing on
+    // 77% of ticks, travelling 1.84x the speed budget while the crowd around
+    // it stood still. After: 24 deg, 11%, 0.24x (a bacteria-only jam: 0.10x).
+    const ChaffTuning shipped = shipped_chaff_tuning();
+    const auto bact = static_cast<u32>(PathogenFamily::Bacteria);
+
+    const auto flowing = measure_enclosure(shipped, /*sink*/ false);
+    print_enclosure("flowing", flowing);
+    INFO("flowing: bacteria turn " << flowing[bact].turn_deg << " deg/tick");
+    CHECK(flowing[bact].turn_deg < 5.0);
+    CHECK(flowing[bact].reversals < 0.01);
+
+    const auto jammed = measure_enclosure(shipped, /*sink*/ true);
+    print_enclosure("compressed", jammed);
+    INFO("compressed: bacteria step " << jammed[bact].step << "x budget, reversals "
+                                      << jammed[bact].reversals);
+    CHECK(jammed[bact].step < 0.6);
+    CHECK(jammed[bact].reversals < 0.3);
 }
