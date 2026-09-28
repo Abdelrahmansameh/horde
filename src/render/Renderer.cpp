@@ -191,12 +191,64 @@ struct SwarmerGpuInstance {
     /// swarmer.frag.
     u32 flags;
     /// ArborGrabber: each row is {reach, relative_angle, grip, phase}.
+    /// Shooter: the MAGAZINE (sim/swarm/Swarmers.h), see pack_magazine().
     /// Mirrors swarmer.vert / swarmer.frag.
     f32 arm[3][4];
 };
 
 /// Fraction of a round's hit radius it is drawn at. See submit_projectiles.
 constexpr f32 kRoundDrawScale = 0.75f;
+
+/// A shooter's MAGAZINE as swarmer.frag draws it, in the three arm rows:
+///   arm[0] = {aim angle relative to the heading, gather 0..1, rounds already
+///             fired this volley + 256 x magazine size, resting clump radius
+///             in quad units}
+///   arm[1] = {seconds into the reload (huge when not reloading), seconds
+///             between two new rounds appearing, pop seconds, pop start scale}
+///   arm[2] = {pop overshoot, pop peak fraction, pop ease power, granule
+///             radius in quad units}
+/// Round k of a reload appears at (k + 1) * spacing and pops for
+/// spawn_seconds; the spacing leaves the last pop finishing as the reload
+/// does, so the magazine reads full the moment it IS full. `heading` must be
+/// the direction swarmer.vert rotates the body by.
+void pack_magazine(const sim::SwarmerProfile& pr, const sim::ShooterMagazine& mag, Vec2 heading,
+                   f32 (&arm)[3][4]) {
+    // The shader draws at most kMaxGranules (24) anyway; 255 keeps the
+    // fired + 256 x size packing exact.
+    const f32 rounds = static_cast<f32>(math::clamp(pr.magazine_size, 1u, 255u));
+    const f32 cross = heading.x * mag.aim.y - heading.y * mag.aim.x;
+    const f32 dot = heading.x * mag.aim.x + heading.y * mag.aim.y;
+    f32 gather = 0.0f;
+    f32 fired = 0.0f;
+    f32 reload_clock = 1.0e4f;
+    switch (mag.phase) {
+    case sim::MagazinePhase::Gathering:
+        gather = pr.gather_seconds > 0.0f ? math::saturate(mag.timer / pr.gather_seconds) : 1.0f;
+        break;
+    case sim::MagazinePhase::Firing:
+        gather = 1.0f;
+        fired = static_cast<f32>(mag.fired);
+        break;
+    case sim::MagazinePhase::Reloading:
+        reload_clock = mag.timer;
+        break;
+    case sim::MagazinePhase::Loaded:
+        break;
+    }
+    arm[0][0] = std::atan2(cross, dot);
+    arm[0][1] = gather;
+    arm[0][2] = fired + 256.0f * rounds;
+    // swarmer.vert makes one quad unit 2 * size world units wide.
+    arm[0][3] = pr.magazine_spread * 0.5f;
+    arm[1][0] = reload_clock;
+    arm[1][1] = math::max(pr.reload_seconds - pr.spawn_seconds, 0.0f) / rounds;
+    arm[1][2] = math::max(pr.spawn_seconds, 1.0e-3f);
+    arm[1][3] = pr.spawn_start_scale;
+    arm[2][0] = pr.spawn_overshoot;
+    arm[2][1] = math::clamp(pr.spawn_peak, 0.0f, 1.0f);
+    arm[2][2] = math::max(pr.spawn_ease_power, 0.01f);
+    arm[2][3] = pr.granule_size * 0.5f;
+}
 
 /// The identity hue of each tower, for its swarmers. Mirrors palette_for()'s
 /// `primary` in vfx/Particles.cpp entry for entry, so a tower's body, its
@@ -2163,25 +2215,38 @@ void Renderer::submit_projectiles(const sim::ProjectileBuffers& projectiles) {
     ProjectileGpuInstance* base = imp.projectile_instances.mapped_as<ProjectileGpuInstance>() +
         static_cast<usize>(imp.projectile_region) * imp.max_projectile_instances;
 
-    // Warm white-yellow: the Gunner's identity hue, matching the palette the
-    // VFX layer uses for the same tower (vfx/Particles.cpp's palette_for).
-    // Rounds carry a visual_id, not a TowerType, so this is a constant here
-    // rather than a per-round lookup -- today only the Gunner fires rounds.
+    // The neutrophil's white, a tone lighter: a round is one of the granules
+    // the Neutrophil shooter carried in its magazine, so it flies in the
+    // colour it was drawn in inside the cell (swarmer.frag, the kind == 1
+    // magazine block). The faint cool cast is what keeps its edge visible
+    // around projectile.frag's pure-white core on pale tissue. Rounds carry a
+    // visual_id, not a TowerType, so this is a constant here rather than a
+    // per-round lookup -- today only the Neutrophil fires rounds.
     for (u32 i = 0; i < draw_count; ++i) {
         ProjectileGpuInstance inst{};
         inst.x = projectiles.pos_x[i];
         inst.y = projectiles.pos_y[i];
         inst.vx = projectiles.vel_x[i];
         inst.vy = projectiles.vel_y[i];
-        // Drawn well under the hit radius: the hit test is a generous
-        // proximity check (Projectiles.h), and a round drawn at that size
-        // reads as a pellet rather than a shot. Cosmetic only.
-        inst.radius = math::max(projectiles.hit_radius[i] * kRoundDrawScale, 0.08f);
+        // A Neutrophil round leaves at the size its granule was in the cell
+        // and swells to its flight size, easing out, over its grow time.
+        // Anything else is drawn well under its hit radius: the hit test is a
+        // generous proximity check (Projectiles.h), and a round drawn at that
+        // size reads as a pellet rather than a shot.
+        const sim::ProjectileLook& look = projectiles.look[i];
+        f32 drawn = projectiles.hit_radius[i] * kRoundDrawScale;
+        if (look.radius > 0.0f) {
+            const f32 age = look.born_life - projectiles.life[i];
+            const f32 t = look.grow_seconds > 0.0f ? math::saturate(age / look.grow_seconds) : 1.0f;
+            const f32 grown = 1.0f - (1.0f - t) * (1.0f - t);
+            drawn = look.start_radius + (look.radius - look.start_radius) * grown;
+        }
+        inst.radius = math::max(drawn, 0.03f);
         // Hashed off the slot so rounds don't shimmer in lockstep, same
         // rationale as ChaffInstance::anim_phase.
         const u32 h = (i * 2654435761u) ^ 0x85EBCA6Bu;
         inst.phase = static_cast<f32>(h & 0xFFFFu) * (math::kTwoPi / 65536.0f);
-        inst.r = 1.0f; inst.g = 0.96f; inst.b = 0.68f; inst.a = 1.0f;
+        inst.r = 0.84f; inst.g = 0.87f; inst.b = 0.96f; inst.a = 1.0f;
         inst.visual_id = projectiles.visual_id[i];
         base[i] = inst;
     }
@@ -2282,6 +2347,11 @@ void Renderer::submit_swarmers(const sim::SwarmerBuffers& swarmers) {
                 inst.arm[a][2] = arm.grip;
                 inst.arm[a][3] = static_cast<f32>(arm.phase);
             }
+        } else if (pr.kind == sim::SwarmerKind::Shooter) {
+            // The same heading swarmer.vert derives from the velocity.
+            const f32 speed = math::length(Vec2{inst.vx, inst.vy});
+            const Vec2 heading = speed > 1.0e-5f ? Vec2{inst.vx, inst.vy} / speed : Vec2{1.0f, 0.0f};
+            pack_magazine(pr, swarmers.magazine[i], heading, inst.arm);
         }
         base[i] = inst;
     }

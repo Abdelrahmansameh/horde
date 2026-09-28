@@ -25,6 +25,7 @@ layout(location = 5) in vec4  i_tint;
 layout(location = 6) in uint  i_flags;      // bit 0: engaged; bits 8..11: kind; 12..15: tier
 // ArborGrabber (kind 6): each arm = {reach in world units, relative angle,
 // grip 0..1, phase (0 idle, 1 extending, 2 latching, 3 pulling, 4 recovery)}.
+// Shooter (kind 1): the magazine instead (Renderer.cpp, pack_magazine).
 layout(location = 7) in vec4  i_arm0;
 layout(location = 8) in vec4  i_arm1;
 layout(location = 9) in vec4  i_arm2;

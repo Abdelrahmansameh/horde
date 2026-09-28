@@ -205,7 +205,6 @@ void SwarmerBuffers::reserve(usize max_swarmers) {
     vel_x.assign(max_swarmers, 0.0f);
     vel_y.assign(max_swarmers, 0.0f);
     life.assign(max_swarmers, 0.0f);
-    cooldown.assign(max_swarmers, 0.0f);
     chase.assign(max_swarmers, 0.0f);
     attach.assign(max_swarmers, 0.0f);
     target_index.assign(max_swarmers, 0u);
@@ -224,6 +223,7 @@ void SwarmerBuffers::reserve(usize max_swarmers) {
     health.assign(max_swarmers, 0.0f);
     generation.assign(max_swarmers, 0u);
     arbor_grabber.assign(max_swarmers, ArborGrabberState{});
+    magazine.assign(max_swarmers, ShooterMagazine{});
     next_generation_ = 1u;
     clear();
 }
@@ -251,7 +251,6 @@ bool SwarmerBuffers::spawn(const SwarmerSpawnParams& p) {
     vel_x[i] = p.velocity.x;
     vel_y[i] = p.velocity.y;
     life[i] = profile_at(p.profile).lifetime;
-    cooldown[i] = 0.0f;              // a shooter fires the moment it arrives
     chase[i] = 0.0f;
     attach[i] = 0.0f;
     target_index[i] = 0u;
@@ -273,6 +272,8 @@ bool SwarmerBuffers::spawn(const SwarmerSpawnParams& p) {
     health[i] = profile_at(p.profile).max_health;
     generation[i] = next_generation_++;
     arbor_grabber[i] = ArborGrabberState{};
+    // Released loaded: a shooter opens fire the moment it reaches range.
+    magazine[i] = ShooterMagazine{};
     if (next_generation_ == 0u) next_generation_ = 1u;   // never hand out 0
     return true;
 }
@@ -294,7 +295,6 @@ usize SwarmerBuffers::compact() {
             vel_x[i] = vel_x[last];
             vel_y[i] = vel_y[last];
             life[i] = life[last];
-            cooldown[i] = cooldown[last];
             chase[i] = chase[last];
             attach[i] = attach[last];
             target_index[i] = target_index[last];
@@ -313,6 +313,7 @@ usize SwarmerBuffers::compact() {
             health[i] = health[last];
             generation[i] = generation[last];
             arbor_grabber[i] = arbor_grabber[last];
+            magazine[i] = magazine[last];
         }
         flags[last] = 0;
         generation[last] = 0u;   // the retired id is never reissued
@@ -641,6 +642,132 @@ SwarmerStats SwarmerSystem::update(SwarmerBuffers& sw,
         Vec2 next = math::normalize_safe(h + (dir - h) * turn);
         if (next.x == 0.0f && next.y == 0.0f) next = dir;
         h = next;
+    };
+
+    // One round of shooter i's volley: the `k`th of the magazine, fanned
+    // across the cone around the frozen aim. The fan visits the cone in a
+    // golden-ratio order starting at its centre, so the first round goes
+    // straight down the lead and the rest spread out to both edges without
+    // sweeping across it like a sprinkler. `lead`/`named_idx`/`dist`/
+    // `target_radius` describe the target when the unit is engaged this tick
+    // (named_idx npos otherwise).
+    const auto fire_round = [&](usize i, const SwarmerProfile& pr, u32 k, f32 reach, Vec2 lead,
+                                usize named_idx, f32 dist, f32 target_radius) {
+        const ShooterMagazine& mag = sw.magazine[i];
+        const f32 slot = std::fmod(0.5f + static_cast<f32>(k) * 0.618034f, 1.0f);
+        u32 s = sw.seed[i];
+        const f32 angle = (slot * 2.0f - 1.0f) * pr.volley_cone + signed_unit(s) * pr.round_spread;
+        sw.seed[i] = s;
+        const f32 ca = std::cos(angle);
+        const f32 sa = std::sin(angle);
+        const Vec2 aim{mag.aim.x * ca - mag.aim.y * sa, mag.aim.x * sa + mag.aim.y * ca};
+
+        const Vec2 muzzle = Vec2{sw.pos_x[i], sw.pos_y[i]} + mag.aim * (pr.size * kShooterMuzzleFraction);
+        SwarmerShot shot;
+        shot.origin = muzzle;
+        shot.velocity = aim * pr.round_speed;
+        shot.damage = pr.round_damage * inflamed(muzzle);
+        shot.hit_radius = pr.round_hit_radius;
+        shot.draw_start_radius = pr.granule_size * pr.size;
+        shot.draw_radius = pr.round_size * pr.size;
+        shot.draw_grow_seconds = pr.round_grow_seconds;
+        // Twice the standoff and a little more. A shooter fires from its kite
+        // band at a target that may be out near the standoff edge and still
+        // closing, so a round that could only just cross the standoff fell
+        // short of the crowd behind the target; one that outlives its
+        // usefulness is merely a store slot another wanted.
+        shot.lifetime = (reach * 2.0f + 2.0f) / math::max(pr.round_speed, 1.0f);
+        shot.family_mask = sw.family_mask[i];
+        shot.owner = sw.owner[i];
+        shot.source = pr.source;
+        shot.visual_id = sw.visual_id[i];
+        effects_.shots.push_back(shot);
+        ++stats.shots_fired;
+
+        // Rounds only ever DAMAGE chaff (Projectiles.h), so a round at a named
+        // agent lands as a direct hit here and the spawned round is its
+        // tracer -- but only one whose line actually crosses the agent's body:
+        // the edges of a wide cone go past a boss, not into it.
+        if (named_idx != NamedTargetList::npos) {
+            const NamedTarget& t = named.items[named_idx];
+            const f32 half_width = std::atan2(target_radius + pr.round_hit_radius, math::max(dist, 0.01f));
+            if (aim.x * lead.x + aim.y * lead.y >= std::cos(half_width)) {
+                hit_named(i, named_idx, math::max(0.0f, pr.round_damage - t.armor) * t.damage_multiplier);
+            }
+        }
+
+        if (events) {
+            CombatEvent e = make_event(CombatEventType::MuzzleFlash, pr.source, muzzle, aim, sw.visual_id[i]);
+            e.radius = pr.round_hit_radius;
+            e.magnitude = pr.round_damage;
+            events->push(e);
+        }
+    };
+
+    // The MAGAZINE (file header) for shooter i, one tick, run after the unit
+    // has moved. Time left over when a phase ends carries into the next, so a
+    // cycle loses nothing to tick boundaries. `engaged` means a target inside
+    // the standoff this tick, and then `lead` is the unit direction to where a
+    // round would meet it; the rest is for fire_round.
+    const auto run_magazine = [&](usize i, const SwarmerProfile& pr, f32 dt, bool engaged, Vec2 lead,
+                                  f32 reach, usize named_idx, f32 dist, f32 target_radius) {
+        ShooterMagazine& mag = sw.magazine[i];
+        const u32 rounds = math::max(pr.magazine_size, 1u);
+        f32 t = dt;
+        // Each pass either consumes all of `t` and returns or ends a phase;
+        // four phases, so four passes finish any tick.
+        for (int pass = 0; pass < 4; ++pass) {
+            switch (mag.phase) {
+            case MagazinePhase::Reloading: {
+                const f32 need = pr.reload_seconds - mag.timer;
+                if (t < need) {
+                    mag.timer += t;
+                    return;
+                }
+                t -= math::max(need, 0.0f);
+                mag.phase = MagazinePhase::Loaded;
+                mag.timer = 0.0f;
+                break;
+            }
+            case MagazinePhase::Loaded:
+                if (!engaged) return;
+                mag.phase = MagazinePhase::Gathering;
+                mag.timer = 0.0f;
+                break;
+            case MagazinePhase::Gathering: {
+                // The gather edge follows the target until the volley leaves.
+                if (engaged) mag.aim = lead;
+                const f32 need = pr.gather_seconds - mag.timer;
+                if (t < need) {
+                    mag.timer += t;
+                    return;
+                }
+                t -= math::max(need, 0.0f);
+                mag.phase = MagazinePhase::Firing;
+                mag.fired = 0;
+                mag.timer = 0.0f;   // the first round leaves now
+                break;
+            }
+            case MagazinePhase::Firing: {
+                // `timer` is the time to the next round and runs negative by
+                // the time that round is overdue; spending the whole tick
+                // before the loop lets a short fire_interval (or 0) put
+                // several rounds out in one tick.
+                mag.timer -= t;
+                while (mag.timer <= 0.0f && mag.fired < rounds) {
+                    fire_round(i, pr, mag.fired, reach, lead, engaged ? named_idx : NamedTargetList::npos,
+                               dist, target_radius);
+                    ++mag.fired;
+                    mag.timer += math::max(pr.fire_interval, 0.0f);
+                }
+                if (mag.fired >= rounds) {
+                    mag.phase = MagazinePhase::Reloading;
+                    mag.timer = 0.0f;
+                }
+                return;
+            }
+            }
+        }
     };
 
     // A macrophage owns a small fixed cluster per independent branch.
@@ -1178,7 +1305,10 @@ SwarmerStats SwarmerSystem::update(SwarmerBuffers& sw,
             sw.vel_y[i] *= damp;
             sw.pos_x[i] = p.x + sw.vel_x[i] * dt;
             sw.pos_y[i] = p.y + sw.vel_y[i] * dt;
-            if (pr.kind == SwarmerKind::Shooter) sw.cooldown[i] = math::max(0.0f, sw.cooldown[i] - dt);
+            if (pr.kind == SwarmerKind::Shooter) {
+                run_magazine(i, pr, dt, false, sw.magazine[i].aim, pr.attach_radius,
+                             NamedTargetList::npos, 0.0f, 0.0f);
+            }
             continue;
         }
 
@@ -1375,62 +1505,18 @@ SwarmerStats SwarmerSystem::update(SwarmerBuffers& sw,
                 sw.pos_x[i] = p.x + sw.vel_x[i] * dt;
                 sw.pos_y[i] = p.y + sw.vel_y[i] * dt;
 
-                sw.cooldown[i] -= dt;
-                if (sw.cooldown[i] > 0.0f) break;
-                sw.cooldown[i] = pr.fire_interval;
-
-                // The round leaves from where the shooter now stands (it has
-                // just moved this tick, and while kiting it moves fast) and is
-                // aimed at where the target will be when the round gets there
-                // (intercept_point), not where it is now. The spread on top is
-                // the "spray of cells" read and stays: it scatters a stream
-                // AROUND a point that would otherwise land, rather than
-                // decorating a miss.
-                const Vec2 muzzle{sw.pos_x[i], sw.pos_y[i]};
-                const Vec2 lead = intercept_point(muzzle, target_pos, target_vel, pr.round_speed);
-                Vec2 line = math::normalize_safe(lead - muzzle);
-                if (line.x == 0.0f && line.y == 0.0f) line = dir;
-                const f32 jitter = signed_unit(s) * pr.round_spread;
-                sw.seed[i] = s;
-                const f32 cj = std::cos(jitter);
-                const f32 sj = std::sin(jitter);
-                const Vec2 aim{line.x * cj - line.y * sj, line.x * sj + line.y * cj};
-
-                SwarmerShot shot;
-                shot.origin = muzzle;
-                shot.velocity = aim * pr.round_speed;
-                shot.damage = pr.round_damage * inflamed(p);
-                shot.hit_radius = pr.round_hit_radius;
-                // Twice the standoff and a little more. A shooter fires from
-                // its kite band at a target that may be out near the standoff
-                // edge and still closing, so a round that could only just
-                // cross the standoff fell short of the crowd behind the target;
-                // one that outlives its usefulness is merely a store slot
-                // another wanted.
-                shot.lifetime = (reach * 2.0f + 2.0f) / math::max(pr.round_speed, 1.0f);
-                shot.family_mask = mask;
-                shot.owner = sw.owner[i];
-                shot.source = pr.source;
-                shot.visual_id = sw.visual_id[i];
-                effects_.shots.push_back(shot);
-                ++stats.shots_fired;
-
-                // Rounds only ever DAMAGE chaff (Projectiles.h), so a shot at
-                // a named agent lands as a direct hit here and the spawned
-                // round is its tracer. That tracer may still die on a wall.
-                if (on_named) {
-                    const NamedTarget& t = named.items[named_idx];
-                    hit_named(i, named_idx,
-                              math::max(0.0f, pr.round_damage - t.armor) * t.damage_multiplier);
-                }
-
-                if (events) {
-                    CombatEvent e = make_event(CombatEventType::MuzzleFlash, pr.source, muzzle, aim,
-                                               sw.visual_id[i]);
-                    e.radius = pr.round_hit_radius;
-                    e.magnitude = pr.round_damage;
-                    events->push(e);
-                }
+                // The volley is aimed from where the shooter now stands (it
+                // has just moved this tick, and while kiting it moves fast)
+                // at where the target will be when a round gets there
+                // (intercept_point), not where it is now. The cone and the
+                // jitter then scatter the volley AROUND a point that would
+                // otherwise land, rather than decorating a miss.
+                const Vec2 now{sw.pos_x[i], sw.pos_y[i]};
+                const Vec2 lead_pt = intercept_point(now, target_pos, target_vel, pr.round_speed);
+                Vec2 lead = math::normalize_safe(lead_pt - now);
+                if (lead.x == 0.0f && lead.y == 0.0f) lead = dir;
+                run_magazine(i, pr, dt, true, lead, reach, on_named ? named_idx : NamedTargetList::npos,
+                             math::length(target_pos - now), target_radius);
                 break;
             }
 
@@ -1486,7 +1572,6 @@ SwarmerStats SwarmerSystem::update(SwarmerBuffers& sw,
             // ---- 3. SEEKING: steer at the target, with a wander term.
             sw.flags[i] &= static_cast<u8>(~swarmer_flags::kAttached);
             sw.attach[i] = 0.0f;
-            if (pr.kind == SwarmerKind::Shooter) sw.cooldown[i] = math::max(0.0f, sw.cooldown[i] - dt);
 
             // A bomber gives a chase only so long. Past the profile's limit it
             // goes off where it is rather than trailing a target it is not
@@ -1540,6 +1625,11 @@ SwarmerStats SwarmerSystem::update(SwarmerBuffers& sw,
             sw.pos_x[i] = p.x + sw.vel_x[i] * dt;
             sw.pos_y[i] = p.y + sw.vel_y[i] * dt;
             if (pr.kind == SwarmerKind::ArborGrabber) face_arbor(i, dir, dt);
+            // Out of range: it reloads, or finishes a volley already begun,
+            // on the move.
+            if (pr.kind == SwarmerKind::Shooter) {
+                run_magazine(i, pr, dt, false, sw.magazine[i].aim, reach, NamedTargetList::npos, 0.0f, 0.0f);
+            }
         }
     }
 

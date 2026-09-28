@@ -723,6 +723,9 @@ void SimWorld::apply_swarmer_effects() {
         round.damage = sh.damage;
         round.lifetime = sh.lifetime;
         round.hit_radius = sh.hit_radius;
+        round.draw_radius = sh.draw_radius;
+        round.draw_start_radius = sh.draw_start_radius;
+        round.draw_grow_seconds = sh.draw_grow_seconds;
         round.family_mask = sh.family_mask;
         round.owner = sh.owner;
         round.visual_id = sh.visual_id;

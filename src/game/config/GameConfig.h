@@ -101,7 +101,36 @@ struct ShooterParams {
     f32 kite_flow_weight = 1.0f;
     /// Retreat speed as a multiple of the swarm speed.
     f32 kite_speed_mult = 1.5f;
+
+    // The MAGAZINE (sim/swarm/Swarmers.h). fire_interval above is the gap
+    // between two rounds of one volley. The defaults are a plain stream.
+    u32 magazine_size = 1u;
+    f32 gather_seconds = 0.0f;
+    f32 reload_seconds = 0.25f;
+    /// Half-angle, radians, of the cone a volley fans across.
+    f32 volley_cone = 0.0f;
+    // Look only: a round's size in the cell, how tightly the loaded rounds
+    // clump, its size in flight and how fast it grows to it, and the spawn
+    // pop.
+    f32 granule_size = 0.12f;
+    f32 magazine_spread = 0.5f;
+    f32 round_size = 0.12f;
+    f32 round_grow_seconds = 0.0f;
+    f32 spawn_seconds = 0.16f;
+    f32 spawn_start_scale = 0.04f;
+    f32 spawn_overshoot = 1.45f;
+    f32 spawn_peak = 0.6f;
+    f32 spawn_ease_power = 2.0f;
 };
+
+/// One shooter's steady-state rounds per second: a full magazine per cycle of
+/// gather, volley and reload. What balance comparisons should use in place of
+/// 1 / fire_interval, which is now only the gap inside a volley.
+inline f32 shooter_rounds_per_second(const ShooterParams& s) {
+    const u32 n = s.magazine_size > 0u ? s.magazine_size : 1u;
+    const f32 cycle = s.gather_seconds + static_cast<f32>(n - 1u) * s.fire_interval + s.reload_seconds;
+    return static_cast<f32>(n) / (cycle > 0.001f ? cycle : 0.001f);
+}
 
 struct BomberParams {
     /// Seconds a bomber chases one target before detonating where it is.

@@ -145,15 +145,33 @@ void init_mechanics_once() {
             constexpr f32 kSpeed[3] = {22.0f, 25.0f, 28.0f};
             constexpr f32 kSearch[3] = {28.0f, 32.0f, 36.0f};
             constexpr f32 kStandoff[3] = {16.0f, 18.0f, 20.0f};
-            constexpr f32 kSize[3] = {1.50f, 1.65f, 1.80f};
+            // Big enough that the magazine's granules read at play zoom.
+            constexpr f32 kSize[3] = {2.00f, 2.20f, 2.40f};
             m.swarm = SwarmParams{kRelease[tier], kLife[tier], kSpeed[tier], kSearch[tier],
                                   kStandoff[tier], 0.70f, kSize[tier]};
-            constexpr f32 kFire[3] = {0.18f, 0.15f, 0.12f};
-            constexpr f32 kDamage[3] = {1.9f, 3.0f, 3.3f};
-            constexpr f32 kRoundSpeed[3] = {45.0f, 52.0f, 60.0f};
-            constexpr f32 kSpread[3] = {0.11f, 0.085f, 0.06f};
+            // A MAGAZINE per unit (sim/swarm/Swarmers.h): gather, a quick
+            // fanned volley, then a reload that regrows the rounds. Damage
+            // per round is sized so rounds per second across the whole
+            // cycle (shooter_rounds_per_second) keeps the old stream's DPS.
+            constexpr f32 kFire[3] = {0.03f, 0.0275f, 0.025f};
+            constexpr f32 kDamage[3] = {1.6f, 2.45f, 2.8f};
+            constexpr f32 kRoundSpeed[3] = {20.0f, 23.0f, 26.0f};
+            constexpr f32 kSpread[3] = {0.04f, 0.03f, 0.02f};
+            constexpr u32 kMagazine[3] = {12u, 14u, 16u};
+            constexpr f32 kGather[3] = {0.22f, 0.20f, 0.18f};
+            constexpr f32 kReload[3] = {1.30f, 1.20f, 1.10f};
+            constexpr f32 kCone[3] = {0.30f, 0.26f, 0.22f};
             m.shooter = ShooterParams{kFire[tier], kDamage[tier], kRoundSpeed[tier], 0.45f, kSpread[tier],
                                       kSize[tier] * 2.4f, 0.75f, 1.0f, 1.5f};
+            m.shooter.magazine_size = kMagazine[tier];
+            m.shooter.gather_seconds = kGather[tier];
+            m.shooter.reload_seconds = kReload[tier];
+            m.shooter.volley_cone = kCone[tier];
+            // Small and packed in the cell; they swell once they leave it.
+            m.shooter.granule_size = 0.06f;
+            m.shooter.magazine_spread = 0.19f;
+            m.shooter.round_size = 0.10f;
+            m.shooter.round_grow_seconds = 0.15f;
         }
         // ARBOR GRABBER -- Macrophage. A smaller number of heavier cells
         // throw several independent branching pseudopods in every direction.
@@ -1210,6 +1228,19 @@ sim::SwarmerProfile swarmer_profile(TowerType type, u8 tier) {
     p.kite_fraction = m.shooter.kite_fraction;
     p.kite_flow_weight = m.shooter.kite_flow_weight;
     p.kite_speed_mult = m.shooter.kite_speed_mult;
+    p.magazine_size = m.shooter.magazine_size;
+    p.gather_seconds = m.shooter.gather_seconds;
+    p.reload_seconds = m.shooter.reload_seconds;
+    p.volley_cone = m.shooter.volley_cone;
+    p.granule_size = m.shooter.granule_size;
+    p.magazine_spread = m.shooter.magazine_spread;
+    p.round_size = m.shooter.round_size;
+    p.round_grow_seconds = m.shooter.round_grow_seconds;
+    p.spawn_seconds = m.shooter.spawn_seconds;
+    p.spawn_start_scale = m.shooter.spawn_start_scale;
+    p.spawn_overshoot = m.shooter.spawn_overshoot;
+    p.spawn_peak = m.shooter.spawn_peak;
+    p.spawn_ease_power = m.shooter.spawn_ease_power;
 
     switch (p.kind) {
     case sim::SwarmerKind::Bomber:      p.chase_seconds = m.bomber.chase_seconds; break;

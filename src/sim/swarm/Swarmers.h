@@ -66,6 +66,21 @@
 // still wins when configured, but a wall that kites is not a wall, so
 // Macrophage_2 ships with kite_fraction 0.
 //
+// MAGAZINE. A shooter does not stream single rounds. It carries a magazine of
+// them, drawn inside the cell as floating granules, and cycles:
+//   Loaded     full, waiting for a target inside its standoff;
+//   Gathering  the rounds drift to the inside of the membrane facing the
+//              target (gather_seconds), the edge tracking it as it moves;
+//   Firing     they leave one every fire_interval, fanned across a cone of
+//              volley_cone either side of the lead point, which is frozen
+//              when the first round leaves;
+//   Reloading  new rounds appear one at a time across reload_seconds, each
+//              popping in from almost nothing (the pop is renderer-only).
+// The unit keeps moving -- holding its rank, kiting -- through all of it, and
+// a volley that has begun always finishes: rounds already gathered are
+// committed, so a target that dies or walks off mid-volley does not stop
+// them. Only Loaded waits for a target; the other phases run on any tick.
+//
 // KITING. A shooter is ranged and soft, and a horde walks. So a shooter that
 // finds ANY enemy inside its kite radius (SwarmerProfile::kite_fraction of
 // its standoff) backs away while it keeps firing: straight away from the
@@ -291,12 +306,45 @@ struct SwarmerProfile {
     /// continuous; only the movement is stepped. 0 or 1 is one clean slide.
     u32 attach_steps = 4u;
 
-    // ---- Shooter ----
+    // ---- Shooter ---- (MAGAZINE in the file header)
+    /// Seconds between two rounds of one volley. 0 empties the magazine in a
+    /// single tick, a true shotgun.
     f32 fire_interval = 0.25f;
     f32 round_damage = 2.0f;
     f32 round_speed = 40.0f;
     f32 round_hit_radius = 0.45f;
-    f32 round_spread = 0.1f;   ///< Aim jitter half-angle, radians.
+    f32 round_spread = 0.1f;   ///< Per-round aim jitter half-angle, radians, on top of the cone.
+    /// Rounds one volley fires. The defaults below (one round, no gather, a
+    /// quarter-second reload, no cone) are a plain steady stream.
+    u32 magazine_size = 1u;
+    /// Seconds the loaded rounds take to gather at the membrane facing the
+    /// target before the first one leaves.
+    f32 gather_seconds = 0.0f;
+    /// Seconds from the last round of a volley to a full magazine. New rounds
+    /// appear one by one across it.
+    f32 reload_seconds = 0.25f;
+    /// Half-angle, radians, of the cone a volley fans its rounds across.
+    f32 volley_cone = 0.0f;
+    // Look only; the renderer reads these (swarmer.frag), the kernel never does.
+    /// Radius of one round in the cell, as a fraction of `size`.
+    f32 granule_size = 0.12f;
+    /// Radius of the resting clump the loaded rounds pack into around the
+    /// cell's middle, as a fraction of `size`.
+    f32 magazine_spread = 0.5f;
+    /// Radius of a round in flight, as a fraction of `size`. It leaves at
+    /// granule_size and grows to this over round_grow_seconds.
+    f32 round_size = 0.12f;
+    f32 round_grow_seconds = 0.0f;
+    /// Seconds one new round's spawn pop lasts.
+    f32 spawn_seconds = 0.16f;
+    /// Scale a new round starts at, of its resting size.
+    f32 spawn_start_scale = 0.04f;
+    /// Scale the pop peaks at before settling back to 1.
+    f32 spawn_overshoot = 1.45f;
+    /// Fraction of spawn_seconds at which the pop peaks.
+    f32 spawn_peak = 0.6f;
+    /// Ease-in exponent on the way up to the peak (1 = linear).
+    f32 spawn_ease_power = 2.0f;
     /// Distance between squad-mates along the rank.
     f32 formation_spacing = 1.5f;
     /// Kite radius as a fraction of the standoff (attach_radius): an enemy
@@ -394,6 +442,12 @@ struct SwarmerProfile {
 /// vessel. The drawn body edge sits at ~0.84 of `size` (swarmer.frag), so this
 /// is "the membrane touches the wall".
 inline constexpr f32 kWallContactFraction = 0.8f;
+
+/// Where a shooter's rounds leave from, as a fraction of `size` out from its
+/// centre along the volley's aim: the inside of the membrane, where
+/// swarmer.frag gathers the magazine (kGatherEdge there, in quad units, is
+/// this over two).
+inline constexpr f32 kShooterMuzzleFraction = 0.54f;
 
 /// Body collision for the non-Latch kinds. See BODIES in the file header for
 /// the model. A swarmer's BODY here is `size * kWallContactFraction` -- the
@@ -549,6 +603,21 @@ struct ArborGrabberState {
     ArborArmState arms[kArborMaxArms]{};
 };
 
+enum class MagazinePhase : u8 { Reloading = 0, Loaded, Gathering, Firing };
+
+/// Persistent state for one Shooter's MAGAZINE (file header). `timer` counts
+/// UP through Reloading and Gathering (seconds into the phase) and DOWN
+/// through Firing (seconds to the next round).
+struct ShooterMagazine {
+    MagazinePhase phase = MagazinePhase::Loaded;
+    /// Firing: rounds already released this volley.
+    u32 fired = 0;
+    f32 timer = 0.0f;
+    /// Centre of the volley's cone, world space. Tracks the target through
+    /// Gathering and is frozen from the first round on.
+    Vec2 aim{1.0f, 0.0f};
+};
+
 // ---- What a swarmer asked SimWorld to do. ---------------------------------
 
 struct SwarmerBurst {
@@ -584,6 +653,11 @@ struct SwarmerShot {
     Vec2 velocity{0.0f, 0.0f};
     f32 damage = 2.0f;
     f32 hit_radius = 0.45f;
+    /// Cosmetic: the round leaves at its granule's size in the cell and
+    /// grows to its flight size (ProjectileSpawnParams::draw_*).
+    f32 draw_radius = 0.0f;
+    f32 draw_start_radius = 0.0f;
+    f32 draw_grow_seconds = 0.0f;
     f32 lifetime = 0.5f;
     u8 family_mask = 0xFF;
     EntityId owner{};
@@ -642,7 +716,6 @@ public:
     std::vector<f32> vel_x;
     std::vector<f32> vel_y;
     std::vector<f32> life;              ///< Seconds remaining; <= 0 retires it.
-    std::vector<f32> cooldown;          ///< Shooter: seconds to the next round.
     std::vector<f32> chase;             ///< Bombers: seconds spent chasing the current target.
     /// Latch: seconds since it began entering its host, capped at the
     /// profile's attach_seconds. Reset to 0 whenever kAttached drops. The
@@ -673,6 +746,8 @@ public:
     /// Kept parallel so compact() carries a unit's arms, mid-flight or
     /// attached, with the unit they belong to.
     std::vector<ArborGrabberState> arbor_grabber;
+    /// Meaningful only for Shooter profiles. Parallel for the same reason.
+    std::vector<ShooterMagazine> magazine;
 
     /// Reserves every stream. Call once at level load.
     void reserve(usize max_swarmers);

@@ -370,7 +370,7 @@ TEST_CASE("tower_type_name/parse_tower_type round-trip for every roster type", "
 // tower_output() mirrors what each kind actually does with each activation:
 //
 //   LATCH         standing granules x dps        release/interval x life x dps
-//   SHOOTER       standing shooters x round dps  release/interval x life x dmg/fire
+//   SHOOTER       standing shooters x round dps  release/interval x life x dmg x rounds/sec
 //   BOMBER        bursts per second x damage     release/interval x burst_damage
 //   ARBOR GRABBER arm count x catch area          arms x r^2 / cycle
 //   SLOW BOMBER   circle-area-seconds of slow    release/interval x r^2 x dur x (1-factor)
@@ -388,8 +388,8 @@ f32 tower_output(TowerType type, u8 tier, const TowerStats& s) {
     case SwarmerKind::Latch:
         return per_sec * m.swarm.lifetime * m.latch.dps;
     case SwarmerKind::Shooter:
-        return per_sec * m.swarm.lifetime * m.shooter.round_damage /
-               math::max(m.shooter.fire_interval, 0.001f);
+        return per_sec * m.swarm.lifetime * m.shooter.round_damage *
+               shooter_rounds_per_second(m.shooter);
     case SwarmerKind::Bomber:
         return per_sec * m.bomber.burst_damage;
     case SwarmerKind::ArborGrabber:

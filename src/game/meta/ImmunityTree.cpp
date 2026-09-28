@@ -79,7 +79,7 @@ constexpr TreeNodeDef kNodes[] = {
     node("neutrophil.unlock", "Neutrophil", "Owned from the start: the innate first responder", K::TowerRoot, B::Neutrophil, 1),
     node("neutrophil.round_damage", "Round Damage", "+15% per-shot damage", K::Stat, B::Neutrophil, 5),
     node("neutrophil.volley_cadence", "Volley Cadence", "-8% time between squad releases", K::Stat, B::Neutrophil, 4),
-    node("neutrophil.trigger_rate", "Trigger Rate", "-8% time between a swarmer's shots", K::Stat, B::Neutrophil, 4),
+    node("neutrophil.trigger_rate", "Trigger Rate", "-8% swarmer volley and reload time", K::Stat, B::Neutrophil, 4),
     node("neutrophil.aggro_range", "Aggro Range", "+10% swarmer search radius", K::Stat, B::Neutrophil, 3),
     node("neutrophil.squad_size", "Squad Size", "+1 swarmer per volley", K::Stat, B::Neutrophil, 3, 130),
     node("neutrophil.accuracy", "Accuracy", "-20% shot spread", K::Stat, B::Neutrophil, 3),
@@ -205,10 +205,15 @@ void apply_tower_lines(const TreeLevels& lv, TowerType type, TowerStats& st, Tow
     case TowerType::Neutrophil:
         m.shooter.round_damage *= grow(lv[N::NeutrophilRoundDamage], 0.15f);
         st.fire_interval *= shrink(lv[N::NeutrophilVolleyCadence], kCadencePerLevel);
+        // A swarmer's cadence is its whole magazine cycle now, so the line
+        // shortens every part of it, not just the gap inside a volley.
         m.shooter.fire_interval *= shrink(lv[N::NeutrophilTriggerRate], kCadencePerLevel);
+        m.shooter.gather_seconds *= shrink(lv[N::NeutrophilTriggerRate], kCadencePerLevel);
+        m.shooter.reload_seconds *= shrink(lv[N::NeutrophilTriggerRate], kCadencePerLevel);
         m.swarm.search_radius *= grow(lv[N::NeutrophilAggroRange], kSearchPerLevel);
         m.swarm.release_per_shot += lv[N::NeutrophilSquadSize];
         m.shooter.round_spread *= shrink(lv[N::NeutrophilAccuracy], 0.20f);
+        m.shooter.volley_cone *= shrink(lv[N::NeutrophilAccuracy], 0.20f);
         m.swarm.max_health *= grow(lv[N::NeutrophilVitality], 0.20f);
         m.swarm.lifetime *= grow(lv[N::NeutrophilVitality], 0.10f);
         st.max_health *= grow(lv[N::NeutrophilHealth], kTowerHealthPerLevel);

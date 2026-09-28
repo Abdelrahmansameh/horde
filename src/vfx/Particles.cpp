@@ -445,8 +445,10 @@ void ParticleSystem::emit_for_event(const sim::CombatEvent& event) {
     // -----------------------------------------------------------------------
     // MuzzleFlash — two very different things arrive here:
     //   * from a SWARMER (kSwarmerEventBit): a Neutrophil shooter fired one
-    //     round. Dozens per second across a cloud, so this is a single tracer
-    //     and nothing else.
+    //     round. Nothing is drawn for it: the round is itself visible, leaving
+    //     the cell as a granule and swelling in flight (sim/swarm/Swarmers.h,
+    //     MAGAZINE), and a streak racing ahead of a slow round read as a
+    //     stray white line rather than as the shot.
     //   * from a TOWER: a volley of swarmers left the cell's face. Once per
     //     cooldown, so it can afford a visible activation pulse.
     //     The swarmers THEMSELVES are not here — they are simulated entities
@@ -455,19 +457,7 @@ void ParticleSystem::emit_for_event(const sim::CombatEvent& event) {
     //     may add an offset of its own. `magnitude` carries the volley size.
     // -----------------------------------------------------------------------
     case sim::CombatEventType::MuzzleFlash: {
-        if (from_swarmer) {
-            ParticleSpawnParams t2;
-            t2.kind = ParticleKind::Tracer;
-            t2.blend = BlendMode::Additive;
-            t2.position = event.origin + dir * 0.15f;
-            t2.velocity = rotate_by(dir, pcg_range(rs, -0.08f, 0.08f)) * pcg_range(rs, 40.0f, 60.0f);
-            t2.color = mix4(pal.primary, pal.accent, pcg_f32(rs));
-            t2.size = pcg_range(rs, 0.08f, 0.13f);
-            t2.lifetime = pcg_range(rs, 0.10f, 0.16f);
-            t2.drag = 1.6f;
-            push(t2);
-            break;
-        }
+        if (from_swarmer) break;
 
         const Vec2 tip = event.origin;
         const f32 released = math::clamp(event.magnitude, 1.0f, 40.0f);

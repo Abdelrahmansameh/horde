@@ -112,6 +112,99 @@ float sdf_neutrophil(vec2 p, float phase, out float nucleus_d, out float granule
 }
 
 // ---------------------------------------------------------------------------
+// The Neutrophil shooter's MAGAZINE (sim/swarm/Swarmers.h): its rounds, drawn
+// as granules floating in the cytoplasm. On a volley they drift to the inside
+// of the membrane facing the target and leave from there one by one; on the
+// reload new ones pop in at their resting spots. Packed by Renderer.cpp's
+// pack_magazine():
+//   m0 = {aim angle off local +x, gather 0..1,
+//         rounds fired + 256 x magazine size, resting clump radius}
+//   m1 = {seconds into the reload (huge when not reloading),
+//         seconds between two new rounds, pop seconds, pop start scale}
+//   m2 = {pop overshoot, pop peak fraction, pop ease power, granule radius}
+// Layout constants are here; every timing and size is towers.json's.
+// ---------------------------------------------------------------------------
+// Rounds drawn at most; a bigger magazine still fires, the extras just are
+// not drawn in the cell.
+const int   kMaxGranules  = 24;
+// Where the gathered rounds pack, out from the centre along the aim. The sim
+// fires from sim::kShooterMuzzleFraction of the size, and one quad unit is
+// two sizes, so this is half of that.
+const float kGatherEdge   = 0.27;
+// How much of a granule's sideways offset from the aim line it keeps once
+// gathered: the clump spreads along the membrane rather than stacking.
+const float kGatherSquash = 1.0;
+// Gathered rounds stack this many deep against the membrane.
+const float kGatherRows   = 3.0;
+
+// Ease in up to the overshoot, then settle back to 1.
+float pop_scale(float u, float start, float over, float peak, float power) {
+    if (u >= 1.0) return 1.0;
+    if (u < peak) return mix(start, over, pow(u / max(peak, 1e-4), power));
+    float x = (u - peak) / max(1.0 - peak, 1e-4);
+    return mix(over, 1.0, x * x * (3.0 - 2.0 * x));
+}
+
+// Signed distance to the nearest live granule, and that granule's radius.
+// `pore` comes back as how hot the gather point on the membrane is.
+float magazine_d(vec2 p, float phase, vec4 m0, vec4 m1, vec4 m2,
+                 out float nearest_r, out float pore) {
+    vec2 aim = vec2(cos(m0.x), sin(m0.x));
+    vec2 tang = vec2(-aim.y, aim.x);
+    float gather = m0.y;
+    float magazine = floor(m0.z / 256.0);
+    int fired = int(m0.z - magazine * 256.0 + 0.5);
+    int rounds = min(int(magazine + 0.5), kMaxGranules);
+    float spread = m0.w;
+    float radius = m2.w;
+    // The whole resting clump turns slowly as one, so it drifts without
+    // the rounds ever passing through each other.
+    float swirl = phase * 0.04;
+
+    float best = 8.0;   // "no granule": outside any quad, like kFar below
+    nearest_r = radius;
+    for (int k = 0; k < kMaxGranules; ++k) {
+        if (k >= rounds) break;
+        if (k < fired) continue;
+        float fk = float(k);
+
+        // Reloading: round k appears at (k + 1) spacings and pops.
+        float age = m1.x - m1.y * (fk + 1.0);
+        if (age < 0.0) continue;
+        float r = radius * pop_scale(age / m1.z, m1.w, m2.x, m2.y, m2.z);
+
+        // Resting spot: a sunflower packing of the whole magazine into a disc
+        // of `spread` around the middle -- evenly dense, so the rounds read as
+        // one clump -- with a small bob each so they float, not sit pinned.
+        float ang = fk * 2.39996 + swirl;
+        float rad = spread * sqrt((fk + 0.5) / float(max(rounds, 1)));
+        vec2 rest = vec2(cos(ang), sin(ang)) * rad +
+                    radius * 0.35 * vec2(sin(phase * 0.47 + fk * 1.7), cos(phase * 0.41 + fk * 2.3));
+
+        // Gathered spot: against the membrane along the aim, keeping a squashed
+        // share of its sideways offset, in a few rows deep so a big magazine
+        // packs into a clump rather than one blob; staggered so it streams in.
+        float row = mod(fk, kGatherRows);
+        vec2 clump = aim * (kGatherEdge - radius * (0.3 + 1.7 * row)) +
+                     tang * dot(rest, tang) * kGatherSquash;
+        float g = clamp(gather * 1.35 - fk / float(max(rounds, 1)) * 0.35, 0.0, 1.0);
+        g = g * g * (3.0 - 2.0 * g);
+
+        float d = length(p - mix(rest, clump, g)) - r;
+        if (d < best) {
+            best = d;
+            nearest_r = r;
+        }
+    }
+
+    // The fusion pore: a warm spot on the membrane where the clump sits,
+    // brightening as it gathers and holding through the volley.
+    float pd = length(p - aim * (kGatherEdge + 0.05));
+    pore = gather * exp(-pd * pd / 0.004);
+    return best;
+}
+
+// ---------------------------------------------------------------------------
 // Macrophage body (entity.frag: sdf_macrophage). Ruffled membrane, rear
 // pseudopods, a maw carved out of local +x with two lips, kidney nucleus,
 // phagosomes and the chambered vesicle at the maw. Local +x is the heading.
@@ -529,7 +622,9 @@ void main() {
 
     float in_cyto = smoothstep(0.0, 0.05, nucleus_d);
     vec3 speck = repaint ? mix(vec3(1.0), v_tint.rgb, 0.35) : vec3(0.99, 0.93, 0.72);
-    cytoplasm = mix(cytoplasm, speck, granule * in_cyto * 0.45);
+    // A shooter's real rounds are drawn below; its noise speckle stays faint
+    // so the two never read as the same thing.
+    cytoplasm = mix(cytoplasm, speck, granule * in_cyto * (kind == 1u ? 0.18 : 0.45));
 
     // Lobed nucleus: violet on the neutrophil, a deep shade of the tint on the
     // repaints so it still reads darker than the cytoplasm around it.
@@ -539,6 +634,23 @@ void main() {
 
     float rim = 1.0 - smoothstep(0.0, 0.055, abs(body_d));
     rgb = mix(rgb, vec3(1.0), rim * (0.68 + engaged_rim));
+
+    if (kind == 1u) {
+        // The magazine: the neutrophil's own white, a tone lighter than the
+        // cytoplasm around it, with a pure-white core and a soft grey-violet
+        // lip (the cell's deep-cytoplasm shade) so a round still separates
+        // from the body and from the nucleus under it. The same white the
+        // rounds fly in (Renderer.cpp, submit_projectiles).
+        float gr, pore;
+        float gd = magazine_d(p, phase, v_arm0, v_arm1, v_arm2, gr, pore);
+        float gmask = 1.0 - smoothstep(-0.006, 0.004, gd);
+        float inside = clamp(-gd / max(gr, 1e-3), 0.0, 1.0);
+        vec3 grain = mix(vec3(0.95, 0.96, 1.00), vec3(1.0), smoothstep(0.35, 0.95, inside));
+        grain = mix(vec3(0.70, 0.73, 0.85), grain, smoothstep(0.0, 0.35, inside));
+        rgb = mix(rgb, vec3(1.0), pore * 0.55 * a);
+        rgb = mix(rgb, grain, gmask);
+        a = max(a, gmask);
+    }
 
     frag_color = over_shadow(rgb, a * v_tint.a, sh * v_tint.a);
     if (frag_color.a <= 0.001) discard;

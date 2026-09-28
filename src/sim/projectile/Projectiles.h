@@ -69,6 +69,15 @@ struct ProjectileImpactRecord {
     u16 visual_id = 0;
 };
 
+/// How the renderer sizes one round; the sim never reads it. A round's age is
+/// born_life - life, so nothing here needs ticking.
+struct ProjectileLook {
+    f32 radius = 0.0f;         ///< 0: draw at a fraction of hit_radius.
+    f32 start_radius = 0.0f;
+    f32 grow_seconds = 0.0f;
+    f32 born_life = 0.0f;      ///< The lifetime it was spawned with.
+};
+
 struct ProjectileSpawnParams {
     Vec2 position{0.0f, 0.0f};
     /// World units per second. The system integrates position by this directly;
@@ -83,6 +92,13 @@ struct ProjectileSpawnParams {
     /// Impact test radius. Kept small; this is a cell-local proximity check,
     /// not a physical body.
     f32 hit_radius = 0.5f;
+    /// Purely cosmetic: the radius the renderer draws the round at. 0 draws
+    /// it at a fixed fraction of hit_radius. A Neutrophil round leaves at
+    /// the size its granule was in the cell (draw_start_radius) and grows to
+    /// draw_radius over draw_grow_seconds.
+    f32 draw_radius = 0.0f;
+    f32 draw_start_radius = 0.0f;
+    f32 draw_grow_seconds = 0.0f;
     /// Bitmask of PathogenFamily bits this round may damage. 0xFF = all.
     u8 family_mask = 0xFF;
     u8 flags = 0;
@@ -111,6 +127,7 @@ public:
     std::vector<f32> damage;
     std::vector<f32> life;        ///< Seconds remaining; <= 0 retires the round.
     std::vector<f32> hit_radius;
+    std::vector<ProjectileLook> look;   ///< Cosmetic; see ProjectileSpawnParams.
     std::vector<u8>  family_mask;
     std::vector<u8>  flags;
     std::vector<u16> visual_id;

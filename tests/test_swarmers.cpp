@@ -20,7 +20,9 @@
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <utility>
 #include <vector>
@@ -78,7 +80,10 @@ struct Fixture {
         shooter.kind = SwarmerKind::Shooter;
         shooter.source = TowerType::Neutrophil;
         shooter.attach_radius = 4.0f;   // the standoff
+        // A one-round magazine reloading in 0.2 s: the plain steady stream
+        // most shooter tests want. The MAGAZINE has its own tests below.
         shooter.fire_interval = 0.2f;
+        shooter.reload_seconds = 0.2f;
         shooter.round_damage = 3.0f;
         shooter.round_speed = 40.0f;
         swarm.set_profile(kShooter, shooter);
@@ -571,6 +576,139 @@ TEST_CASE("a shooter leads a crossing target so its rounds land", "[swarm][sim][
     INFO("standing target: " << still.hits << " of " << still.fired);
     REQUIRE(still.fired >= 15);
     CHECK(still.hits * 10 >= still.fired * 7);
+}
+
+namespace {
+
+/// A shooter with a real MAGAZINE: five rounds, gathered for 0.2 s, 0.05 s
+/// apart across a 0.3 rad cone, reloaded over 1 s. No jitter and no kiting,
+/// so every direction and every tick below is the magazine's doing.
+SwarmerProfile magazine_profile(const SwarmerProfile& base) {
+    SwarmerProfile pr = base;
+    pr.lifetime = 30.0f;
+    pr.magazine_size = 5u;
+    pr.gather_seconds = 0.2f;
+    pr.fire_interval = 0.05f;
+    pr.reload_seconds = 1.0f;
+    pr.volley_cone = 0.3f;
+    pr.round_spread = 0.0f;
+    pr.kite_fraction = 0.0f;
+    return pr;
+}
+
+struct FiredRound {
+    int tick;
+    Vec2 dir;
+    Vec2 origin;
+};
+
+} // namespace
+
+TEST_CASE("a shooter's magazine gathers, fans a volley across its cone, then reloads",
+          "[swarm][sim][shooter][magazine]") {
+    Fixture f;
+    f.swarm.set_profile(kShooter, magazine_profile(f.swarm.profile_at(kShooter)));
+    const Vec2 target{43.6f, 40.0f};   // inside the 4-unit standoff: engaged at once
+    f.add_chaff(target, 1.0e6f);
+    f.add_swarmer(Vec2{40.0f, 40.0f}, Vec2{0.0f, 0.0f}, kShooter);
+
+    std::vector<FiredRound> fired;
+    int engaged_at = -1;
+    // 2.5 s: two whole volleys (0.2 gather + 0.2 of rounds + 1.0 reload
+    // each), with the third gather still under way at the end.
+    for (int t = 0; t < 150; ++t) {
+        f.step(1);
+        if (engaged_at < 0 && f.any_attached()) engaged_at = t;
+        for (const SwarmerShot& s : f.system.effects().shots) {
+            fired.push_back(FiredRound{t, math::normalize_safe(s.velocity), s.origin});
+        }
+    }
+    REQUIRE(engaged_at >= 0);
+    REQUIRE(fired.size() == 10);
+
+    // Nothing leaves during the gather; the first round leaves as it ends.
+    const int gather_ticks = static_cast<int>(std::lround(0.2f / kDt));
+    CHECK(fired[0].tick - engaged_at >= gather_ticks - 1);
+    CHECK(fired[0].tick - engaged_at <= gather_ticks + 1);
+
+    // The volley is quick: all five inside ~four fire intervals...
+    CHECK(fired[4].tick - fired[0].tick <= static_cast<int>(std::lround(0.2f / kDt)) + 1);
+    // ...then a real reload gap before the next gather even starts.
+    const int gap = fired[5].tick - fired[4].tick;
+    INFO("gap between volleys " << gap << " ticks");
+    CHECK(gap >= static_cast<int>(std::lround((1.0f + 0.2f) / kDt)) - 2);
+
+    // Fanned across the cone around the target line: the first round goes
+    // straight down it, none leave the cone, and the volley really spreads.
+    // The line is taken from each round's own origin; the first one sits
+    // exactly on the frozen aim, the later ones only as far off it as the
+    // unit has wandered since, hence the small allowance on the cone edge.
+    const auto off_line = [&](const FiredRound& r) {
+        const Vec2 line = math::normalize_safe(target - r.origin);
+        return std::acos(math::clamp(r.dir.x * line.x + r.dir.y * line.y, -1.0f, 1.0f));
+    };
+    f32 widest = 0.0f;
+    for (usize k = 0; k < 5; ++k) {
+        INFO("round " << k << " is " << off_line(fired[k]) << " rad off the line");
+        CHECK(off_line(fired[k]) <= 0.3f + 0.08f);
+        widest = math::max(widest, off_line(fired[k]));
+    }
+    CHECK(off_line(fired[0]) < 0.02f);
+    CHECK(widest > 0.2f);
+}
+
+TEST_CASE("a volley that has begun finishes even when its target dies", "[swarm][sim][shooter][magazine]") {
+    Fixture f;
+    f.swarm.set_profile(kShooter, magazine_profile(f.swarm.profile_at(kShooter)));
+    const usize target = f.add_chaff(Vec2{43.6f, 40.0f}, 1.0e6f);
+    f.add_swarmer(Vec2{40.0f, 40.0f}, Vec2{0.0f, 0.0f}, kShooter);
+
+    u32 shots = 0;
+    for (int t = 0; t < 120 && shots == 0; ++t) {
+        f.step(1);
+        shots += static_cast<u32>(f.system.effects().shots.size());
+    }
+    REQUIRE(shots == 1);
+    f.chaff.kill(target);
+    f.chaff.compact();
+    for (int t = 0; t < 30; ++t) {
+        f.step(1);
+        shots += static_cast<u32>(f.system.effects().shots.size());
+    }
+    CHECK(shots == 5);
+    CHECK(f.swarm.magazine[0].phase == MagazinePhase::Reloading);
+}
+
+TEST_CASE("a zero fire_interval empties the magazine in one tick", "[swarm][sim][shooter][magazine]") {
+    Fixture f;
+    SwarmerProfile pr = magazine_profile(f.swarm.profile_at(kShooter));
+    pr.fire_interval = 0.0f;
+    pr.gather_seconds = 0.0f;
+    f.swarm.set_profile(kShooter, pr);
+    f.add_chaff(Vec2{43.6f, 40.0f}, 1.0e6f);
+    f.add_swarmer(Vec2{40.0f, 40.0f}, Vec2{0.0f, 0.0f}, kShooter);
+    usize most = 0;
+    for (int t = 0; t < 30; ++t) {
+        f.step(1);
+        most = std::max(most, f.system.effects().shots.size());
+    }
+    CHECK(most == 5);
+}
+
+TEST_CASE("a shooter reloads while it has nothing to shoot at", "[swarm][sim][shooter][magazine]") {
+    Fixture f;
+    f.swarm.set_profile(kShooter, magazine_profile(f.swarm.profile_at(kShooter)));
+    const usize target = f.add_chaff(Vec2{43.6f, 40.0f}, 1.0e6f);
+    f.add_swarmer(Vec2{40.0f, 40.0f}, Vec2{0.0f, 0.0f}, kShooter);
+    for (int t = 0; t < 60 && f.swarm.magazine[0].phase != MagazinePhase::Reloading; ++t) f.step(1);
+    REQUIRE(f.swarm.magazine[0].phase == MagazinePhase::Reloading);
+
+    // Lane empties: the unit drifts, and the magazine still refills.
+    f.chaff.kill(target);
+    f.chaff.compact();
+    f.step(static_cast<int>(std::lround(1.1f / kDt)));
+    CHECK(f.swarm.magazine[0].phase == MagazinePhase::Loaded);
+    CHECK(f.system.effects().shots.empty());
 }
 
 TEST_CASE("a bomber whose target leaves its aggro radius switches to a closer one",

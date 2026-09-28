@@ -152,6 +152,7 @@ void ProjectileBuffers::reserve(usize max_projectiles) {
     damage.assign(max_projectiles, 0.0f);
     life.assign(max_projectiles, 0.0f);
     hit_radius.assign(max_projectiles, 0.0f);
+    look.assign(max_projectiles, ProjectileLook{});
     family_mask.assign(max_projectiles, 0u);
     flags.assign(max_projectiles, 0u);
     visual_id.assign(max_projectiles, 0u);
@@ -175,6 +176,7 @@ bool ProjectileBuffers::spawn(const ProjectileSpawnParams& p) {
     damage[i] = p.damage;
     life[i] = p.lifetime;
     hit_radius[i] = p.hit_radius;
+    look[i] = ProjectileLook{p.draw_radius, p.draw_start_radius, p.draw_grow_seconds, p.lifetime};
     family_mask[i] = p.family_mask;
     flags[i] = static_cast<u8>((p.flags | projectile_flags::kAlive) &
                                ~projectile_flags::kPendingKill);
@@ -202,6 +204,7 @@ usize ProjectileBuffers::compact() {
             damage[i] = damage[last];
             life[i] = life[last];
             hit_radius[i] = hit_radius[last];
+            look[i] = look[last];
             family_mask[i] = family_mask[last];
             flags[i] = flags[last];
             visual_id[i] = visual_id[last];
