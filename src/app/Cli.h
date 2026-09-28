@@ -61,6 +61,11 @@ struct Options {
     /// Isolating one tower per shot is what makes a per-tower visual bug
     /// diagnosable instead of guessed at in a crowd of six effects at once.
     std::string tower_filter;
+    /// --ui: draw the in-match HUD over the capture, with the level's waves,
+    /// economy and abilities running as in play (step_level instead of a bare
+    /// sim tick), and `ui ...` gym commands available to --exec to set it up
+    /// ("ui click hud/dock/neutrophil; ui pointer 900 600").
+    bool ui = false;
     /// --view-height <world units>: camera framing for --screenshot. Defaults
     /// to the whole level. Needed to inspect per-agent art at all: at full-level
     /// framing a chaff agent covers about six pixels, which is the size the

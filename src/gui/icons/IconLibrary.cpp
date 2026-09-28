@@ -117,7 +117,8 @@ const IconSprite& IconLibrary::sprite(std::string_view name, i32 pixel_size) {
     return icon.bakes.emplace(pixel_size, sp).first->second;
 }
 
-void IconLibrary::draw(DrawList& dl, std::string_view name, Rect dst, Color tint, f32 device_scale) {
+void IconLibrary::draw(DrawList& dl, std::string_view name, Rect dst, Color tint, f32 device_scale,
+                       bool grayscale) {
     const Vec2 size = dst.size();
     const f32 on_screen = math::max(size.x, size.y) * device_scale * dl.transform().uniform_scale();
     const IconSprite& sp = sprite(name, static_cast<i32>(std::ceil(on_screen)));
@@ -125,7 +126,7 @@ void IconLibrary::draw(DrawList& dl, std::string_view name, Rect dst, Color tint
     // Map the viewBox onto dst, then grow by the baked padding.
     const Vec2 k{size.x / sp.view_size.x, size.y / sp.view_size.y};
     const Rect quad{dst.min - Vec2{sp.pad * k.x, sp.pad * k.y}, dst.max + Vec2{sp.pad * k.x, sp.pad * k.y}};
-    dl.image(quad, sp.uv0, sp.uv1, tint);
+    dl.image(quad, sp.uv0, sp.uv1, tint, grayscale);
 }
 
 } // namespace immune::gui

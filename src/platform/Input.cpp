@@ -28,6 +28,10 @@ void InputState::bind_defaults() {
     bind(Action::SelectTower6, SDL_SCANCODE_6);
     bind(Action::SelectTower7, SDL_SCANCODE_7);
     bind(Action::SelectTower8, SDL_SCANCODE_8);
+    bind(Action::CastAbility1, SDL_SCANCODE_Q);
+    bind(Action::CastAbility2, SDL_SCANCODE_W);
+    bind(Action::CastAbility3, SDL_SCANCODE_E);
+    bind(Action::CastAbility4, SDL_SCANCODE_R);
     bind(Action::Screenshot, SDL_SCANCODE_F12);
     bind(Action::Quit, SDL_SCANCODE_UNKNOWN);
     bound_ = true;
@@ -39,6 +43,8 @@ void InputState::poll(Window& window) {
     prev_down_ = down_;
     prev_mouse_down_ = mouse_down_;
     wheel_ = 0.0f;
+    pressed_latch_.fill(false);
+    released_latch_.fill(false);
     const Vec2 prev_pos = mouse_pos_;
 
     SDL_Event ev;
@@ -60,6 +66,17 @@ void InputState::poll(Window& window) {
             case SDL_MOUSEWHEEL:
                 wheel_ += static_cast<f32>(ev.wheel.y);
                 break;
+            case SDL_MOUSEBUTTONDOWN:
+            case SDL_MOUSEBUTTONUP: {
+                const i32 b = ev.button.button == SDL_BUTTON_LEFT     ? 0
+                              : ev.button.button == SDL_BUTTON_RIGHT  ? 1
+                              : ev.button.button == SDL_BUTTON_MIDDLE ? 2
+                                                                      : -1;
+                if (b < 0) break;
+                if (ev.type == SDL_MOUSEBUTTONDOWN) pressed_latch_[static_cast<u32>(b)] = true;
+                else released_latch_[static_cast<u32>(b)] = true;
+                break;
+            }
             default:
                 break;
         }

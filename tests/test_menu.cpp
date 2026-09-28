@@ -9,7 +9,7 @@
 #include "platform/Window.h"
 #include "render/Camera.h"
 #include "render/Renderer.h"
-#include "ui/Hud.h"
+#include "ui/DevUi.h"
 #include "ui/Menu.h"
 
 #include "game/config/GameConfig.h"
@@ -27,7 +27,7 @@ namespace {
 struct HeadlessUi {
     platform::Window window;
     platform::InputState input;
-    ui::Hud hud;
+    ui::DevUi hud;
     render::Renderer renderer;
     bool ok = false;
 

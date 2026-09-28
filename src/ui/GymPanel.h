@@ -38,8 +38,8 @@ namespace immune::ui {
 /// an input line. Toggled with backtick or F2 (F1 belongs to the debug
 /// overlay).
 ///
-/// Must be built inside an ImGui frame (between Hud::begin_frame and
-/// Hud::render), like every other window in ui/.
+/// Must be built inside an ImGui frame (between DevUi::begin_frame and
+/// DevUi::render), like every other window in ui/.
 class GymPanel {
 public:
     /// Draws the panel if visible and runs whatever the user asked for. Handles

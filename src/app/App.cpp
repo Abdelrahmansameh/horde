@@ -1,6 +1,7 @@
 #include "app/App.h"
 
 #include "app/Modes.h"
+#include "app/UiBridge.h"
 #include "game/abilities/AbilityConfigApply.h"
 #include "game/enemies/EnemyConfigApply.h"
 #include "game/towers/TowerMechanics.h"
@@ -47,10 +48,33 @@ bool App::init(const Options& options) {
     audio::AudioConfig ac;
     audio_.init(ac);
     input_.bind_defaults();
-    if (!hud_.init(window_, input_)) {
+    if (!dev_ui_.init(window_, input_)) {
         IMMUNE_LOG_ERROR("HUD init failed (ImGui/SDL2/GL3 backend setup)");
         return false;
     }
+    // The player-facing UI. Its fonts, icons and theme are assets like the
+    // shaders: missing ones are a broken install, not something to run without.
+    if (!gui_.init(gui::Gui::Assets{platform::asset_path("fonts"), platform::asset_path("ui/icons"),
+                                    platform::asset_path("config/ui_theme.json")}) ||
+        !gui_.init_renderer()) {
+        IMMUNE_LOG_ERROR("UI init failed: %s", gui_.error().c_str());
+        return false;
+    }
+    for (const std::string& e : gui_.icons().errors()) IMMUNE_LOG_WARN("%s", e.c_str());
+    gui_.on_sound = [this](gui::UiSound s) {
+        audio::AudioEvent ev;
+        ev.position = camera_.center();
+        switch (s) {
+            case gui::UiSound::Hover: ev.id = audio::SoundId::UiClick; ev.gain = 0.18f; ev.pitch = 1.6f; break;
+            case gui::UiSound::Click: ev.id = audio::SoundId::UiClick; ev.gain = 0.7f; break;
+            case gui::UiSound::Deny: ev.id = audio::SoundId::UiInvalid; ev.gain = 0.8f; break;
+            case gui::UiSound::Open: ev.id = audio::SoundId::UiClick; ev.gain = 0.5f; ev.pitch = 1.2f; break;
+            case gui::UiSound::Close: ev.id = audio::SoundId::UiClick; ev.gain = 0.5f; ev.pitch = 0.85f; break;
+        }
+        audio_.post(ev);
+    };
+    hud_screen_ = std::make_unique<ui::HudScreen>(gui_);
+    hud_screen_->set_visible(false);
 
     // Tuning first: every system below is configured from it. A config that
     // will not load is fatal rather than papered over -- the files are
@@ -323,6 +347,19 @@ void App::poll_config_reload(f32 dt) {
     if (config_poll_timer_ > 0.0f) return;
     config_poll_timer_ = kPollInterval;
 
+    // The UI theme is look, not tuning (nothing binds it into the gym
+    // registry), so it is polled on its own. Widgets copy their styles when
+    // built, so a new theme means rebuilding the HUD.
+    std::string theme_err;
+    if (gui_.reload_theme_if_changed(&theme_err)) {
+        const bool was_visible = hud_screen_->visible();
+        hud_screen_ = std::make_unique<ui::HudScreen>(gui_);
+        hud_screen_->set_visible(was_visible);
+        IMMUNE_LOG_INFO("ui theme reloaded");
+    } else if (!theme_err.empty()) {
+        IMMUNE_LOG_WARN("ui theme reload failed, keeping the last good one: %s", theme_err.c_str());
+    }
+
     std::string err;
     if (!config_store_.poll_changed(err)) {
         if (!err.empty()) IMMUNE_LOG_WARN("config reload failed, keeping the last good one: %s", err.c_str());
@@ -491,7 +528,7 @@ bool App::load_level_def(const game::LevelDef& level, const std::string& source_
     state_.set_outcome(LevelOutcome::InProgress);
     clock_.reset();
     clock_.set_time_scale(1.0f);
-    hud_.clear_build_cursor();
+    if (hud_screen_) hud_screen_->cancel();
 
     // The gym level is the one that exists to be driven from the panel, so it
     // brings the panel up with it; every other level leaves it as the player
@@ -698,7 +735,9 @@ void App::build_editor() {
 }
 
 void App::shutdown() {
-    hud_.shutdown();
+    hud_screen_.reset();
+    gui_.shutdown();
+    dev_ui_.shutdown();
     audio_.shutdown();
     renderer_.shutdown();
     window_.destroy();
@@ -727,7 +766,7 @@ void App::handle_input() {
         IMMUNE_LOG_INFO("wrote shot.png");
     }
     // Typing a command must not also drive the game. ui_capture_keyboard is set
-    // from the previous frame's ImGui state (Hud::begin_frame), which is exactly
+    // from the previous frame's ImGui state (DevUi::begin_frame), which is exactly
     // the frame whose keystrokes are being classified here.
     if (input_.ui_capture_keyboard()) return;
 
@@ -765,6 +804,9 @@ void App::handle_input() {
             // rather than opening the pause menu -- Stop is the only thing you
             // ever want out of Escape while testing.
             if (editor_playtest_) editor_stop();
+            // An armed cursor or an open tower popup is what Escape
+            // dismisses first; only a bare board opens the pause menu.
+            else if (hud_screen_ != nullptr && hud_screen_->cancel()) {}
             else state_.request(GameStateId::Paused);
             break;
         case GameStateId::Editor:
@@ -792,7 +834,15 @@ void App::handle_input() {
         }
     }
     if (input_.action_pressed(platform::Action::Pause)) {
-        clock_.set_time_scale(clock_.time_scale() > 0.0f ? 0.0f : 1.0f);
+        // During prep, Space is the HUD's "Send now" (its keycap says so);
+        // the rest of the time it pauses.
+        const game::WaveStatus ws = waves_.status();
+        if (state_.current() == GameStateId::InLevel && level_loaded_ &&
+            ws.phase == game::WavePhase::Prep && !ws.all_waves_complete) {
+            waves_.request_early_start();
+        } else {
+            clock_.set_time_scale(clock_.time_scale() > 0.0f ? 0.0f : 1.0f);
+        }
     }
     if (input_.action_pressed(platform::Action::SpeedUp)) {
         clock_.set_time_scale(clock_.time_scale() >= 2.0f ? 4.0f : 2.0f);
@@ -801,7 +851,7 @@ void App::handle_input() {
         clock_.set_time_scale(1.0f);
     }
     if (input_.action_pressed(platform::Action::ToggleDebugOverlay)) {
-        hud_.set_debug_overlay_visible(!hud_.debug_overlay_visible());
+        dev_ui_.set_debug_overlay_visible(!dev_ui_.debug_overlay_visible());
     }
     if (state_.current() == GameStateId::InLevel) update_level_camera();
 }
@@ -881,6 +931,10 @@ void App::apply_intents(const std::vector<ui::Intent>& intents) {
             case ui::IntentKind::SetTimeScale: clock_.set_time_scale(in.value); break;
             case ui::IntentKind::StartWaveEarly: waves_.request_early_start(); break;
             case ui::IntentKind::QuitToMenu: state_.request(GameStateId::MainMenu); break;
+            case ui::IntentKind::OpenMenu:
+                if (editor_playtest_) editor_stop();
+                else state_.request(GameStateId::Paused);
+                break;
             default: break;
         }
     }
@@ -1049,10 +1103,17 @@ game::GymContext App::make_gym_context() {
         autoplay_enabled_ = true;
         return true;
     };
+    ctx.ui = [this](const std::vector<std::string>& tokens) {
+        UiDriver d;
+        d.gui = &gui_;
+        d.hud = hud_screen_.get();
+        d.model = &hud_model_;
+        return run_ui_command(d, tokens);
+    };
     ctx.set_overlay = [this](const std::string& name, bool on) {
-        if (name == "debug") { hud_.set_debug_overlay_visible(on); return true; }
-        if (name == "threat") { hud_.set_threat_overlay_visible(on); return true; }
-        if (name == "squads") { hud_.set_squad_overlay_visible(on); return true; }
+        if (name == "debug") { dev_ui_.set_debug_overlay_visible(on); return true; }
+        if (name == "threat") { dev_ui_.set_threat_overlay_visible(on); return true; }
+        if (name == "squads") { dev_ui_.set_squad_overlay_visible(on); return true; }
         return false;
     };
     return ctx;
@@ -1068,6 +1129,7 @@ void App::render_frame() {
     // screen, and editing therefore never destroys a run.
     if (state_.current() == GameStateId::Editor) {
         renderer_.poll_shader_reload();
+        gui_.poll_shader_reload();
         poll_config_reload(static_cast<f32>(clock_.frame_delta()));
         renderer_.begin_frame(camera_, 0.0f);
         const EditorBake& b = editor_.baked();
@@ -1098,30 +1160,36 @@ void App::render_frame() {
         }
         renderer_.end_frame();
 
-        hud_.begin_frame(input_);
+        dev_ui_.begin_frame(input_);
+        hud_screen_->set_visible(false);
+        run_gui_frame();
         // Canvas first (it owns the camera and the background draw list), then
         // panels, so a click on a panel is already flagged in WantCaptureMouse
         // by the time the canvas reads it next frame.
         editor_canvas_.build(editor_, camera_, input_);
         build_editor();
-        hud_.render();
+        dev_ui_.render();
         window_.swap();
         return;
     }
 
     if (!level_loaded_) {
         renderer_.poll_shader_reload();
+        gui_.poll_shader_reload();
         poll_config_reload(static_cast<f32>(kFixedDtSeconds));
         renderer_.begin_frame(camera_, 0.0f);
         renderer_.end_frame();
-        hud_.begin_frame(input_);
+        dev_ui_.begin_frame(input_);
+        hud_screen_->set_visible(false);
+        run_gui_frame();
         build_menus();
         // Available from the front end too: `level gym` is the fastest way in,
         // and a panel that vanished with the world would be useless exactly
         // when a level failed to load.
         game::GymContext gym = make_gym_context();
         gym_panel_.build(gym);
-        hud_.render();
+        gui_.render(window_.width(), window_.height());
+        dev_ui_.render();
         window_.swap();
         return;
     }
@@ -1143,6 +1211,7 @@ void App::render_frame() {
 
     WallClock submit;
     renderer_.poll_shader_reload();
+    gui_.poll_shader_reload();
     poll_config_reload(static_cast<f32>(clock_.frame_delta()));
     renderer_.begin_frame(camera_, clock_.alpha());
     // Lane identity (DESIGN.md §9.2) plus the flow field the plasma streamlines
@@ -1190,33 +1259,30 @@ void App::render_frame() {
     particles_.build_instances(vfx::BlendMode::AlphaBlend, particle_scratch_);
     renderer_.submit_particles(particle_scratch_.data(), particle_scratch_.size(),
                                vfx::BlendMode::AlphaBlend);
-    if (hud_.debug_overlay_visible()) renderer_.submit_flow_debug(sim_.flow());
-    if (hud_.squad_overlay_visible()) renderer_.submit_squad_debug(sim_.squads());
+    if (dev_ui_.debug_overlay_visible()) renderer_.submit_flow_debug(sim_.flow());
+    if (dev_ui_.squad_overlay_visible()) renderer_.submit_squad_debug(sim_.squads());
     renderer_.end_frame();
     profiler_.record(prof_key::kRenderSubmit, submit.elapsed_ms());
 
-    hud_.begin_frame(input_);
+    dev_ui_.begin_frame(input_);
     intents_.clear();
 
     // For LevelFailed, LevelComplete, and Paused, show a front-end screen
     // instead of the interactive HUD over the (frozen, for Paused) game frame.
-    if (state_.current() == GameStateId::LevelFailed ||
-        state_.current() == GameStateId::LevelComplete ||
-        state_.current() == GameStateId::Paused) {
-        build_menus();
-    } else {
-        ui::Hud::MetaCounters counters;
-        counters.visible = !sandbox_run();
-        if (counters.visible) {
-            counters.memory_cells = meta_.memory_cells();
-            counters.antibodies = meta_.antibodies();
-            counters.run_memory_cells =
-                game::MetaProgression::reward_for_run(current_run_result(false), config_.meta, false)
-                    .memory_cells;
-            counters.antibody_on_clear = !meta_.level_cleared(state_.current_level_id());
-        }
-        hud_.set_meta_counters(counters);
-        hud_.build(sim_, economy_, waves_, towers_, abilities_, camera_, input_, intents_);
+    const bool hud_live = state_.current() != GameStateId::LevelFailed &&
+                          state_.current() != GameStateId::LevelComplete &&
+                          state_.current() != GameStateId::Paused;
+    hud_screen_->set_visible(hud_live);
+    const Vec2 world_cursor = camera_.screen_to_world(input_.mouse_pos());
+    if (hud_live) sync_hud(world_cursor);
+    else build_menus();
+
+    // After the model is in and before the world reads the pointer: the gui
+    // decides whether this frame's click belongs to the HUD.
+    const bool imgui_pointer = input_.ui_capture_mouse();
+    run_gui_frame();
+    if (hud_live) {
+        hud_screen_->handle_input(input_, world_cursor, gui_.wants_pointer() || imgui_pointer, intents_);
         apply_intents(intents_);
     }
 
@@ -1225,8 +1291,41 @@ void App::render_frame() {
     game::GymContext gym = make_gym_context();
     gym_panel_.build(gym);
 
-    hud_.render();
+    gui_.render(window_.width(), window_.height());
+    dev_ui_.render();
     window_.swap();
+}
+
+void App::run_gui_frame() {
+    gui_.set_viewport(Vec2{static_cast<f32>(window_.width()), static_cast<f32>(window_.height())});
+    gui_.set_projection([this](Vec2 world) { return camera_.world_to_screen(world) / gui_.scale(); });
+    gui::PointerInput p;
+    p.pos = gui_.to_logical(input_.mouse_pos());
+    for (u32 b = 0; b < 3; ++b) {
+        const auto mb = static_cast<platform::MouseButton>(b);
+        p.down[b] = input_.mouse_down(mb);
+        p.pressed[b] = input_.mouse_pressed(mb);
+        p.released[b] = input_.mouse_released(mb);
+    }
+    p.wheel = input_.wheel();
+    // ImGui's windows (the gym panel) draw on top of the game UI, so while
+    // the pointer is on one of them the gui does not see it at all.
+    p.present = !input_.ui_capture_mouse();
+    gui_.frame(p, static_cast<f32>(clock_.frame_delta()));
+    input_.set_ui_capture(input_.ui_capture_mouse() || gui_.wants_pointer(), input_.ui_capture_keyboard());
+}
+
+void App::sync_hud(Vec2 world_cursor) {
+    HudSources src;
+    src.world = &sim_;
+    src.economy = &economy_;
+    src.waves = &waves_;
+    src.towers = &towers_;
+    src.abilities = &abilities_;
+    src.level = &current_level_def_;
+    src.time_scale = clock_.time_scale();
+    hud_model_ = make_hud_model(src, *hud_screen_, world_cursor);
+    hud_screen_->sync(hud_model_, world_cursor);
 }
 
 void App::enter_state(GameStateId id) {

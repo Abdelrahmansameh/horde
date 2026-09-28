@@ -883,7 +883,11 @@ build phases are in `docs/UI_FRAMEWORK.md`. What matters structurally:
   uploaded by dirty rectangle: fonts as SDF (`assets/fonts`, stb_truetype),
   icons from SVG text (`assets/ui/icons`, nanosvg) extracted from the canvas by
   `tools/extract_icons.py`.
-- ImGui stays for developer tools only (gym panel, level editor).
+- The in-match HUD is `ui/hud/HudScreen`, fed plain `ui::HudModel` data by
+  `app/UiBridge.cpp` each frame; it reports `ui::Intent` (`ui/Intent.h`) like
+  the rest of `ui`.
+- ImGui (`ui/DevUi`) stays for developer tools (gym panel, level editor) and,
+  until they move to gui, the front-end screens.
 
 `ui` emits **intents**, it does not mutate the sim. `app/` translates intents
 into sim commands so every state change goes through one auditable path — which

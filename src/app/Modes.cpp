@@ -13,11 +13,15 @@
 #include "game/gym/GymCommands.h"
 #include "game/level/Level.h"
 #include "game/level/RenderSdf.h"
+#include "game/session/LevelSession.h"
 #include "game/enemies/EnemyConfigApply.h"
 #include "game/towers/TowerMechanics.h"
 #include "game/towers/TowerSystem.h"
 #include "game/wave/WaveDirector.h"
 #include "vfx/Particles.h"
+#include "app/UiBridge.h"
+#include "gui/core/Gui.h"
+#include "ui/hud/HudScreen.h"
 #include "platform/FileIO.h"
 #include "platform/Window.h"
 #include "render/Camera.h"
@@ -48,7 +52,8 @@ using json = nlohmann::json;
 bool build_world(sim::SimWorld& world, const Options& opt, usize max_chaff,
                  JobSystem* jobs, std::string& error,
                  game::LaneOwnershipMap* out_lane_map = nullptr,
-                 game::RenderSdf* out_render_sdf = nullptr) {
+                 game::RenderSdf* out_render_sdf = nullptr,
+                 game::LevelDef* out_level = nullptr) {
     game::LevelDef level;
     game::LevelLoader loader;
 
@@ -130,6 +135,7 @@ bool build_world(sim::SimWorld& world, const Options& opt, usize max_chaff,
     // ever spawns an elite.
     roster.register_systems(world);
     if (out_lane_map != nullptr) *out_lane_map = loader.build_lane_ownership_map(level);
+    if (out_level != nullptr) *out_level = level;
     return true;
 }
 
@@ -725,7 +731,8 @@ int run_screenshot(const Options& opt) {
     std::string error;
     game::LaneOwnershipMap lanes;
     game::RenderSdf render_sdf;
-    if (!build_world(world, opt, 16384, jobs.get(), error, &lanes, &render_sdf)) {
+    game::LevelDef level_def;
+    if (!build_world(world, opt, 16384, jobs.get(), error, &lanes, &render_sdf, &level_def)) {
         IMMUNE_LOG_ERROR("screenshot setup failed: %s", error.c_str());
         return 1;
     }
@@ -794,16 +801,50 @@ int run_screenshot(const Options& opt) {
     // still delivers all of them.
     game::GymSpawnQueue gym_spawns;
     game::GymToggles gym_toggles;
-    if (!opt.exec.empty()) {
-        game::EnemyRoster exec_roster;
+    // The level systems the gym (and, with --ui, the whole level) runs
+    // against. Without --ui they only serve --exec, as before: an empty wave
+    // director and a bare sim tick, so existing captures frame what they
+    // always framed.
+    game::EnemyRoster exec_roster;
+    game::Economy exec_economy;
+    game::ActiveAbilitySystem exec_abilities;
+    game::WaveDirector exec_waves;
+    {
+        const HeadlessConfig tuning = load_headless_config(opt);
         exec_roster.load_defaults();
-        game::Economy exec_economy;
-        exec_economy.configure(load_headless_config(opt).cfg.economy);
-        game::ActiveAbilitySystem exec_abilities;
+        exec_economy.configure(tuning.cfg.economy);
         exec_abilities.load_defaults();
+        if (opt.ui) {
+            game::apply_enemy_config(exec_roster, tuning.cfg.enemies);
+            game::apply_ability_config(exec_abilities, tuning.cfg.abilities);
+            exec_abilities.set_unlocked(game::ActiveAbilitySystem::kAllAbilitiesMask);
+            towers.set_unlocked_towers(game::TowerSystem::kAllTowersMask);
+            exec_roster.register_systems(world);
+        }
         exec_abilities.register_systems(world);
-        game::WaveDirector exec_waves;
+        if (opt.ui && !level_def.waves.empty()) {
+            exec_waves.set_waves(level_def.waves);
+            exec_waves.start(world);
+        }
+    }
 
+    // --ui: the HUD is built now, before --exec, so `ui ...` commands have
+    // something to click. Only its GL backend waits for the context below.
+    gui::Gui ui_gui;
+    std::unique_ptr<ui::HudScreen> ui_hud;
+    ui::HudModel ui_model;
+    Vec2 ui_pointer{-100.0f, -100.0f};
+    if (opt.ui) {
+        if (!ui_gui.init(gui::Gui::Assets{platform::asset_path("fonts"), platform::asset_path("ui/icons"),
+                                          platform::asset_path("config/ui_theme.json")})) {
+            IMMUNE_LOG_ERROR("--ui: %s", ui_gui.error().c_str());
+            return 1;
+        }
+        ui_gui.set_viewport(Vec2{static_cast<f32>(opt.width), static_cast<f32>(opt.height)});
+        ui_hud = std::make_unique<ui::HudScreen>(ui_gui);
+    }
+
+    if (!opt.exec.empty()) {
         game::GymContext gym;
         gym.world = &world;
         gym.towers = &towers;
@@ -813,6 +854,22 @@ int run_screenshot(const Options& opt) {
         gym.abilities = &exec_abilities;
         gym.spawns = &gym_spawns;
         gym.toggles = &gym_toggles;
+        if (opt.ui) {
+            gym.ui = [&](const std::vector<std::string>& tokens) {
+                // `ui select` needs the towers --exec just placed.
+                HudSources src{&world, &exec_economy, &exec_waves, &towers, &exec_abilities, &level_def, 1.0f};
+                ui_model = make_hud_model(src, *ui_hud, Vec2{0.0f, 0.0f});
+                // The screen acts on what it last saw (an ability's readiness,
+                // a card's affordability), so it sees the world as it is now.
+                ui_hud->sync(ui_model, Vec2{0.0f, 0.0f});
+                UiDriver d;
+                d.gui = &ui_gui;
+                d.hud = ui_hud.get();
+                d.model = &ui_model;
+                d.pointer = &ui_pointer;
+                return run_ui_command(d, tokens);
+            };
+        }
         const game::GymResult r = game::gym_execute_script(gym, opt.exec);
         IMMUNE_LOG_INFO("--exec: %s", r.message.c_str());
         if (!r.ok) {
@@ -847,10 +904,24 @@ int run_screenshot(const Options& opt) {
     // pruned every tick so a long run does not accumulate a wave's worth.
     constexpr u64 kDeathFlashWindowTicks = 30;
     std::vector<std::pair<sim::CombatEvent, u64>> recent_deaths;
+    game::LevelSystems level_systems;
+    level_systems.world = &world;
+    level_systems.towers = &towers;
+    level_systems.enemies = &exec_roster;
+    level_systems.waves = &exec_waves;
+    level_systems.economy = &exec_economy;
+    level_systems.abilities = &exec_abilities;
+    level_systems.spawns = &gym_spawns;
+    level_systems.toggles = &gym_toggles;
     for (u64 i = 0; i < opt.ticks; ++i) {
-        gym_spawns.tick(world);
-        world.tick(nullptr);
-        gym_toggles.apply(world);
+        if (opt.ui) {
+            // The level as a player would have it: waves spawn, ATP flows.
+            game::step_level(level_systems, nullptr);
+        } else {
+            gym_spawns.tick(world);
+            world.tick(nullptr);
+            gym_toggles.apply(world);
+        }
         const auto& evts = world.combat_events().events();
         particles.emit_for_events(evts.data(), evts.size());
         for (const sim::CombatEvent& e : evts) {
@@ -917,6 +988,34 @@ int run_screenshot(const Options& opt) {
     particles.build_instances(vfx::BlendMode::AlphaBlend, pinst);
     renderer.submit_particles(pinst.data(), pinst.size(), vfx::BlendMode::AlphaBlend);
     renderer.end_frame();
+
+    if (opt.ui) {
+        if (!ui_gui.init_renderer()) {
+            IMMUNE_LOG_ERROR("--ui: %s", ui_gui.error().c_str());
+            return 1;
+        }
+        ui_gui.set_viewport(Vec2{static_cast<f32>(window.width()), static_cast<f32>(window.height())});
+        ui_gui.set_projection([&](Vec2 w) { return camera.world_to_screen(w) / ui_gui.scale(); });
+        // A second of UI frames at 60 Hz, so springs settle, bars ease to
+        // their levels and the entry animations finish before the capture.
+        const Vec2 pointer_px = ui_pointer * ui_gui.scale();
+        const Vec2 world_cursor = camera.screen_to_world(pointer_px);
+        HudSources src{&world, &exec_economy, &exec_waves, &towers, &exec_abilities, &level_def, 1.0f};
+        for (int f = 0; f < 60; ++f) {
+            ui_model = make_hud_model(src, *ui_hud, world_cursor);
+            ui_hud->set_visible(true);
+            ui_hud->sync(ui_model, world_cursor);
+            gui::PointerInput p;
+            p.pos = ui_pointer;
+            ui_gui.frame(p, 1.0f / 60.0f);
+        }
+        ui_gui.render(window.width(), window.height());
+        IMMUNE_LOG_INFO("--ui: %u draw calls, %u shapes, %u vertices", ui_gui.render_stats().draw_calls,
+                        ui_gui.render_stats().shapes, ui_gui.render_stats().vertices);
+        // Declared before the window, so it would outlive the GL context.
+        ui_hud.reset();
+        ui_gui.shutdown();
+    }
     // Field count included because a missing AoE is otherwise indistinguishable
     // from an AoE that drew at zero alpha, and the two have very different fixes.
     IMMUNE_LOG_INFO("screenshot: %zu live rounds, %zu live swarmers, %zu fluid particles, "

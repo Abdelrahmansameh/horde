@@ -66,6 +66,7 @@ public:
 
     std::string name;
     Color tint = kWhite;
+    bool grayscale = false;
 
     void draw_self(DrawList& dl) override;
 };
@@ -84,6 +85,8 @@ public:
     ShapeDesc disabled_shape;
     f32 hover_scale = 1.04f;
     f32 press_scale = 0.95f;
+    /// Offset the button eases to (a raised, armed card). Visual only.
+    Vec2 nudge{0.0f, 0.0f};
 
     void on_event(Event& e) override;
     void update(f32 dt) override;
@@ -95,6 +98,7 @@ public:
 private:
     Spring scale_{1.0f};
     Spring shake_{0.0f, 900.0f, 18.0f};
+    Spring nudge_x_{0.0f}, nudge_y_{0.0f};
 };
 
 /// A fluid-filled bar or cell whose level eases to its target.

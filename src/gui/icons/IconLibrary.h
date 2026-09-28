@@ -66,7 +66,8 @@ public:
     /// Draws `name` fitted into `dst` (logical px; the viewBox maps onto dst,
     /// overflow draws outside it as in the canvas). `device_scale` is
     /// framebuffer px per logical px so the bake is pixel-exact.
-    void draw(DrawList& dl, std::string_view name, Rect dst, Color tint = kWhite, f32 device_scale = 1.0f);
+    void draw(DrawList& dl, std::string_view name, Rect dst, Color tint = kWhite, f32 device_scale = 1.0f,
+              bool grayscale = false);
 
     Atlas& atlas() { return atlas_; }
     const Atlas& atlas() const { return atlas_; }

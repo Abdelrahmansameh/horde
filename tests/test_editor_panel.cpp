@@ -28,7 +28,7 @@
 #include "render/Gl.h"
 #include "render/Renderer.h"
 #include "render/Screenshot.h"
-#include "ui/Hud.h"
+#include "ui/DevUi.h"
 #include "ui/editor/EditorCanvas.h"
 #include "ui/editor/EditorPanels.h"
 
@@ -55,7 +55,7 @@ std::string scratch_path(const std::string& filename) {
 struct Harness {
     platform::Window window;
     platform::InputState input;
-    ui::Hud hud;
+    ui::DevUi hud;
     render::Renderer renderer;
     render::Camera camera;
     app::EditorMode editor;

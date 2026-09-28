@@ -32,6 +32,9 @@ enum class Action : u8 {
     OpenEditor,
     SelectTower1, SelectTower2, SelectTower3, SelectTower4,
     SelectTower5, SelectTower6, SelectTower7, SelectTower8,
+    /// The four active abilities, in game::AbilityId order (the HUD's
+    /// Q W E R keycaps).
+    CastAbility1, CastAbility2, CastAbility3, CastAbility4,
     Screenshot,
     Quit,
     Count
@@ -54,8 +57,18 @@ public:
     bool action_released(Action a) const { return !down_[static_cast<u32>(a)] && prev_down_[static_cast<u32>(a)]; }
 
     bool mouse_down(MouseButton b) const { return mouse_down_[static_cast<u32>(b)]; }
-    bool mouse_pressed(MouseButton b) const { return mouse_down_[static_cast<u32>(b)] && !prev_mouse_down_[static_cast<u32>(b)]; }
-    bool mouse_released(MouseButton b) const { return !mouse_down_[static_cast<u32>(b)] && prev_mouse_down_[static_cast<u32>(b)]; }
+    /// A press this frame. Latched from the SDL button events as well as the
+    /// sampled state, so a tap whose press and release both land between two
+    /// frames (touchpad tap-to-click) still counts: then pressed() and
+    /// released() are both true while down() is false.
+    bool mouse_pressed(MouseButton b) const {
+        const u32 i = static_cast<u32>(b);
+        return pressed_latch_[i] || (mouse_down_[i] && !prev_mouse_down_[i]);
+    }
+    bool mouse_released(MouseButton b) const {
+        const u32 i = static_cast<u32>(b);
+        return released_latch_[i] || (!mouse_down_[i] && prev_mouse_down_[i]);
+    }
 
     /// Cursor position in window pixels, origin top-left.
     Vec2 mouse_pos() const { return mouse_pos_; }
@@ -91,6 +104,8 @@ private:
     std::array<i32, kActionCount> scancode_{};
     std::array<bool, static_cast<u32>(MouseButton::Count)> mouse_down_{};
     std::array<bool, static_cast<u32>(MouseButton::Count)> prev_mouse_down_{};
+    std::array<bool, static_cast<u32>(MouseButton::Count)> pressed_latch_{};
+    std::array<bool, static_cast<u32>(MouseButton::Count)> released_latch_{};
     Vec2 mouse_pos_{0.0f, 0.0f};
     Vec2 mouse_delta_{0.0f, 0.0f};
     f32 wheel_ = 0.0f;

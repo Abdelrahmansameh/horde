@@ -77,7 +77,7 @@ Icon::Icon(std::string id, std::string n, f32 size) : Widget(std::move(id)), nam
 
 void Icon::draw_self(DrawList& dl) {
     if (gui() == nullptr || name.empty()) return;
-    gui()->icons().draw(dl, name, rect(), tint, gui()->scale());
+    gui()->icons().draw(dl, name, rect(), tint, gui()->scale(), grayscale);
 }
 
 // ---- Button -------------------------------------------------------------------------
@@ -121,7 +121,12 @@ void Button::update(f32 dt) {
     scale_.set_target(target);
     scale_.update(dt);
     shake_.update(dt);
-    anim_transform = Affine2::translate(Vec2{shake_.value() * 0.05f, 0.0f}) * Affine2::scale(scale_.value());
+    nudge_x_.set_target(nudge.x);
+    nudge_y_.set_target(nudge.y);
+    nudge_x_.update(dt);
+    nudge_y_.update(dt);
+    anim_transform = Affine2::translate(Vec2{nudge_x_.value() + shake_.value() * 0.05f, nudge_y_.value()}) *
+                     Affine2::scale(scale_.value());
 }
 
 void Button::draw_self(DrawList& dl) {

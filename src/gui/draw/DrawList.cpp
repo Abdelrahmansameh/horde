@@ -275,12 +275,13 @@ void DrawList::glyph(Rect dst, Vec2 uv0, Vec2 uv1, Color color, u32 style_record
     cmds_.back().index_count = static_cast<u32>(indices_.size()) - cmds_.back().first_index;
 }
 
-void DrawList::image(Rect dst, Vec2 uv0, Vec2 uv1, Color tint) {
+void DrawList::image(Rect dst, Vec2 uv0, Vec2 uv1, Color tint, bool grayscale) {
     ensure_draw_cmd();
     const Affine2& t = transform();
     quad(t.apply(dst.min), t.apply(Vec2{dst.max.x, dst.min.y}), t.apply(dst.max),
          t.apply(Vec2{dst.min.x, dst.max.y}), uv0, Vec2{uv1.x, uv0.y}, uv1, Vec2{uv0.x, uv1.y},
-         pack_premul(with_alpha(tint, tint.a * alphas_.back())), pack_mode(VertexMode::Image, 0));
+         pack_premul(with_alpha(tint, tint.a * alphas_.back())),
+         pack_mode(grayscale ? VertexMode::ImageGray : VertexMode::Image, 0));
     cmds_.back().index_count = static_cast<u32>(indices_.size()) - cmds_.back().first_index;
 }
 

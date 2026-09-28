@@ -332,6 +332,10 @@ const std::vector<GymCommandInfo>& command_table() {
         {"atp", "<amount|+amount>", "Set or add ATP."},
         {"wave", "[start|next|status|<index>]",
          "Skip prep, jump waves, or print the director's state."},
+        {"integrity", "<0-100>",
+         "Set the organ's integrity (a critical-state HUD without losing a run)."},
+        {"ui", "dump | click <path> | hover <path> | pointer <x> <y> | select <n> | cancel",
+         "Drive the game UI by widget path, e.g. ui click hud/dock/neutrophil."},
         {"field", "<radius> <kill_rate> [duration] [at <x,y|cursor>]",
          "Submit a raw damage field. Tests aggregate damage in isolation."},
         {"vfx", "<event|all|list> [at <x,y|cursor>]",
@@ -1657,6 +1661,17 @@ GymResult gym_execute(GymContext& ctx, std::string_view line) {
     if (cmd == "ready") return cmd_ready(ctx);
     if (cmd == "atp") return cmd_atp(ctx, tok);
     if (cmd == "wave") return cmd_wave(ctx, tok);
+    if (cmd == "integrity") {
+        if (ctx.world == nullptr) return fail("no world in this context");
+        f32 v = 0.0f;
+        if (tok.size() < 2 || !parse_f32(tok[1], v)) return fail("usage: integrity <0-100>");
+        ctx.world->set_objective_integrity(v);
+        return okay(fmt("organ integrity = %.0f", static_cast<f64>(v)));
+    }
+    if (cmd == "ui") {
+        if (!ctx.ui) return fail("no game UI in this context");
+        return ctx.ui(tok);
+    }
     if (cmd == "field") return cmd_field(ctx, tok);
     if (cmd == "vfx") return cmd_vfx(ctx, tok);
     if (cmd == "time") return cmd_time(ctx, tok);

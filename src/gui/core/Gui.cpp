@@ -5,7 +5,9 @@
 
 #include <cmath>
 #include <cstdio>
+#include <fstream>
 #include <functional>
+#include <iterator>
 
 namespace immune::gui {
 
@@ -40,7 +42,11 @@ bool Gui::init(const Assets& assets) {
         return false;
     }
     icons_.load_dir(assets.icons_dir);
-    if (!assets.theme_path.empty() && !theme_.load(assets.theme_path, &error_)) return false;
+    if (!assets.theme_path.empty()) {
+        if (!theme_.load(assets.theme_path, &error_)) return false;
+        std::ifstream in(assets.theme_path);
+        theme_text_.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+    }
 
     // The tooltip: one shared bubble in the Tooltip layer.
     auto tip = std::make_unique<Panel>("tooltip", theme_.shape("tooltip"));
@@ -62,9 +68,24 @@ bool Gui::init_renderer() {
     return renderer_ready_;
 }
 
+void Gui::shutdown() {
+    backend_.shutdown();
+    renderer_ready_ = false;
+}
+
 bool Gui::reload_theme(std::string* error) {
     if (assets_.theme_path.empty()) return false;
     return theme_.load(assets_.theme_path, error);
+}
+
+bool Gui::reload_theme_if_changed(std::string* error) {
+    if (assets_.theme_path.empty()) return false;
+    std::ifstream in(assets_.theme_path);
+    if (!in) return false;
+    std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    if (text == theme_text_) return false;
+    theme_text_ = std::move(text);
+    return theme_.parse(theme_text_, error);
 }
 
 void Gui::set_viewport(Vec2 framebuffer, f32 scale_override) {

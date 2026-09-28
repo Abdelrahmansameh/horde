@@ -29,14 +29,16 @@
 #include "game/meta/MetaProgression.h"
 #include "game/towers/TowerSystem.h"
 #include "game/wave/WaveDirector.h"
+#include "gui/core/Gui.h"
 #include "platform/Input.h"
 #include "platform/Window.h"
 #include "render/Camera.h"
 #include "render/Renderer.h"
 #include "sim/SimWorld.h"
 #include "ui/GymPanel.h"
-#include "ui/Hud.h"
+#include "ui/DevUi.h"
 #include "ui/Menu.h"
+#include "ui/hud/HudScreen.h"
 #include "ui/editor/EditorCanvas.h"
 #include "ui/editor/EditorPanels.h"
 #include "vfx/Particles.h"
@@ -59,6 +61,12 @@ public:
 private:
     void handle_input();
     void apply_intents(const std::vector<ui::Intent>& intents);
+    /// Viewport, camera projection and pointer into the gui, then its frame
+    /// (layout, events, animation). Merges its pointer capture into
+    /// InputState so a click on the HUD never reaches the world.
+    void run_gui_frame();
+    /// Builds the HUD model from the live level and syncs the HUD to it.
+    void sync_hud(Vec2 world_cursor);
     void tick_sim();
     void render_frame();
     void enter_state(GameStateId id);
@@ -68,7 +76,7 @@ private:
     /// document it is editing without a file round-trip -- and so a level that
     /// has never been saved is still playable.
     bool load_level_def(const game::LevelDef& level, const std::string& source_path);
-    /// Draws the editor and applies whatever it asked for. Runs inside Hud's
+    /// Draws the editor and applies whatever it asked for. Runs inside DevUi's
     /// ImGui frame, like every other window in ui/.
     void build_editor();
     /// Enters the editor on `path` (or a blank template when empty).
@@ -105,7 +113,7 @@ private:
     /// function of what is on disk rather than a hardcoded table.
     void discover_levels();
     /// Draws whichever front-end screen the current state calls for and
-    /// applies the resulting MenuAction. Runs inside Hud's ImGui frame.
+    /// applies the resulting MenuAction. Runs inside DevUi's ImGui frame.
     void build_menus();
     /// Binds the live subsystems (and the app-level hooks the command layer
     /// cannot reach on its own: level loading, HUD overlays, the cursor) into
@@ -143,7 +151,14 @@ private:
     /// zoom out to. Zero until a level is loaded (zoom disabled).
     f32 level_view_height_ = 0.0f;
     audio::AudioEngine audio_;
-    ui::Hud hud_;
+    /// ImGui: the developer tools (gym panel, level editor) and, until they
+    /// move to gui, the front-end screens.
+    ui::DevUi dev_ui_;
+    /// The player-facing UI framework (src/gui, docs/UI_FRAMEWORK.md) and its
+    /// in-match HUD. Declared after dev_ui_ so the HUD screen is destroyed first.
+    gui::Gui gui_;
+    std::unique_ptr<ui::HudScreen> hud_screen_;
+    ui::HudModel hud_model_;
     ui::Menu menu_;
     /// The gym level's control window (game/gym). Opens itself on that level
     /// and is toggleable with ` or F2 anywhere; costs nothing while hidden.

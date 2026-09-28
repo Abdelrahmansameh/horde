@@ -69,9 +69,15 @@ public:
     bool init(const Assets& assets);
     /// Creates the GL backend. Needs a current GL 4.5 context.
     bool init_renderer();
+    /// Releases GL objects; call while the context is still current.
+    void shutdown();
     const std::string& error() const { return error_; }
     /// Re-reads the theme file; the previous theme stays on a parse error.
     bool reload_theme(std::string* error = nullptr);
+    /// Reloads the theme only if the file's content changed since the last
+    /// load. True when a new theme was applied (widgets built from the old
+    /// one should be rebuilt).
+    bool reload_theme_if_changed(std::string* error = nullptr);
 
     // ---- Viewport -------------------------------------------------------------
     /// `framebuffer` in pixels. The UI scale is framebuffer height / 1080
@@ -150,6 +156,7 @@ private:
     GlBackend backend_;
     DrawList draw_list_;
     Assets assets_;
+    std::string theme_text_;
     std::string error_;
     bool renderer_ready_ = false;
 

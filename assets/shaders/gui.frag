@@ -40,6 +40,7 @@ out vec4 frag;
 
 const float TAU = 6.28318530718;
 const uint MODE_SOLID = 0u, MODE_SHAPE = 1u, MODE_TEXT = 2u, MODE_IMAGE = 3u, MODE_LAYER = 4u;
+const uint MODE_IMAGE_GRAY = 5u;
 const uint KIND_BOX = 0u, KIND_ELLIPSE = 1u, KIND_ARC = 2u, KIND_FLUID = 3u, KIND_RADIAL = 4u;
 // Must match FontLibrary::kSpread.
 const float FONT_SPREAD = 12.0;
@@ -299,6 +300,12 @@ void main() {
         frag = shade_text();
     } else if (v_mode == MODE_IMAGE) {
         frag = texture(u_icons, v_uv) * v_color;
+    } else if (v_mode == MODE_IMAGE_GRAY) {
+        vec4 t = texture(u_icons, v_uv);
+        // Luma of the premultiplied texel, lifted a little so a grey icon
+        // still reads on the pale card rather than going muddy.
+        float l = dot(t.rgb, vec3(0.299, 0.587, 0.114));
+        frag = vec4(vec3(mix(l, t.a, 0.25)), t.a) * v_color;
     } else if (v_mode == MODE_LAYER) {
         frag = texture(u_layer, v_uv) * v_color;
     } else {

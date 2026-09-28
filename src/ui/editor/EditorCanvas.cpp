@@ -733,7 +733,7 @@ void EditorCanvas::build(app::EditorMode& editor, render::Camera& camera,
     handle_shortcuts(editor);
 
     // A click on a panel must never also drop a control point in the world.
-    // Hud::begin_frame already publishes ImGui's capture flags into InputState;
+    // DevUi::begin_frame already publishes ImGui's capture flags into InputState;
     // this is the same guard the HUD's build cursor uses.
     const bool hovering = !io.WantCaptureMouse;
 

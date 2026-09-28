@@ -23,7 +23,7 @@
 #include "render/Screenshot.h"
 #include "sim/SimWorld.h"
 #include "ui/GymPanel.h"
-#include "ui/Hud.h"
+#include "ui/DevUi.h"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -55,7 +55,7 @@ TEST_CASE("the gym panel builds and renders every tab", "[gym][ui][gl]") {
 
     platform::InputState input;
     input.bind_defaults();
-    ui::Hud hud;
+    ui::DevUi hud;
     REQUIRE(hud.init(window, input));
 
     // Over the real level where possible: the tabs enumerate spawn_points, waves,

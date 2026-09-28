@@ -135,6 +135,15 @@ struct GymToggles {
     void apply(sim::SimWorld& world) const;
 };
 
+/// Outcome of one command. `message` is always populated -- on success it is
+/// the human-readable confirmation the panel prints ("spawned 500 virus at
+/// (12.0, 66.0)"), because a command whose effect is 3,000 pixels off-screen is
+/// otherwise indistinguishable from one that silently did nothing.
+struct GymResult {
+    bool ok = true;
+    std::string message;
+};
+
 /// Everything a command may reach, all optional.
 ///
 /// Every pointer is nullable and every command checks the ones it needs before
@@ -171,6 +180,9 @@ struct GymContext {
     /// Toggles a named HUD overlay ("debug", "threat"). Names it does not know
     /// must be reported as unknown by the implementer, not ignored.
     std::function<bool(const std::string&, bool)> set_overlay;
+    /// The `ui` command: drives the game UI by widget path. Bound where a
+    /// UI exists (interactive play, --screenshot --ui); unset elsewhere.
+    std::function<GymResult(const std::vector<std::string>& tokens)> ui;
 
     /// The level editor's document, when one is open. Absent otherwise, in
     /// which case `edit` reports that rather than pretending.
@@ -217,15 +229,6 @@ struct GymContext {
     /// runs the same bot the harness runs, in a window, at eight times speed,
     /// so its play can be watched rather than trusted.
     std::function<bool(bool enable, const std::string& profile, std::string& err)> set_autoplay;
-};
-
-/// Outcome of one command. `message` is always populated -- on success it is
-/// the human-readable confirmation the panel prints ("spawned 500 virus at
-/// (12.0, 66.0)"), because a command whose effect is 3,000 pixels off-screen is
-/// otherwise indistinguishable from one that silently did nothing.
-struct GymResult {
-    bool ok = true;
-    std::string message;
 };
 
 /// One row of the command table: what `help` prints and what the panel's

@@ -1,16 +1,13 @@
 // ui/Menu.h — front-end screens: main menu and level select.
 //
-// WHY THIS IS NOT PART OF Hud
-// Hud draws the in-level HUD and needs the whole live game (sim, economy,
-// waves, towers, abilities, camera). The menus need none of that — they run
-// when there is no level loaded at all. Folding them into Hud::build() would
-// mean handing it a half-constructed world and having it guess which half is
-// valid.
+// WHY THIS IS NOT PART OF THE HUD
+// The HUD (ui/hud) shows the live level. The menus need none of that — they
+// run when there is no level loaded at all.
 //
 // WHY IT DOES NOT KNOW ABOUT GameStateId
 // GameStateId lives in app/, and ui/ must not depend on app/ — that would
 // invert the dependency direction the rest of this layer follows (the same
-// reason GameStateId was deliberately kept out of Hud::build()'s signature).
+// reason the HUD reports ui::Intent rather than touching the state machine).
 // So Menu reports what the player *clicked*, as a MenuAction, and app/ decides
 // what that means for the state machine. Menu owns no game state and no
 // transition logic; it is a pure input/output screen.
@@ -77,7 +74,7 @@ struct MenuResult {
 
 class Menu {
 public:
-    /// Draws the title screen. Assumes an ImGui frame is already open — Hud
+    /// Draws the title screen. Assumes an ImGui frame is already open — DevUi
     /// owns begin_frame()/render(), and these screens draw inside that same
     /// frame rather than starting a competing one.
     MenuResult build_main_menu(i32 screen_width, i32 screen_height);

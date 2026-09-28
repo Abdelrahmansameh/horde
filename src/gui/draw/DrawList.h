@@ -31,6 +31,7 @@ enum class VertexMode : u32 {
     Text = 2,   ///< SDF glyph; uv into the font atlas, record = text style.
     Image = 3,  ///< Premultiplied RGBA from the icon atlas, tinted by colour.
     Layer = 4,  ///< Composite of an offscreen layer, tinted by colour.
+    ImageGray = 5,  ///< Icon-atlas quad desaturated (an unaffordable card's icon).
 };
 
 struct Vertex {
@@ -139,8 +140,8 @@ public:
     u32 text_style(const TextStyleRecord& s);
     /// One glyph quad (dst in current-transform space).
     void glyph(Rect dst, Vec2 uv0, Vec2 uv1, Color color, u32 style_record);
-    /// One icon-atlas quad.
-    void image(Rect dst, Vec2 uv0, Vec2 uv1, Color tint);
+    /// One icon-atlas quad; `grayscale` desaturates it.
+    void image(Rect dst, Vec2 uv0, Vec2 uv1, Color tint, bool grayscale = false);
 
     // ---- Output -----------------------------------------------------------
     const std::vector<Vertex>& vertices() const { return vertices_; }

@@ -74,6 +74,7 @@ stderr also prints `screenshot: placed N/M towers` and `screenshot: N live round
 | `--focus x,y` `--view-height h` | Camera center and zoom in world units. The default frames the whole level, where one agent is about 6 px. Use `--view-height 9` to 30 to inspect sprite or shader art. |
 | `--towers [--tower <name>]` | Auto-place one of every tower type (or just `<name>`) along the level's mid-line. |
 | `--scenario <bench name>` | Pre-populate agents from a bench scenario. |
+| `--ui` | Draw the in-match HUD (src/ui/hud) over the capture. The level then runs as in play: waves spawn and ATP flows (step_level, not a bare sim tick), and `ui …` gym commands work in `--exec` (see §5). Use `--width 1920 --height 1080` to match the design canvas. |
 | `--config <dir>` | Use a copied and edited `assets/config` for tuning experiments. |
 | `--width/--height` | Framebuffer size. Default 1600×900. |
 | `--seed N`, `--threads N` | `state_hash` only matches across runs that use the same `--threads`. |
@@ -126,12 +127,37 @@ Full reference: `docs/GYM.md`, or run `help` / `help <cmd>`. Families: `virus`, 
 spawn <family|all> <count> [at …] [radius r]   flood [n]        kill [family|all]
 tower <type|all|list> [at …] [tier 1-3]        upgrade [all]    sell [all]   fire
 cast <complement|histamine|fever|clot> [at …]  ready            atp <n|+n>
+integrity <0-100>                              (organ integrity: the critical HUD state)
 wave [start|next|status|<i>]                   field <r> <rate> [dur] [at …]
 vfx <event|all|list> [at …]                    time <scale>     step [ticks]
 cam <x,y|spawn_pt|objective|fit> [h]              invuln [on|off]  overlay <debug|threat> [on|off]
 stats   spawn_points   restart   level <name>  autoplay [on|off] [profile]
 config get|set|list <dotted.path> [v]          (interactive / sim-test only)
+ui dump | click <path> | hover <path> | pointer <x> <y> | select <n> | cancel
+                                               (interactive and --screenshot --ui)
 ```
+
+`ui` drives the HUD by widget path (`ui dump` lists them): `hud/dock/<tower>`
+(`neutrophil`, `cytotoxic_t`, `macrophage`, `goblet_cell`, `fibroblast`),
+`hud/abilities/<cascade|histamine|fever|clot>/cell/button`,
+`hud/controls/<pause|speed1|speed2|menu>`, `hud/prep/send`, `inspect/popup/sell`.
+`ui pointer x y` (logical px in the 1920x1080 frame, `--screenshot` only) places
+the pointer the placement ghost and aim reticle follow; `ui select n` opens the
+popup for the n-th placed tower. The five canvas HUD states on campaign_01:
+
+```bash
+L=assets/levels/campaign_01_first_bend.json
+T="tower neutrophil at 30,110; tower cytotoxic_t at 84,80; tower macrophage at 84,50; tower goblet_cell at 130,36"
+S="$E --screenshot $L --ui --width 1920 --height 1080"
+$S --tick 60  --exec "$T" --out "$SCRATCH/prep.png"                                   # prep
+$S --tick 400 --exec "$T; wave start" --out "$SCRATCH/wave.png"                       # wave on
+$S --tick 30  --exec "$T; ui click hud/dock/cytotoxic_t; ui pointer 1000 560" --out "$SCRATCH/placing.png"
+$S --tick 400 --exec "$T; wave start; ui select 2" --out "$SCRATCH/inspect.png"
+$S --tick 460 --exec "$T; wave start; integrity 18; ui click hud/abilities/histamine/cell/button; ui pointer 1100 560" --out "$SCRATCH/critical.png"
+```
+
+stderr prints `--ui: N draw calls, N shapes, N vertices`; the whole HUD is one
+draw call unless a stencil clip or a layer is in use.
 
 ## 6. Interactive play
 
@@ -145,7 +171,7 @@ Launch windowed runs with `run_in_background`. They don't exit on their own, so 
 
 - **Never touch the user's real save** (`%APPDATA%/IMMUNE/IMMUNE/save.json`). Pass `--save <scratch>` or `--sandbox`.
 - `--exec` also runs in interactive play, right after the level loads.
-- Keys: **F1** debug overlay · **TAB** threat overlay · **` / F2** gym panel (opens by itself on `gym.json`) · **F4** level editor · **SPACE** pause · **, / .** speed · **1–8** select tower · **Esc** cancel placement · **F12** screenshot.
+- Keys: **F1** debug overlay · **TAB** threat overlay · **` / F2** gym panel (opens by itself on `gym.json`) · **F4** level editor · **SPACE** pause (during prep: send the wave now) · **, / .** speed · **1–5** arm a tower in dock order (Neutrophil, Cytotoxic T, Macrophage, Goblet Cell, Fibroblast) · **Q W E R** abilities · **Esc** cancel the armed cursor / close the tower popup, else the pause menu · **F12** screenshot.
 - To force a loss quickly on campaign_01: `--exec "spawn all 400 at 200,31 radius 4; time 4"`.
 
 You can't see or click the live window. For proof, use a headless `--screenshot` of the same state, the log, or `stats`.

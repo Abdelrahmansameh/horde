@@ -72,8 +72,8 @@ gui/  core     Gui context · Widget tree · layout · layers · input routing �
 |---|---|---|
 | 1 | Foundation: fonts, draw layer (SDF shapes, paths, stencil clips, layers), text, icons, GL backend, showcase test | **Done** |
 | 2 | Core: widget tree, flex / anchored / world-anchored layout, `Gui` context and layers, pointer state machine (hover, capture, click/deny, drag, wheel, tooltips), animation (`Tween`, `Spring`, the canvas loops beat/pulse/wobble/throb/halo/spin/flow), theme (`assets/config/ui_theme.json`), base widgets (`Panel`, `Label`, `Icon`, `Button`, `Meter`, `Ring`, `Spacer`) | **Done** |
-| 3 | In-match HUD: `HudModel` + `app/UiBridge`, `HudController` (selection and cursors out of `Hud.cpp`'s statics), `HudScreen` for the five canvas states (wave, placing, inspect, prep, critical), world-anchored range ring, `Gui` in `App` (frame order, `PointerInput` from `InputState`, pointer capture OR-ed with ImGui's, theme hot reload, UI sounds), remove the ImGui HUD, `--ui` in screenshot mode, `ui.click/hover/dump` gym commands | Next |
-| 4 | Out-of-match screens: main menu (with the macrophage mascot), level select with campaign gating, pause, victory and defeat, screen transitions; remove ImGui from `Menu.cpp` | |
+| 3 | In-match HUD: `HudModel` + `app/UiBridge`, `HudScreen` (with the selection and armed cursors that were `Hud.cpp`'s statics) for the five canvas states, world overlays, `Gui` in `App`, the ImGui HUD removed (`Hud` became `DevUi`), `--screenshot --ui`, gym `ui` and `integrity` commands | **Done** |
+| 4 | Out-of-match screens: main menu (with the macrophage mascot), level select with campaign gating, pause, victory and defeat, screen transitions; remove ImGui from `Menu.cpp` | Next |
 | 5 | Skill tree: pan canvas, vessel edges, `TreeScreen` over the 75 nodes of `ImmunityTree.cpp` | |
 | 6 | Polish: side-by-side pass against every artboard, motion tuning, UI scale option, perf (< 0.5 ms CPU per frame) | |
 
@@ -105,10 +105,31 @@ gui/  core     Gui context · Widget tree · layout · layers · input routing �
 - **Animation** runs on the render clock: `Tween`, `Spring`, and the canvas's
   CSS keyframes ported one to one (`gui/anim/Anim.h`).
 
+### In-match HUD (built)
+
+- `ui/hud/HudModel.h` is everything the HUD shows as plain data;
+  `app/UiBridge.cpp` fills it from the live game each frame, and
+  `ui/hud/HudScreen` never includes `SimWorld`, `TowerSystem` or the wave
+  director — which is what lets `tests/test_ui_hud.cpp` drive every state from
+  a fixture.
+- Per frame in `App::render_frame`: `sync_hud` (model → widgets) →
+  `run_gui_frame` (layout, pointer, animation; its pointer capture is OR-ed
+  into `InputState` so a HUD click never reaches the world or the camera) →
+  `HudScreen::handle_input` (world clicks, hotkeys, queued button intents) →
+  `apply_intents` → world passes → `gui_.render` → ImGui (`DevUi`) on top.
+- Layout, sizes and colours follow the canvas artboards (Main, Placing,
+  Inspect, Prep, Critical). The whole HUD is one draw call.
+- Input: 1–5 arm towers in dock order, Q W E R abilities, Space sends the
+  wave during prep, Escape disarms or closes the popup before it opens the
+  pause menu. `InputState` latches button presses from SDL events so a tap
+  whose press and release fall between two frames still clicks.
+- Verification: `--screenshot <level> --ui` with `ui …` gym commands (see the
+  run-immune skill for the five canvas states).
+
 ## Building and testing
 
 - Unit tests: `tests/test_gui_draw.cpp`, `test_gui_text.cpp`,
-  `test_gui_icons.cpp`, `test_gui_core.cpp` (no GL); `test_gui_render.cpp` (headless GL) writes
+  `test_gui_icons.cpp`, `test_gui_core.cpp`, `test_ui_hud.cpp` (no GL); `test_gui_render.cpp` (headless GL) writes
   `gui_showcase.png` to the working directory.
 - Regenerate fonts: `python tools/build_fonts.py` (needs fontTools).
 - Refresh icons after the canvas changes: `python tools/extract_icons.py`;

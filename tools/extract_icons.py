@@ -11,6 +11,10 @@ Every icon is normalized to a 64x64 viewBox with the Kit's root convention
 (fill="none", round caps and joins): the canvas relies on that for its
 stroke-only paths.
 
+Hand-authored icons live beside the extracted ones and are left alone:
+glyph_arrow.svg (the canvas's "->" came from a browser fallback font; the
+game's fonts have no arrows).
+
 Usage:  python tools/extract_icons.py [--check]
   --check  fail (exit 1) if the committed icons differ from a fresh extraction
 """

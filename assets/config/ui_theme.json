@@ -1,107 +1,539 @@
 {
   "_comment": "UI design tokens (src/gui/style/Theme.h), taken from the design canvas docs/ui-concepts/canvas. Colours: #RRGGBB, #RRGGBBAA, a colour name, or name@alpha. Pathogen family colours are set at runtime from render::family_color and are not listed here. Hot-reloaded in play.",
-
   "colors": {
     "plum": "#4E1638",
     "ink": "#2B1030",
     "ink_soft": "#5E4470",
     "tissue": "#992848",
     "white": "#FFFFFF",
-
     "flesh": "#EE95A0",
     "cytoplasm": "#FFF0E6",
     "blood": "#F08A9C",
     "blood_track": "#F7D9D3",
-
     "lavender": "#A48CF0",
     "lavender_deep": "#6A4FD0",
     "lavender_ink": "#48297F",
     "lavender_pale": "#F2EDFF",
     "player_cell": "#FBF8FF",
-
     "atp": "#FF8A5B",
     "gold": "#F2B233",
     "critical": "#D7263D",
     "locked": "#D4CCD9",
     "locked_ink": "#6B5E78",
-
     "shadow": "#28001447",
-
     "ability_complement": "#F2B233",
     "ability_histamine": "#E0559A",
     "ability_fever": "#F26A3D",
-    "ability_clot": "#D7334A"
+    "ability_clot": "#D7334A",
+    "muted": "#7D6590",
+    "atp_ink": "#A8401F",
+    "badge": "#48297F",
+    "badge_muted": "#8C8599",
+    "elite_ink": "#9A5A00",
+    "elite_bg": "#FFE9B8",
+    "minibar_bg": "#F3DDD5",
+    "critical_membrane": "#E2475F",
+    "critical_cytoplasm": "#FFE1E1",
+    "countdown_track": "#F4D3CC",
+    "health": "#F4A340",
+    "health_ok": "#6BC96B",
+    "sell_bg": "#FFE8DC",
+    "range_ring": "#FFFFFF",
+    "aim": "#E0559A",
+    "invalid": "#E2475F"
   },
-
   "text": {
-    "label":      { "font": "nunito-800", "size": 13, "letter_spacing": 0.1, "uppercase": true, "color": "ink_soft" },
-    "body":       { "font": "nunito-700", "size": 16, "color": "ink" },
-    "body_small": { "font": "nunito-700", "size": 14, "color": "ink_soft" },
-    "name":       { "font": "nunito-800", "size": 16, "color": "ink" },
-    "value":      { "font": "fredoka-600", "size": 26, "tabular": true, "color": "ink" },
-    "value_big":  { "font": "fredoka-600", "size": 40, "line_height": 1.0, "tabular": true, "color": "ink" },
-    "hotkey":     { "font": "nunito-900", "size": 15, "color": "white" },
-    "button":     { "font": "fredoka-600", "size": 24, "color": "white" },
-    "timer":      { "font": "fredoka-600", "size": 28, "color": "ink", "outline": "white", "outline_width": 2.5 },
-    "title":      { "font": "fredoka-700", "size": 64, "line_height": 1.0, "color": "cytoplasm",
-                    "outline": "plum", "outline_width": 4.5, "shadow": "#1E001073", "shadow_offset": [0, 10] }
-  },
-
-  "shapes": {
-    "membrane.host": {
-      "kind": "box", "radius": 34, "fill": "flesh", "fill2": "cytoplasm", "band": 6,
-      "stroke": "plum", "stroke_width": 3.5, "rim": "white@0.55", "rim_width": 2,
-      "shadow": "shadow", "shadow_offset": [0, 5], "bulge": 3,
-      "wobble_amp": 0.8, "wobble_wavelength": 90, "wobble_speed": 0.6,
-      "decor": "flesh@0.5", "decor_count": 3
+    "label": {
+      "font": "nunito-800",
+      "size": 13,
+      "letter_spacing": 0.1,
+      "uppercase": true,
+      "color": "ink_soft"
     },
-    "membrane.player": {
-      "base": "membrane.host", "radius": 30, "fill": "lavender", "fill2": "lavender_pale",
-      "decor": "lavender@0.35"
+    "body": {
+      "font": "nunito-700",
+      "size": 16,
+      "color": "ink"
     },
-    "membrane.locked": {
-      "base": "membrane.host", "fill": "locked", "fill2": "#F4F1F6", "decor_count": 0
+    "body_small": {
+      "font": "nunito-700",
+      "size": 14,
+      "color": "ink_soft"
     },
-    "button.round": {
-      "kind": "ellipse", "fill": "player_cell", "stroke": "plum", "stroke_width": 3.5,
-      "shadow": "shadow", "shadow_offset": [0, 4], "wobble_amp": 1.2, "wobble_wavelength": 60, "wobble_speed": 0.8
+    "name": {
+      "font": "nunito-800",
+      "size": 16,
+      "color": "ink"
     },
-    "button.primary": {
-      "kind": "box", "radius": 999, "fill": "lavender_deep", "stroke": "plum", "stroke_width": 3.5,
-      "rim": "white@0.35", "rim_width": 2, "shadow": "shadow", "shadow_offset": [0, 5], "bulge": 2,
-      "wobble_amp": 0.6, "wobble_speed": 0.7
+    "value": {
+      "font": "fredoka-600",
+      "size": 26,
+      "tabular": true,
+      "color": "ink"
     },
-    "button.disabled": {
-      "base": "button.primary", "fill": "locked", "rim": "white@0.25"
+    "value_big": {
+      "font": "fredoka-600",
+      "size": 40,
+      "line_height": 1.0,
+      "tabular": true,
+      "color": "ink"
+    },
+    "hotkey": {
+      "font": "nunito-900",
+      "size": 15,
+      "color": "white"
+    },
+    "button": {
+      "font": "fredoka-600",
+      "size": 24,
+      "color": "white"
+    },
+    "timer": {
+      "font": "fredoka-600",
+      "size": 28,
+      "color": "ink",
+      "outline": "white",
+      "outline_width": 2.5
+    },
+    "title": {
+      "font": "fredoka-700",
+      "size": 64,
+      "line_height": 1.0,
+      "color": "cytoplasm",
+      "outline": "plum",
+      "outline_width": 4.5,
+      "shadow": "#1E001073",
+      "shadow_offset": [
+        0,
+        10
+      ]
+    },
+    "wave_title": {
+      "font": "fredoka-600",
+      "size": 28,
+      "line_height": 1.05,
+      "color": "ink"
+    },
+    "wave_total": {
+      "font": "fredoka-600",
+      "size": 18,
+      "color": "ink_soft",
+      "tabular": true
+    },
+    "row_name": {
+      "font": "nunito-800",
+      "size": 16,
+      "color": "ink"
+    },
+    "row_count": {
+      "font": "fredoka-600",
+      "size": 21,
+      "color": "ink",
+      "tabular": true
+    },
+    "elite": {
+      "font": "nunito-900",
+      "size": 16,
+      "color": "elite_ink"
+    },
+    "elite_count": {
+      "font": "fredoka-600",
+      "size": 21,
+      "color": "elite_ink",
+      "tabular": true
+    },
+    "atp_value": {
+      "font": "fredoka-600",
+      "size": 46,
+      "line_height": 1.0,
+      "color": "ink",
+      "tabular": true
+    },
+    "atp_rate": {
+      "font": "nunito-900",
+      "size": 15,
+      "color": "atp_ink"
+    },
+    "card_cost": {
+      "font": "fredoka-600",
+      "size": 18,
+      "color": "ink",
+      "tabular": true
+    },
+    "card_name": {
+      "font": "fredoka-600",
+      "size": 17,
+      "line_height": 1.1,
+      "color": "ink"
+    },
+    "card_short": {
+      "font": "nunito-800",
+      "size": 13,
+      "color": "atp_ink"
     },
     "badge": {
-      "kind": "box", "radius": 999, "fill": "lavender_deep", "stroke": "plum", "stroke_width": 2.5
+      "font": "fredoka-600",
+      "size": 14,
+      "line_height": 1.0,
+      "color": "white"
     },
-    "bar.blood": {
-      "kind": "fluid", "radius": 12, "fill": "blood_track", "stroke": "plum", "stroke_width": 3,
-      "liquid": "blood", "bubble": "white@0.35", "liquid_inset": 3, "wave_amp": 1.5
+    "keycap": {
+      "font": "nunito-900",
+      "size": 13,
+      "line_height": 1.0,
+      "color": "ink"
     },
-    "bar.health": {
-      "kind": "fluid", "radius": 7, "fill": "blood_track", "stroke": "plum", "stroke_width": 2.5,
-      "liquid": "#6BC96B", "bubble": "white@0.3", "liquid_inset": 2.5, "wave_amp": 0.8
+    "ability_name": {
+      "font": "nunito-800",
+      "size": 14,
+      "color": "muted"
     },
-    "cell.ability": {
-      "kind": "fluid", "radius": 999, "fill": "player_cell", "stroke": "plum", "stroke_width": 3,
-      "rim_width": 6, "fill_axis": "vertical", "liquid_inset": 0, "wave_amp": 1.5,
-      "shadow": "shadow", "shadow_offset": [0, 4], "wobble_amp": 1.2, "wobble_wavelength": 60, "wobble_speed": 0.9
+    "tag": {
+      "font": "nunito-900",
+      "size": 12,
+      "letter_spacing": 0.08,
+      "uppercase": true,
+      "color": "white"
     },
-    "ring.halo": {
-      "kind": "arc", "stroke_width": 4, "dash_length": 14, "dash_gap": 10
+    "hint": {
+      "font": "nunito-800",
+      "size": 15,
+      "color": "ink"
     },
-    "vignette.critical": {
-      "kind": "radial", "fill": "#FF2A4A00", "fill2": "#FF2A4A8C", "radial_inner": 0.55
+    "speed": {
+      "font": "fredoka-600",
+      "size": 22,
+      "line_height": 1.0,
+      "color": "ink"
     },
-    "tooltip": {
-      "kind": "box", "radius": 14, "fill": "cytoplasm", "stroke": "plum", "stroke_width": 3,
-      "shadow": "shadow", "shadow_offset": [0, 4]
+    "banner": {
+      "font": "fredoka-600",
+      "size": 30,
+      "line_height": 1.0,
+      "color": "ink"
+    },
+    "banner_critical": {
+      "font": "fredoka-600",
+      "size": 28,
+      "line_height": 1.0,
+      "color": "critical"
+    },
+    "toast": {
+      "font": "fredoka-600",
+      "size": 24,
+      "line_height": 1.0,
+      "color": "ink"
+    },
+    "countdown": {
+      "font": "fredoka-600",
+      "size": 26,
+      "line_height": 1.0,
+      "color": "ink",
+      "tabular": true
+    },
+    "popup_title": {
+      "font": "fredoka-600",
+      "size": 28,
+      "line_height": 1.0,
+      "color": "ink"
+    },
+    "popup_value": {
+      "font": "fredoka-600",
+      "size": 19,
+      "color": "ink",
+      "tabular": true
+    },
+    "sell": {
+      "font": "fredoka-600",
+      "size": 22,
+      "line_height": 1.0,
+      "color": "ink"
+    },
+    "cursor_cost": {
+      "font": "fredoka-600",
+      "size": 20,
+      "line_height": 1.0,
+      "color": "ink",
+      "tabular": true
+    },
+    "cursor_left": {
+      "font": "nunito-800",
+      "size": 14,
+      "color": "ink_soft"
+    },
+    "world_count": {
+      "font": "fredoka-600",
+      "size": 18,
+      "line_height": 1.0,
+      "color": "ink",
+      "tabular": true
     }
   },
-
+  "shapes": {
+    "membrane.host": {
+      "kind": "box",
+      "radius": 34,
+      "fill": "flesh",
+      "fill2": "cytoplasm",
+      "band": 6,
+      "stroke": "plum",
+      "stroke_width": 3.5,
+      "rim": "white@0.55",
+      "rim_width": 2,
+      "shadow": "shadow",
+      "shadow_offset": [
+        0,
+        5
+      ],
+      "bulge": 3,
+      "wobble_amp": 0.8,
+      "wobble_wavelength": 90,
+      "wobble_speed": 0.6,
+      "decor": "flesh@0.28",
+      "decor_count": 3
+    },
+    "membrane.player": {
+      "base": "membrane.host",
+      "radius": 30,
+      "fill": "lavender",
+      "fill2": "lavender_pale",
+      "decor": "lavender@0.28"
+    },
+    "membrane.locked": {
+      "base": "membrane.host",
+      "fill": "locked",
+      "fill2": "#F4F1F6",
+      "decor_count": 0
+    },
+    "button.round": {
+      "kind": "ellipse",
+      "fill": "player_cell",
+      "stroke": "plum",
+      "stroke_width": 3.5,
+      "shadow": "shadow",
+      "shadow_offset": [
+        0,
+        4
+      ],
+      "wobble_amp": 1.2,
+      "wobble_wavelength": 60,
+      "wobble_speed": 0.8
+    },
+    "button.primary": {
+      "kind": "box",
+      "radius": 999,
+      "fill": "lavender_deep",
+      "stroke": "plum",
+      "stroke_width": 3.5,
+      "rim": "white@0.35",
+      "rim_width": 2,
+      "shadow": "shadow",
+      "shadow_offset": [
+        0,
+        5
+      ],
+      "bulge": 2,
+      "wobble_amp": 0.6,
+      "wobble_speed": 0.7
+    },
+    "button.disabled": {
+      "base": "button.primary",
+      "fill": "locked",
+      "rim": "white@0.25"
+    },
+    "badge": {
+      "kind": "box",
+      "radius": 999,
+      "fill": "badge",
+      "stroke": "plum",
+      "stroke_width": 2.5
+    },
+    "bar.blood": {
+      "kind": "fluid",
+      "radius": 12,
+      "fill": "blood_track",
+      "stroke": "plum",
+      "stroke_width": 3,
+      "liquid": "blood",
+      "bubble": "white@0.35",
+      "liquid_inset": 3,
+      "wave_amp": 1.5
+    },
+    "bar.health": {
+      "kind": "fluid",
+      "radius": 7,
+      "fill": "blood_track",
+      "stroke": "plum",
+      "stroke_width": 2.5,
+      "liquid": "health",
+      "bubble": "white@0.3",
+      "liquid_inset": 2.5,
+      "wave_amp": 0.8
+    },
+    "cell.ability": {
+      "kind": "fluid",
+      "radius": 999,
+      "fill": "player_cell",
+      "stroke": "plum",
+      "stroke_width": 3,
+      "rim_width": 6,
+      "fill_axis": "vertical",
+      "liquid_inset": 0,
+      "wave_amp": 1.5,
+      "shadow": "shadow",
+      "shadow_offset": [
+        0,
+        4
+      ],
+      "wobble_amp": 1.2,
+      "wobble_wavelength": 60,
+      "wobble_speed": 0.9
+    },
+    "ring.halo": {
+      "kind": "arc",
+      "stroke_width": 4,
+      "dash_length": 14,
+      "dash_gap": 10
+    },
+    "vignette.critical": {
+      "kind": "radial",
+      "fill": "#FF2A4A00",
+      "fill2": "#FF2A4A8C",
+      "radial_inner": 0.55
+    },
+    "tooltip": {
+      "kind": "box",
+      "radius": 14,
+      "fill": "cytoplasm",
+      "stroke": "plum",
+      "stroke_width": 3,
+      "shadow": "shadow",
+      "shadow_offset": [
+        0,
+        4
+      ]
+    },
+    "membrane.critical": {
+      "base": "membrane.host",
+      "fill": "critical_membrane",
+      "fill2": "critical_cytoplasm",
+      "decor": "critical_membrane@0.28"
+    },
+    "card": {
+      "base": "membrane.player",
+      "radius": 28,
+      "decor_count": 0
+    },
+    "card.short": {
+      "base": "card",
+      "fill": "#BDB4CC",
+      "fill2": "#EEEBF2"
+    },
+    "card.armed": {
+      "base": "card",
+      "fill": "lavender_deep",
+      "fill2": "#E4DBFF"
+    },
+    "pill": {
+      "kind": "box",
+      "radius": 999,
+      "fill": "white",
+      "stroke": "lavender",
+      "stroke_width": 3,
+      "shadow": "shadow",
+      "shadow_offset": [
+        0,
+        4
+      ],
+      "bulge": 1.5,
+      "wobble_amp": 0.5,
+      "wobble_speed": 0.6
+    },
+    "pill.critical": {
+      "base": "pill",
+      "fill": "critical_cytoplasm",
+      "stroke": "critical_membrane"
+    },
+    "pill.gold": {
+      "base": "pill",
+      "fill": "#FFF6D9",
+      "stroke": "gold"
+    },
+    "pill.elite": {
+      "kind": "box",
+      "radius": 18,
+      "fill": "elite_bg",
+      "stroke": "elite_ink",
+      "stroke_width": 2,
+      "dash_length": 6,
+      "dash_gap": 4
+    },
+    "pill.sell": {
+      "kind": "box",
+      "radius": 999,
+      "fill": "sell_bg",
+      "stroke": "plum",
+      "stroke_width": 3
+    },
+    "tag": {
+      "kind": "box",
+      "radius": 999,
+      "fill": "lavender_deep",
+      "stroke": "plum",
+      "stroke_width": 2
+    },
+    "keycap": {
+      "kind": "box",
+      "radius": 9,
+      "fill": "white",
+      "stroke": "plum",
+      "stroke_width": 2,
+      "shadow": "plum",
+      "shadow_offset": [
+        0,
+        2
+      ]
+    },
+    "badge.muted": {
+      "base": "badge",
+      "fill": "badge_muted"
+    },
+    "minibar": {
+      "kind": "fluid",
+      "radius": 5,
+      "fill": "minibar_bg",
+      "stroke": "plum",
+      "stroke_width": 2,
+      "liquid_inset": 1,
+      "wave_amp": 0
+    },
+    "bar.atp": {
+      "kind": "fluid",
+      "radius": 7,
+      "fill": "white",
+      "stroke": "plum",
+      "stroke_width": 2,
+      "liquid": "atp",
+      "liquid_inset": 1,
+      "wave_amp": 0.6
+    },
+    "countdown.disc": {
+      "kind": "ellipse",
+      "fill": "white",
+      "stroke": "plum",
+      "stroke_width": 6
+    },
+    "countdown.arc": {
+      "kind": "arc",
+      "fill": "countdown_track",
+      "stroke": "lavender_deep",
+      "stroke_width": 8
+    },
+    "button.round.active": {
+      "base": "button.round",
+      "fill": "lavender_deep"
+    }
+  },
   "numbers": {
     "tooltip_delay": 0.45,
     "hover_scale": 1.04,

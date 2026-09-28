@@ -46,6 +46,8 @@ const char* usage_text() {
 "                                                      so the shot shows real combat\n"
 "      --exec \"<gym commands>\"                         run gym commands first        \n"
 "                                                      (e.g. \"spawn all 300; tower all\")\n"
+"      --ui                                            draw the HUD; waves and ATP run as\n"
+"                                                      in play; `ui ...` gym commands\n"
 "  immune --level <f.json> --exec \"autoplay on; time 8\"  watch the bot play\n"
 "  immune --list-scenarios                             print available bench scenarios\n"
 "  immune --editor [<f.json>]                          open the in-game level editor\n"
@@ -107,6 +109,8 @@ Options parse_args(int argc, char** argv) {
             tick_set = true;
         } else if (a == "--out" || a == "-o") {
             if (!next_value(argc, argv, i, a, o.out_path, o.error)) break;
+        } else if (a == "--ui") {
+            o.ui = true;
         } else if (a == "--towers") {
             o.place_towers = true;
         } else if (a == "--tower") {
