@@ -31,6 +31,11 @@ std::vector<std::string> list_files(const std::string& dir, std::string_view ext
 /// Directory containing the running executable.
 std::string executable_dir();
 
+/// Per-user writable directory for save data (SDL_GetPrefPath: %APPDATA% on
+/// Windows), created if missing, with a trailing separator. Falls back to the
+/// executable's directory if the platform has none.
+std::string user_data_dir();
+
 /// Repository/asset root. Resolution order:
 ///   1. $IMMUNE_ASSET_ROOT if set
 ///   2. the first ancestor of the executable directory containing "assets/"

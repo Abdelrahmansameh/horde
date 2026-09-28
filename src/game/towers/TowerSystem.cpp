@@ -932,6 +932,12 @@ PlacementQuery TowerSystem::validate(const sim::SimWorld& world, TowerType type,
         q.result = PlacementResult::TowerNotAllowed;
         return q;
     }
+    // The player's own roster (the Strengthen Immunity tree). Same reasoning:
+    // a tower the player has not unlocked is not buildable by any path.
+    if (!tower_unlocked(type)) {
+        q.result = PlacementResult::TowerLocked;
+        return q;
+    }
 
     // The play area. "Anywhere" has always meant "anywhere on tissue", and
     // tissue used to stop at world_bounds because the mask did. It no longer
@@ -1259,6 +1265,13 @@ sim::SwarmerProfile swarmer_profile(TowerType type, u8 tier) {
     p.build_min_clearance = m.builder.build_min_clearance;
     p.build_candidates = m.builder.build_candidates;
     p.builder_crowd_push = m.builder.crowd_push;
+
+    // Strengthen Immunity capstones. Off in every loaded config; only the
+    // tree's run-start copy turns them on (GameConfig.h, CapstoneParams).
+    p.kill_pulse_radius = m.capstone.kill_pulse_radius;
+    p.kill_pulse_damage = m.capstone.kill_pulse_damage;
+    p.named_damage_mult = m.capstone.named_damage_mult;
+    p.heal_per_kill = m.capstone.heal_per_kill;
     return p;
 }
 

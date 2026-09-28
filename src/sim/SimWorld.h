@@ -37,6 +37,7 @@
 #include "core/Rng.h"
 #include "core/Types.h"
 #include "sim/CombatEvents.h"
+#include "sim/Immunity.h"
 #include "sim/burrow/Burrow.h"
 #include "sim/chaff/ChaffBuffers.h"
 #include "sim/chaff/ChaffSystem.h"
@@ -168,6 +169,10 @@ struct SimDesc {
     /// Burrowing and slithering families (sim/burrow/Burrow.h). Defaults OFF
     /// for every family; the game layer fills it from enemies.json.
     BurrowTuning burrow_tuning{};
+    /// The player's permanent world-wide combat modifiers (sim/Immunity.h).
+    /// Defaults change nothing; the game layer fills it from the Strengthen
+    /// Immunity tree.
+    ImmunityTuning immunity{};
 };
 
 /// One vessel spawn point, captured from the level at load time by
@@ -393,6 +398,13 @@ public:
     /// which family they thinned.
     const DamageStats& last_damage_stats() const { return last_damage_stats_; }
 
+    /// The player's permanent world-wide combat modifiers (sim/Immunity.h):
+    /// Elite Response, Homeostasis, and the three capstones with no unit to
+    /// hang them on. init() applies SimDesc::immunity; the game layer calls
+    /// this again on a hot reload. Safe between ticks.
+    void set_immunity(const ImmunityTuning& t);
+    const ImmunityTuning& immunity() const { return immunity_; }
+
     /// Hash of the sim state, for --sim-test determinism assertions:
     /// two runs of the same SimDesc must produce the same value at every tick.
     u64 state_hash() const;
@@ -431,6 +443,23 @@ private:
     std::vector<SpawnPointRuntime> spawn_points_;
     std::vector<Rect> placement_zones_;
     DamageStats last_damage_stats_{};
+    ImmunityTuning immunity_{};
+    /// Scratch for the capstone passes' hash queries. Reserved at init.
+    std::vector<u32> immunity_scratch_;
+
+    /// Incendiary Rounds: lays a burning patch at every incendiary round that
+    /// landed this tick (ProjectileSystem::impact_log()).
+    void ignite_impacts();
+    /// Inflammatory Scarring: every live scar burns the chaff pressed
+    /// against it. Returns the density removed.
+    f32 apply_scar_contact();
+    /// Anaphylactic Shock: every slowed agent that dies this tick passes its
+    /// slow on to the chaff around it.
+    void spread_contagion();
+    /// Inflammation: rebuilds inflamed_zones_ from the live scars and gives
+    /// every tower inside one its extra reload for the tick.
+    void inflame();
+    std::vector<InflamedZone> inflamed_zones_;
 
     u64 killed_total_ = 0;
     u64 leaked_total_ = 0;

@@ -1,9 +1,9 @@
-// game/meta/MetaProgression.cpp — Wave 4B stub, implemented by Wave 5A
-// (currency earn/spend loop, purchase tiers, versioned JSON save/load,
-// loadout-modifier combination). See MetaProgression.h for the contract and
-// rationale of every field this file reads or writes.
+// game/meta/MetaProgression.cpp — currencies, tree purchases, campaign
+// progress, and versioned JSON save/load. See MetaProgression.h for the
+// contract and ImmunityTree.h for what the tree's nodes mean.
 #include "game/meta/MetaProgression.h"
 
+#include "game/config/GameConfig.h"
 #include "platform/FileIO.h"
 
 #include <nlohmann/json.hpp>
@@ -28,129 +28,164 @@ u32 migrate_tower_index(u32 idx, i32 version) {
 }
 } // namespace
 
+const char* purchase_result_text(MetaProgression::PurchaseResult r) {
+    using R = MetaProgression::PurchaseResult;
+    switch (r) {
+    case R::Ok: return "ok";
+    case R::Maxed: return "already maxed";
+    case R::Locked: return "unlock its root first";
+    case R::BelowThreshold: return "needs more points in this branch";
+    case R::NeedMemoryCells: return "not enough Memory Cells";
+    case R::NeedAntibodies: return "not enough Antibodies";
+    }
+    return "?";
+}
+
 void MetaProgression::reset_to_new_game() {
-    for (bool& b : tower_unlocked_) b = false;
-    tower_unlocked_[static_cast<u32>(TowerType::Macrophage)] = true;
-    tower_unlocked_[static_cast<u32>(TowerType::Neutrophil)] = true;
-    memories_.clear();
-    loadout_.clear();
+    levels_ = TreeLevels{};
+    // The one thing a new campaign owns (PROGRESSION.md §1): innate immunity.
+    levels_[TreeNode::NeutrophilRoot] = 1;
     progress_ = CampaignProgress{};
-    antibody_points_ = 0;
+    memory_cells_ = 0;
+    antibodies_ = 0;
+    spent_memory_cells_ = 0;
+    spent_antibodies_ = 0;
 }
 
 bool MetaProgression::tower_unlocked(TowerType type) const {
-    const u32 i = static_cast<u32>(type);
-    return i < kTowerTypeCount && tower_unlocked_[i];
+    const TreeNode root = tower_root(type);
+    return root != TreeNode::Count && levels_.owned(root);
 }
 
-void MetaProgression::unlock_tower(TowerType type) {
-    const u32 i = static_cast<u32>(type);
-    if (i < kTowerTypeCount) tower_unlocked_[i] = true;
+bool MetaProgression::ability_unlocked(AbilityId id) const {
+    const TreeNode root = ability_root(id);
+    return root != TreeNode::Count && levels_.owned(root);
 }
 
-bool MetaProgression::select_memory(const std::string& id) {
-    if (loadout_.size() >= loadout_slots_) return false;
-    for (const auto& m : memories_) {
-        if (m.id == id && m.unlocked) {
-            loadout_.push_back(id);
-            return true;
-        }
+// ---- Runs ------------------------------------------------------------------
+
+RunReward MetaProgression::reward_for_run(const RunResult& r, const MetaConfig& cfg,
+                                          bool first_clear) {
+    // PROGRESSION.md §3.1: paid on EVERY run, cleared or failed, scaled by
+    // performance -- never gated to zero by `won`.
+    RunReward out;
+    u64 mc = cfg.base_run_reward;
+    mc += static_cast<u64>(r.waves_cleared) * cfg.per_wave_reward;
+    if (cfg.chaff_per_point > 0) mc += r.chaff_killed_total / cfg.chaff_per_point;
+    mc += static_cast<u64>(r.elites_killed) * cfg.per_elite_reward;
+    mc += static_cast<u64>(r.bosses_killed) * cfg.per_boss_reward;
+    if (r.won) mc += cfg.win_bonus;
+    out.memory_cells = static_cast<u32>(mc > 0xFFFFFFFFull ? 0xFFFFFFFFull : mc);
+    // §3.2: once per level, on its first clear, whatever the grade.
+    out.first_clear = r.won && first_clear;
+    out.antibodies = out.first_clear ? cfg.first_clear_antibodies : 0u;
+    return out;
+}
+
+RunReward MetaProgression::record_run(const std::string& level_id, const RunResult& result,
+                                      const MetaConfig& cfg) {
+    const bool first = result.won && !level_cleared(level_id);
+    const RunReward reward = reward_for_run(result, cfg, first);
+    credit(reward.memory_cells, reward.antibodies);
+    if (result.won) record_level_complete(level_id);
+    return reward;
+}
+
+bool MetaProgression::level_cleared(const std::string& level_id) const {
+    for (const auto& id : progress_.completed_level_ids) {
+        if (id == level_id) return true;
     }
     return false;
 }
 
-void MetaProgression::clear_loadout() { loadout_.clear(); }
-
 void MetaProgression::record_level_complete(const std::string& level_id) {
-    for (const auto& id : progress_.completed_level_ids) {
-        if (id == level_id) return;
-    }
+    if (level_cleared(level_id)) return;
     progress_.completed_level_ids.push_back(level_id);
     ++progress_.levels_completed;
 }
 
-// ---- Wave 5A: earn / spend loop -------------------------------------------
+// ---- The tree ----------------------------------------------------------------
 
-u32 MetaProgression::earn_for_run(const RunResult& result) {
-    // DESIGN.md §7.2: earned on EVERY run, cleared or failed, scaled by
-    // performance signals -- never gated to zero by `won`. See the header's
-    // kBaseRunReward et al. doc comment: numbers are placeholders pending the
-    // balance pass DESIGN.md §14 explicitly defers.
-    u32 total = kBaseRunReward;
-    total += result.waves_cleared * kPerWaveReward;
-    total += static_cast<u32>(result.chaff_killed_total / kChaffPerPoint);
-    total += result.elites_killed * kPerEliteReward;
-    total += result.bosses_killed * kPerBossReward;
-    if (result.won) total += kWinBonus;
-    return total;
+TreeCost MetaProgression::next_cost(TreeNode node, const MetaConfig& cfg) const {
+    const u8 cur = levels_[node];
+    if (cur >= tree_node(node).max_level) return TreeCost{};
+    return tree_node_cost(cfg, node, cur);
 }
 
-LoadoutModifiers MetaProgression::combine_loadout_modifiers(
-    const std::vector<AntibodyMemory>& all_memories,
-    const std::vector<std::string>& selected_ids) {
-    LoadoutModifiers out;
-    for (const std::string& id : selected_ids) {
-        for (const AntibodyMemory& m : all_memories) {
-            if (m.id != id) continue;
-            for (u32 i = 0; i < kFamilyCount; ++i) {
-                out.damage_vs_family[i] *= m.damage_vs_family[i];
-            }
-            out.starting_atp_bonus += m.starting_atp_bonus;
-            out.tower_cost_multiplier *= m.tower_cost_multiplier;
-            out.income_multiplier *= m.income_multiplier;
-            break;
-        }
+MetaProgression::PurchaseResult MetaProgression::check_purchase(TreeNode node,
+                                                                const MetaConfig& cfg) const {
+    const TreeNodeDef& d = tree_node(node);
+    if (levels_[node] >= d.max_level) return PurchaseResult::Maxed;
+
+    switch (d.kind) {
+    case TreeNodeKind::TowerRoot:
+    case TreeNodeKind::AbilityRoot:
+    case TreeNodeKind::Economy:
+        break;   // no prerequisite: every root is buyable in any order (§4.1)
+    case TreeNodeKind::Stat:
+        if (!levels_.owned(tower_root(branch_tower(d.branch)))) return PurchaseResult::Locked;
+        break;
+    case TreeNodeKind::AbilityStat:
+        if (!levels_.owned(ability_root(d.ability))) return PurchaseResult::Locked;
+        break;
+    case TreeNodeKind::Capstone:
+        if (!levels_.owned(tower_root(branch_tower(d.branch)))) return PurchaseResult::Locked;
+        if (branch_points(d.branch) < cfg.capstone_threshold) return PurchaseResult::BelowThreshold;
+        break;
     }
-    return out;
+
+    const TreeCost c = next_cost(node, cfg);
+    if (antibodies_ < c.antibodies) return PurchaseResult::NeedAntibodies;
+    if (memory_cells_ < c.memory_cells) return PurchaseResult::NeedMemoryCells;
+    return PurchaseResult::Ok;
 }
 
-MetaProgression::PurchaseResult MetaProgression::purchase(const std::string& id) {
-    for (AntibodyMemory& m : memories_) {
-        if (m.id != id) continue;
-        if (m.unlocked) return PurchaseResult::AlreadyUnlocked;
-        if (antibody_points_ < m.cost) return PurchaseResult::InsufficientFunds;
-        antibody_points_ -= m.cost;
-        m.unlocked = true;
-        if (m.unlocks_tower != TowerType::Count) unlock_tower(m.unlocks_tower);
-        return PurchaseResult::Ok;
-    }
-    return PurchaseResult::NotFound;
+MetaProgression::PurchaseResult MetaProgression::purchase(TreeNode node, const MetaConfig& cfg) {
+    const PurchaseResult r = check_purchase(node, cfg);
+    if (r != PurchaseResult::Ok) return r;
+    const TreeCost c = next_cost(node, cfg);
+    memory_cells_ -= c.memory_cells;
+    antibodies_ -= c.antibodies;
+    spent_memory_cells_ += c.memory_cells;
+    spent_antibodies_ += c.antibodies;
+    ++levels_[node];
+    return PurchaseResult::Ok;
 }
 
-// ---- Wave 5A: versioned JSON save/load -------------------------------------
+bool MetaProgression::can_respec(const MetaConfig& cfg) const {
+    const bool bought_anything = spent_memory_cells_ > 0 || spent_antibodies_ > 0;
+    return bought_anything && memory_cells_ + spent_memory_cells_ >= cfg.respec_cost;
+}
+
+bool MetaProgression::respec(const MetaConfig& cfg) {
+    if (!can_respec(cfg)) return false;
+    memory_cells_ = memory_cells_ + spent_memory_cells_ - cfg.respec_cost;
+    antibodies_ += spent_antibodies_;
+    spent_memory_cells_ = 0;
+    spent_antibodies_ = 0;
+    levels_ = TreeLevels{};
+    levels_[TreeNode::NeutrophilRoot] = 1;
+    return true;
+}
+
+// ---- Versioned JSON save/load ----------------------------------------------
 
 std::string MetaProgression::to_json() const {
     json j;
     j["version"] = kSaveVersion;
-    j["antibody_points"] = antibody_points_;
-    j["loadout_slots"] = loadout_slots_;
+    j["memory_cells"] = memory_cells_;
+    j["antibodies"] = antibodies_;
+    j["spent_memory_cells"] = spent_memory_cells_;
+    j["spent_antibodies"] = spent_antibodies_;
 
-    json towers = json::array();
-    for (u32 i = 0; i < kTowerTypeCount; ++i) {
-        if (tower_unlocked_[i]) towers.push_back(i);
+    // Only nodes the player actually has, keyed by name: the catalog can grow
+    // or reorder without invalidating a save.
+    json tree = json::object();
+    for (u32 i = 0; i < kTreeNodeCount; ++i) {
+        const u8 lv = levels_.level[i];
+        if (lv > 0) tree[tree_node(static_cast<TreeNode>(i)).key] = lv;
     }
-    j["unlocked_towers"] = std::move(towers);
-
-    json mem_arr = json::array();
-    for (const AntibodyMemory& m : memories_) {
-        json mj;
-        mj["id"] = m.id;
-        mj["display_name"] = m.display_name;
-        json dvf = json::array();
-        for (u32 i = 0; i < kFamilyCount; ++i) dvf.push_back(m.damage_vs_family[i]);
-        mj["damage_vs_family"] = std::move(dvf);
-        mj["starting_atp_bonus"] = m.starting_atp_bonus;
-        mj["tower_cost_multiplier"] = m.tower_cost_multiplier;
-        mj["income_multiplier"] = m.income_multiplier;
-        mj["unlocked"] = m.unlocked;
-        mj["tier"] = static_cast<u32>(m.tier);
-        mj["cost"] = m.cost;
-        mj["unlocks_tower"] = static_cast<u32>(m.unlocks_tower);
-        mem_arr.push_back(std::move(mj));
-    }
-    j["memories"] = std::move(mem_arr);
-
-    j["loadout"] = loadout_;
+    j["tree"] = std::move(tree);
 
     json prog;
     prog["levels_completed"] = progress_.levels_completed;
@@ -158,7 +193,7 @@ std::string MetaProgression::to_json() const {
     prog["unlocked_regions"] = progress_.unlocked_regions;
     j["progress"] = std::move(prog);
 
-    return j.dump();
+    return j.dump(2);
 }
 
 bool MetaProgression::from_json(const std::string& text, std::string& out_error) {
@@ -197,61 +232,51 @@ bool MetaProgression::from_json(const std::string& text, std::string& out_error)
         return false;
     }
 
-    // version <= kSaveVersion: parse leniently (j.value() defaults) so an
-    // older save missing fields this version added still loads -- that's the
-    // whole of v1's migration story per the header comment. Everything is
-    // built into locals first and only committed to members at the very end,
-    // so a parse failure partway through leaves *this* completely untouched.
+    // Everything is built into locals first and only committed at the very
+    // end, so a parse failure partway through leaves *this* untouched.
     try {
-        const u64 antibody_points = j.value("antibody_points", u64{0});
-        const u32 loadout_slots = j.value("loadout_slots", u32{2});
+        TreeLevels levels{};
+        u64 memory_cells = 0;
+        u32 antibodies = 0;
+        u64 spent_mc = 0;
+        u32 spent_ab = 0;
 
-        bool towers[kTowerTypeCount] = {};
-        if (j.contains("unlocked_towers")) {
-            const json& arr = j.at("unlocked_towers");
-            if (!arr.is_array()) throw std::runtime_error("'unlocked_towers' must be an array");
-            for (const auto& idx_j : arr) {
-                const u32 idx = migrate_tower_index(idx_j.get<u32>(), version);
-                if (idx < kTowerTypeCount) towers[idx] = true;
-            }
-        }
-
-        std::vector<AntibodyMemory> memories;
-        if (j.contains("memories")) {
-            const json& arr = j.at("memories");
-            if (!arr.is_array()) throw std::runtime_error("'memories' must be an array");
-            memories.reserve(arr.size());
-            for (const auto& mj : arr) {
-                if (!mj.contains("id")) throw std::runtime_error("memory entry missing 'id'");
-                AntibodyMemory m;
-                m.id = mj.at("id").get<std::string>();
-                m.display_name = mj.value("display_name", std::string{});
-                if (mj.contains("damage_vs_family")) {
-                    const json& dvf = mj.at("damage_vs_family");
-                    if (!dvf.is_array()) throw std::runtime_error("'damage_vs_family' must be an array");
-                    for (u32 i = 0; i < kFamilyCount && i < dvf.size(); ++i) {
-                        m.damage_vs_family[i] = dvf.at(i).get<f32>();
-                    }
+        if (version >= 3) {
+            memory_cells = j.value("memory_cells", u64{0});
+            antibodies = j.value("antibodies", u32{0});
+            spent_mc = j.value("spent_memory_cells", u64{0});
+            spent_ab = j.value("spent_antibodies", u32{0});
+            if (j.contains("tree")) {
+                const json& tree = j.at("tree");
+                if (!tree.is_object()) throw std::runtime_error("'tree' must be an object");
+                for (auto it = tree.begin(); it != tree.end(); ++it) {
+                    TreeNode n{};
+                    // A node this build does not know (a newer catalog, or one
+                    // since removed) is skipped rather than failing the load:
+                    // the version gate above is what guards real format changes.
+                    if (!find_tree_node(it.key(), n)) continue;
+                    const u32 lv = it.value().get<u32>();
+                    const u8 max = tree_node(n).max_level;
+                    levels[n] = static_cast<u8>(lv < max ? lv : max);
                 }
-                m.starting_atp_bonus = mj.value("starting_atp_bonus", 0.0f);
-                m.tower_cost_multiplier = mj.value("tower_cost_multiplier", 1.0f);
-                m.income_multiplier = mj.value("income_multiplier", 1.0f);
-                m.unlocked = mj.value("unlocked", false);
-                m.tier = static_cast<MemoryTier>(
-                    mj.value("tier", static_cast<u32>(MemoryTier::GlobalBaseline)));
-                m.cost = mj.value("cost", u32{0});
-                m.unlocks_tower = static_cast<TowerType>(migrate_tower_index(
-                    mj.value("unlocks_tower", static_cast<u32>(TowerType::Count)), version));
-                memories.push_back(std::move(m));
+            }
+        } else {
+            // v1/v2: one currency and a set of unlocked tower indices. The
+            // points become Memory Cells, the towers become owned roots.
+            // Antibody memories and the loadout have no successor (DESIGN.md
+            // §7.3) and are dropped.
+            memory_cells = j.value("antibody_points", u64{0});
+            if (j.contains("unlocked_towers")) {
+                const json& arr = j.at("unlocked_towers");
+                if (!arr.is_array()) throw std::runtime_error("'unlocked_towers' must be an array");
+                for (const auto& idx_j : arr) {
+                    const u32 idx = migrate_tower_index(idx_j.get<u32>(), version);
+                    if (idx < kTowerTypeCount) levels[tower_root(static_cast<TowerType>(idx))] = 1;
+                }
             }
         }
-
-        std::vector<std::string> loadout;
-        if (j.contains("loadout")) {
-            const json& arr = j.at("loadout");
-            if (!arr.is_array()) throw std::runtime_error("'loadout' must be an array");
-            for (const auto& e : arr) loadout.push_back(e.get<std::string>());
-        }
+        // Whatever the file says, the campaign always owns its starting tower.
+        levels[TreeNode::NeutrophilRoot] = 1;
 
         CampaignProgress progress;
         if (j.contains("progress")) {
@@ -270,11 +295,11 @@ bool MetaProgression::from_json(const std::string& text, std::string& out_error)
         }
 
         // Every field parsed successfully -- commit atomically.
-        antibody_points_ = antibody_points;
-        loadout_slots_ = loadout_slots;
-        for (u32 i = 0; i < kTowerTypeCount; ++i) tower_unlocked_[i] = towers[i];
-        memories_ = std::move(memories);
-        loadout_ = std::move(loadout);
+        levels_ = levels;
+        memory_cells_ = memory_cells;
+        antibodies_ = antibodies;
+        spent_memory_cells_ = spent_mc;
+        spent_antibodies_ = spent_ab;
         progress_ = std::move(progress);
     } catch (const std::exception& e) {
         out_error = std::string("MetaProgression JSON malformed: ") + e.what();

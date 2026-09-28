@@ -202,6 +202,22 @@ struct BuilderParams {
     f32 crowd_push = 0.0f;
 };
 
+/// The per-unit Strengthen Immunity capstones (PROGRESSION.md §5). NOT part of
+/// towers.json: nothing authors these, they are all zero (off) in every loaded
+/// config, and only the tree (game/meta/ImmunityTree.h) turns them on, in the
+/// run-start copy of the config it hands the systems. swarmer_profile() copies
+/// them onto sim::SwarmerProfile. The world-wide capstones live in
+/// sim/Immunity.h instead, because they have no unit to ride on.
+struct CapstoneParams {
+    /// Cytotoxic T, Apoptosis Trigger: a burst where a drained host died, and
+    /// a multiplier on the drain against named agents.
+    f32 kill_pulse_radius = 0.0f;
+    f32 kill_pulse_damage = 0.0f;
+    f32 named_damage_mult = 1.0f;
+    /// Macrophage, Phagocytic Sustain: tower hit points per enemy swallowed.
+    f32 heal_per_kill = 0.0f;
+};
+
 /// The chassis plus every payload arm held flat. Only the arm matching the
 /// tower's kind is read or written; a flat aggregate keeps offsetof trivial
 /// and costs a few hundred bytes for the whole table.
@@ -213,6 +229,8 @@ struct TowerMechanics {
     ArborGrabberParams arbor_grabber{};
     MucusBomberParams mucus_bomber{};
     BuilderParams builder{};
+    /// Never read from or written to towers.json; see CapstoneParams.
+    CapstoneParams capstone{};
 };
 
 struct TowerGlobals {
@@ -444,12 +462,28 @@ struct AbilityTuning {
     f32 fever_cooldown_relief = 3.0f;
     f32 barrier_half_length = 7.0f;
     f32 barrier_half_width = 1.5f;
+
+    // ---- Not in abilities.json. Set only by the Strengthen Immunity tree
+    // (game/meta/ImmunityTree.h) in its run-start copy of the config; the
+    // parser and the dump never touch them, so every loaded config holds
+    // these defaults, which reproduce the pre-tree abilities exactly.
+    /// Complement Cascade only: hops the chain may take. 0 = the damage
+    /// system's default (sim::DamageField::chain_links).
+    u32 chain_links = 0;
+    /// Fever Response only: after the instant relief, every tower's cooldown
+    /// keeps running this many extra seconds per second, for this long.
+    f32 fever_linger_seconds = 0.0f;
+    f32 fever_linger_rate = 0.0f;
 };
 
 struct AbilityConfig {
     AbilityTuning ability[kAbilityCount]{};
 };
 
+/// The Strengthen Immunity economy (PROGRESSION.md §3, §8): what a run pays
+/// and what the tree costs. The first six are the Memory Cell payout; the rest
+/// price the tree. What each node DOES per level lives in the node catalog
+/// (game/meta/ImmunityTree.cpp) -- this block is only the pacing.
 struct MetaConfig {
     u32 base_run_reward = 10;
     u32 per_wave_reward = 15;
@@ -457,6 +491,23 @@ struct MetaConfig {
     u32 per_boss_reward = 50;
     u32 chaff_per_point = 200;
     u32 win_bonus = 40;
+    /// Antibodies for a level's FIRST clear. Replays pay none, at any grade.
+    u32 first_clear_antibodies = 1;
+    /// Memory Cells for level 1 of a standard stat line, and the increase per
+    /// level after that. A node's own cost weight scales both.
+    u32 stat_base_cost = 20;
+    u32 stat_cost_step = 15;
+    /// Antibodies to unlock a tower, an ability, and a capstone.
+    u32 tower_unlock_antibodies = 1;
+    u32 ability_unlock_antibodies = 1;
+    u32 capstone_antibodies = 1;
+    /// A capstone's Memory Cell half of its price.
+    u32 capstone_memory_cells = 150;
+    /// Stat levels that must already be bought in a branch before its
+    /// capstone can be.
+    u32 capstone_threshold = 6;
+    /// Memory Cells withheld from a full respec's refund.
+    u32 respec_cost = 25;
 };
 
 // ---------------------------------------------------------------------------

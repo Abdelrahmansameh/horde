@@ -57,7 +57,17 @@ inline constexpr u8 kPendingKill = 1u << 1; ///< Retire in the next compact().
 /// Passes through its first victim and keeps flying (pierce upgrades). Without
 /// this a round retires on its first hit.
 inline constexpr u8 kPiercing    = 1u << 2;
+/// Incendiary Rounds (sim/Immunity.h): where this round lands is logged for
+/// SimWorld to set alight. Only rounds carrying it are logged at all.
+inline constexpr u8 kIncendiary  = 1u << 3;
 } // namespace projectile_flags
+
+/// One incendiary round that landed on an agent this tick.
+struct ProjectileImpactRecord {
+    Vec2 position{0.0f, 0.0f};
+    EntityId owner{};
+    u16 visual_id = 0;
+};
 
 struct ProjectileSpawnParams {
     Vec2 position{0.0f, 0.0f};
@@ -173,9 +183,21 @@ public:
     void set_attribution(DamageAttribution* sink) { attribution_ = sink; }
     DamageAttribution* attribution() const { return attribution_; }
 
+    /// Where kIncendiary rounds landed on the last update(), for SimWorld to
+    /// turn into burning patches. Cleared at the start of every update() and
+    /// never grown past `max_impact_log` (set it before the first tick), so a
+    /// busy board drops the excess rather than allocating mid-tick.
+    const std::vector<ProjectileImpactRecord>& impact_log() const { return impact_log_; }
+    void set_max_impact_log(usize n) {
+        max_impact_log_ = n;
+        impact_log_.reserve(n);
+    }
+
 private:
     ProjectileStats last_{};
     DamageAttribution* attribution_ = nullptr;
+    std::vector<ProjectileImpactRecord> impact_log_;
+    usize max_impact_log_ = 0;
 };
 
 } // namespace immune::sim

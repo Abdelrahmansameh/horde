@@ -127,6 +127,7 @@ const char* placement_result_name(PlacementResult r) {
         case PlacementResult::CannotAfford: return "cannot afford";
         case PlacementResult::OutsidePlacementZone: return "outside placement zone";
         case PlacementResult::TowerNotAllowed: return "tower type not allowed on this level";
+        case PlacementResult::TowerLocked: return "tower type not unlocked (Strengthen Immunity)";
     }
     return "unknown";
 }
@@ -834,6 +835,9 @@ GymResult cmd_cast(GymContext& ctx, const std::vector<std::string>& tok) {
     if (!parse_at_clause(ctx, tok, i, at, error)) return fail(error);
 
     if (!ctx.abilities->cast(*ctx.world, id, at)) {
+        if (!ctx.abilities->unlocked(id)) {
+            return fail(fmt("%s is not unlocked (Strengthen Immunity)", ability_name(id)));
+        }
         const AbilityStatus st = ctx.abilities->status(id);
         if (st.ready) {
             // Only the clot refuses a ready cast: off the tissue, or a bar

@@ -62,7 +62,8 @@ bool App::init(const Options& options) {
     // the file -- so this replaces the bare load_defaults() that used to be
     // here rather than following it.
     game::apply_enemy_config(enemies_, config_.enemies);
-    meta_.reset_to_new_game();
+    // Before the first apply_tuning_config(): that is what folds the tree in.
+    load_meta();
     apply_tuning_config();
 
     // Seeded from the run seed so a replay looks the same, but stepped on its
@@ -122,6 +123,8 @@ void App::discover_levels() {
         }
         ui::LevelEntry e;
         e.path = path;
+        e.level_id = def.name;
+        e.cleared = meta_.level_cleared(def.name);
         // The schema-2 display_name is the human title ("First Bend"); the
         // v1 `name` is the file stem. Either still resolves in the gym's
         // `level <name>` command, which also matches the stem.
@@ -151,12 +154,20 @@ void App::build_menus() {
 
     switch (state_.current()) {
     case GameStateId::MainMenu:     r = menu_.build_main_menu(w, h); break;
-    case GameStateId::LevelSelect:  r = menu_.build_level_select(levels_, w, h); break;
+    case GameStateId::LevelSelect:
+        // Clears change under the list (a run just ended), so the flags are
+        // refreshed from the save rather than trusted from discovery.
+        for (ui::LevelEntry& e : levels_) e.cleared = meta_.level_cleared(e.level_id);
+        r = menu_.build_level_select(levels_, w, h);
+        break;
+    case GameStateId::StrengthenImmunity:
+        r = menu_.build_immunity_tree(meta_, config_.meta, w, h);
+        break;
     case GameStateId::LevelFailed:
-        r = menu_.build_level_failed_screen(w, h, editor_playtest_);
+        r = menu_.build_level_failed_screen(w, h, editor_playtest_, last_run_);
         break;
     case GameStateId::LevelComplete:
-        r = menu_.build_level_complete_screen(w, h, editor_playtest_);
+        r = menu_.build_level_complete_screen(w, h, editor_playtest_, last_run_);
         break;
     case GameStateId::Paused:        r = menu_.build_pause_menu(w, h); break;
     // The editor draws its own chrome (ui/editor/EditorPanels); a front-end
@@ -168,6 +179,28 @@ void App::build_menus() {
     switch (r.action) {
     case ui::MenuAction::OpenLevelSelect:
         state_.request(GameStateId::LevelSelect);
+        break;
+    case ui::MenuAction::OpenImmunityTree:
+        state_.request(GameStateId::StrengthenImmunity);
+        break;
+    case ui::MenuAction::PurchaseNode: {
+        const auto node = static_cast<game::TreeNode>(r.node);
+        const auto res = meta_.purchase(node, config_.meta);
+        if (res == game::MetaProgression::PurchaseResult::Ok) {
+            IMMUNE_LOG_INFO("Strengthen Immunity: bought %s (now level %u)",
+                            game::tree_node(node).key, static_cast<unsigned>(meta_.level(node)));
+            audio_.post(audio::AudioEvent{audio::SoundId::TowerPlace, camera_.center()});
+            save_meta();
+        } else {
+            audio_.post(audio::AudioEvent{audio::SoundId::UiInvalid, camera_.center()});
+        }
+        break;
+    }
+    case ui::MenuAction::Respec:
+        if (meta_.respec(config_.meta)) {
+            IMMUNE_LOG_INFO("Strengthen Immunity: respec");
+            save_meta();
+        }
         break;
     case ui::MenuAction::OpenEditor:
         enter_editor({});
@@ -241,14 +274,34 @@ void App::apply_tuning_config() {
     // Everything here is safe to re-apply at any time, which is what makes the
     // hot reload possible: each call fully overwrites the system's tuning
     // rather than adjusting it incrementally.
-    game::apply_tower_config(towers_, config_.towers);
+    //
+    // Strengthen Immunity (game/meta/ImmunityTree.h): the systems are fed a
+    // COPY of the loaded config with the player's purchases folded in --
+    // tiers collapsed to the tree-boosted baseline, the economy and ability
+    // lines applied -- and the rest of the tree (unlocks, capstones with no
+    // config home) goes on alongside. Re-folded from the file's values every
+    // time, so a hot reload or a purchase can never compound.
+    run_config_ = config_;
+    game::TreeEffects tree;
+    const bool sandbox = sandbox_run();
+    if (!sandbox) tree = meta_.apply_to(run_config_);
+    tree.immunity.leak_damage = sandbox ? config_.sim.globals.objective_damage_per_leak
+                                        : tree.immunity.leak_damage;
+
+    game::apply_tower_config(towers_, run_config_.towers);
     game::apply_enemy_config(enemies_, config_.enemies);
-    economy_.configure(config_.economy);
-    game::apply_ability_config(abilities_, config_.abilities);
+    economy_.configure(run_config_.economy);
+    game::apply_ability_config(abilities_, run_config_.abilities);
+    towers_.set_unlocked_towers(sandbox ? game::TowerSystem::kAllTowersMask : tree.tower_mask);
+    abilities_.set_unlocked(sandbox ? game::ActiveAbilitySystem::kAllAbilitiesMask
+                                    : tree.ability_mask);
     // The hostile pass reads its tuning off the world, not off a SimDesc, so
     // a reload of a family's latch or aura reaches the running level too.
-    sim_.hostile().set_tuning(game::hostile_tuning(config_.sim.hostile));
+    sim::HostileTuning hostile = game::hostile_tuning(config_.sim.hostile);
+    hostile.damage_taken_mult = tree.hostile_damage_taken_mult;
+    sim_.hostile().set_tuning(hostile);
     sim_.burrow().set_tuning(game::burrow_tuning());
+    sim_.set_immunity(tree.immunity);
 
     // The loaded level gets the LAST word. Folded in here rather than called
     // beside every apply_tuning_config() site, because there are five of them
@@ -452,9 +505,17 @@ bool App::load_level_def(const game::LevelDef& level, const std::string& source_
 
 void App::apply_level_rules(const game::LevelDef& level) {
     // Economy. 0 / 1.0 mean "use the global", so a level that authors neither
-    // behaves exactly as it did before schema 2 existed.
-    game::EconomyConfig eco = config_.economy;
-    if (level.economy.starting_atp != 0) eco.starting_atp = level.economy.starting_atp;
+    // behaves exactly as it did before schema 2 existed. The base is the
+    // tree-applied economy; a level that overrides its starting ATP still
+    // gets the player's Bone Marrow Reserve on top, since that bonus is the
+    // player's, not the level's (DESIGN.md §7.1).
+    game::EconomyConfig eco = run_config_.economy;
+    if (level.economy.starting_atp != 0) {
+        const u32 tree_bonus = run_config_.economy.starting_atp > config_.economy.starting_atp
+                                   ? run_config_.economy.starting_atp - config_.economy.starting_atp
+                                   : 0u;
+        eco.starting_atp = level.economy.starting_atp + tree_bonus;
+    }
     if (level.economy.income_multiplier != 1.0f) {
         eco.passive_income_per_second *= level.economy.income_multiplier;
         eco.atp_per_density *= level.economy.income_multiplier;
@@ -525,7 +586,13 @@ void App::frame_editor_camera() {
 bool App::editor_play(i32 from_wave) {
     // Play the DOCUMENT, not the file: a level that has never been saved, or
     // that has unsaved edits, is exactly the thing you want to test.
+    //
+    // Marked as a playtest BEFORE the load, because the load is what applies
+    // the tuning and a playtest is sandboxed (no Strengthen Immunity).
+    const bool was_playtest = editor_playtest_;
+    editor_playtest_ = true;
     if (!load_level_def(editor_.doc().def(), editor_.doc().source_path())) {
+        editor_playtest_ = was_playtest;
         const std::string reason = last_level_load_error_.empty()
                                        ? "The level could not be instantiated."
                                        : last_level_load_error_;
@@ -690,6 +757,7 @@ void App::handle_input() {
     if (input_.action_pressed(platform::Action::CancelPlacement)) {
         switch (state_.current()) {
         case GameStateId::LevelSelect:
+        case GameStateId::StrengthenImmunity:
             state_.request(GameStateId::MainMenu);
             break;
         case GameStateId::InLevel:
@@ -799,19 +867,8 @@ void App::apply_intents(const std::vector<ui::Intent>& intents) {
                 }
                 break;
             }
-            case ui::IntentKind::UpgradeTower: {
-                // Upgrades were free from Wave 3A until the balance harness
-                // went looking for why upgrade_cost never showed up in any
-                // spend total: upgrade() charges nothing by design and this
-                // was its only caller.
-                const u32 cost = towers_.upgrade_cost(sim_, in.entity);
-                if (cost == 0 || !economy_.can_afford(cost)) {
-                    audio_.post(audio::AudioEvent{audio::SoundId::UiInvalid, in.world_position});
-                    break;
-                }
-                if (towers_.upgrade(sim_, in.entity) != 0) economy_.spend(cost);
-                break;
-            }
+            // IntentKind::UpgradeTower is retired: towers have no in-run tiers
+            // (PROGRESSION.md §7), so it falls through to the default below.
             case ui::IntentKind::SellTower:
                 economy_.credit_bounty(towers_.sell(sim_, in.entity));
                 break;
@@ -864,11 +921,13 @@ void App::tick_sim() {
         IMMUNE_LOG_INFO("level failed: objective integrity depleted at tick %llu",
                         static_cast<unsigned long long>(sim_.snapshot().tick));
         state_.set_outcome(LevelOutcome::ObjectiveDestroyed);
+        finish_run(false);
         state_.request(GameStateId::LevelFailed);
     } else if (outcome == game::SessionOutcome::Cleared) {
         IMMUNE_LOG_INFO("level cleared at tick %llu",
                         static_cast<unsigned long long>(sim_.snapshot().tick));
         state_.set_outcome(LevelOutcome::Cleared);
+        finish_run(true);
         state_.request(GameStateId::LevelComplete);
     }
 }
@@ -1146,6 +1205,17 @@ void App::render_frame() {
         state_.current() == GameStateId::Paused) {
         build_menus();
     } else {
+        ui::Hud::MetaCounters counters;
+        counters.visible = !sandbox_run();
+        if (counters.visible) {
+            counters.memory_cells = meta_.memory_cells();
+            counters.antibodies = meta_.antibodies();
+            counters.run_memory_cells =
+                game::MetaProgression::reward_for_run(current_run_result(false), config_.meta, false)
+                    .memory_cells;
+            counters.antibody_on_clear = !meta_.level_cleared(state_.current_level_id());
+        }
+        hud_.set_meta_counters(counters);
         hud_.build(sim_, economy_, waves_, towers_, abilities_, camera_, input_, intents_);
         apply_intents(intents_);
     }
@@ -1174,7 +1244,8 @@ int App::run() {
             // renders over a clean frame and a re-entered level starts fresh
             // rather than inheriting the previous run's state.
             const GameStateId now = state_.current();
-            if (now == GameStateId::MainMenu || now == GameStateId::LevelSelect) {
+            if (now == GameStateId::MainMenu || now == GameStateId::LevelSelect ||
+                now == GameStateId::StrengthenImmunity) {
                 level_loaded_ = false;
                 particles_.clear();
                 clock_.set_time_scale(1.0f);
@@ -1206,6 +1277,83 @@ int App::run() {
         profiler_.record(prof_key::kFrameTotal, frame.elapsed_ms());
     }
     return 0;
+}
+
+// ---------------------------------------------------------------------------
+// Strengthen Immunity (game/meta)
+// ---------------------------------------------------------------------------
+
+bool App::sandbox_run() const {
+    return options_.sandbox || editor_playtest_ || current_level_def_.name == "gym";
+}
+
+game::RunResult App::current_run_result(bool won) const {
+    const game::WaveStatus st = waves_.status();
+    game::RunResult r;
+    // Waves fully behind the player: every one before the current index, or
+    // all of them once the table is done.
+    r.waves_cleared = st.all_waves_complete ? static_cast<u32>(waves_.waves().size())
+                                            : st.wave_index;
+    // Killed by the player, not leaked or wandered off (SimSnapshot's
+    // per-family tallies separate the three; chaff_killed_total does not).
+    const sim::SimSnapshot snap = sim_.snapshot();
+    for (u32 f = 0; f < kFamilyCount; ++f) r.chaff_killed_total += snap.chaff_killed_by_family[f];
+    // No elite or boss kills yet: the roster ships none, and nothing counts
+    // named kills for the game layer. RunResult keeps the fields for when it does.
+    r.won = won;
+    return r;
+}
+
+void App::finish_run(bool won) {
+    last_run_ = ui::RunSummary{};
+    last_run_.valid = true;
+    last_run_.sandbox = sandbox_run();
+    const game::RunResult result = current_run_result(won);
+    last_run_.waves_cleared = result.waves_cleared;
+    if (last_run_.sandbox) return;
+
+    const game::RunReward reward =
+        meta_.record_run(state_.current_level_id(), result, config_.meta);
+    last_run_.memory_cells = reward.memory_cells;
+    last_run_.antibodies = reward.antibodies;
+    last_run_.first_clear = reward.first_clear;
+    IMMUNE_LOG_INFO("run %s on '%s': +%u Memory Cells, +%u Antibodies (bank %llu MC, %u AB)",
+                    won ? "cleared" : "failed", state_.current_level_id().c_str(),
+                    reward.memory_cells, reward.antibodies,
+                    static_cast<unsigned long long>(meta_.memory_cells()), meta_.antibodies());
+    save_meta();
+}
+
+void App::load_meta() {
+    meta_.reset_to_new_game();
+    save_path_ = options_.save_path;
+    if (save_path_.empty()) {
+        std::string dir = platform::user_data_dir();
+        if (!dir.empty() && dir.back() != '/' && dir.back() != '\\') dir += '/';
+        save_path_ = dir + "save.json";
+    }
+    if (!platform::file_exists(save_path_)) {
+        IMMUNE_LOG_INFO("no save at %s; starting a new campaign", save_path_.c_str());
+        return;
+    }
+    const auto text = platform::read_text_file(save_path_);
+    std::string err;
+    if (!text || !meta_.from_json(*text, err)) {
+        save_ok_ = false;
+        meta_.reset_to_new_game();
+        IMMUNE_LOG_ERROR("could not load save %s (%s); playing a fresh campaign and NOT "
+                         "writing over it", save_path_.c_str(),
+                         text ? err.c_str() : "unreadable");
+        return;
+    }
+    IMMUNE_LOG_INFO("loaded save %s: %llu Memory Cells, %u Antibodies, %u level(s) cleared",
+                    save_path_.c_str(), static_cast<unsigned long long>(meta_.memory_cells()),
+                    meta_.antibodies(), meta_.progress().levels_completed);
+}
+
+void App::save_meta() {
+    if (!save_ok_ || save_path_.empty()) return;
+    if (!meta_.save(save_path_)) IMMUNE_LOG_WARN("could not write save %s", save_path_.c_str());
 }
 
 } // namespace immune::app

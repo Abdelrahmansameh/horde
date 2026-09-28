@@ -334,7 +334,7 @@ HostileStats HostileSystem::update(ChaffBuffers& chaff, const SpatialHash& hash,
         const HostileFamilyParams& fp = tuning_.family[fam];
         // A family that no longer latches (a hot reload zeroed it) lets go.
         if (fp.latch_dps <= 0.0f) { release(i); continue; }
-        const f32 bite = fp.latch_dps * dt;
+        const f32 bite = fp.latch_dps * dt * tuning_.damage_taken_mult;
 
         Vec2 host_pos{0.0f, 0.0f};
         Vec2 host_vel{0.0f, 0.0f};
@@ -513,6 +513,7 @@ HostileStats HostileSystem::update(ChaffBuffers& chaff, const SpatialHash& hash,
                 }
             }
         });
+        incoming *= tuning_.damage_taken_mult;
         if (incoming > 0.0f) {
             sw.health[i] -= incoming;
             stats.swarmer_damage += incoming;
@@ -579,6 +580,7 @@ HostileStats HostileSystem::update(ChaffBuffers& chaff, const SpatialHash& hash,
                     }
                 });
             }
+            incoming *= tuning_.damage_taken_mult;
             if (incoming > 0.0f) {
                 towers.damage[k] += incoming;
                 stats.tower_damage += incoming;
@@ -610,6 +612,7 @@ HostileStats HostileSystem::update(ChaffBuffers& chaff, const SpatialHash& hash,
                 }
             }
         });
+        incoming *= tuning_.damage_taken_mult;
         if (incoming > 0.0f) {
             towers.damage[k] += incoming;
             stats.tower_damage += incoming;

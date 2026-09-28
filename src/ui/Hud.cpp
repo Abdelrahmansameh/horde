@@ -251,6 +251,14 @@ void Hud::build(const sim::SimWorld& world, const game::Economy& economy,
         }
         ImGui::Text("Chaff: %llu  Named: %llu", static_cast<unsigned long long>(snap.chaff_count),
                    static_cast<unsigned long long>(snap.named_count));
+        if (meta_.visible) {
+            ImGui::Separator();
+            ImGui::TextColored(ImVec4(0.30f, 0.90f, 0.80f, 1.0f), "Memory Cells: %llu (+%u this run)",
+                               static_cast<unsigned long long>(meta_.memory_cells),
+                               meta_.run_memory_cells);
+            ImGui::TextColored(ImVec4(1.0f, 0.82f, 0.35f, 1.0f), "Antibodies: %u%s", meta_.antibodies,
+                               meta_.antibody_on_clear ? "  (+1 on first clear)" : "");
+        }
     }
     ImGui::End();
 
@@ -309,12 +317,23 @@ void Hud::build(const sim::SimWorld& world, const game::Economy& economy,
     // disable themselves while on cooldown and show remaining seconds, now
     // that `abilities` is threaded through (orchestrator follow-up to this
     // wave's own flagged gap).
+    // Only what the player has unlocked (DESIGN.md §8) -- which, early in a
+    // campaign, is nothing at all, and then the bar is not drawn.
+    bool any_ability = false;
+    for (u32 i = 0; i < game::kAbilityCount; ++i) {
+        any_ability = any_ability || abilities.unlocked(static_cast<game::AbilityId>(i));
+    }
+    if (!any_ability) g_cast_cursor_active = false;
     ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x - 12.0f, io.DisplaySize.y - 60.0f),
                             ImGuiCond_Always, ImVec2(1.0f, 1.0f));
     ImGui::SetNextWindowBgAlpha(0.7f);
-    if (ImGui::Begin("Abilities", nullptr, flags)) {
+    if (any_ability && ImGui::Begin("Abilities", nullptr, flags)) {
+        bool first_ability = true;
         for (u32 i = 0; i < game::kAbilityCount; ++i) {
             const game::AbilityId id = static_cast<game::AbilityId>(i);
+            if (!abilities.unlocked(id)) continue;
+            if (!first_ability) ImGui::SameLine();
+            first_ability = false;
             const game::AbilityStatus st = abilities.status(id);
             const bool armed = g_cast_cursor_active && g_cast_cursor_ability == id;
             char label[64];
@@ -344,14 +363,13 @@ void Hud::build(const sim::SimWorld& world, const game::Economy& economy,
             }
             if (!st.ready) ImGui::EndDisabled();
             if (armed) ImGui::PopStyleColor();
-            if (i + 1 < game::kAbilityCount) ImGui::SameLine();
         }
         if (g_cast_cursor_active) {
             ImGui::SameLine();
             if (ImGui::Button("Cancel##ability")) g_cast_cursor_active = false;
         }
     }
-    ImGui::End();
+    if (any_ability) ImGui::End();
 
     // ---- Selected tower panel ---------------------------------------------
     if (g_selected_tower.valid()) {
@@ -374,7 +392,7 @@ void Hud::build(const sim::SimWorld& world, const game::Economy& economy,
                                     ImVec2(1.0f, 0.0f));
             ImGui::SetNextWindowBgAlpha(0.7f);
             if (ImGui::Begin("Selected Tower", nullptr, flags)) {
-                ImGui::Text("%s -- tier %u", game::tower_type_name(tower.type), tower.tier);
+                ImGui::Text("%s", game::tower_type_name(tower.type));
                 {
                     const game::TowerMechanics& mech = game::tower_mechanics(tower.type, tower.tier);
                     ImGui::Text("Aggro %.1f  Volley %u every %.2fs", mech.swarm.search_radius,
@@ -384,8 +402,7 @@ void Hud::build(const sim::SimWorld& world, const game::Economy& economy,
                 // (sim/hostile). Red once it is low, and a note on how many
                 // viruses are riding it right now -- the count comes from the
                 // hostile pass's own tower list, so the HUD never walks the
-                // chaff store. An upgrade restores it in full, which the
-                // Upgrade button below is silently also for.
+                // chaff store.
                 if (const auto* hp = registry.try_get<sim::comp::Health>(e)) {
                     const f32 frac = hp->max > 0.0f ? hp->current / hp->max : 1.0f;
                     const ImVec4 col = frac < 0.34f ? ImVec4(1.0f, 0.35f, 0.35f, 1.0f)
@@ -401,21 +418,9 @@ void Hud::build(const sim::SimWorld& world, const game::Economy& economy,
                     }
                 }
 
-                if (tower.tier < 3) {
-                    const bool affordable = economy.can_afford(tstats.upgrade_cost);
-                    char label[64];
-                    std::snprintf(label, sizeof(label), "Upgrade (%u)", tstats.upgrade_cost);
-                    if (!affordable) ImGui::BeginDisabled();
-                    if (ImGui::Button(label)) {
-                        Intent intent;
-                        intent.kind = IntentKind::UpgradeTower;
-                        intent.entity = g_selected_tower;
-                        out_intents.push_back(intent);
-                    }
-                    if (!affordable) ImGui::EndDisabled();
-                    ImGui::SameLine();
-                }
-
+                // No upgrade control: a tower's power is the Strengthen
+                // Immunity tree's, bought between runs (DESIGN.md §8), never a
+                // mid-run purchase.
                 if (ImGui::Button("Sell")) {
                     Intent intent;
                     intent.kind = IntentKind::SellTower;
@@ -435,8 +440,14 @@ void Hud::build(const sim::SimWorld& world, const game::Economy& economy,
                             ImGuiCond_Always);
     ImGui::SetNextWindowBgAlpha(0.7f);
     if (ImGui::Begin("Build", nullptr, flags)) {
+        bool first_button = true;
         for (u32 i = 0; i < kTowerTypeCount; ++i) {
             const TowerType type = static_cast<TowerType>(i);
+            // A locked tower is a between-run concern (DESIGN.md §8): the
+            // build menu shows the player's current roster, nothing more.
+            if (!towers.tower_unlocked(type)) continue;
+            if (!first_button) ImGui::SameLine();
+            first_button = false;
             const game::TowerStats& stats = towers.stats(type, 1);
             char label[64];
             std::snprintf(label, sizeof(label), "%s (%u)", game::tower_type_name(type),
@@ -458,7 +469,6 @@ void Hud::build(const sim::SimWorld& world, const game::Economy& economy,
             if (!allowed && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
                 ImGui::SetTooltip("not available on this level");
             }
-            if (i + 1 < kTowerTypeCount) ImGui::SameLine();
         }
         if (build_cursor_active_) {
             ImGui::SameLine();
@@ -477,6 +487,7 @@ void Hud::build(const sim::SimWorld& world, const game::Economy& economy,
     };
     if (!input.ui_capture_keyboard()) {
         for (u32 i = 0; i < kTowerTypeCount; ++i) {
+            if (!towers.tower_unlocked(static_cast<TowerType>(i))) continue;
             if (input.action_pressed(kSelectActions[i])) {
                 set_build_cursor(static_cast<TowerType>(i));
                 g_cast_cursor_active = false;

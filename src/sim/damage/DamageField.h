@@ -46,6 +46,10 @@ enum class ThinningMode : u8 {
     ProbabilisticRemoval = 1, ///< Whole-agent rolls.
 };
 
+/// Hard ceiling on DamageField::chain_links. The walk keeps its visited set on
+/// the stack, so the cap is what bounds that array.
+inline constexpr u32 kChainLinkCap = 16;
+
 enum class FieldShape : u8 {
     Circle = 0,
     Rect = 1,
@@ -95,6 +99,10 @@ struct DamageField {
 
     /// Set for fields that damage the *player's* own units/objective.
     bool friendly_fire = false;
+
+    /// Chain shape only: hops the walk may take. 0 = the default (8), and the
+    /// value is clamped to kChainLinkCap.
+    u32 chain_links = 0;
 };
 
 struct DamageStats {

@@ -38,9 +38,16 @@ namespace immune::sim {
 namespace {
 
 constexpr u32 kInvalidIndex = static_cast<u32>(-1);
-/// Chain-jump link cap. Not specified by the header; chosen as "enough to
-/// feel like a cascade without an unbounded per-tick cost per field".
+/// Chain-jump link count when a field does not set DamageField::chain_links.
+/// Chosen as "enough to feel like a cascade without an unbounded per-tick cost
+/// per field"; the Strengthen Immunity tree's Chain Link line raises it, up to
+/// kChainLinkCap.
 constexpr u32 kMaxChainLinks = 8;
+
+u32 chain_link_count(const DamageField& f) {
+    if (f.chain_links == 0) return kMaxChainLinks;
+    return f.chain_links < kChainLinkCap ? f.chain_links : kChainLinkCap;
+}
 
 /// Result of an exact per-shape point test: whether the point is inside, and
 /// its normalized distance from the shape's "centre" in [0, 1] for falloff.
@@ -197,17 +204,18 @@ u32 find_nearest_unvisited(const ChaffBuffers& chaff, const std::vector<u32>& ca
 
 /// Chain-jump walk: start at field.origin, repeatedly damage the nearest
 /// not-yet-hit matching agent within field.radius and jump to it, up to
-/// kMaxChainLinks hops. Stops early once no further candidate is in range.
+/// chain_link_count() hops. Stops early once no further candidate is in range.
 void apply_chain(ChaffBuffers& chaff, const SpatialHash& hash, const DamageField& field,
                  ThinningMode mode, const Rng& field_rng, f32 dt, DamageStats& stats,
                  std::vector<u32>& scratch, DamageAttribution* attribution) {
     if (field.radius <= 0.0f) return;
 
-    u32 visited[kMaxChainLinks];
+    u32 visited[kChainLinkCap];
     u32 visited_count = 0;
     Vec2 current = field.origin;
+    const u32 links = chain_link_count(field);
 
-    for (u32 link = 0; link < kMaxChainLinks; ++link) {
+    for (u32 link = 0; link < links; ++link) {
         scratch.clear();
         hash.query_circle(current, field.radius, scratch);
         stats.cells_touched += estimate_cells_touched(
@@ -230,12 +238,13 @@ f32 measure_chain(const ChaffBuffers& chaff, const SpatialHash& hash, const Dama
                   std::vector<u32>& scratch) {
     if (region.radius <= 0.0f) return 0.0f;
 
-    u32 visited[kMaxChainLinks];
+    u32 visited[kChainLinkCap];
     u32 visited_count = 0;
     Vec2 current = region.origin;
     f32 total = 0.0f;
+    const u32 links = chain_link_count(region);
 
-    for (u32 link = 0; link < kMaxChainLinks; ++link) {
+    for (u32 link = 0; link < links; ++link) {
         scratch.clear();
         hash.query_circle(current, region.radius, scratch);
 

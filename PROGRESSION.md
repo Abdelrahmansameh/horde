@@ -133,6 +133,7 @@ Each branch's stat lines are drawn directly from what's already tunable per towe
 | Splash Radius | the splash's size |
 | Droplet Count | droplets released per shot |
 | Slow Duration | how long a soaked target stays slowed after leaving mucus |
+| Weakening Mucus | a slowed target takes more damage from every source for as long as the slow lasts -- the Goblet Cell's answer to "a slow on its own kills nothing" |
 | Deploy Cadence | how often the tower fires |
 | Tower Health | the tower's own max HP |
 
@@ -147,6 +148,7 @@ Each branch's stat lines are drawn directly from what's already tunable per towe
 | Max Scars | how many scars this tower can have standing at once |
 | Scar Size | length/width of a placed scar |
 | Build Radius | how far from the tower a scar can be placed |
+| Inflammation | a standing scar inflames the tissue around it: allied swarmers there hit harder and towers there reload faster, so walls become the anchor a defence is built around |
 | Build Cadence | how often the tower sends a new builder |
 | Tower Health | the tower's own max HP |
 
@@ -197,7 +199,7 @@ These are genuinely undecided and intentionally deferred to a balance/implementa
 - **Antibody count per tower/ability unlock and per capstone.** Whether every Antibody-gated node costs the same flat amount, or milestone nodes scale in cost — matters for how quickly a campaign-length player can realistically unlock everything.
 - **Existing tooling fallout.** The project's balance-testing harness currently includes at least one automated play-strategy specifically built around the old in-run tier-upgrade path ("deepen existing towers before adding new ones," ranking towers by solo performance). That strategy's premise no longer applies and will need rethinking once tiers move to the tree — flagged here as a downstream implication of this design, not something this document resolves.
 - **Whether "Membrane Resilience" (§6) is enough, or hostile-pressure survivability needs per-tower lines too.** The hub's flat global line is the minimum viable answer to towers/swarmers now being killable (`DESIGN.md` §5.7); it's an open question whether a tower that leans into standing its ground (the Macrophage, whose whole kit is built around not yielding) should get its own branch-specific resilience line instead of or in addition to the global one.
-- **Whether a "marked" weaken debuff should get a real source again.** `DESIGN.md` §5.5 notes the mechanism exists in code but nothing currently sets it, now that the Goblet Cell deals no damage. If it's revived, the natural place to attach it is a capstone (the Goblet Cell's `Anaphylactic Shock` as currently specified, or a new one) rather than a base-kit change — undecided.
+- **Whether a "marked" weaken debuff should get a real source again.** `DESIGN.md` §5.5 notes the mechanism exists in code but nothing currently sets it, now that the Goblet Cell deals no damage. *Partly answered:* the Goblet Cell's Weakening Mucus line (§5.4) makes slowed targets take more damage, tied to the slow rather than to the old permanent mark. Whether the permanent mark itself should come back is still open.
 - **Whether a burrowed Parasite should ever have a hard counter.** `DESIGN.md` §5.7/§14 raises this; if the answer is yes, the likely home is a capstone or ability unlock in this tree (an "anti-stealth" node echoing the retired NK Cell's niche) rather than a change to the base roster — undecided pending that call.
 
 ---

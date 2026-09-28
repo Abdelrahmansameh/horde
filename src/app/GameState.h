@@ -15,7 +15,10 @@ enum class GameStateId : u8 {
     Boot = 0,        ///< Subsystem init.
     MainMenu,
     LevelSelect,
-    Loadout,         ///< Antibody-memory pre-run choice.
+    /// The Strengthen Immunity tree (game/meta/ImmunityTree.h): spend Memory
+    /// Cells and Antibodies between runs. Replaced the cut pre-run loadout
+    /// (DESIGN.md §7.3) in the same slot.
+    StrengthenImmunity,
     InLevel,         ///< The only state that ticks SimWorld.
     Paused,
     /// The in-game level editor (docs/LEVEL_EDITOR.md). Deliberately NOT a

@@ -180,6 +180,7 @@
 
 #include "core/Types.h"
 #include "sim/Attribution.h"
+#include "sim/Immunity.h"
 #include "sim/chaff/ChaffBuffers.h"
 #include "sim/spatial/SpatialHash.h"
 
@@ -370,6 +371,23 @@ struct SwarmerProfile {
     /// by them), which is what lets it reach a site behind the horde's
     /// front instead of being carried off downstream with the crowd.
     f32 builder_crowd_push = 0.0f;
+
+    // ---- Strengthen Immunity capstones (game/meta/ImmunityTree.h) ----
+    // Every one of these is OFF at its default, so a profile built without
+    // the tree -- every test, every headless mode -- behaves exactly as it did
+    // before the tree existed. The world-wide capstones with no unit to hang
+    // them on live in sim/Immunity.h instead.
+    /// Latch: multiplier on the drain a named agent (elite/boss) takes.
+    /// Apoptosis Trigger's "bonus vs. named threats".
+    f32 named_damage_mult = 1.0f;
+    /// Latch: when a latcher's chaff host dies under it, a burst of this
+    /// radius and total density goes off where the host was -- Apoptosis
+    /// Trigger's kill pulse. Radius 0 is off.
+    f32 kill_pulse_radius = 0.0f;
+    f32 kill_pulse_damage = 0.0f;
+    /// ArborGrabber: hit points the releasing TOWER regains per enemy a
+    /// pseudopod swallows -- Phagocytic Sustain. 0 is off.
+    f32 heal_per_kill = 0.0f;
 };
 
 /// How much of a swarmer's `size` the wall projection keeps clear of the
@@ -585,17 +603,26 @@ struct SwarmerBuild {
     u16 visual_id = 0;
 };
 
+/// Hit points a unit's owning tower regains (Phagocytic Sustain,
+/// SwarmerProfile::heal_per_kill). SimWorld lands it on the tower's Health,
+/// capped at its max, the way named-agent damage is landed.
+struct SwarmerHeal {
+    EntityId owner{};
+    f32 amount = 0.0f;
+};
+
 struct SwarmerEffects {
     std::vector<SwarmerBurst> bursts;
     std::vector<SwarmerSplash> splashes;
     std::vector<SwarmerShot> shots;
     std::vector<SwarmerBuild> builds;
+    std::vector<SwarmerHeal> heals;
 
     void reserve(usize n);
     void clear();
     bool empty() const {
         return bursts.empty() && splashes.empty() && shots.empty() &&
-               builds.empty();
+               builds.empty() && heals.empty();
     }
 };
 
@@ -719,6 +746,8 @@ struct SwarmerStats {
     u32 body_blocks = 0;       ///< Of those, the pathogens a body_block unit shoved back instead.
     u32 contact_detonations = 0; ///< Of `detonated`, the ones that went off on touching a non-target enemy.
     u32 built = 0;             ///< Builders that reached their site and asked for a scar.
+    u32 kill_pulses = 0;       ///< Apoptosis bursts raised by latchers whose host died.
+    f32 healed = 0.0f;         ///< Tower hit points queued by Phagocytic Sustain.
     f32 density_removed = 0.0f;
     f32 named_damage = 0.0f;   ///< Hit points queued against named agents.
 };
@@ -767,6 +796,15 @@ public:
     /// Per-owner accounting sink, null by default. See sim/Attribution.h.
     void set_attribution(DamageAttribution* sink) { attribution_ = sink; }
 
+    /// Inflammation (sim/Immunity.h): a unit standing in any of `zones` deals
+    /// `mult` times its latch drain and round damage. The list is the
+    /// caller's (SimWorld rebuilds it every tick) and must outlive update();
+    /// null or mult 1 is off.
+    void set_inflamed_zones(const std::vector<InflamedZone>* zones, f32 mult) {
+        inflamed_zones_ = zones;
+        inflamed_mult_ = mult;
+    }
+
     /// Body collision knobs. Defaults are live; see SwarmerCollisionTuning.
     void set_collision(const SwarmerCollisionTuning& t) { collision_ = t; }
     const SwarmerCollisionTuning& collision() const { return collision_; }
@@ -787,6 +825,8 @@ private:
 
     SwarmerStats last_{};
     DamageAttribution* attribution_ = nullptr;
+    const std::vector<InflamedZone>* inflamed_zones_ = nullptr;
+    f32 inflamed_mult_ = 1.0f;
     SwarmerEffects effects_;
     /// Scratch for the targetless swarmers' hash queries. A member so the
     /// vector is allocated once and reused, never per-swarmer inside the tick.

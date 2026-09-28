@@ -129,6 +129,10 @@ struct HostileTuning {
     u32 max_attackers = 128;
     /// PathogenLatch events raised per tick, out of the shared sink.
     u32 max_latch_events = 64;
+    /// Multiplier on every hit point the pass takes off a tower, scar or
+    /// swarmer. Membrane Resilience (game/meta/ImmunityTree.h) lowers it; 1
+    /// is the pass exactly as the families configure it.
+    f32 damage_taken_mult = 1.0f;
 };
 
 /// One tower as this pass sees it. SimWorld rebuilds the list every tick from

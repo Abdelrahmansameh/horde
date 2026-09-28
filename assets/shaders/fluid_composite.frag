@@ -20,9 +20,9 @@
 //      would be a flat green silhouette no matter how good the simulation is.
 //
 //   3. THICKNESS AS DEPTH. Beer-Lambert: the deeper the mucus, the more it
-//      absorbs, so a thin film is pale and translucent and the middle of a
-//      slug is dark and saturated. That gradient is what stops a puddle from
-//      reading as a decal.
+//      absorbs, so a thin film is a faint pale tint and the middle of a slug
+//      is a stronger, more saturated one. That gradient is what stops a
+//      puddle from reading as a decal.
 //
 // THE NORMALS ARE READ THROUGH A BLUR, and that is not an optimisation — it is
 // the difference between liquid and coral. Thickness is a sum of discrete
@@ -139,8 +139,11 @@ void main() {
     // Beer-Lambert-ish absorption over three stops rather than two: pale at the
     // film, a saturated mid-green through the body, dark only where the mucus
     // has really piled up. Two stops put the whole jet at one value.
+    // The deep stop is only reached a third of the way: a CLEAR liquid gets
+    // more saturated as it deepens, not black, and a full kDeep over a
+    // translucent body turns into mud rather than tint.
     vec3 body = depth < 0.5 ? mix(kShallow, kMid, smoothstep(0.0, 0.5, depth))
-                            : mix(kMid, kDeep, smoothstep(0.5, 1.0, depth));
+                            : mix(kMid, kDeep, 0.35 * smoothstep(0.5, 1.0, depth));
 
     // Internal texture: mucus is not homogeneous, and a perfectly flat interior
     // is the fastest way to make a big puddle read as painted-on. The noise is
@@ -150,7 +153,7 @@ void main() {
     vec2 flow_dir = length(flow) > 1e-5 ? normalize(flow) : vec2(1.0, 0.0);
     vec2 streak_uv = v_uv / u_texel * 0.055 - flow_dir * u_time * 1.6;
     float marble = vnoise(streak_uv * vec2(1.0, 2.6));
-    body *= mix(0.93, 1.07, marble);
+    body *= mix(0.96, 1.04, marble);
 
     // ---- Foam -------------------------------------------------------------
     // Churned fluid goes white and breaks up. The speckle is fine and additive
@@ -178,28 +181,28 @@ void main() {
     // this has volume rather than being a flat shape.
     float fresnel = pow(1.0 - clamp(nrm.z, 0.0, 1.0), 3.0);
 
-    vec3 rgb = body * (0.62 + 0.46 * ndl);
-    rgb += kShallow * fresnel * 0.55;
+    vec3 rgb = body * (0.80 + 0.30 * ndl);
 
     // ---- Opacity ----------------------------------------------------------
-    // Thin films let the lane show through; the body of a slug is nearly
-    // opaque. Foam is opaque regardless, because froth is full of air.
-    //
-    // The FLOOR here is higher than a physically-minded reading would suggest,
-    // and deliberately: this fluid usually lands on top of a dense, high-
-    // contrast crowd of pathogens, and at low opacity the agents underneath
-    // punch straight through the surface and destroy the read. It has to look
-    // like something is covering them.
-    float alpha = coverage * mix(0.66, 0.97, smoothstep(0.0, 0.55, depth));
-    alpha = mix(alpha, coverage * 0.98, foam * 0.5);
+    // A clear, tinted liquid: the lane and the agents under it stay plainly
+    // visible, and the body only colours them. What keeps it reading as a
+    // surface at this opacity is the light it gives off (rim + glint, added
+    // below outside the alpha), not how much of the background it hides.
+    // Deeper fluid tints a little harder; foam clouds it, because froth is
+    // full of air.
+    float alpha = coverage * mix(0.24, 0.50, smoothstep(0.0, 0.8, depth));
+    alpha = mix(alpha, coverage * 0.62, foam * 0.5);
     // Edges stay a little more transparent than the interior even after the
     // threshold, so the meniscus reads as a wet lip rather than as an outline.
     alpha *= mix(0.86, 1.0, coverage);
 
-    // Premultiply, then add the glint ON TOP of the premultiplied colour. That
-    // is the whole point of the premultiplied blend: the highlight is light
-    // leaving the surface and does not have to fit inside its opacity.
-    vec3 premul = rgb * alpha + vec3(1.0, 1.0, 0.96) * spec * coverage * 1.15;
+    // Premultiply, then add the rim and the glint ON TOP of the premultiplied
+    // colour. That is the whole point of the premultiplied blend: they are
+    // light leaving the surface and do not have to fit inside its opacity,
+    // which is what lets a mostly transparent body still read as wet.
+    vec3 premul = rgb * alpha
+                + kShallow * fresnel * 0.45 * coverage
+                + vec3(1.0, 1.0, 0.96) * spec * coverage * 1.15;
 
     frag_color = vec4(premul, alpha);
 }

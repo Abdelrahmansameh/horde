@@ -34,6 +34,14 @@ struct ClotFootprint {
     sim::CarvedFootprint carved;
 };
 
+/// A Fever Response still running after its instant relief (AbilityDef's
+/// fever_linger_*). An entity rather than a member so the sim-side upkeep
+/// below -- a plain function pointer -- can find it, exactly like the clot.
+struct FeverLinger {
+    f32 remaining = 0.0f;
+    f32 rate = 0.0f;   ///< Extra cooldown seconds per second, per tower.
+};
+
 } // namespace priv
 
 namespace {
@@ -45,6 +53,28 @@ namespace {
 /// so the restore is deterministic with respect to everything else in the
 /// tick and does not depend on the ability system being stepped at all --
 /// the same argument TowerSystem.cpp makes for the Neutrophil's ActiveNet.
+void system_fever_linger(sim::SystemContext& ctx) {
+    static thread_local std::vector<entt::entity> expired;
+    expired.clear();
+    f32 relief = 0.0f;
+    auto lingers = ctx.registry.view<priv::FeverLinger>();
+    for (auto e : lingers) {
+        priv::FeverLinger& f = lingers.get<priv::FeverLinger>(e);
+        const f32 step = math::min(ctx.dt, math::max(f.remaining, 0.0f));
+        relief += f.rate * step;
+        f.remaining -= ctx.dt;
+        if (f.remaining <= 0.0f) expired.push_back(e);
+    }
+    if (relief > 0.0f) {
+        auto towers = ctx.registry.view<sim::comp::Tower>();
+        for (auto e : towers) {
+            sim::comp::Tower& t = towers.get<sim::comp::Tower>(e);
+            t.cooldown = math::max(0.0f, t.cooldown - relief);
+        }
+    }
+    for (entt::entity e : expired) ctx.registry.destroy(e);
+}
+
 void system_clot_upkeep(sim::SystemContext& ctx) {
     static thread_local std::vector<entt::entity> expired;
     expired.clear();
@@ -86,6 +116,9 @@ void ActiveAbilitySystem::load_defaults() {
         d.fever_cooldown_relief = t.fever_cooldown_relief;
         d.barrier_half_length = t.barrier_half_length;
         d.barrier_half_width = t.barrier_half_width;
+        d.chain_links = t.chain_links;
+        d.fever_linger_seconds = t.fever_linger_seconds;
+        d.fever_linger_rate = t.fever_linger_rate;
     }
     for (f32& r : cooldown_remaining_) r = 0.0f;
 }
@@ -94,6 +127,7 @@ void ActiveAbilitySystem::register_systems(sim::SimWorld& world) {
     // Sort key 10: after tower_net_upkeep (8) and marked_upkeep (9), so the
     // tower systems' Combat-phase order is untouched.
     world.ecs().add_system(sim::SystemPhase::Combat, "ability_clot_upkeep", 10, &system_clot_upkeep);
+    world.ecs().add_system(sim::SystemPhase::Combat, "ability_fever_linger", 11, &system_fever_linger);
 }
 
 void ActiveAbilitySystem::tick(f32 dt) {
@@ -116,6 +150,7 @@ AbilityStatus ActiveAbilitySystem::status(AbilityId id) const {
 }
 
 bool ActiveAbilitySystem::cast(sim::SimWorld& world, AbilityId id, Vec2 target_point) {
+    if (!unlocked(id)) return false;
     if (!ready(id)) return false;
     const u32 i = static_cast<u32>(id);
     const AbilityDef& d = defs_[i];
@@ -134,6 +169,7 @@ bool ActiveAbilitySystem::cast(sim::SimWorld& world, AbilityId id, Vec2 target_p
             field.radius = d.radius;
             field.kill_rate = d.kill_rate;
             field.lifetime = 0.1f;
+            field.chain_links = d.chain_links;
             world.damage().submit(field);
             break;
         }
@@ -160,6 +196,12 @@ bool ActiveAbilitySystem::cast(sim::SimWorld& world, AbilityId id, Vec2 target_p
             for (auto e : view) {
                 sim::comp::Tower& t = view.get<sim::comp::Tower>(e);
                 t.cooldown = math::max(0.0f, t.cooldown - d.fever_cooldown_relief);
+            }
+            if (d.fever_linger_seconds > 0.0f && d.fever_linger_rate > 0.0f) {
+                entt::registry& registry = world.ecs().registry();
+                const entt::entity e = registry.create();
+                registry.emplace<priv::FeverLinger>(
+                    e, priv::FeverLinger{d.fever_linger_seconds, d.fever_linger_rate});
             }
             break;
         }

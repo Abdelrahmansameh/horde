@@ -78,6 +78,14 @@ std::vector<std::string> list_files(const std::string& dir, std::string_view ext
     return out;
 }
 
+std::string user_data_dir() {
+    char* pref = SDL_GetPrefPath("IMMUNE", "IMMUNE");
+    if (pref == nullptr) return executable_dir();
+    std::string dir(pref);
+    SDL_free(pref);
+    return dir;
+}
+
 std::string executable_dir() {
     char* base = SDL_GetBasePath();
     if (!base) {

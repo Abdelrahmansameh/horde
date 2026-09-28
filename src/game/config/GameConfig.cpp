@@ -169,6 +169,15 @@ constexpr Field kMetaFields[] = {
     IMMUNE_CONFIG_FIELD(MetaConfig, per_boss_reward, FieldKind::U32, ""),
     IMMUNE_CONFIG_FIELD(MetaConfig, chaff_per_point, FieldKind::U32, "Chaff density killed per currency point"),
     IMMUNE_CONFIG_FIELD(MetaConfig, win_bonus, FieldKind::U32, "Flat bonus for a full clear"),
+    IMMUNE_CONFIG_FIELD(MetaConfig, first_clear_antibodies, FieldKind::U32, "Antibodies for a level's first clear; replays pay none"),
+    IMMUNE_CONFIG_FIELD(MetaConfig, stat_base_cost, FieldKind::U32, "Memory Cells for level 1 of a standard stat line"),
+    IMMUNE_CONFIG_FIELD(MetaConfig, stat_cost_step, FieldKind::U32, "Extra Memory Cells per level after the first"),
+    IMMUNE_CONFIG_FIELD(MetaConfig, tower_unlock_antibodies, FieldKind::U32, "Antibodies to unlock a tower branch"),
+    IMMUNE_CONFIG_FIELD(MetaConfig, ability_unlock_antibodies, FieldKind::U32, "Antibodies to unlock an active ability"),
+    IMMUNE_CONFIG_FIELD(MetaConfig, capstone_antibodies, FieldKind::U32, "Antibody half of a capstone's price"),
+    IMMUNE_CONFIG_FIELD(MetaConfig, capstone_memory_cells, FieldKind::U32, "Memory Cell half of a capstone's price"),
+    IMMUNE_CONFIG_FIELD(MetaConfig, capstone_threshold, FieldKind::U32, "Stat levels bought in a branch before its capstone opens"),
+    IMMUNE_CONFIG_FIELD(MetaConfig, respec_cost, FieldKind::U32, "Memory Cells withheld from a full respec's refund"),
 };
 constexpr Schema kMetaSchema{"meta", kMetaFields};
 
@@ -627,9 +636,15 @@ GameConfig default_game_config() {
 
     cfg.abilities = ability_config();
 
-    cfg.meta = MetaConfig{MetaProgression::kBaseRunReward, MetaProgression::kPerWaveReward,
-                          MetaProgression::kPerEliteReward, MetaProgression::kPerBossReward,
-                          MetaProgression::kChaffPerPoint, MetaProgression::kWinBonus};
+    // The payout half is read back off MetaProgression's constants; the tree
+    // prices are MetaConfig's own defaults.
+    cfg.meta = MetaConfig{};
+    cfg.meta.base_run_reward = MetaProgression::kBaseRunReward;
+    cfg.meta.per_wave_reward = MetaProgression::kPerWaveReward;
+    cfg.meta.per_elite_reward = MetaProgression::kPerEliteReward;
+    cfg.meta.per_boss_reward = MetaProgression::kPerBossReward;
+    cfg.meta.chaff_per_point = MetaProgression::kChaffPerPoint;
+    cfg.meta.win_bonus = MetaProgression::kWinBonus;
 
     return cfg;
 }

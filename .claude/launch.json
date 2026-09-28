@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "anim-preview",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "http.server", "8765", "--directory", "C:/Users/Abdel/AppData/Local/Temp/claude/C--Users-Abdel-OneDrive-Documents-horde/973bd012-7058-49ef-9313-b9c27af424a1/scratchpad"],
+      "port": 8765
+    }
+  ]
+}

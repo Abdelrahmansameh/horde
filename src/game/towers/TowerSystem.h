@@ -56,6 +56,10 @@ enum class PlacementResult : u8 {
     /// The level's schema-2 `allowed_towers` list does not include this type.
     /// A level that is ABOUT one tower is the design lever this exists for.
     TowerNotAllowed,
+    /// The player has not unlocked this type in the Strengthen Immunity tree
+    /// (game/meta/ImmunityTree.h). Distinct from TowerNotAllowed: that one is
+    /// the level's rule, this one is the player's progress.
+    TowerLocked,
 };
 
 /// Result of a validation query. The build cursor UI renders from this every
@@ -93,6 +97,19 @@ public:
     u32 allowed_towers() const { return allowed_mask_; }
     bool tower_allowed(TowerType t) const {
         return allowed_mask_ == 0 || (allowed_mask_ & (1u << static_cast<u32>(t))) != 0;
+    }
+
+    /// The player's unlocked roster, as a literal bitmask over TowerType --
+    /// the Strengthen Immunity tree's tower roots (PROGRESSION.md §4.1).
+    /// Defaults to the whole roster, so every world with no meta-progression
+    /// attached (tests, the gym, the headless modes) is unrestricted. Kept
+    /// separate from the level's list so the HUD can tell "not on this level"
+    /// from "not unlocked yet".
+    static constexpr u32 kAllTowersMask = (1u << kTowerTypeCount) - 1u;
+    void set_unlocked_towers(u32 mask) { unlocked_mask_ = mask; }
+    u32 unlocked_towers() const { return unlocked_mask_; }
+    bool tower_unlocked(TowerType t) const {
+        return (unlocked_mask_ & (1u << static_cast<u32>(t))) != 0;
     }
 
     /// Non-mutating placement check. Safe to call every frame from the UI.
@@ -146,6 +163,8 @@ private:
     bool releasing_ = true;
     /// Bitmask over TowerType; 0 = unrestricted. See set_allowed_towers().
     u32 allowed_mask_ = 0;
+    /// Literal bitmask over TowerType. See set_unlocked_towers().
+    u32 unlocked_mask_ = kAllTowersMask;
 };
 
 /// Human-readable name, for UI and for --sim-test script parsing.

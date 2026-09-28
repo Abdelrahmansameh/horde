@@ -439,7 +439,9 @@ unique unit id, like chaff's). Towers get `comp::Health` at placement
 that `SimWorld` rebuilds from the ECS each tick and lands afterwards, the same
 arrangement the swarmer kernel has with `NamedTargetList`. Tearing a dead tower
 down is the game layer's job (`TowerSystem`'s `tower_death` PreUpdate system,
-which owns the placed list); an upgrade restores integrity in full.
+which owns the placed list). Nothing in normal play repairs a tower any more:
+the in-run upgrade that used to restore integrity is gone (Strengthen
+Immunity collapsed the tiers); Phagocytic Sustain is the one heal.
 
 Three additive `CombatEventType`s feed the VFX: `SwarmerDeath`,
 `TowerDestroyed`, `PathogenLatch`. `SimSnapshot` gains `chaff_latched`,
@@ -793,8 +795,44 @@ PNG top-down flip. This is the project's primary visual verification channel.
   schedules a table; it never builds one. Tables come from the level file only.
 - **`economy/`** — ATP ledger with fractional carry so income is exact. Kill
   income is credited from `DamageStats`, never inferred from count deltas.
-- **`meta/`** — versioned JSON save. Loading an older version must migrate;
-  loading a *newer* version must fail loudly rather than silently drop fields.
+- **`meta/`** — the Strengthen Immunity tree (`PROGRESSION.md`) and the
+  versioned JSON save. Loading an older version must migrate; loading a *newer*
+  version must fail loudly rather than silently drop fields (the app then plays
+  a fresh campaign and refuses to write over the file).
+  `ImmunityTree` is a compiled-in node catalog — every line PROGRESSION.md
+  names, keyed by a stable string so saves survive catalog changes — plus
+  `apply_immunity_tree()`, which **folds the purchases into a copy of the
+  loaded config**: the tier-1 row of every tower becomes its tree-boosted
+  baseline and is written over tiers 2–3 with `upgrade_cost` 0 (towers have no
+  in-run tiers any more), and the economy/ability lines edit their blocks. No
+  system learns that a tree exists; `App::apply_tuning_config()` feeds them
+  `run_config_` instead of `config_` (which stays the file's values because the
+  gym registry is bound to it). What is not a config number rides alongside in
+  `TreeEffects`: the unlock masks (`TowerSystem::set_unlocked_towers`,
+  `ActiveAbilitySystem::set_unlocked`, both literal masks defaulting to "all",
+  enforced in `validate()`/`cast()` so the bot and the gym obey them too), the
+  hostile pass's `damage_taken_mult` (Membrane Resilience), and
+  `sim::ImmunityTuning` (`sim/Immunity.h`): Elite Response, Homeostasis, and the
+  three capstones with no unit to hang them on — Incendiary Rounds (the
+  projectile system logs where `kIncendiary` rounds land and `SimWorld` lays
+  timed fields there), Anaphylactic Shock (slowed agents killed this tick pass
+  their slow on, just before compaction) and Inflammatory Scarring (scars bite
+  chaff inside their bar plus a reach), plus two leveled lines that are rules
+  rather than numbers: Weakening Mucus (`ChaffBuffers::apply_density_loss`,
+  the one path all chaff damage takes, multiplies the loss on a `kSlowed`
+  agent; named agents get the same through `comp::Slowed`) and Inflammation
+  (`SimWorld` rebuilds a disc per live scar each tick after the ECS pass;
+  towers inside run their cooldown faster and the swarmer kernel scales latch
+  drain and round damage for units inside). The two per-unit capstones — Apoptosis
+  Trigger's kill pulse and Phagocytic Sustain's heal — are `CapstoneParams` on
+  `TowerMechanics` (never read from `towers.json`) copied onto the
+  `SwarmerProfile`, and the kernel raises a `SwarmerBurst` / `SwarmerHeal`.
+  Pacing (run payout, node prices, capstone threshold, respec fee) is
+  `meta.json`; per-level magnitudes are the catalog's tables. Headless modes and
+  tests never apply the tree, so they run the untouched baseline; interactive
+  runs are sandboxed (no tree, no payout) in editor playtests, the gym level,
+  and under `--sandbox`. The save lives at `--save PATH` or
+  `platform::user_data_dir()/save.json`.
 - **`session/`** — `step_level()`, the one authoritative order of operations for
   a level tick (queued spawns → wave director → sim → gym toggles → economy →
   abilities → win/loss). It used to live inside `App::tick_sim`, which made it

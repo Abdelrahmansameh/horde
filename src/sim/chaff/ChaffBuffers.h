@@ -326,6 +326,14 @@ public:
     /// minus density after, so a no-op here books no damage and no kill.
     void apply_density_loss(usize index, f32 amount);
 
+    /// Weakening Mucus (sim/Immunity.h): every density loss on a kSlowed agent
+    /// is multiplied by this. apply_density_loss() is the one path all chaff
+    /// damage takes, so setting it here reaches every source at once; callers
+    /// already book what was actually removed, so their accounting follows.
+    /// 1 (the default, and every world without the tree) changes nothing.
+    void set_slowed_damage_multiplier(f32 m) { slowed_damage_mult_ = m > 0.0f ? m : 1.0f; }
+    f32 slowed_damage_multiplier() const { return slowed_damage_mult_; }
+
     /// Counts every kSlowed agent's `slow_remaining` down by `dt` and clears
     /// the bit (resetting its factor) on the ones that ran out. SimWorld::tick
     /// calls it once per tick, before the mucus refresh; nothing else clears
@@ -376,6 +384,7 @@ private:
     /// Debug-only check of I1-I4. Compiles to nothing under NDEBUG.
     void assert_invariants() const;
 
+    f32 slowed_damage_mult_ = 1.0f;
     usize count_ = 0;
     usize capacity_ = 0;
     f32 total_density_ = 0.0f;

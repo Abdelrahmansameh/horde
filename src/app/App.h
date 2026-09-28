@@ -114,6 +114,21 @@ private:
     /// cached context pointing at a world that no longer exists.
     game::GymContext make_gym_context();
 
+    // ---- Strengthen Immunity (game/meta) ------------------------------------
+    /// A run with no meta-progression: the editor's playtests, the gym level,
+    /// and anything under --sandbox. Every tower and ability unlocked, the
+    /// tree's bonuses off, nothing paid out, nothing saved.
+    bool sandbox_run() const;
+    /// What the run so far is worth, as MetaProgression's input.
+    game::RunResult current_run_result(bool won) const;
+    /// Pays out the run that just ended (a clear or a wipe -- an abort pays
+    /// nothing), saves, and fills last_run_ for the results screen.
+    void finish_run(bool won);
+    /// Writes meta_ to save_path_, unless loading it failed (see save_ok_).
+    void save_meta();
+    /// Loads save_path_ into meta_ at startup.
+    void load_meta();
+
     Options options_{};
     GameStateMachine state_;
     FixedClock clock_;
@@ -173,7 +188,20 @@ private:
     game::EnemyRoster enemies_;
     game::WaveDirector waves_;
     game::Economy economy_;
+    /// The player's persistent progress: both currencies and the tree.
     game::MetaProgression meta_;
+    /// Where meta_ lives on disk (--save, else the per-user data dir).
+    std::string save_path_;
+    /// False when the save file exists but would not load (corrupt, or from
+    /// a newer build). The game then plays on a fresh campaign but never
+    /// writes, so the player's real save is not overwritten by accident.
+    bool save_ok_ = true;
+    /// What the last finished run paid, for the results screens.
+    ui::RunSummary last_run_{};
+    /// config_ with the purchased tree folded in: what every system is
+    /// actually configured from this run. config_ itself stays the file's
+    /// values, because the gym registry is bound to it.
+    game::GameConfig run_config_;
     game::ActiveAbilitySystem abilities_;
     /// Remainder of any gym `spawn` too large for a single burst. Ticked with
     /// the sim so it streams in like a wave; empty and free in a normal run.

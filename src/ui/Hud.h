@@ -32,6 +32,8 @@ enum class IntentKind : u8 {
     None = 0,
     PlaceTower,
     SelectTower,
+    /// Retired: towers have no in-run tiers (PROGRESSION.md §7). Kept so the
+    /// enum's numbering is stable; the HUD never emits it and app/ ignores it.
     UpgradeTower,
     SellTower,
     CastAbility,     ///< A DESIGN.md §5.6 active ability (game/abilities).
@@ -101,6 +103,20 @@ public:
     void set_squad_overlay_visible(bool v) { squad_overlay_ = v; }
     bool squad_overlay_visible() const { return squad_overlay_; }
 
+    /// The Strengthen Immunity counters on the status bar (DESIGN.md §8:
+    /// "felt accumulating in real time"): the banked currencies, plus what
+    /// this run would pay if it ended now. `visible` false hides the block,
+    /// which is what a sandboxed run wants.
+    struct MetaCounters {
+        bool visible = false;
+        u64 memory_cells = 0;
+        u32 antibodies = 0;
+        u32 run_memory_cells = 0;
+        /// This level has not been cleared yet, so clearing it pays one.
+        bool antibody_on_clear = false;
+    };
+    void set_meta_counters(const MetaCounters& c) { meta_ = c; }
+
     /// Tower currently armed on the build cursor, if any.
     bool has_build_cursor() const { return build_cursor_active_; }
     TowerType build_cursor_type() const { return build_cursor_type_; }
@@ -109,6 +125,7 @@ public:
 
 private:
     std::vector<LaneThreat> threats_;
+    MetaCounters meta_{};
     bool threat_overlay_ = true;
     bool debug_overlay_ = false;
     bool squad_overlay_ = false;

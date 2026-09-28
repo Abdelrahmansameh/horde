@@ -57,6 +57,8 @@ const char* usage_text() {
 "  --tick N         tick to advance to before capture (screenshot; default 0)\n"
 "  --out PATH       output PNG path (screenshot; default shot.png)\n"
 "  --level PATH     level JSON to load (default: built-in test level)\n"
+"  --save PATH      Strengthen Immunity save file (default: per-user data dir)\n"
+"  --sandbox        play without meta-progression: everything unlocked, no payout\n"
 "  --check          with --level-fmt: report, do not write; exit 1 if not canonical\n"
 "  --seed N         PRNG seed; identical seeds give identical runs\n"
 "  --width N        framebuffer width (default 1600)\n"
@@ -129,6 +131,10 @@ Options parse_args(int argc, char** argv) {
             if (!next_value(argc, argv, i, a, o.exec, o.error)) break;
         } else if (a == "--level") {
             if (!next_value(argc, argv, i, a, o.level, o.error)) break;
+        } else if (a == "--save") {
+            if (!next_value(argc, argv, i, a, o.save_path, o.error)) break;
+        } else if (a == "--sandbox") {
+            o.sandbox = true;
         } else if (a == "--config") {
             if (!next_value(argc, argv, i, a, o.config_dir, o.error)) break;
             o.config_pinned = true;

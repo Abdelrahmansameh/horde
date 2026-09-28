@@ -131,6 +131,10 @@ void SimWorld::init(const SimDesc& desc, JobSystem* jobs) {
     }
     hostile_.set_tuning(desc.hostile_tuning);
     burrow_.set_tuning(desc.burrow_tuning);
+    immunity_scratch_.reserve(1024);
+    inflamed_zones_.clear();
+    inflamed_zones_.reserve(256);
+    set_immunity(desc.immunity);
     burrow_threats_.clear();
     burrow_threats_.reserve(256);
     last_burrow_stats_ = BurrowStats{};
@@ -195,7 +199,8 @@ void SimWorld::tick(Profiler* profiler) {
                                       chaff_stats.despawned_out_of_bounds_by_family[f];
         }
         objective_integrity_ = math::max(
-            0.0f, objective_integrity_ - static_cast<f32>(chaff_stats.despawned_at_goal));
+            0.0f, objective_integrity_ -
+                      static_cast<f32>(chaff_stats.despawned_at_goal) * immunity_.leak_damage);
         if (profiler) profiler->record(prof_key::kChaffUpdate, t.elapsed_ms());
     }
 
@@ -223,6 +228,10 @@ void SimWorld::tick(Profiler* profiler) {
         if (profiler) profiler->record(prof_key::kEcsTick, t.elapsed_ms());
     }
 
+    // 3b. Inflammation (sim/Immunity.h): the zones this tick's swarmers hit
+    // harder in, and the reload towers standing in them get.
+    inflame();
+
     // 4. Aggregate damage.
     last_damage_stats_ = damage_.apply(chaff_, spatial_, rng_, kFixedDt);
 
@@ -235,6 +244,9 @@ void SimWorld::tick(Profiler* profiler) {
     const ProjectileStats projectile_stats =
         projectile_system_.update(projectiles_, chaff_, spatial_, tissue_, desc_.sim_bounds,
                                   rng_, kFixedDt, &combat_events_);
+    // Incendiary Rounds (sim/Immunity.h): the rounds that just landed set the
+    // ground alight. Timed fields, so they burn from the next tick's apply.
+    ignite_impacts();
 
     // 4c. Swarmers. Same placement rule and the same reason as projectiles
     // above: after the ECS tick so this tick's newly released units exist,
@@ -322,9 +334,19 @@ void SimWorld::tick(Profiler* profiler) {
     // because rounds, granules and fluid do not track which family they thinned,
     // and inventing a split would make the HUD's colour-coded feed lie. Nothing
     // reads density_removed_by_family off this snapshot today.
+    // 4d'. Inflammatory Scarring: after every other source, so a scar only
+    // burns what the rest of the board left standing, and before the
+    // accounting below so its kills pay like any other.
+    const f32 scar_contact_removed = apply_scar_contact();
+
     last_damage_stats_.density_removed +=
         projectile_stats.density_removed + swarmer_stats.density_removed +
-        fluid_stats.density_removed;
+        fluid_stats.density_removed + scar_contact_removed;
+
+    // 4e'. Anaphylactic Shock. Every damage source for the tick has decided
+    // who dies, and nothing has been compacted yet, so a dying agent still has
+    // its position and its slow to pass on.
+    spread_contagion();
 
     // 4f. Death VFX events. This is the LAST thing before compaction and it has
     // to be: every damage source for the tick has now decided who is dying, and
@@ -597,6 +619,7 @@ void SimWorld::build_named_targets() {
         t.armor = hp.armor;
         t.health = hp.current;
         if (const auto* mk = registry.try_get<comp::Marked>(e)) t.damage_multiplier = mk->damage_multiplier;
+        if (registry.all_of<comp::Slowed>(e)) t.damage_multiplier *= immunity_.slowed_damage_mult;
         t.family = static_cast<u8>(view.get<const comp::NamedAgent>(e).family);
         named_targets_.add(t);
     }
@@ -616,7 +639,7 @@ void SimWorld::apply_swarmer_effects() {
         if (amount <= 0.0f) continue;
         const entt::entity e = ecs_.from_id(named_targets_.items[k].id);
         if (!registry.valid(e) || !registry.all_of<comp::Health>(e)) continue;
-        registry.get<comp::Health>(e).current -= amount;
+        registry.get<comp::Health>(e).current -= amount * immunity_.named_damage_mult;
     }
 
     // ---- Bursts: a timed Circle field for the chaff (the damage system's
@@ -650,6 +673,8 @@ void SimWorld::apply_swarmer_effects() {
             const f32 fall = b.falloff <= 0.0f ? 1.0f : std::pow(1.0f - t, math::max(b.falloff, 0.1f));
             f32 amount = math::max(0.0f, b.named_damage * fall - hp.armor);
             if (const auto* mk = registry.try_get<comp::Marked>(e)) amount *= mk->damage_multiplier;
+            if (registry.all_of<comp::Slowed>(e)) amount *= immunity_.slowed_damage_mult;
+            amount *= immunity_.named_damage_mult;
             if (amount <= 0.0f) continue;
             const bool was_alive = !hp.dead();
             hp.current -= amount;
@@ -701,10 +726,171 @@ void SimWorld::apply_swarmer_effects() {
         round.family_mask = sh.family_mask;
         round.owner = sh.owner;
         round.visual_id = sh.visual_id;
+        if (immunity_.incendiary_radius > 0.0f) round.flags |= projectile_flags::kIncendiary;
         projectiles_.spawn(round);
     }
 
+    // ---- Heals: Phagocytic Sustain. Onto the releasing tower's integrity,
+    // never past its max, and never onto one already emptied -- a tower at
+    // zero is waiting for the game layer to tear it down, not to be revived.
+    for (const SwarmerHeal& h : fx.heals) {
+        const entt::entity e = ecs_.from_id(h.owner);
+        if (!registry.valid(e) || !registry.all_of<comp::Tower, comp::Health>(e)) continue;
+        comp::Health& hp = registry.get<comp::Health>(e);
+        if (hp.dead()) continue;
+        hp.current = math::min(hp.max, hp.current + h.amount);
+    }
+
     fx.clear();
+}
+
+// ---------------------------------------------------------------------------
+// Strengthen Immunity capstones with no unit to hang them on (sim/Immunity.h).
+// ---------------------------------------------------------------------------
+
+void SimWorld::set_immunity(const ImmunityTuning& t) {
+    immunity_ = t;
+    chaff_.set_slowed_damage_multiplier(immunity_.slowed_damage_mult);
+    swarmer_system_.set_inflamed_zones(&inflamed_zones_, immunity_.inflammation_damage_mult);
+    projectile_system_.set_max_impact_log(
+        immunity_.incendiary_radius > 0.0f ? immunity_.max_incendiary_per_tick : 0u);
+}
+
+void SimWorld::ignite_impacts() {
+    if (immunity_.incendiary_radius <= 0.0f) return;
+    const f32 seconds = math::max(immunity_.incendiary_seconds, kFixedDt);
+    for (const ProjectileImpactRecord& r : projectile_system_.impact_log()) {
+        DamageField field;
+        field.shape = FieldShape::Circle;
+        field.origin = r.position;
+        field.radius = immunity_.incendiary_radius;
+        field.kill_rate = immunity_.incendiary_damage / seconds;
+        field.falloff = 0.5f;
+        field.marked_multiplier = chaff_flags::kMarkedDamageMultiplier;
+        field.lifetime = seconds;
+        field.owner = r.owner;
+        damage_.submit(field);
+    }
+}
+
+f32 SimWorld::apply_scar_contact() {
+    if (immunity_.scar_contact_rate <= 0.0f || chaff_.count() == 0) return 0.0f;
+    const f32 reach = math::max(immunity_.scar_contact_reach, 0.0f);
+    const f32 bite = immunity_.scar_contact_rate * kFixedDt;
+    const usize indexed = math::min(spatial_.indexed_count(), chaff_.count());
+    f32 removed_total = 0.0f;
+
+    // Walked through friendly_towers_ (rebuilt this tick, sorted by id) rather
+    // than an entt view, so which scar reaches a shared agent first is a
+    // function of the sim state alone and not of storage order.
+    const entt::registry& registry = ecs_.registry();
+    for (usize k = 0; k < friendly_towers_.items.size(); ++k) {
+        const entt::entity e = ecs_.from_id(friendly_towers_.items[k].id);
+        if (!registry.valid(e)) continue;
+        const auto* sc = registry.try_get<comp::Scar>(e);
+        const auto* tf = registry.try_get<comp::Transform>(e);
+        const auto* hp = registry.try_get<comp::Health>(e);
+        if (sc == nullptr || tf == nullptr || hp == nullptr || hp->dead()) continue;
+        const Vec2 he = sc->half_extents + Vec2{reach, reach};
+        const f32 c = std::cos(tf->rotation);
+        const f32 s = std::sin(tf->rotation);
+
+        immunity_scratch_.clear();
+        spatial_.query_circle(tf->position, math::length(he), immunity_scratch_);
+        for (const u32 idx : immunity_scratch_) {
+            if (idx >= indexed) continue;
+            const u8 f = chaff_.flags[idx];
+            if ((f & chaff_flags::kAlive) == 0 || (f & chaff_flags::kPendingKill) != 0) continue;
+            if ((f & chaff_flags::kHidden) != 0) continue;
+            // Into the bar's frame: x along it, y across it.
+            const f32 dx = chaff_.pos_x[idx] - tf->position.x;
+            const f32 dy = chaff_.pos_y[idx] - tf->position.y;
+            const f32 lx = dx * c + dy * s;
+            const f32 ly = -dx * s + dy * c;
+            if (std::fabs(lx) > he.x || std::fabs(ly) > he.y) continue;
+            const f32 before = chaff_.density[idx];
+            chaff_.apply_density_loss(idx, bite);
+            removed_total += before - chaff_.density[idx];
+        }
+    }
+    return removed_total;
+}
+
+void SimWorld::spread_contagion() {
+    if (immunity_.contagion_radius <= 0.0f) return;
+    const usize n = chaff_.count();
+    const usize indexed = math::min(spatial_.indexed_count(), n);
+    const f32 r2 = immunity_.contagion_radius * immunity_.contagion_radius;
+    u32 spread = 0;
+    for (usize i = 0; i < n && spread < immunity_.max_contagion_per_tick; ++i) {
+        const u8 f = chaff_.flags[i];
+        // Killed -- not leaked: see raise_chaff_deaths for why density is the
+        // tell -- while carrying a slow.
+        if ((f & chaff_flags::kPendingKill) == 0 || (f & chaff_flags::kSlowed) == 0) continue;
+        if (chaff_.density[i] > 0.0f) continue;
+        ++spread;
+
+        const f32 ax = chaff_.pos_x[i];
+        const f32 ay = chaff_.pos_y[i];
+        const f32 factor = chaff_.slow_factor[i];
+        immunity_scratch_.clear();
+        spatial_.query_circle(Vec2{ax, ay}, immunity_.contagion_radius, immunity_scratch_);
+        for (const u32 j : immunity_scratch_) {
+            if (j >= indexed || j == i) continue;
+            const u8 g = chaff_.flags[j];
+            if ((g & chaff_flags::kAlive) == 0 || (g & chaff_flags::kPendingKill) != 0) continue;
+            const f32 dx = chaff_.pos_x[j] - ax;
+            const f32 dy = chaff_.pos_y[j] - ay;
+            if (dx * dx + dy * dy > r2) continue;
+            if ((g & chaff_flags::kSlowed) != 0) {
+                chaff_.slow_remaining[j] =
+                    math::max(chaff_.slow_remaining[j], immunity_.contagion_seconds);
+                chaff_.slow_factor[j] = math::min(chaff_.slow_factor[j], factor);
+            } else {
+                chaff_.flags[j] = static_cast<u8>(g | chaff_flags::kSlowed);
+                chaff_.slow_remaining[j] = immunity_.contagion_seconds;
+                chaff_.slow_factor[j] = factor;
+            }
+        }
+    }
+}
+
+void SimWorld::inflame() {
+    inflamed_zones_.clear();
+    if (immunity_.inflammation_radius <= 0.0f) return;
+    entt::registry& registry = ecs_.registry();
+    auto scars = registry.view<const comp::Scar, const comp::Transform, const comp::Health>();
+    for (auto e : scars) {
+        if (scars.get<const comp::Health>(e).dead()) continue;
+        InflamedZone z;
+        z.center = scars.get<const comp::Transform>(e).position;
+        // Out past the bar's ends, so a long wall inflames along its length.
+        z.radius = scars.get<const comp::Scar>(e).half_extents.x + immunity_.inflammation_radius;
+        inflamed_zones_.push_back(z);
+    }
+    // Storage order is creation history, not sim state; the kernel only asks
+    // "inside any?", but keep the list canonical all the same.
+    std::sort(inflamed_zones_.begin(), inflamed_zones_.end(),
+              [](const InflamedZone& a, const InflamedZone& b) {
+                  if (a.center.x != b.center.x) return a.center.x < b.center.x;
+                  if (a.center.y != b.center.y) return a.center.y < b.center.y;
+                  return a.radius < b.radius;
+              });
+    if (inflamed_zones_.empty() || immunity_.inflammation_reload_mult <= 1.0f) return;
+
+    // Reload: a tower standing in inflamed tissue runs its cooldown this much
+    // faster. The tower's own system already took one dt off this tick.
+    const f32 extra = (immunity_.inflammation_reload_mult - 1.0f) * kFixedDt;
+    auto towers = registry.view<comp::Tower, const comp::Transform>();
+    for (auto e : towers) {
+        const Vec2 p = towers.get<const comp::Transform>(e).position;
+        for (const InflamedZone& z : inflamed_zones_) {
+            if (math::length_sq(p - z.center) > z.radius * z.radius) continue;
+            comp::Tower& tw = towers.get<comp::Tower>(e);
+            tw.cooldown = math::max(0.0f, tw.cooldown - extra);
+            break;
+        }
+    }
 }
 
 } // namespace immune::sim

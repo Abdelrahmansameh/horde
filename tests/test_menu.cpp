@@ -12,6 +12,9 @@
 #include "ui/Hud.h"
 #include "ui/Menu.h"
 
+#include "game/config/GameConfig.h"
+#include "game/meta/MetaProgression.h"
+
 #include <catch2/catch_test_macros.hpp>
 
 #include <functional>
@@ -178,5 +181,35 @@ TEST_CASE("the results screens draw in both play and playtest mode", "[ui][menu]
         // Nothing was clicked, so neither screen may ask for a transition.
         REQUIRE(failed.action == ui::MenuAction::None);
         REQUIRE(complete.action == ui::MenuAction::None);
+    }
+}
+
+TEST_CASE("the Strengthen Immunity screen draws for a new and a well-funded campaign", "[ui][menu][meta]") {
+    // A fresh save (almost everything locked) and one that can afford a lot
+    // exercise every card state the screen has: locked, unaffordable,
+    // buyable, owned and maxed.
+    HeadlessUi ui;
+    if (!ui.ok) {
+        WARN("headless GL/ImGui unavailable; skipping");
+        return;
+    }
+    ui::Menu menu;
+    const game::MetaConfig cfg;
+    for (bool funded : {false, true}) {
+        CAPTURE(funded);
+        game::MetaProgression meta;
+        meta.reset_to_new_game();
+        if (funded) {
+            meta.credit(5000, 3);
+            REQUIRE(meta.purchase(game::TreeNode::MacrophageRoot, cfg) ==
+                    game::MetaProgression::PurchaseResult::Ok);
+            REQUIRE(meta.purchase(game::TreeNode::NeutrophilAccuracy, cfg) ==
+                    game::MetaProgression::PurchaseResult::Ok);
+        }
+        ui::MenuResult r;
+        const f32 coverage = ui.draw_one_frame([&] { r = menu.build_immunity_tree(meta, cfg, 1280, 720); });
+        CAPTURE(coverage);
+        REQUIRE(coverage > 0.2f);
+        REQUIRE(r.action == ui::MenuAction::None);
     }
 }

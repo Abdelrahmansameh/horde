@@ -141,6 +141,7 @@ void ChaffBuffers::kill(usize index) {
 void ChaffBuffers::apply_density_loss(usize index, f32 amount) {
     if (index >= count_ || amount <= 0.0f) return;
     if (burrow_state[index] != burrow_state::kSurface) return;   // under the tissue
+    if ((flags[index] & chaff_flags::kSlowed) != 0) amount *= slowed_damage_mult_;
     const f32 before = density[index];
     const f32 removed = amount < before ? amount : before;
     density[index] = before - removed;

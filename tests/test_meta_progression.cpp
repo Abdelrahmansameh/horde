@@ -1,15 +1,15 @@
-// Tests for game/meta/MetaProgression.cpp: the antibody-memory currency loop
-// (DESIGN.md §7.2/§7.3) -- earn-on-every-run, purchase spending unlocks,
-// versioned JSON save/load round-trips and rejects future versions, and the
-// loadout-modifier combination rule. Owner: Wave 5A.
+// Tests for game/meta/MetaProgression.cpp: the two-currency Strengthen
+// Immunity loop (PROGRESSION.md §3) -- Memory Cells on every run, Antibodies
+// once per level on its first clear, tree purchases and their gates, respec,
+// and versioned JSON save/load (round-trip, v1/v2 migration, future-version
+// rejection).
+#include "game/config/GameConfig.h"
 #include "game/meta/MetaProgression.h"
 
 #include <catch2/catch_test_macros.hpp>
 
-#include <cmath>
 #include <cstdlib>
 #include <string>
-#include <vector>
 
 using namespace immune;
 using namespace immune::game;
@@ -25,336 +25,280 @@ std::string scratch_path(const std::string& filename) {
     return dir + "/" + filename;
 }
 
-AntibodyMemory make_memory(const std::string& id, MemoryTier tier, u32 cost, bool unlocked) {
-    AntibodyMemory m;
-    m.id = id;
-    m.display_name = id;
-    m.tier = tier;
-    m.cost = cost;
-    m.unlocked = unlocked;
+MetaProgression fresh() {
+    MetaProgression m;
+    m.reset_to_new_game();
     return m;
+}
+
+/// Buys `n` levels of `node`, crediting enough Memory Cells first. Stops (and
+/// fails the test) the moment a purchase is refused.
+void buy_levels(MetaProgression& m, TreeNode node, u32 n, const MetaConfig& cfg) {
+    for (u32 i = 0; i < n; ++i) {
+        m.credit(m.next_cost(node, cfg).memory_cells);
+        REQUIRE(m.purchase(node, cfg) == MetaProgression::PurchaseResult::Ok);
+    }
 }
 
 } // namespace
 
-// ---- earn_for_run -----------------------------------------------------------
+// ---- A new campaign ----------------------------------------------------------
 
-TEST_CASE("earn_for_run credits currency on a loss with some waves cleared", "[meta]") {
-    RunResult result;
-    result.waves_cleared = 3;
-    result.chaff_killed_total = 500;
-    result.elites_killed = 1;
-    result.bosses_killed = 0;
-    result.won = false;
-
-    const u32 earned = MetaProgression::earn_for_run(result);
-    REQUIRE(earned > 0);
+TEST_CASE("a new campaign owns the Neutrophil, nothing else, and no currency", "[meta]") {
+    const MetaProgression m = fresh();
+    REQUIRE(m.memory_cells() == 0);
+    REQUIRE(m.antibodies() == 0);
+    REQUIRE(m.tower_unlocked(TowerType::Neutrophil));
+    REQUIRE_FALSE(m.tower_unlocked(TowerType::Macrophage));
+    REQUIRE_FALSE(m.tower_unlocked(TowerType::CytotoxicT));
+    REQUIRE_FALSE(m.tower_unlocked(TowerType::GobletCell));
+    REQUIRE_FALSE(m.tower_unlocked(TowerType::Fibroblast));
+    for (u32 a = 0; a < kAbilityCount; ++a) {
+        REQUIRE_FALSE(m.ability_unlocked(static_cast<AbilityId>(a)));
+    }
+    REQUIRE(unlocked_tower_mask(m.levels()) == (1u << static_cast<u32>(TowerType::Neutrophil)));
+    REQUIRE(unlocked_ability_mask(m.levels()) == 0u);
 }
 
-TEST_CASE("earn_for_run credits currency even on a total wipe", "[meta]") {
-    RunResult result; // everything default/zero, including won = false.
-    const u32 earned = MetaProgression::earn_for_run(result);
-    REQUIRE(earned > 0); // kBaseRunReward alone guarantees this.
+// ---- Run payouts ------------------------------------------------------------
+
+TEST_CASE("every run pays Memory Cells, even a wipe on the first wave", "[meta]") {
+    const MetaConfig cfg;
+    const RunReward wipe = MetaProgression::reward_for_run(RunResult{}, cfg, false);
+    REQUIRE(wipe.memory_cells > 0);
+    REQUIRE(wipe.antibodies == 0);
 }
 
-TEST_CASE("earn_for_run rewards more for a better performance", "[meta]") {
+TEST_CASE("a better run pays more Memory Cells", "[meta]") {
+    const MetaConfig cfg;
     RunResult worse;
     worse.waves_cleared = 1;
-
     RunResult better;
     better.waves_cleared = 5;
     better.chaff_killed_total = 4000;
-    better.elites_killed = 3;
-    better.bosses_killed = 1;
     better.won = true;
-
-    REQUIRE(MetaProgression::earn_for_run(better) > MetaProgression::earn_for_run(worse));
+    REQUIRE(MetaProgression::reward_for_run(better, cfg, false).memory_cells >
+            MetaProgression::reward_for_run(worse, cfg, false).memory_cells);
 }
 
-// ---- purchase ----------------------------------------------------------------
+TEST_CASE("Antibodies are paid on a level's first clear only", "[meta]") {
+    MetaConfig cfg;
+    cfg.first_clear_antibodies = 1;
+    MetaProgression m = fresh();
 
-TEST_CASE("purchase spends currency and unlocks a global-baseline memory", "[meta]") {
-    MetaProgression meta;
-    meta.reset_to_new_game();
-    meta.credit(1000);
+    RunResult lost;
+    lost.waves_cleared = 4;
+    const RunReward r0 = m.record_run("capillary_1", lost, cfg);
+    REQUIRE(r0.memory_cells > 0);
+    REQUIRE(r0.antibodies == 0);
+    REQUIRE_FALSE(m.level_cleared("capillary_1"));
 
-    // Directly exercise purchase() via from_json since memories_ has no
-    // public mutator outside load paths -- build a small save blob.
-    const std::string json = R"JSON({
-      "version": 1,
-      "antibody_points": 1000,
-      "memories": [
-        { "id": "baseline_income", "display_name": "Baseline Income",
-          "tier": 0, "cost": 100, "unlocked": false }
-      ]
-    })JSON";
+    RunResult won;
+    won.waves_cleared = 6;
+    won.won = true;
+    const RunReward r1 = m.record_run("capillary_1", won, cfg);
+    REQUIRE(r1.first_clear);
+    REQUIRE(r1.antibodies == 1);
+    REQUIRE(m.level_cleared("capillary_1"));
+    REQUIRE(m.antibodies() == 1);
+
+    // A replay of the same level, won again: Memory Cells yes, Antibody no.
+    const RunReward r2 = m.record_run("capillary_1", won, cfg);
+    REQUIRE_FALSE(r2.first_clear);
+    REQUIRE(r2.antibodies == 0);
+    REQUIRE(r2.memory_cells == r1.memory_cells);
+    REQUIRE(m.antibodies() == 1);
+    REQUIRE(m.memory_cells() == u64{r0.memory_cells} + r1.memory_cells + r2.memory_cells);
+    REQUIRE(m.progress().levels_completed == 1);
+}
+
+// ---- Purchases ----------------------------------------------------------------
+
+TEST_CASE("a tower root costs an Antibody and has no prerequisite", "[meta]") {
+    const MetaConfig cfg;
+    MetaProgression m = fresh();
+    REQUIRE(m.check_purchase(TreeNode::FibroblastRoot, cfg) ==
+            MetaProgression::PurchaseResult::NeedAntibodies);
+    m.credit(0, 1);
+    REQUIRE(m.purchase(TreeNode::FibroblastRoot, cfg) == MetaProgression::PurchaseResult::Ok);
+    REQUIRE(m.tower_unlocked(TowerType::Fibroblast));
+    REQUIRE(m.antibodies() == 0);
+    REQUIRE(m.purchase(TreeNode::FibroblastRoot, cfg) == MetaProgression::PurchaseResult::Maxed);
+}
+
+TEST_CASE("a stat line needs its tower's root and costs more each level", "[meta]") {
+    const MetaConfig cfg;
+    MetaProgression m = fresh();
+    m.credit(10000);
+    REQUIRE(m.check_purchase(TreeNode::GobletSlowStrength, cfg) ==
+            MetaProgression::PurchaseResult::Locked);
+    // The Neutrophil is owned from the start, so its lines are open.
+    const u32 c0 = m.next_cost(TreeNode::NeutrophilRoundDamage, cfg).memory_cells;
+    REQUIRE(m.purchase(TreeNode::NeutrophilRoundDamage, cfg) == MetaProgression::PurchaseResult::Ok);
+    const u32 c1 = m.next_cost(TreeNode::NeutrophilRoundDamage, cfg).memory_cells;
+    REQUIRE(c1 > c0);
+    REQUIRE(m.memory_cells() == 10000 - c0);
+    REQUIRE(m.level(TreeNode::NeutrophilRoundDamage) == 1);
+}
+
+TEST_CASE("a refused purchase changes nothing", "[meta]") {
+    const MetaConfig cfg;
+    MetaProgression m = fresh();
+    m.credit(5);
+    const std::string before = m.to_json();
+    REQUIRE(m.purchase(TreeNode::BoneMarrowReserve, cfg) ==
+            MetaProgression::PurchaseResult::NeedMemoryCells);
+    REQUIRE(m.to_json() == before);
+}
+
+TEST_CASE("a stat line stops at its max level", "[meta]") {
+    const MetaConfig cfg;
+    MetaProgression m = fresh();
+    const u8 max = tree_node(TreeNode::NeutrophilAccuracy).max_level;
+    buy_levels(m, TreeNode::NeutrophilAccuracy, max, cfg);
+    m.credit(100000);
+    REQUIRE(m.purchase(TreeNode::NeutrophilAccuracy, cfg) == MetaProgression::PurchaseResult::Maxed);
+    REQUIRE(m.next_cost(TreeNode::NeutrophilAccuracy, cfg).memory_cells == 0);
+}
+
+TEST_CASE("a capstone needs points in its branch and both currencies", "[meta]") {
+    MetaConfig cfg;
+    cfg.capstone_threshold = 4;
+    MetaProgression m = fresh();
+    m.credit(100000, 5);
+    REQUIRE(m.check_purchase(TreeNode::NeutrophilCapstone, cfg) ==
+            MetaProgression::PurchaseResult::BelowThreshold);
+    // Any lines count toward the threshold -- it is a total, not a chain.
+    buy_levels(m, TreeNode::NeutrophilRoundDamage, 2, cfg);
+    buy_levels(m, TreeNode::NeutrophilAccuracy, 2, cfg);
+    REQUIRE(m.branch_points(TreeBranch::Neutrophil) == 4);
+    const u64 mc = m.memory_cells();
+    REQUIRE(m.purchase(TreeNode::NeutrophilCapstone, cfg) == MetaProgression::PurchaseResult::Ok);
+    REQUIRE(m.memory_cells() == mc - cfg.capstone_memory_cells);
+    REQUIRE(m.antibodies() == 5 - cfg.capstone_antibodies);
+}
+
+TEST_CASE("an ability line needs the ability's root", "[meta]") {
+    const MetaConfig cfg;
+    MetaProgression m = fresh();
+    m.credit(10000, 1);
+    REQUIRE(m.check_purchase(TreeNode::HistamineRadius, cfg) == MetaProgression::PurchaseResult::Locked);
+    REQUIRE(m.purchase(TreeNode::HistamineUnlock, cfg) == MetaProgression::PurchaseResult::Ok);
+    REQUIRE(m.ability_unlocked(AbilityId::HistamineFlare));
+    REQUIRE(m.purchase(TreeNode::HistamineRadius, cfg) == MetaProgression::PurchaseResult::Ok);
+}
+
+TEST_CASE("respec refunds everything spent minus the fee and keeps the Neutrophil", "[meta]") {
+    MetaConfig cfg;
+    cfg.respec_cost = 25;
+    MetaProgression m = fresh();
+    REQUIRE_FALSE(m.can_respec(cfg)); // nothing bought yet
+    m.credit(1000, 2);
+    REQUIRE(m.purchase(TreeNode::MacrophageRoot, cfg) == MetaProgression::PurchaseResult::Ok);
+    REQUIRE(m.purchase(TreeNode::MacrophageHealth, cfg) == MetaProgression::PurchaseResult::Ok);
+    REQUIRE(m.purchase(TreeNode::BoneMarrowReserve, cfg) == MetaProgression::PurchaseResult::Ok);
+
+    REQUIRE(m.respec(cfg));
+    REQUIRE(m.memory_cells() == 1000 - 25);
+    REQUIRE(m.antibodies() == 2);
+    REQUIRE(m.tower_unlocked(TowerType::Neutrophil));
+    REQUIRE_FALSE(m.tower_unlocked(TowerType::Macrophage));
+    REQUIRE(m.level(TreeNode::BoneMarrowReserve) == 0);
+    REQUIRE_FALSE(m.can_respec(cfg));
+}
+
+// ---- Save / load --------------------------------------------------------------
+
+TEST_CASE("save/load round-trips currencies, the tree and progress", "[meta]") {
+    MetaConfig cfg;
+    cfg.capstone_threshold = 1;
+    MetaProgression m = fresh();
+    m.credit(5000, 3);
+    REQUIRE(m.purchase(TreeNode::GobletRoot, cfg) == MetaProgression::PurchaseResult::Ok);
+    REQUIRE(m.purchase(TreeNode::GobletSlowDuration, cfg) == MetaProgression::PurchaseResult::Ok);
+    REQUIRE(m.purchase(TreeNode::GobletSlowDuration, cfg) == MetaProgression::PurchaseResult::Ok);
+    REQUIRE(m.purchase(TreeNode::GobletCapstone, cfg) == MetaProgression::PurchaseResult::Ok);
+    REQUIRE(m.purchase(TreeNode::FeverUnlock, cfg) == MetaProgression::PurchaseResult::Ok);
+    m.record_level_complete("capillary_1");
+
+    const std::string path = scratch_path("immune_meta_roundtrip.json");
+    REQUIRE(m.save(path));
+    MetaProgression back;
+    REQUIRE(back.load(path));
+    REQUIRE(back.to_json() == m.to_json());
+    REQUIRE(back.memory_cells() == m.memory_cells());
+    REQUIRE(back.antibodies() == m.antibodies());
+    REQUIRE(back.level(TreeNode::GobletSlowDuration) == 2);
+    REQUIRE(back.level(TreeNode::GobletCapstone) == 1);
+    REQUIRE(back.ability_unlocked(AbilityId::FeverResponse));
+    REQUIRE(back.level_cleared("capillary_1"));
+    REQUIRE(back.spent_antibodies() == m.spent_antibodies());
+}
+
+TEST_CASE("a v2 save migrates: points become Memory Cells, towers become roots", "[meta]") {
+    MetaProgression m;
     std::string err;
-    REQUIRE(meta.from_json(json, err));
-    REQUIRE(meta.antibody_points() == 1000);
-
-    const auto result = meta.purchase("baseline_income");
-    REQUIRE(result == MetaProgression::PurchaseResult::Ok);
-    REQUIRE(meta.antibody_points() == 900);
-
-    bool found_unlocked = false;
-    for (const auto& m : meta.memories()) {
-        if (m.id == "baseline_income") found_unlocked = m.unlocked;
-    }
-    REQUIRE(found_unlocked);
-}
-
-TEST_CASE("purchase fails without enough currency and spends nothing", "[meta]") {
-    MetaProgression meta;
-    meta.reset_to_new_game();
-
-    const std::string json = R"JSON({
-      "version": 1,
-      "antibody_points": 10,
-      "memories": [
-        { "id": "pricey", "tier": 2, "cost": 500, "unlocked": false }
-      ]
-    })JSON";
-    std::string err;
-    REQUIRE(meta.from_json(json, err));
-
-    const auto result = meta.purchase("pricey");
-    REQUIRE(result == MetaProgression::PurchaseResult::InsufficientFunds);
-    REQUIRE(meta.antibody_points() == 10);
-}
-
-TEST_CASE("purchase of a roster-unlock memory also unlocks its tower", "[meta]") {
-    MetaProgression meta;
-    meta.reset_to_new_game();
-    REQUIRE_FALSE(meta.tower_unlocked(TowerType::GobletCell));
-
-    const std::string json = R"JSON({
-      "version": 1,
-      "antibody_points": 200,
-      "memories": [
-        { "id": "unlock_bcell", "tier": 1, "cost": 150, "unlocked": false,
-          "unlocks_tower": 4 }
-      ]
-    })JSON";
-    std::string err;
-    REQUIRE(meta.from_json(json, err));
-    // A v1 save: index 4 was the Goblet Cell before the roster renumbering,
-    // and loading migrates it to today's slot.
-    REQUIRE(static_cast<u32>(TowerType::GobletCell) == 3);
-
-    REQUIRE(meta.purchase("unlock_bcell") == MetaProgression::PurchaseResult::Ok);
-    REQUIRE(meta.tower_unlocked(TowerType::GobletCell));
-}
-
-TEST_CASE("purchase of an unknown id reports NotFound", "[meta]") {
-    MetaProgression meta;
-    meta.reset_to_new_game();
-    meta.credit(500);
-    REQUIRE(meta.purchase("does_not_exist") == MetaProgression::PurchaseResult::NotFound);
-    REQUIRE(meta.antibody_points() == 500);
-}
-
-// ---- save / load round-trip --------------------------------------------------
-
-TEST_CASE("save/load round-trips every field including currency and loadout", "[meta]") {
-    MetaProgression meta;
-    meta.reset_to_new_game();
-    meta.credit(777);
-    meta.unlock_tower(TowerType::GobletCell);
-    meta.record_level_complete("capillary_01");
-
-    const std::string json = R"JSON({
-      "version": 1,
-      "antibody_points": 777,
+    const std::string v2 = R"({
+      "version": 2,
+      "antibody_points": 321,
       "loadout_slots": 2,
-      "memories": [
-        { "id": "mem_a", "display_name": "Memory A", "unlocked": true, "tier": 0,
-          "cost": 50, "starting_atp_bonus": 25.0, "tower_cost_multiplier": 0.9,
-          "income_multiplier": 1.1,
-          "damage_vs_family": [1.2, 1.0, 1.0, 1.0, 1.0, 1.0] }
-      ],
-      "loadout": ["mem_a"]
-    })JSON";
-    std::string err;
-    REQUIRE(meta.from_json(json, err));
-    REQUIRE(meta.selected_loadout().size() == 1); // set via the "loadout" field above
-
-    const std::string dumped = meta.to_json();
-
-    MetaProgression reloaded;
-    std::string err2;
-    REQUIRE(reloaded.from_json(dumped, err2));
-
-    REQUIRE(reloaded.antibody_points() == meta.antibody_points());
-    REQUIRE(reloaded.max_loadout_slots() == meta.max_loadout_slots());
-    REQUIRE(reloaded.memories().size() == meta.memories().size());
-    REQUIRE(reloaded.memories()[0].id == "mem_a");
-    REQUIRE(reloaded.memories()[0].unlocked);
-    REQUIRE(reloaded.memories()[0].cost == 50);
-    REQUIRE(std::abs(reloaded.memories()[0].starting_atp_bonus - 25.0f) < 1e-4f);
-    REQUIRE(reloaded.selected_loadout() == meta.selected_loadout());
+      "unlocked_towers": [0, 1, 3],
+      "memories": [{"id": "mem_a", "unlocked": true}],
+      "loadout": ["mem_a"],
+      "progress": {"levels_completed": 1, "completed_level_ids": ["capillary_1"]}
+    })";
+    REQUIRE(m.from_json(v2, err));
+    REQUIRE(err.empty());
+    REQUIRE(m.memory_cells() == 321);
+    REQUIRE(m.antibodies() == 0);
+    REQUIRE(m.tower_unlocked(TowerType::Neutrophil));
+    REQUIRE(m.tower_unlocked(TowerType::Macrophage));
+    REQUIRE(m.tower_unlocked(TowerType::GobletCell));
+    REQUIRE_FALSE(m.tower_unlocked(TowerType::CytotoxicT));
+    REQUIRE(m.level_cleared("capillary_1"));
 }
 
-TEST_CASE("save then load via the filesystem round-trips", "[meta]") {
-    MetaProgression meta;
-    meta.reset_to_new_game();
-    meta.credit(321);
-    meta.record_level_complete("floodplain_02");
-
-    const std::string path = scratch_path("immune_meta_progression_test.json");
-    REQUIRE(meta.save(path));
-
-    MetaProgression reloaded;
-    REQUIRE(reloaded.load(path));
-    REQUIRE(reloaded.antibody_points() == 321);
-    REQUIRE(reloaded.progress().levels_completed == 1);
-    REQUIRE(reloaded.progress().completed_level_ids.size() == 1);
-    REQUIRE(reloaded.progress().completed_level_ids[0] == "floodplain_02");
+TEST_CASE("a v1 save migrates its tower indices across the cut slot", "[meta]") {
+    MetaProgression m;
+    std::string err;
+    // v1 slot 2 was cut; v1 slot 4 is today's slot 3 (the Goblet Cell).
+    REQUIRE(m.from_json(R"({"version": 1, "antibody_points": 7, "unlocked_towers": [2, 4]})", err));
+    REQUIRE(m.tower_unlocked(TowerType::GobletCell));
+    REQUIRE_FALSE(m.tower_unlocked(TowerType::CytotoxicT));
+    REQUIRE(m.tower_unlocked(TowerType::Neutrophil)); // always owned
 }
 
-TEST_CASE("loading a future-versioned save fails loudly and leaves state untouched", "[meta]") {
-    MetaProgression meta;
-    meta.reset_to_new_game();
-    meta.credit(99);
-    meta.record_level_complete("baseline_level");
-
-    const std::string future_json = R"JSON({
-      "version": 999,
-      "antibody_points": 123456
-    })JSON";
+TEST_CASE("load rejects a future version and leaves state untouched", "[meta]") {
+    MetaProgression m = fresh();
+    m.credit(42, 1);
+    const std::string before = m.to_json();
     std::string err;
-    const bool ok = meta.from_json(future_json, err);
-
-    REQUIRE_FALSE(ok);
+    REQUIRE_FALSE(m.from_json(R"({"version": 99, "memory_cells": 5})", err));
     REQUIRE_FALSE(err.empty());
-    // State from before the failed load must be completely untouched.
-    REQUIRE(meta.antibody_points() == 99);
-    REQUIRE(meta.progress().levels_completed == 1);
+    REQUIRE(m.to_json() == before);
 }
 
-TEST_CASE("loading a malformed save fails loudly and leaves state untouched", "[meta]") {
-    MetaProgression meta;
-    meta.reset_to_new_game();
-    meta.credit(55);
-
+TEST_CASE("load rejects a missing version and malformed JSON", "[meta]") {
+    MetaProgression m = fresh();
     std::string err;
-    REQUIRE_FALSE(meta.from_json("{ not valid json", err));
-    REQUIRE_FALSE(err.empty());
-    REQUIRE(meta.antibody_points() == 55);
-
-    // Missing 'version' entirely is also an error, not a silent default.
-    std::string err2;
-    REQUIRE_FALSE(meta.from_json(R"({"antibody_points": 7})", err2));
-    REQUIRE_FALSE(err2.empty());
-    REQUIRE(meta.antibody_points() == 55);
+    REQUIRE_FALSE(m.from_json(R"({"memory_cells": 5})", err));
+    REQUIRE_FALSE(m.from_json("{not json", err));
+    REQUIRE_FALSE(m.from_json(R"({"version": 3, "tree": [1, 2]})", err));
 }
 
-TEST_CASE("loading a bad memory entry (missing id) fails and leaves state untouched", "[meta]") {
-    MetaProgression meta;
-    meta.reset_to_new_game();
-    meta.credit(42);
-
-    const std::string bad_json = R"JSON({
-      "version": 1,
-      "antibody_points": 5000,
-      "memories": [ { "display_name": "no id here" } ]
-    })JSON";
+TEST_CASE("an unknown node key in a save is skipped, not fatal", "[meta]") {
+    MetaProgression m;
     std::string err;
-    REQUIRE_FALSE(meta.from_json(bad_json, err));
-    REQUIRE_FALSE(err.empty());
-    REQUIRE(meta.antibody_points() == 42);
+    REQUIRE(m.from_json(
+        R"({"version": 3, "memory_cells": 9, "tree": {"no.such.node": 3, "hub.homeostasis": 2}})",
+        err));
+    REQUIRE(m.level(TreeNode::Homeostasis) == 2);
+    REQUIRE(m.memory_cells() == 9);
 }
 
-TEST_CASE("loading an older save (missing new fields) migrates by defaulting them", "[meta]") {
-    // A "v1 save from before Wave 5A" -- has version but none of the fields
-    // this wave added. Must not fail; must default them.
-    const std::string old_json = R"JSON({ "version": 1 })JSON";
-    MetaProgression meta;
+TEST_CASE("a saved level above a node's max is clamped", "[meta]") {
+    MetaProgression m;
     std::string err;
-    REQUIRE(meta.from_json(old_json, err));
-    REQUIRE(meta.antibody_points() == 0);
-    REQUIRE(meta.max_loadout_slots() == 2);
-    REQUIRE(meta.memories().empty());
-}
-
-// ---- loadout modifier combination --------------------------------------------
-
-TEST_CASE("combine_loadout_modifiers multiplies multipliers and sums flat bonuses", "[meta]") {
-    std::vector<AntibodyMemory> pool;
-
-    AntibodyMemory a = make_memory("a", MemoryTier::GlobalBaseline, 0, true);
-    a.damage_vs_family[static_cast<u32>(PathogenFamily::Virus)] = 1.2f;
-    a.starting_atp_bonus = 25.0f;
-    a.tower_cost_multiplier = 0.9f;
-    a.income_multiplier = 1.1f;
-    pool.push_back(a);
-
-    AntibodyMemory b = make_memory("b", MemoryTier::Specialized, 0, true);
-    b.damage_vs_family[static_cast<u32>(PathogenFamily::Virus)] = 1.5f;
-    b.starting_atp_bonus = 10.0f;
-    b.tower_cost_multiplier = 0.95f;
-    b.income_multiplier = 1.05f;
-    pool.push_back(b);
-
-    const std::vector<std::string> selected = {"a", "b"};
-    const LoadoutModifiers mods = MetaProgression::combine_loadout_modifiers(pool, selected);
-
-    const f32 expected_virus_dmg = 1.2f * 1.5f;
-    const f32 expected_atp = 25.0f + 10.0f;
-    const f32 expected_cost_mul = 0.9f * 0.95f;
-    const f32 expected_income_mul = 1.1f * 1.05f;
-
-    REQUIRE(std::abs(mods.damage_vs_family[static_cast<u32>(PathogenFamily::Virus)] - expected_virus_dmg) < 1e-4f);
-    REQUIRE(std::abs(mods.starting_atp_bonus - expected_atp) < 1e-4f);
-    REQUIRE(std::abs(mods.tower_cost_multiplier - expected_cost_mul) < 1e-4f);
-    REQUIRE(std::abs(mods.income_multiplier - expected_income_mul) < 1e-4f);
-
-    // Untouched families stay at the neutral 1.0 multiplier.
-    REQUIRE(std::abs(mods.damage_vs_family[static_cast<u32>(PathogenFamily::Bacteria)] - 1.0f) < 1e-4f);
-}
-
-TEST_CASE("combine_loadout_modifiers on an empty loadout is fully neutral", "[meta]") {
-    std::vector<AntibodyMemory> pool;
-    const LoadoutModifiers mods = MetaProgression::combine_loadout_modifiers(pool, {});
-    for (u32 i = 0; i < kFamilyCount; ++i) {
-        REQUIRE(std::abs(mods.damage_vs_family[i] - 1.0f) < 1e-4f);
-    }
-    REQUIRE(mods.starting_atp_bonus == 0.0f);
-    REQUIRE(mods.tower_cost_multiplier == 1.0f);
-    REQUIRE(mods.income_multiplier == 1.0f);
-}
-
-TEST_CASE("compute_loadout_modifiers reflects the instance's selected_loadout", "[meta]") {
-    MetaProgression meta;
-    meta.reset_to_new_game();
-
-    const std::string json = R"JSON({
-      "version": 1,
-      "memories": [
-        { "id": "dmg_virus", "unlocked": true, "tier": 0,
-          "damage_vs_family": [2.0, 1.0, 1.0, 1.0, 1.0, 1.0] }
-      ]
-    })JSON";
-    std::string err;
-    REQUIRE(meta.from_json(json, err));
-    REQUIRE(meta.select_memory("dmg_virus"));
-
-    const LoadoutModifiers mods = meta.compute_loadout_modifiers();
-    REQUIRE(std::abs(mods.damage_vs_family[static_cast<u32>(PathogenFamily::Virus)] - 2.0f) < 1e-4f);
-}
-
-TEST_CASE("a v1 save's tower indices migrate across the roster renumbering", "[meta]") {
-    MetaProgression meta;
-    // v1 order: 0 Neutrophil, 1 Macrophage, 2 (cut), 3 Cytotoxic T,
-    // 4 Goblet Cell, 5 Fibroblast.
-    const std::string json = R"JSON({
-      "version": 1,
-      "unlocked_towers": [0, 1, 2, 3, 5]
-    })JSON";
-    std::string err;
-    REQUIRE(meta.from_json(json, err));
-    REQUIRE(meta.tower_unlocked(TowerType::Neutrophil));
-    REQUIRE(meta.tower_unlocked(TowerType::Macrophage));
-    REQUIRE(meta.tower_unlocked(TowerType::CytotoxicT));
-    REQUIRE_FALSE(meta.tower_unlocked(TowerType::GobletCell));
-    REQUIRE(meta.tower_unlocked(TowerType::Fibroblast));
+    REQUIRE(m.from_json(R"({"version": 3, "tree": {"neutrophil.accuracy": 200}})", err));
+    REQUIRE(m.level(TreeNode::NeutrophilAccuracy) == tree_node(TreeNode::NeutrophilAccuracy).max_level);
 }

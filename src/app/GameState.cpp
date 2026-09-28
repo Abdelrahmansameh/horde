@@ -17,7 +17,7 @@ const char* GameStateMachine::name(GameStateId id) {
         case GameStateId::Boot:          return "Boot";
         case GameStateId::MainMenu:      return "MainMenu";
         case GameStateId::LevelSelect:   return "LevelSelect";
-        case GameStateId::Loadout:       return "Loadout";
+        case GameStateId::StrengthenImmunity: return "StrengthenImmunity";
         case GameStateId::InLevel:       return "InLevel";
         case GameStateId::Paused:        return "Paused";
         case GameStateId::Editor:        return "Editor";

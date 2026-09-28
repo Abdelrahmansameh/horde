@@ -65,6 +65,16 @@ struct AbilityDef {
     /// long the clot stands before it dissolves.
     f32 barrier_half_length = 7.0f;
     f32 barrier_half_width = 1.5f;
+    /// Complement only: chain hops (sim::DamageField::chain_links; 0 = the
+    /// damage system's default). Raised by the Strengthen Immunity tree.
+    u32 chain_links = 0;
+    /// Fever only: after the instant relief, every tower's cooldown keeps
+    /// running `fever_linger_rate` extra seconds per second for
+    /// `fever_linger_seconds` -- a sustained fire-rate buff the tree's
+    /// Buff Duration / Buff Magnitude lines grow. 0 seconds is the original
+    /// instant-only Fever.
+    f32 fever_linger_seconds = 0.0f;
+    f32 fever_linger_rate = 0.0f;
 };
 
 /// Player-facing snapshot for the HUD ability bar.
@@ -88,6 +98,18 @@ public:
     bool ready(AbilityId id) const;
     AbilityStatus status(AbilityId id) const;
 
+    /// Which abilities the player owns, as a literal bitmask over AbilityId --
+    /// the Strengthen Immunity tree's ability roots (PROGRESSION.md §6). A new
+    /// campaign owns none, so 0 really does mean "none". Defaults to all four,
+    /// so every world without meta-progression attached (tests, the gym,
+    /// headless runs) is unrestricted. cast() refuses a locked one.
+    static constexpr u32 kAllAbilitiesMask = (1u << kAbilityCount) - 1u;
+    void set_unlocked(u32 mask) { unlocked_mask_ = mask; }
+    u32 unlocked_mask() const { return unlocked_mask_; }
+    bool unlocked(AbilityId id) const {
+        return (unlocked_mask_ & (1u << static_cast<u32>(id))) != 0;
+    }
+
     /// Installs the sim-side systems this module owns (the clot's dissolve
     /// clock, which restores the tissue it carved) into `world`. Call once per
     /// level alongside TowerSystem::register_systems; a world that never gets
@@ -107,6 +129,7 @@ public:
 private:
     AbilityDef defs_[kAbilityCount]{};
     f32 cooldown_remaining_[kAbilityCount] = {};
+    u32 unlocked_mask_ = kAllAbilitiesMask;
 };
 
 const char* ability_name(AbilityId id);

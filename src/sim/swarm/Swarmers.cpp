@@ -183,6 +183,7 @@ void SwarmerEffects::reserve(usize n) {
     splashes.reserve(n);
     shots.reserve(n);
     builds.reserve(n);
+    heals.reserve(n);
 }
 
 void SwarmerEffects::clear() {
@@ -190,6 +191,7 @@ void SwarmerEffects::clear() {
     splashes.clear();
     shots.clear();
     builds.clear();
+    heals.clear();
 }
 
 // ---------------------------------------------------------------------------
@@ -430,6 +432,16 @@ SwarmerStats SwarmerSystem::update(SwarmerBuffers& sw,
         if (attribution_ != nullptr && sw.owner[i].valid()) {
             attribution_->record_named(sw.owner[i], hp, was_alive && named.health_left[k] <= 0.0f);
         }
+    };
+
+    // Inflammation: how hard a unit standing at `p` hits. A handful of scars
+    // at most, so a linear walk per damaging unit is the cheap option.
+    const auto inflamed = [&](Vec2 p) -> f32 {
+        if (inflamed_zones_ == nullptr || inflamed_mult_ == 1.0f) return 1.0f;
+        for (const InflamedZone& z : *inflamed_zones_) {
+            if (math::length_sq(p - z.center) <= z.radius * z.radius) return inflamed_mult_;
+        }
+        return 1.0f;
     };
 
     const usize entry_count = sw.count();
@@ -976,6 +988,16 @@ SwarmerStats SwarmerSystem::update(SwarmerBuffers& sw,
                         }
                         if (killed) {
                             if (named_idx != NamedTargetList::npos) ++stats.hosts_finished;
+                            // Phagocytic Sustain: the tower eats what its
+                            // pseudopods bring in, one serving per enemy.
+                            if (pr.heal_per_kill > 0.0f && sw.owner[i].valid()) {
+                                const u32 swallowed = named_idx != NamedTargetList::npos
+                                                          ? 1u
+                                                          : arm.captive.chaff_count;
+                                const f32 amount = pr.heal_per_kill * static_cast<f32>(swallowed);
+                                effects_.heals.push_back(SwarmerHeal{sw.owner[i], amount});
+                                stats.healed += amount;
+                            }
                             if (events) {
                                 CombatEvent e = make_event(CombatEventType::ProjectileImpact,
                                                            pr.source, p, arm.heading,
@@ -1271,20 +1293,43 @@ SwarmerStats SwarmerSystem::update(SwarmerBuffers& sw,
                     // Armor is a flat reduction per damage event; for a
                     // continuous drain the event is "one second of feeding".
                     const NamedTarget& t = named.items[named_idx];
-                    const f32 hp = math::max(0.0f, pr.dps - t.armor) * dt * t.damage_multiplier;
+                    const f32 hp = math::max(0.0f, pr.dps * inflamed(p) - t.armor) * dt *
+                                   t.damage_multiplier * pr.named_damage_mult;
                     hit_named(i, named_idx, hp);
                     removed = hp;
                 } else {
                     // A unit feeding on an agent the Goblet Cell has already
                     // weakened (chaff_flags::kMarked) drains it faster, same
                     // flag every other damage path in the sim reads.
-                    const f32 drain = (chaff.flags[host] & chaff_flags::kMarked) != 0
-                                          ? pr.dps * dt * chaff_flags::kMarkedDamageMultiplier
-                                          : pr.dps * dt;
+                    const f32 drain = ((chaff.flags[host] & chaff_flags::kMarked) != 0
+                                           ? pr.dps * dt * chaff_flags::kMarkedDamageMultiplier
+                                           : pr.dps * dt) *
+                                      inflamed(p);
+                    const bool was_dying = (chaff.flags[host] & chaff_flags::kPendingKill) != 0;
                     const f32 before = chaff.density[host];
                     chaff.apply_density_loss(host, drain);
                     removed = before - chaff.density[host];
                     stats.density_removed += removed;
+
+                    // Apoptosis Trigger: the latcher that finishes a host
+                    // bursts it. Only the one whose drain crossed zero, so a
+                    // clump of a dozen on one host raises one pulse, not twelve.
+                    if (pr.kill_pulse_radius > 0.0f && !was_dying &&
+                        (chaff.flags[host] & chaff_flags::kPendingKill) != 0) {
+                        SwarmerBurst b;
+                        b.origin = target_pos;
+                        b.radius = pr.kill_pulse_radius;
+                        b.damage = pr.kill_pulse_damage;
+                        b.seconds = kFixedDt;
+                        b.falloff = 0.5f;
+                        b.named_damage = 0.0f;
+                        b.family_mask = sw.family_mask[i];
+                        b.owner = sw.owner[i];
+                        b.source = pr.source;
+                        b.visual_id = sw.visual_id[i];
+                        effects_.bursts.push_back(b);
+                        ++stats.kill_pulses;
+                    }
 
                     // Off by default; see sim/Attribution.h.
                     if (attribution_ != nullptr && sw.owner[i].valid() && removed > 0.0f) {
@@ -1354,7 +1399,7 @@ SwarmerStats SwarmerSystem::update(SwarmerBuffers& sw,
                 SwarmerShot shot;
                 shot.origin = muzzle;
                 shot.velocity = aim * pr.round_speed;
-                shot.damage = pr.round_damage;
+                shot.damage = pr.round_damage * inflamed(p);
                 shot.hit_radius = pr.round_hit_radius;
                 // Twice the standoff and a little more. A shooter fires from
                 // its kite band at a target that may be out near the standoff

@@ -22,6 +22,7 @@
 #include <vector>
 
 namespace immune::platform { class InputState; }
+namespace immune::game { class MetaProgression; struct MetaConfig; }
 
 namespace immune::ui {
 
@@ -33,6 +34,23 @@ struct LevelEntry {
     std::string region;       ///< LevelDef::region, for grouping and subtitle.
     u32 lane_count = 0;       ///< Distinct vessel lane ids; 0 when unknown.
     i32 difficulty = 0;       ///< LevelDef::difficulty (1-10); 0 = unrated, not shown.
+    /// Cleared at least once (game/meta). An uncleared level still has its
+    /// first-clear Antibody to pay, which the list says out loud.
+    bool cleared = false;
+    /// LevelDef::name: the id campaign progress records a clear under.
+    std::string level_id;
+};
+
+/// What the run that just ended paid, for the results screens. Plain data so
+/// the screens do not have to know how it was computed (app/ does).
+struct RunSummary {
+    bool valid = false;        ///< False: nothing to show (e.g. no run yet).
+    /// Sandboxed run (editor playtest, the gym, --sandbox): no payout at all.
+    bool sandbox = false;
+    u32 waves_cleared = 0;
+    u32 memory_cells = 0;
+    u32 antibodies = 0;
+    bool first_clear = false;
 };
 
 enum class MenuAction : u8 {
@@ -45,11 +63,16 @@ enum class MenuAction : u8 {
     Resume,          ///< Close the pause menu and continue the current level.
     Back,
     Quit,
+    OpenImmunityTree, ///< The Strengthen Immunity screen (game/meta).
+    PurchaseNode,     ///< Buy the next level of `node` (a game::TreeNode).
+    Respec,           ///< Refund the whole tree (minus the fee).
 };
 
 struct MenuResult {
     MenuAction action = MenuAction::None;
     usize level_index = 0;
+    /// PurchaseNode payload: a game::TreeNode, as its integer value.
+    u32 node = 0;
 };
 
 class Menu {
@@ -71,13 +94,24 @@ public:
     /// back to the document being tested, not to the main menu, and the level
     /// on offer to restart is that same document.
     MenuResult build_level_failed_screen(i32 screen_width, i32 screen_height,
-                                         bool playtest = false);
+                                         bool playtest = false,
+                                         const RunSummary& summary = RunSummary{});
 
     /// Draws the level complete screen with continue and back buttons. A
     /// playtest also gets Restart here: the run ending is not a reason to have
     /// to walk back through the editor to test the same waves again.
     MenuResult build_level_complete_screen(i32 screen_width, i32 screen_height,
-                                           bool playtest = false);
+                                           bool playtest = false,
+                                           const RunSummary& summary = RunSummary{});
+
+    /// The Strengthen Immunity tree (PROGRESSION.md): both currencies, every
+    /// branch drawn as a column of nodes off one vessel, each node showing its
+    /// level, its price and -- when it cannot be bought -- why not. Reports a
+    /// click as PurchaseNode; buying is app/'s job, through MetaProgression,
+    /// so this screen can never disagree with the rules it displays.
+    MenuResult build_immunity_tree(const game::MetaProgression& meta,
+                                   const game::MetaConfig& cfg, i32 screen_width,
+                                   i32 screen_height);
 
     /// Draws the in-level pause menu: resume, restart, or return to the main
     /// menu. Drawn as an overlay over a frozen (but still rendered) game frame.

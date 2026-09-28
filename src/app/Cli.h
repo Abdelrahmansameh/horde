@@ -108,6 +108,15 @@ struct Options {
     /// 0 means the harness default (30 simulated minutes).
     u64 max_ticks = 0;
 
+    /// --save PATH: the Strengthen Immunity save file (game/meta). Empty means
+    /// the per-user default (platform::user_data_dir()/save.json).
+    std::string save_path;
+    /// --sandbox: interactive play without meta-progression -- every tower and
+    /// ability unlocked, the tree's bonuses off, no payout, nothing saved. The
+    /// editor's playtests and the gym level are always sandboxed; this makes
+    /// any `--level` run one too (e.g. to watch the balance bot).
+    bool sandbox = false;
+
     u64 ticks = 600;            ///< --ticks / --tick
     u64 seed = 0x1234'5678'9abc'def0ULL;
     i32 width = 1600;

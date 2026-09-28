@@ -243,6 +243,7 @@ ProjectileStats ProjectileSystem::update(ProjectileBuffers& projectiles,
     (void)rng;
 
     ProjectileStats stats;
+    impact_log_.clear();
 
     // Rounds the towers appended since the previous update(). The system has no
     // spawn entry point of its own -- callers push straight into the store --
@@ -375,6 +376,11 @@ ProjectileStats ProjectileSystem::update(ProjectileBuffers& projectiles,
 
             ++stats.impacts;
             stats.density_removed += removed;
+
+            if ((pflags[i] & projectile_flags::kIncendiary) != 0 &&
+                impact_log_.size() < max_impact_log_) {
+                impact_log_.push_back(ProjectileImpactRecord{p, powner[i], pvisual[i]});
+            }
 
             // Off by default; see sim/Attribution.h. `removed` is the clamped
             // effect, not the nominal damage, so an over-killing round is not

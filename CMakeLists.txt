@@ -122,6 +122,7 @@ add_library(immune_game STATIC
   src/game/level/Level.cpp
   src/game/level/LevelWriter.cpp
   src/game/level/RenderSdf.cpp
+  src/game/meta/ImmunityTree.cpp
   src/game/meta/MetaProgression.cpp
   src/game/session/LevelSession.cpp
   src/game/telemetry/RunTelemetry.cpp
