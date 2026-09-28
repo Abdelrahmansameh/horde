@@ -17,9 +17,8 @@
 // Tower shape ids start at 16 (kTowerShapeBase in TowerSystem.cpp) and run in
 // TowerType declaration order, so id == 16 + TowerType:
 //   16 = Neutrophil   17 = Macrophage (branching multi-grabber)
-//   18 = Interferon   19 = Cytotoxic T
-//   20 = Goblet Cell  21 = Fibroblast
-// (21 was the NK Cell's rotor before the swarmer roster retired it.)
+//   18 = Cytotoxic T  19 = Goblet Cell
+//   20 = Fibroblast
 // Any other id falls back to the filled blob.
 
 in vec2  v_local;
@@ -29,7 +28,7 @@ in float v_anim_phase;
 /// Extra per-shape parameter (EntityInstance::shape_param); meaning is defined
 /// by v_shape_id, 0 for shapes that don't declare one. Every tower body (16-20)
 /// reads it as the tower's TIER, 1-3, and spends it on a countable feature —
-/// phagosomes, crystal reach, lytic granules, mucin granules, blades — so an
+/// phagosomes, lytic granules, mucin granules, blades — so an
 /// upgrade is legible from the silhouette instead of only from the stat panel.
 in float v_shape_param;
 /// Instance world rotation; see entity.vert. Used to hold a feature still while
@@ -154,30 +153,12 @@ float sdf_neutrophil(vec2 p, float phase, out float nucleus_d, out float granule
 /// cleft that reads as soft membrane instead of a bite taken with scissors.
 float smax(float a, float b, float k) { return -smin(-a, -b, k); }
 
-/// Rotates a point. For features that must turn independently of the quad.
-vec2 rot2(vec2 p, float a) {
-    float c = cos(a), s = sin(a);
-    return vec2(p.x * c - p.y * s, p.x * s + p.y * c);
-}
-
 /// Capsule from `a` to `b` of radius `r`. The workhorse for every thin feature
-/// below — crystal spicules, antibody arms, microvilli.
+/// below — antibody arms, microvilli.
 float sdf_segment(vec2 p, vec2 a, vec2 b, float r) {
     vec2 pa = p - a, ba = b - a;
     float h = clamp(dot(pa, ba) / max(dot(ba, ba), 1e-8), 0.0, 1.0);
     return length(pa - ba * h) - r;
-}
-
-/// Regular hexagon. The one deliberately HARD primitive in this file: every
-/// cell here is built from circles and noise, so a shape with straight edges
-/// and corners reads as "not alive" instantly — which is exactly the Interferon
-/// crystal's job.
-float sdf_hexagon(vec2 p, float r) {
-    const vec3 k = vec3(-0.866025404, 0.5, 0.577350269);
-    p = abs(p);
-    p -= 2.0 * min(dot(k.xy, p), 0.0) * k.xy;
-    p -= vec2(clamp(p.x, -k.z * r, k.z * r), r);
-    return length(p) * sign(p.y);
 }
 
 // ---------------------------------------------------------------------------
@@ -254,76 +235,6 @@ float sdf_macrophage(vec2 p, float phase, float tier,
 }
 
 // ---------------------------------------------------------------------------
-// CRYO — Interferon.
-//
-// SILHOUETTE CONTRAST is the design goal. Five of six towers are amoeboid
-// blobs; if the sixth is another blob in another colour then hue is doing all
-// the work, and the roster stops being readable the moment two towers overlap
-// or the player is colour-blind. So this is the hard-edged one: a six-fold
-// crystal with straight facets and needle tips, grown through a soft cell
-// membrane. Nothing else on the field has a corner on it.
-//
-// It is also honest about the mechanism. Interferon is a signalling protein,
-// not a cell that stabs things — the crystal is the SIGNAL crystallising out of
-// the cell, which is why it pierces the membrane instead of being contained by
-// it, and why the forward face carries a bright aperture with vapour venting
-// past it along the cone the tower actually fires.
-// ---------------------------------------------------------------------------
-const float kCryoReach = 0.455;
-
-/// One arm of the flake, repeated six times by angular folding. Folding rather
-/// than looping means the branch geometry is written once and costs one
-/// evaluation however many arms there are.
-float cryo_flake(vec2 q, float reach, float w) {
-    const float kSector = 1.04719755; // 2*pi/6
-    float a = atan(q.y, q.x);
-    float k = mod(a + kSector * 0.5, kSector) - kSector * 0.5;
-    vec2 fq = vec2(cos(k), sin(k)) * length(q);
-    // Mirror about the arm's own axis so ONE branch expression draws the pair.
-    fq.y = abs(fq.y);
-
-    vec2 br = vec2(cos(0.95), sin(0.95));
-    float d = sdf_segment(fq, vec2(0.020, 0.0), vec2(reach, 0.0), w);
-    d = min(d, sdf_segment(fq, vec2(reach * 0.40, 0.0),
-                           vec2(reach * 0.40, 0.0) + br * reach * 0.34, w * 0.72));
-    d = min(d, sdf_segment(fq, vec2(reach * 0.72, 0.0),
-                           vec2(reach * 0.72, 0.0) + br * reach * 0.20, w * 0.55));
-    return d;
-}
-
-float sdf_interferon(vec2 p, float phase, float tier, out float crystal_d,
-                     out float facet, out float aperture, out float vapour) {
-    // The cell underneath. Barely warped: it is mostly a soft halo for the
-    // crystal to sit in, and a wobbling membrane would fight the hard edges.
-    float wx = fbm(p * 5.0 + vec2(phase * 0.07, 0.0)) - 0.5;
-    float wy = fbm(p * 5.0 + vec2(6.3, -phase * 0.06)) - 0.5;
-    float membrane = length(p + vec2(wx, wy) * 0.045) - 0.250;
-
-    // The crystal turns slowly INSIDE the quad, independently of where the
-    // tower is aiming, so a re-aim doesn't snap the whole flake to a new angle.
-    vec2 cp = rot2(p, phase * 0.06);
-    crystal_d = min(sdf_hexagon(cp, 0.135),
-                    cryo_flake(cp, kCryoReach + 0.012 * tier, 0.026));
-
-    // Concentric hexagonal contours read as internal facets / cleavage planes.
-    float band = abs(fract(sdf_hexagon(cp, 0.095) * 9.0) - 0.5);
-    facet = 1.0 - smoothstep(0.12, 0.38, band);
-
-    // Emission aperture, pinned to local +x — which entity.vert has already
-    // rotated onto the aim, so it is always the face pointed at the target.
-    float ang = atan(p.y, p.x);
-    float face = smoothstep(0.90, 0.25, abs(ang));
-    aperture = face * (1.0 - smoothstep(0.0, 0.085, abs(length(p) - 0.250)));
-
-    // Cold vapour venting forward past the membrane. This lives OUTSIDE the
-    // body, so main() composites it over the lit result rather than shading it.
-    vapour = face * (1.0 - smoothstep(0.05, 0.26, length(p - vec2(0.30, 0.0))))
-           * (0.55 + 0.45 * fbm(p * 9.0 + vec2(-phase * 0.5, phase * 0.2)));
-
-    return smin(membrane, crystal_d, 0.035);
-}
-
-// ---------------------------------------------------------------------------
 // TESLA — Cytotoxic T.
 //
 // A KILLER CELL CAUGHT MID-KILL. The body this replaces was a spiked ball with
@@ -347,8 +258,7 @@ float sdf_interferon(vec2 p, float phase, float tier, out float crystal_d,
 //     swaying slowly as the cell crawls.
 //
 // Nothing else on the field is asymmetric front-to-back like that. The
-// Neutrophil and the Macrophage are radial lumps, the Interferon is a crystal,
-// and the Goblet Cell — the only other directional
+// Neutrophil and the Macrophage are radial lumps, and the Goblet Cell — the only other directional
 // body — is a narrow stalk swelling into a round cup, i.e. widest at the BACK
 // of its mass with a bore drilled through the front. This one is widest at the
 // FRONT and comes to a point at the back, so the two never resolve to the same
@@ -957,48 +867,10 @@ void main() {
         if (o_color.a <= 0.001) discard;
         return;
     } else if (v_shape_id == 18u) {
-        // CRYO (Interferon).
-        float crystal_d, facet, aperture, vapour;
-        float body_d = sdf_interferon(v_local, v_anim_phase, v_shape_param,
-                                      crystal_d, facet, aperture, vapour);
-
-        // Tighter AA than the blobby towers: this body's whole point is that it
-        // has straight edges, and a soft edge on a facet is a wasted facet.
-        float a = 1.0 - smoothstep(-0.018, 0.007, body_d);
-        float sh = entity_shadow(v_local, 0.28);
-        float vap_a = vapour * 0.50;
-        if (a <= 0.0 && sh <= 0.0 && vap_a <= 0.003) discard;
-
-        float depth = clamp(-body_d * 5.5, 0.0, 1.0);
-        const vec3 kCryoHue = vec3(0.52, 0.84, 1.00);
-
-        vec3 cytoplasm = mix(vec3(0.93, 0.98, 1.00), vec3(0.50, 0.72, 0.92), depth);
-        cytoplasm = mix(cytoplasm, kCryoHue, 0.35);
-
-        float ice = 1.0 - smoothstep(-0.006, 0.008, crystal_d);
-        vec3 rgb = mix(cytoplasm, vec3(0.80, 0.94, 1.00), ice * 0.85);
-        rgb = mix(rgb, vec3(1.0), ice * facet * 0.55);
-        float ice_rim = 1.0 - smoothstep(0.0, 0.014, abs(crystal_d));
-        rgb = mix(rgb, vec3(1.0), ice_rim * 0.70);
-        rgb = mix(rgb, vec3(0.88, 0.99, 1.00), aperture * 0.85);
-
-        float rim = 1.0 - smoothstep(0.0, 0.040, abs(body_d));
-        rgb = mix(rgb, vec3(0.92, 0.99, 1.00), rim * 0.55);
-
-        // The vent plume is atmosphere in FRONT of the cell, so it composites
-        // over the finished body rather than being mixed into its shading —
-        // otherwise it would only ever show up where the body already is, which
-        // is precisely where it isn't.
-        vec4 lit = over_shadow(wounded(rgb, body_d, v_tint.a), a, sh);
-        float out_a = lit.a + vap_a * (1.0 - lit.a);
-        if (out_a <= 0.001) discard;
-        o_color = vec4((lit.rgb * lit.a + kCryoHue * vap_a * (1.0 - lit.a)) / out_a, out_a);
-        return;
-    } else if (v_shape_id == 19u) {
         // TESLA (Cytotoxic T). THE PURPLE TOWER, and it has to be purple all
         // the way down. The other cells sit on a near-white cytoplasm and let a
         // tint do the identifying; this body is the smallest and busiest of the
-        // six, and at that size a pale one hands its hue back to its own
+        // five, and at that size a pale one hands its hue back to its own
         // detail. So the interior runs to a deep saturated violet and the tint
         // goes in harder than anywhere else in this file except the Macrophage.
         float nucleus_d, granule_d, synapse_glow, lance, speckle;
@@ -1072,7 +944,7 @@ void main() {
         o_color = over_shadow(wounded(rgb, body_d, v_tint.a), a, sh);
         if (o_color.a <= 0.001) discard;
         return;
-    } else if (v_shape_id == 20u) {
+    } else if (v_shape_id == 19u) {
         // HYDRO (Goblet Cell).
         float nucleus_d, granule, mouth_glow, rim_band;
         float body_d = sdf_goblet(v_local, v_anim_phase, v_shape_param,
@@ -1121,7 +993,7 @@ void main() {
         o_color = over_shadow(wounded(rgb, body_d, v_tint.a), a, sh);
         if (o_color.a <= 0.001) discard;
         return;
-    } else if (v_shape_id == 21u) {
+    } else if (v_shape_id == 20u) {
         // BUILDER (Fibroblast). See sdf_fibroblast above.
         float nucleus_d, fibre, process_d;
         float body_d = sdf_fibroblast(v_local, v_anim_phase, v_shape_param,

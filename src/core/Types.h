@@ -82,7 +82,6 @@ inline constexpr u32 kFamilyCount = static_cast<u32>(PathogenFamily::Count);
 ///                             A tower's live units form one LANE WALL: a
 ///                             body-to-body rank across the flow that shoves
 ///                             the horde back instead of yielding to it
-///   Interferon  SLOW BOMBER   swarmers detonate into a timed slow zone
 ///   CytotoxicT  LATCH         swarmers latch on and drain (the original)
 ///   GobletCell  MUCUS BOMBER  swarmers detonate into a splash of real mucus
 ///   Fibroblast  BUILDER       swarmers walk to a spot in the lane and lay
@@ -95,11 +94,10 @@ inline constexpr u32 kFamilyCount = static_cast<u32>(PathogenFamily::Count);
 enum class TowerType : u8 {
     Neutrophil = 0,   ///< SHOOTER
     Macrophage = 1,   ///< ARBOR GRABBER
-    Interferon = 2,   ///< SLOW BOMBER
-    CytotoxicT = 3,   ///< LATCH
-    GobletCell = 4,   ///< MUCUS BOMBER
-    Fibroblast = 5,   ///< BUILDER
-    Count = 6
+    CytotoxicT = 2,   ///< LATCH
+    GobletCell = 3,   ///< MUCUS BOMBER
+    Fibroblast = 4,   ///< BUILDER
+    Count = 5
 };
 
 inline constexpr u32 kTowerTypeCount = static_cast<u32>(TowerType::Count);

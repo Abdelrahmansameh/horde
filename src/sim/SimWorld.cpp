@@ -141,8 +141,6 @@ void SimWorld::init(const SimDesc& desc, JobSystem* jobs) {
     friendly_towers_.passengers.reserve(256);
     named_targets_.items.reserve(256);
     named_targets_.damage.reserve(256);
-    slow_zones_.reserve(desc.max_slow_zones);
-    slow_zones_.clear();
     fluid_.reserve(desc.max_fluid_particles);
     fluid_.clear();
     fluid_system_.configure(desc_.sim_bounds, desc.fluid_tuning);
@@ -211,7 +209,8 @@ void SimWorld::tick(Profiler* profiler) {
         WallClock t;
         build_burrow_threats();
         last_burrow_stats_ =
-            burrow_.update(chaff_, flow_, sdf_, tissue_, spatial_, burrow_threats_, rng_, kFixedDt);
+            burrow_.update(chaff_, flow_, sdf_, tissue_, spatial_, burrow_threats_, rng_, kFixedDt,
+                           desc_.world_bounds);
         burrows_total_ += last_burrow_stats_.dives;
         if (profiler) profiler->record(prof_key::kBurrow, t.elapsed_ms());
     }
@@ -242,8 +241,8 @@ void SimWorld::tick(Profiler* profiler) {
     // and before the single chaff compaction so a swarmer's drain and a field's
     // damage on the same agent on the same tick both get counted. The kernel
     // sees named agents through a flat snapshot built here, and what it asks
-    // for -- bursts, slow circles, splashes, rounds -- lands in the other
-    // stores straight after, so a detonation this tick is a field, a zone, or
+    // for -- bursts, splashes, rounds -- lands in the other
+    // stores straight after, so a detonation this tick is a field or
     // fluid by the time the fluid solver below runs.
     build_named_targets();
     const SwarmerStats swarmer_stats =
@@ -251,10 +250,11 @@ void SimWorld::tick(Profiler* profiler) {
                                rng_, kFixedDt, &combat_events_);
     apply_swarmer_effects();
 
-    // 4c'. Slow zones. After the swarmers so a circle dropped this tick starts
-    // slowing on the tick it lands; before the fluid because the fluid brakes
-    // against the crowd's velocities and should see the slowed ones.
-    slow_zones_.update(chaff_, spatial_, kFixedDt);
+    // 4c'. Slow expiry. The mucus film (below) is the only thing that grants
+    // chaff_flags::kSlowed, and this is the only place the bit goes away. It
+    // runs BEFORE the fluid refresh, so an agent still standing in mucus
+    // never sees its clock hit zero: the refresh tops it back up this tick.
+    chaff_.expire_slows(kFixedDt);
 
     // 4c''. The horde fights back (sim/hostile/HostileAttacks.h): viruses
     // latch onto towers and swarmers and feed, bacteria burn whatever stands
@@ -655,40 +655,6 @@ void SimWorld::apply_swarmer_effects() {
             hp.current -= amount;
             if (attribution && b.owner.valid()) {
                 attribution->record_named(b.owner, amount, was_alive && hp.dead());
-            }
-        }
-    }
-
-    // ---- Slow circles: the chaff half is the zone system's; the named half
-    // is refreshed here every tick a named agent stands in a live zone (see
-    // below), so a fresh zone only has to be registered.
-    for (const SwarmerSlowZone& z : fx.zones) {
-        SlowZone zone;
-        zone.origin = z.origin;
-        zone.radius = z.radius;
-        zone.remaining = z.duration;
-        zone.duration = z.duration;
-        zone.slow_duration = z.slow_duration;
-        zone.slow_factor = z.slow_factor;
-        zone.family_mask = z.family_mask;
-        zone.owner = z.owner;
-        zone.source = z.source;
-        zone.visual_id = z.visual_id;
-        slow_zones_.spawn(zone);
-    }
-    if (!slow_zones_.zones().empty()) {
-        auto view = registry.view<const comp::NamedAgent, const comp::Transform, const comp::Health>();
-        for (auto e : view) {
-            if (view.get<const comp::Health>(e).dead()) continue;
-            const Vec2 pos = view.get<const comp::Transform>(e).position;
-            const u8 fam_bit = static_cast<u8>(1u << static_cast<u8>(view.get<const comp::NamedAgent>(e).family));
-            for (const SlowZone& zone : slow_zones_.zones()) {
-                if ((zone.family_mask & fam_bit) == 0) continue;
-                if (math::length_sq(pos - zone.origin) > zone.radius * zone.radius) continue;
-                comp::Slowed& sl = registry.get_or_emplace<comp::Slowed>(e);
-                sl.remaining = math::max(sl.remaining, zone.slow_duration);
-                sl.factor = math::clamp(zone.slow_factor, 0.0f, 1.0f);
-                sl.source = zone.owner;
             }
         }
     }

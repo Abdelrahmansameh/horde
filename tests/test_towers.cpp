@@ -44,7 +44,6 @@
 #include "sim/ecs/Components.h"
 #include "sim/ecs/NamedAgents.h"
 #include "sim/swarm/Swarmers.h"
-#include "sim/zone/SlowZones.h"
 #include "vfx/Particles.h"
 
 #include <catch2/catch_approx.hpp>
@@ -126,7 +125,7 @@ void rebuild_spatial(SimWorld& world) {
 /// geometry assertion ("this cluster took damage and that one did not") race
 /// the movement kernel. This runs exactly the damage-relevant half of the
 /// canonical tick order (SimWorld.h): hash rebuild -> ECS systems -> aggregate
-/// damage -> projectiles -> swarmers and what they asked for -> slow zones ->
+/// damage -> projectiles -> swarmers and what they asked for -> slow expiry ->
 /// fluid -> transient-field expiry. No movement, no compaction, so chaff
 /// indices and positions are stable across the whole test.
 void step_combat(SimWorld& world) {
@@ -143,7 +142,7 @@ void step_combat(SimWorld& world) {
                                   world.desc().world_bounds,
                                   world.rng(), kFixedDt, &world.combat_events());
     world.apply_swarmer_effects();
-    world.slow_zones().update(world.chaff(), world.spatial(), kFixedDt);
+    world.chaff().expire_slows(kFixedDt);
     world.fluid_system().update(world.fluid(), world.chaff(), world.spatial(), world.sdf(),
                                 world.desc().world_bounds, kFixedDt, &world.combat_events());
     world.damage().clear_transient(kFixedDt);
@@ -299,7 +298,6 @@ TEST_CASE("every tower type maps to its own swarmer kind, and the profile says s
     REQUIRE(tower_kind(TowerType::CytotoxicT) == SwarmerKind::Latch);
     REQUIRE(tower_kind(TowerType::Neutrophil) == SwarmerKind::Shooter);
     REQUIRE(tower_kind(TowerType::Macrophage) == SwarmerKind::ArborGrabber);
-    REQUIRE(tower_kind(TowerType::Interferon) == SwarmerKind::SlowBomber);
     REQUIRE(tower_kind(TowerType::GobletCell) == SwarmerKind::MucusBomber);
 }
 
@@ -311,7 +309,6 @@ TEST_CASE("the five towers occupy genuinely different niches in the table", "[to
     TowerSystem ts;
     const TowerStats shooter = ts.stats(TowerType::Neutrophil, 1);
     const TowerStats grabber = ts.stats(TowerType::Macrophage, 1);
-    const TowerStats slow    = ts.stats(TowerType::Interferon, 1);
     const TowerStats latch   = ts.stats(TowerType::CytotoxicT, 1);
     const TowerStats mucus   = ts.stats(TowerType::GobletCell, 1);
 
@@ -347,17 +344,11 @@ TEST_CASE("the five towers occupy genuinely different niches in the table", "[to
             swarmer_profile(TowerType::Neutrophil, 1).max_health);
     REQUIRE(grabber.max_health > shooter.max_health);
     REQUIRE(grabber.footprint_radius > shooter.footprint_radius);
-    REQUIRE(slow.fire_interval > shooter.fire_interval);
     REQUIRE(mucus.fire_interval > shooter.fire_interval);
-
-    // SLOW BOMBER does no damage at all: its whole value is the circles.
-    REQUIRE(tower_mechanics(TowerType::Interferon, 1).slow_bomber.slow_factor < 1.0f);
-    REQUIRE(tower_mechanics(TowerType::Interferon, 1).slow_bomber.zone_duration > 0.0f);
 
     // Cost ordering: the cheap workhorse, then the specialists, then the
     // widest/tankiest one in the roster.
-    REQUIRE(shooter.build_cost < slow.build_cost);
-    REQUIRE(slow.build_cost < latch.build_cost);
+    REQUIRE(shooter.build_cost < latch.build_cost);
     REQUIRE(grabber.build_cost > mucus.build_cost);
 }
 
@@ -406,9 +397,6 @@ f32 tower_output(TowerType type, u8 tier, const TowerStats& s) {
                math::max(m.arbor_grabber.extend_seconds + m.arbor_grabber.latch_seconds +
                              m.arbor_grabber.pull_seconds + m.arbor_grabber.recover_seconds,
                          0.001f);
-    case SwarmerKind::SlowBomber:
-        return per_sec * m.slow_bomber.zone_radius * m.slow_bomber.zone_radius *
-               m.slow_bomber.zone_duration * (1.0f - m.slow_bomber.slow_factor);
     case SwarmerKind::MucusBomber:
         return per_sec * static_cast<f32>(m.mucus_bomber.droplets) *
                m.mucus_bomber.droplet_lifetime * (1.0f - m.mucus_bomber.slow_factor);
@@ -489,12 +477,12 @@ TEST_CASE("validate() rejects off-tissue and unaffordable placements, accepts an
 TEST_CASE("validate() rejects insufficient clearance near a wall", "[towers][placement]") {
     SimWorld world = make_world();
     TowerSystem ts;
-    // Interferon (CRYO) has the roster's largest tier-1 footprint_radius (1.2);
-    // 0.5 units from the left room's wall (x=0 boundary) leaves far less than that.
-    REQUIRE(ts.stats(TowerType::Interferon, 1).footprint_radius > 0.5f);
-    const auto q = ts.validate(world, TowerType::Interferon, Vec2{0.5f, 10.0f}, 100000);
+    // The Cytotoxic T has the roster's largest tier-1 footprint_radius; 0.5
+    // units from the left room's wall (x=0 boundary) leaves far less than that.
+    REQUIRE(ts.stats(TowerType::CytotoxicT, 1).footprint_radius > 0.5f);
+    const auto q = ts.validate(world, TowerType::CytotoxicT, Vec2{0.5f, 10.0f}, 100000);
     REQUIRE(q.result == PlacementResult::InsufficientClearance);
-    REQUIRE(q.clearance < ts.stats(TowerType::Interferon, 1).footprint_radius);
+    REQUIRE(q.clearance < ts.stats(TowerType::CytotoxicT, 1).footprint_radius);
     // The light snap should nudge back toward more clearance (away from x=0).
     REQUIRE(q.snapped_position.x > 0.5f);
 }
@@ -1060,7 +1048,7 @@ TEST_CASE("a bomber whose lifetime runs out detonates where it stands", "[towers
     // Every detonating kind. Spawned straight into the store with nothing to
     // go at, so the only way it can end is by expiring -- and expiring must
     // leave the effect behind, not fizzle.
-    for (const TowerType type : {TowerType::Interferon, TowerType::GobletCell}) {
+    for (const TowerType type : {TowerType::GobletCell}) {
         INFO("tower " << tower_type_name(type));
         SimWorld world = make_world();
         TowerSystem ts;
@@ -1090,58 +1078,10 @@ TEST_CASE("a bomber whose lifetime runs out detonates where it stands", "[towers
             REQUIRE(found);
             break;
         }
-        case SwarmerKind::SlowBomber:  REQUIRE(world.slow_zones().count() == 1); break;
         case SwarmerKind::MucusBomber: REQUIRE(world.fluid().count() > 0); break;
         default: FAIL("not a detonating kind"); break;
         }
     }
-}
-
-// ---------------------------------------------------------------------------
-// SLOW BOMBER -- Interferon.
-// ---------------------------------------------------------------------------
-
-TEST_CASE("SLOW BOMBER swarmers leave a circle that slows what stands in it, and the slow wears off",
-          "[towers][combat][slow]") {
-    SimWorld world = make_world();
-    TowerSystem ts;
-    ts.register_systems(world);
-    const EntityId tower = ts.place(world, TowerType::Interferon, kRoomCenterLeft);
-    REQUIRE(tower.valid());
-    ready_now(world, tower);
-
-    const Vec2 at = kRoomCenterLeft + Vec2{7.0f, 0.0f};
-    spawn_chaff_cluster(world, at, 30, 30.0f, 0.4f);
-    const f32 before = world.chaff().total_density();
-    REQUIRE(slowed_count(world) == 0);
-
-    for (int i = 0; i < 240 && world.slow_zones().count() == 0; ++i) step_combat(world);
-    REQUIRE(world.slow_zones().count() >= 1);
-    const CombatEvent* pop = first_event(world, CombatEventType::Explosion, TowerType::Interferon);
-    REQUIRE(pop != nullptr);
-    REQUIRE((pop->visual_id & kSwarmerEventBit) != 0);
-
-    // The circle slows what it covers -- with the tier's factor, not a global
-    // constant -- and damages nothing.
-    step_combat(world);
-    REQUIRE(slowed_count(world) > 0);
-    const SlowBomberParams& sb = tower_mechanics(TowerType::Interferon, 1).slow_bomber;
-    for (usize i = 0; i < world.chaff().count(); ++i) {
-        if ((world.chaff().flags[i] & chaff_flags::kSlowed) == 0) continue;
-        REQUIRE(world.chaff().slow_factor[i] == Catch::Approx(sb.slow_factor));
-        REQUIRE(world.chaff().slow_remaining[i] > 0.0f);
-    }
-    REQUIRE(world.chaff().total_density() == before);
-
-    // Now stop the supply: no tower, no swarmers in flight. The circle runs
-    // out, then the slow it left on the agents runs out after it.
-    ts.sell(world, tower);
-    world.swarmers().clear();
-    const int settle = static_cast<int>((sb.zone_duration + sb.slow_duration) / kFixedDt) + 30;
-    for (int i = 0; i < settle; ++i) step_combat(world);
-    REQUIRE(world.slow_zones().count() == 0);
-    REQUIRE(slowed_count(world) == 0);
-    for (usize i = 0; i < world.chaff().count(); ++i) REQUIRE(world.chaff().slow_remaining[i] == 0.0f);
 }
 
 TEST_CASE("a slowed chaff agent actually moves slower, by its own factor", "[towers][combat][slow]") {
@@ -1423,7 +1363,7 @@ TEST_CASE("attaching a combat-event sink cannot change one bit of state_hash",
         TowerSystem ts;
         ts.register_systems(world);
         REQUIRE(ts.place(world, TowerType::Neutrophil, kRoomCenterLeft).valid());
-        REQUIRE(ts.place(world, TowerType::Interferon, Vec2{6.0f, 7.0f}).valid());
+        REQUIRE(ts.place(world, TowerType::CytotoxicT, Vec2{6.0f, 7.0f}).valid());
         REQUIRE(ts.place(world, TowerType::GobletCell, Vec2{6.0f, 13.0f}).valid());
         spawn_chaff_cluster(world, kRoomCenterLeft + Vec2{5.0f, 1.0f}, 120, 3.0f, 1.5f);
         for (int i = 0; i < 240; ++i) {
@@ -1446,8 +1386,8 @@ TEST_CASE("the same seed and the same towers produce the same tick-by-tick hashe
         ts.register_systems(world);
         // One of each, spread around the left room (x 0..24, y 4..15) with
         // enough clearance for every footprint.
-        const Vec2 spots[] = {Vec2{21.0f, 6.5f}, Vec2{12.0f, 10.0f}, Vec2{21.0f, 13.5f},
-                              Vec2{3.0f, 6.5f}, Vec2{3.0f, 13.5f}, Vec2{30.0f, 10.0f}};
+        const Vec2 spots[] = {Vec2{21.0f, 6.5f}, Vec2{12.0f, 10.0f}, Vec2{3.0f, 6.5f},
+                              Vec2{3.0f, 13.5f}, Vec2{30.0f, 10.0f}};
         static_assert(sizeof(spots) / sizeof(spots[0]) == kTowerTypeCount, "one spot per roster type");
         for (u32 t = 0; t < kTowerTypeCount; ++t) {
             INFO("placing " << tower_type_name(static_cast<TowerType>(t)) << " at "
@@ -1599,8 +1539,7 @@ bool capture(SimWorld& world, vfx::ParticleSystem& particles, render::Renderer& 
     renderer.submit_tissue(world.tissue(), world.sdf(), 0.0f);
     renderer.submit_chaff(world.chaff(), world.spatial());
     renderer.submit_entities(world.ecs());
-    renderer.submit_fields(world.damage().fields().data(), world.damage().fields().size(),
-                           world.slow_zones().zones().data(), world.slow_zones().zones().size());
+    renderer.submit_fields(world.damage().fields().data(), world.damage().fields().size());
     renderer.submit_projectiles(world.projectiles());
     renderer.submit_swarmers(world.swarmers());
     renderer.submit_fluid(world.fluid(), world.fluid_system().draw_radius());
@@ -1619,7 +1558,7 @@ bool capture(SimWorld& world, vfx::ParticleSystem& particles, render::Renderer& 
 
 } // namespace
 
-TEST_CASE("VISUAL: all seven towers release at once, with live swarmers and particles",
+TEST_CASE("VISUAL: all five towers release at once, with live swarmers and particles",
           "[towers][combat][visual][gl]") {
     HeadlessGl gl(1600, 900);
     if (!gl.ok) { WARN("headless GL unavailable; skipping"); return; }
@@ -1632,7 +1571,6 @@ TEST_CASE("VISUAL: all seven towers release at once, with live swarmers and part
     const Site sites[] = {
         {TowerType::Neutrophil, {22.0f, 50.0f}, {32.0f, 50.0f}},   // SHOOTER
         {TowerType::Macrophage, {22.0f, 18.0f}, {32.0f, 18.0f}},   // ARBOR GRABBER
-        {TowerType::Interferon, {62.0f, 50.0f}, {71.0f, 50.0f}},   // SLOW BOMBER
         {TowerType::CytotoxicT, {62.0f, 18.0f}, {68.0f, 18.0f}},   // LATCH
         {TowerType::GobletCell, {98.0f, 34.0f}, {107.0f, 34.0f}},  // MUCUS BOMBER
         {TowerType::Fibroblast, {98.0f, 58.0f}, {110.0f, 58.0f}},  // BUILDER

@@ -147,9 +147,8 @@ Everything a tick touches hangs off `SimWorld`, and the tick order is fixed:
 3. ECS systems                 [prof: ecs_tick]   (towers release swarmers here)
 4. damage fields apply
 4b. projectiles
-4c. swarmers, then what they asked for (bursts -> fields, slow circles ->
-    slow zones, splashes -> fluid, rounds -> projectiles, builds -> scars),
-    then slow zones
+4c. swarmers, then what they asked for (bursts -> fields, splashes ->
+    fluid, rounds -> projectiles, builds -> scars), then slow expiry
 4c''. hostile pass: pathogens vs towers, scars and swarmers (sim/hostile),
     then tower damage landed on the ECS, then the scar sweep (sim/scar)
     tears down what the pass emptied      [prof: hostile_update]
@@ -351,7 +350,7 @@ tick. That is right for the sim and wrong for the screen: a persistent field
 tick as permanently absent. `rendered_fields()` is the snapshot taken just
 before that cull.
 
-### 4.5b `sim/swarm`, `sim/zone`, and the Macrophage arbor grabber
+### 4.5b `sim/swarm` and the Macrophage arbor grabber
 
 Every tower is a **spawner** with no range or attack of its own. On each cooldown,
 for as long as the round is on (`TowerSystem::set_releasing`, driven from the
@@ -370,7 +369,6 @@ about it comes from a `SwarmerProfile` the tower registers per type and tier
 | Cytotoxic T | Latch | latches on, drains, moves on when the host dies |
 | Neutrophil | Shooter | holds a standoff and fires real rounds into `sim/projectile` |
 | Macrophage | ArborGrabber | up to three independent branching pseudopods extend, latch a target each, and pull them into the body to kill them; the squad's rank forms a wall across the lane |
-| Interferon | SlowBomber | detonates into a timed slow circle (`sim/zone/SlowZones.h`) |
 | Goblet Cell | MucusBomber | detonates into a splash of real fluid (`sim/fluid`) |
 | Fibroblast | Builder | hunts nothing: walks to the site it was released with and lays a collagen scar there (`sim/scar`) |
 
@@ -407,11 +405,11 @@ records `SwarmerEffects`, and `SimWorld::apply_swarmer_effects()` lands them
 (and the hit points queued against named agents) right after the update. That
 keeps the kernel testable with a chaff store and a spatial hash alone.
 
-`sim/zone/SlowZones.h` owns the Interferon's circles. A slow is **timed** now:
-`chaff_flags::kSlowed` plus the parallel `slow_remaining` / `slow_factor`
-streams on `ChaffBuffers`, refreshed every tick an agent stands in a zone and
-cleared by the zone system when the clock runs out. Named agents get the same
-through `comp::Slowed`.
+A slow is **timed**: `chaff_flags::kSlowed` plus the parallel
+`slow_remaining` / `slow_factor` streams on `ChaffBuffers`, refreshed every
+tick an agent stands in the Goblet Cell's mucus and cleared by
+`ChaffBuffers::expire_slows()` (once per tick, before the fluid) when the
+clock runs out. Named agents get the same through `comp::Slowed`.
 
 ### 4.5c `sim/hostile` — the horde fights back
 
@@ -677,16 +675,14 @@ previous working program**, so a typo never blanks the screen.
 
 **Tower art lives in three shaders, and they have to agree.** A tower's *body* is
 a procedural SDF in `entity.frag`, selected by `shape_id = 16 + TowerType` (16
-Neutrophil, 17 Macrophage, 18 Interferon, 19 Cytotoxic T, 20 Goblet Cell, 21
-Fibroblast); its
+Neutrophil, 17 Macrophage, 18 Cytotoxic T, 19 Goblet Cell, 20 Fibroblast); its
   *attack* is normally its swarmers, drawn from sim state by `swarmer.frag`
   (tinted by the releasing tower, silhouette varied by kind), plus whatever
   they leave behind. The Macrophage's own body (shape 17) previews its
   released unit's silhouette: roots that fork into fine branching fingers
   reaching in every direction, the same `sdf_macrophage` used (at unit scale)
   by `swarmer.frag`'s `sdf_arbor_macrophage`.
-  The Interferon's slow circle goes through `field.frag` (shape 5), the Goblet
-  Cell's mucus through the fluid pass (see
+  The Goblet Cell's mucus goes through the fluid pass (see
 `sim/fluid/Fluid.h`), the Neutrophil's rounds through the projectile pass, the
 Fibroblast's scars through the entity pass as shape 6 (a bar whose `v_tint.a`
 is its remaining integrity, spent on bites and cracks).
@@ -698,13 +694,13 @@ Three rules hold body and attack together:
   survives a glance at 60 fps (DESIGN.md §9.3), so a tower must never say two
   different things in two places.
 - **Silhouette is the fallback channel, so no two bodies share one.** Most are
-  amoeboid blobs; the Interferon is deliberately the hard-edged crystal, the
-  Goblet Cell the only vessel-shaped one, and the Fibroblast the only spindle.
+  amoeboid blobs; the Goblet Cell is the only vessel-shaped one, and the
+  Fibroblast the only spindle.
   Each also carries a *directional* feature aligned to local +x — the
   Cytotoxic T's flattened synapse face, the Goblet Cell's open apical mouth —
   which `entity.vert` has already rotated onto the aim.
 - **Tier is spent on something countable.** `EntityInstance::shape_param` carries
-  the raw tier, and each body turns it into phagosomes / crystal reach /
+  the raw tier, and each body turns it into phagosomes /
   lytic granules / mucin granules, so an upgrade shows in the silhouette
   rather than only in the stat panel.
 

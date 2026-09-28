@@ -100,16 +100,16 @@ layout(location = 14) uniform vec4 u_latch_throb_pump[FAM_COUNT];
 layout(location = 17) uniform float u_shadows;
 // The worm body (sim/burrow/Burrow.h SlitherParams). shape = (amplitude,
 // wave number in local units, body length, thickness), extra = (segments,
-// head amplitude, -, -). Body length 0 means "this family is not a worm".
+// head amplitude, curl, probe). Body length 0 means "this family is not a worm".
 layout(location = 18) uniform vec4 u_slither_shape[FAM_COUNT];
 layout(location = 21) uniform vec4 u_slither_extra[FAM_COUNT];
-// The burrow (sim/burrow/Burrow.h BurrowParams, look half). look = (mound
-// radius, hole radius, clod count, clod size), look2 = (clod throw, sink
-// fraction, -, -), then the dirt and hole colours.
+// The burrow (sim/burrow/Burrow.h BurrowParams, look half). look = (wound
+// radius, puncture radius, ripple count, ripple width), look2 = (ripple
+// reach, sink fraction, subsurface, -), then the flesh and wound colours.
 layout(location = 24) uniform vec4 u_burrow_look[FAM_COUNT];
 layout(location = 27) uniform vec4 u_burrow_look2[FAM_COUNT];
-layout(location = 30) uniform vec4 u_burrow_dirt[FAM_COUNT];
-layout(location = 33) uniform vec4 u_burrow_hole[FAM_COUNT];
+layout(location = 30) uniform vec4 u_burrow_tissue[FAM_COUNT];
+layout(location = 33) uniform vec4 u_burrow_wound[FAM_COUNT];
 
 // ---------------------------------------------------------------------------
 // VIRUS — an icosahedral capsid ringed with stalked receptor knobs.
@@ -390,36 +390,51 @@ float sdf_bacteria(vec2 p, float phase, float pulse, out float flagellum,
 }
 
 // ---------------------------------------------------------------------------
-// PARASITE — a burrowing worm.
+// PARASITE — a thread-thin burrowing nematode.
 //
-// SLITHER. The body is a tapered tube laid along a sine, y = A sin(phase + k x).
-// `phase` comes from the sim (ChaffBuffers::slither_phase) and advances by k
-// per unit of GROUND travelled, so as the body slides forward through local x
-// the crests stay fixed on the ground: every point of the body follows the
-// same wavy track the head took, which is the difference between a snake and
-// a wiggling sprite. A small idle rate keeps the wave travelling tailward
-// when the worm is stood still in a jam.
+// Drawn in its own self-contained path (draw_worm, called from the top of
+// main() and returning the finished fragment), because nothing about it
+// matches the round sprites the shared path shades: it is a two-pixel tube,
+// it has to punch a wound into the floor, and part of it is under the floor.
 //
-// The distance is the vertical offset to the curve divided by the curve's
-// arc-length factor (the flagellum's trick above), so bends keep an even
-// width; past either end the body is capped round.
+// SLITHER. The body is a tapered tube laid along a travelling sine,
+// y = A sin(phase + k x). `phase` comes from the sim
+// (ChaffBuffers::slither_phase) and advances by k per unit of GROUND walked,
+// so the crests stay fixed on the ground while the body slides through them:
+// every point follows the track the head took, which is the difference
+// between a snake and a wiggling sprite. On top of that wave:
+//   curl   a slow C-bow of the whole body, so it is never a clean sine;
+//   probe  the head sweeping side to side on its own faster beat, searching;
+//   whip   the tail swinging wider than the body.
+// The distance is the offset to the curve over the curve's arc-length factor
+// (the flagellum's trick above), so bends keep an even width.
+//
+// LOOK. The rest of the horde is wet membrane with a bright rim; a worm that
+// thin has no room for a rim, so it gets the tube's own light instead: darker
+// flanks, one glossy highlight line on the lit side, the gut showing through
+// the translucent cuticle as a dark beaded line, a pharynx bulb behind the
+// head and a pale mouth cone at the tip.
 //
 // BURROW. The batcher packs the burrow phase into v_wobble as 2 * state +
-// progress (sim::burrow_state). While diving, the body slides FORWARD into a
-// hole dug where its head was and is clipped at the hole; underground, only
-// the exit mound is drawn, rising over the telegraph; emerging, the body slides
-// out of a hole at its tail's final position. The hole's mound -- a ring of
-// disturbed tissue with a dark mouth and clods tumbling round the rim -- is
-// drawn over the clipped end, so the cut is never seen.
-//
+// progress (sim::burrow_state). It does not dig into dirt; it bores into the
+// FLESH of the lumen floor, in the tissue's own palette:
+//   dive        a puncture opens under its head, the floor puckers into
+//               swollen rose lips with creases pulled toward the hole, rings
+//               ripple out across the floor, and the body pours in -- carrying
+//               on, visible as a dark ridge under the skin, before it fades;
+//   underground the exit blister: the floor swells into a glossy dome that
+//               throbs and splits open as the worm arrives;
+//   emerge      the body pushes up out of the split, trailing its under-skin
+//               ridge behind it, and the wound closes behind it.
 // The wave is evaluated on the QUAD's x (ground), not the body's, so while
-// the body slides into or out of the hole (with the phase frozen, because a
-// burrowing agent does not move) its crests still stay put on the ground.
+// the body slides in or out (phase frozen: a burrowing agent does not move)
+// its crests still stay put.
 // ---------------------------------------------------------------------------
 const float WORM_SURFACE = 0.0;
 const float WORM_DIVING = 1.0;
 const float WORM_UNDERGROUND = 2.0;
 const float WORM_EMERGING = 3.0;
+const float kWormPi = 3.14159265;
 
 // mode = sim::burrow_state, t = 0..1 progress through it.
 void worm_burrow_mode(float pad, out float mode, out float t) {
@@ -427,83 +442,269 @@ void worm_burrow_mode(float pad, out float mode, out float t) {
     t = clamp(pad - 2.0 * mode, 0.0, 1.0);
 }
 
-// Signed distance to the worm. `shift` slides the body along x in its own
-// frame (the dive/emerge). `u` returns 0 at the tail to 1 at the head, `lat`
-// the signed offset across the body in units of its local half-width.
-float sdf_worm(vec2 p, float phase, vec4 shape, vec4 extra, float shift,
-               out float u, out float lat) {
+// Signed distance to the worm. shape = (amplitude, k, length, thickness),
+// extra = (segments, head amplitude, curl, probe). `shift` slides the body
+// along x in its own frame (the dive/emerge). `u` returns 0 at the tail to 1
+// at the head, `lat` the signed offset across the body in half-widths.
+// `min_r` keeps the tube at least that thick, so a far-zoomed worm does not
+// break into dots.
+// The centreline as a PATH ON THE GROUND: its sideways offset at ground
+// coordinate `gx` (local x with the body at rest), and the path's slope there.
+//
+// Every term -- wave, envelope, curl, head probe -- is a function of where on
+// the ground a point is, not of which part of the body is there. At rest the
+// two are the same thing. While burrowing they are not: the body slides along
+// x with the phase frozen, and because the path is fixed, every point of the
+// body follows the exact track the head took and passes through the one point
+// where the head was -- which is where the hole is dug. Past either end the
+// path simply carries on with the end's envelope.
+float worm_path(float gx, float phase, vec4 shape, vec4 extra, out float slope) {
     float amp = shape.x;
     float k = shape.y;
     float len = shape.z;
-    float thick = shape.w;
+    float ue = clamp(gx / len + 0.5, 0.0, 1.0);
+    // Envelope: the tail whips, the head carries its own share.
+    float env = mix(1.0, extra.y, smoothstep(0.55, 1.0, ue)) *
+                (1.0 + 0.45 * (1.0 - smoothstep(0.0, 0.3, ue)));
+    float a = amp * env;
+    float arg = phase + k * gx;
+    float s = 2.0 * ue - 1.0;
+    float bow = extra.z * sin(phase * 0.23 + 1.3);
+    float head_w = smoothstep(0.7, 1.0, ue);
+    head_w *= head_w;
+    slope = a * k * cos(arg) + bow * 4.0 * s / len;
+    return a * sin(arg) + bow * (s * s - 0.33) + extra.w * sin(phase * 0.9 + 0.6) * head_w;
+}
+
+float sdf_worm(vec2 p, float phase, vec4 shape, vec4 extra, float shift, float min_r,
+               out float u, out float lat) {
+    float len = shape.z;
     float xt = -0.5 * len;
     float xh = 0.5 * len;
 
     float bx = p.x - shift;                 // body frame
     float xc = clamp(bx, xt, xh);
-    u = (xc - xt) / len;
+    u = (xc - xt) / len;                    // which part of the body
+    float slope;
+    float w = worm_path(xc + shift, phase, shape, extra, slope);
 
-    // The tail whips, the head steadies: a worm leads with a steady head.
-    float a = amp * mix(1.0, extra.y, smoothstep(0.55, 1.0, u));
-    float gx = xc + shift;                  // ground coordinate of that point
-    float arg = phase + k * gx;
-    float w = a * sin(arg);
-    float slope = a * k * cos(arg);
-
-    // Tapered tail, a thickened saddle (clitellum) two thirds of the way up,
-    // and a slightly narrower blunt head. A gentle peristaltic swell travels
-    // tailward so the body is never a rigid tube.
-    float prof = mix(0.30, 1.0, smoothstep(0.0, 0.38, u)) *
-                 mix(1.0, 0.82, smoothstep(0.84, 1.0, u));
-    prof += 0.16 * exp(-pow((u - 0.68) / 0.06, 2.0));
-    prof *= 1.0 + 0.06 * sin(u * 18.0 + phase * 1.7);
-    float r = thick * prof;
+    // Whip-thin tail, full body, and a round, slightly swollen head capped by
+    // a circle of its own radius. A faint peristaltic swell travels down the
+    // body and dies out before the head.
+    float prof = mix(0.12, 1.0, smoothstep(0.0, 0.45, u)) *
+                 mix(1.0, 1.15, smoothstep(0.82, 0.96, u));
+    prof *= 1.0 + 0.08 * sin(u * 26.0 - phase * 0.6) * (1.0 - smoothstep(0.75, 0.9, u));
+    float r = max(shape.w * prof, min_r);
 
     float dy = (p.y - w) * inversesqrt(1.0 + slope * slope);
-    lat = dy / max(r, 1e-4);
-    return length(vec2(bx - xc, dy)) - r;
+    float dist = length(vec2(bx - xc, dy));
+    // Measured from the centre line in 2D, so the rounded caps shade as the
+    // domes they are rather than as a flat continuation of the tube.
+    lat = (dy < 0.0 ? -1.0 : 1.0) * min(dist / r, 1.0);
+    return dist - r;
 }
 
-// The dug hole and its ring of disturbed tissue, centred on `c`, grown by
-// `grow` (0 = nothing, 1 = full size) and churning by `churn` (clods flung
-// out and falling back). Returns the mound's coverage; `mound_rgb` its colour.
-float burrow_mound(vec2 p, vec2 c, float grow, float churn, float seed, vec4 look,
-                   vec4 look2, vec4 dirt, vec4 hole, out vec3 mound_rgb) {
-    mound_rgb = dirt.rgb;
-    if (grow <= 0.0) return 0.0;
+// Straight-alpha "over", accumulated premultiplied.
+void worm_over(inout vec3 acc, inout float acc_a, vec3 rgb, float a) {
+    a = clamp(a, 0.0, 1.0);
+    acc = rgb * a + acc * (1.0 - a);
+    acc_a = a + acc_a * (1.0 - a);
+}
+
+vec4 draw_worm(uint fs) {
+    vec4 shape = u_slither_shape[fs];
+    vec4 extra = u_slither_extra[fs];
+    vec4 look = u_burrow_look[fs];     // wound radius, puncture radius, ripple count, ripple width
+    vec4 look2 = u_burrow_look2[fs];   // ripple reach, sink fraction, subsurface, -
+    vec4 flesh = u_burrow_tissue[fs];
+    vec3 wound = u_burrow_wound[fs].rgb;
+    float len = shape.z;
+    float thick = shape.w;
+    float phase = v_anim_phase;
+    vec2 p = v_local;
+
+    float px = max(length(fwidth(p)), 1e-4);   // one pixel, in local units
+    float fade = v_tint.a;
+    if ((v_flags & FLAG_HIDDEN) != 0u) fade *= 0.35;   // held by a Macrophage arm
+    // Light comes from where the shadow does not go.
+    vec2 L = -normalize(v_shadow_offset + vec2(1e-5));
+
+    float mode, t;
+    worm_burrow_mode(v_wobble, mode, t);
+    float sink_frac = clamp(look2.y, 0.05, 1.0);
+    float sink = clamp(t / sink_frac, 0.0, 1.0);
+    float settle = 1.0 - smoothstep(sink_frac, 1.0, t);
+
+    float shift = 0.0;
+    float hole_x = 0.0;
+    float under_dir = 0.0;   // +1: x > hole is under the floor; -1: x < hole is
+    float grow = 0.0;        // wound size
+    float open = 0.0;        // puncture opening
+    float ripple = 0.0;      // ripple strength
+    float blister = 0.0;     // exit dome
+    if (mode == WORM_DIVING) {
+        hole_x = 0.5 * len;
+        under_dir = 1.0;
+        shift = sink * len;
+        grow = smoothstep(0.0, 0.15, t) * settle;
+        open = grow;
+        ripple = settle;
+    } else if (mode == WORM_UNDERGROUND) {
+        hole_x = -0.5 * len;
+        under_dir = -1.0;
+        grow = smoothstep(0.0, 1.0, t);
+        blister = grow;
+        open = smoothstep(0.8, 1.0, t);
+        ripple = 0.5 * grow;
+    } else if (mode == WORM_EMERGING) {
+        hole_x = -0.5 * len;
+        under_dir = -1.0;
+        shift = -(1.0 - sink) * len;
+        grow = settle;
+        open = settle;
+        blister = (1.0 - sink) * settle;
+        ripple = settle;
+    }
+    bool burrowing = mode != WORM_SURFACE;
+    bool body_up = mode != WORM_UNDERGROUND;
+
+    vec3 acc = vec3(0.0);
+    float acc_a = 0.0;
+    uint flags = v_flags;
+    float crowd = float((flags >> CHAFF_CROWD_SHIFT) & CHAFF_CROWD_MASK) * (1.0 / 255.0);
+
+    // ---- Contact shadow (the body's, above the floor only) -----------------
+    if (body_up) {
+        vec2 sp = p - v_shadow_offset;
+        float su, sl;
+        float sd = sdf_worm(sp, phase, shape, extra, shift, 0.5 * px, su, sl);
+        float soft = max(1.5 * thick, px);
+        float sa = (1.0 - smoothstep(-soft, soft, sd - 0.4 * thick)) * 0.32 *
+                   mix(1.0, 0.25, crowd) * u_shadows;
+        if (burrowing) sa *= 1.0 - smoothstep(-px, px, (sp.x - hole_x) * under_dir);
+        worm_over(acc, acc_a, vec3(0.03, 0.02, 0.03), sa);
+    }
+
+    float hole_slope;
+    vec2 c = vec2(hole_x, worm_path(hole_x, phase, shape, extra, hole_slope));
     vec2 d = p - c;
     float r = length(d);
     float ang = atan(d.y, d.x);
-    float R = look.x * grow;
-    float H = look.y * grow;
+    float seed = phase;                    // frozen while burrowing
+    float R = look.x * grow;               // wound radius
+    float P = look.y * open;               // puncture radius
 
-    // Lumpy, not a clean ring: two low harmonics on the edge.
-    float lumps = 1.0 + 0.07 * sin(ang * 5.0 + seed) + 0.04 * sin(ang * 9.0 - seed * 1.7);
-    float ring = 1.0 - smoothstep(R * lumps - 0.03, R * lumps + 0.01, r);
+    // ---- Ripples spreading across the floor -------------------------------
+    if (ripple > 0.0 && grow > 0.0) {
+        float count = clamp(look.z, 0.0, 4.0);
+        vec3 ripple_rgb = mix(flesh.rgb, vec3(1.0, 0.80, 0.80), 0.55);
+        for (float i = 0.0; i < 4.0; i += 1.0) {
+            if (i >= count) break;
+            float f = fract(t * 1.5 + i / max(count, 1.0));
+            float rr = R + f * look2.x;
+            float w = max(look.w, 2.0 * px);
+            float ring = exp(-pow((r - rr) / w, 2.0)) * (1.0 - f) * (1.0 - f) * ripple;
+            worm_over(acc, acc_a, ripple_rgb, ring * 0.22 * fade);
+        }
+    }
 
-    // Clods: one per sector of the rim (the virus knob fold), each at its own
-    // distance, thrown past the rim while the ground is being worked.
-    float count = max(look.z, 1.0);
-    float sector = 6.28318530 / count;
-    float idx = floor((ang + 0.5 * sector) / sector);
-    float fa = ang - idx * sector;
-    float jitter = fract(sin(idx * 12.9898 + seed * 78.233) * 43758.5453);
-    float out_r = R * (0.85 + 0.2 * jitter) + look2.x * churn * (0.4 + 0.6 * jitter);
-    vec2 q = r * vec2(cos(fa), sin(fa));
-    float clod = (1.0 - smoothstep(-0.006, 0.006,
-                                   length(q - vec2(out_r, 0.0)) - look.w * grow * (0.7 + 0.5 * jitter))) *
-                 smoothstep(0.05, 0.35, churn);
+    // ---- The wound: swollen lips, creases, blister ------------------------
+    float lip_a = 0.0;
+    if (grow > 0.0) {
+        float wobble = 1.0 + 0.06 * sin(ang * 5.0 + seed) + 0.04 * sin(ang * 8.0 - seed * 1.3);
+        float edge = R * wobble;
+        // No hard rim: coverage eases out from the swollen inner lip to well
+        // past the nominal edge, so the lane shows through more and more.
+        float feather = 1.0 - smoothstep(edge * 0.6, edge * 1.3, r);
+        lip_a = feather * feather * (3.0 - 2.0 * feather);
+        // Height falls off from the puncture's lip to the outer edge; its
+        // slope faces the light on one side and turns away on the other.
+        float h = 1.0 - smoothstep(P, edge, r);
+        float lit = dot(d / max(r, 1e-4), L) * (1.0 - h);
+        // A soft swell: the ring just outside the opening catches the light.
+        float swell = exp(-pow((r - mix(P, edge, 0.4)) / max(edge * 0.3, px), 2.0));
+        vec3 lip = flesh.rgb * (0.92 + 0.14 * h);
+        lip = mix(lip, vec3(0.98, 0.70, 0.70), swell * 0.35 * grow);
+        lip = mix(lip, vec3(0.97, 0.66, 0.66), clamp(lit, 0.0, 1.0) * 0.35);
+        lip *= 1.0 - 0.12 * clamp(-lit, 0.0, 1.0);
+        // Creases pulled toward the hole: the skin puckering into it.
+        float crease = pow(0.5 + 0.5 * sin(ang * 9.0 + seed * 3.0), 5.0) *
+                       (1.0 - smoothstep(P, edge * 0.8, r)) * open;
+        lip = mix(lip, wound, crease * 0.12);
+        // A soft blush toward the wound colour just round the opening.
+        lip = mix(lip, wound, (1.0 - smoothstep(P, P * 1.8 + px, r)) * open * 0.25);
+        // The exit blister: a taut glossy dome with a throb in it.
+        if (blister > 0.0) {
+            float throb = 1.0 + 0.08 * sin(t * 40.0) * blister;
+            float dome = 1.0 - smoothstep(0.0, edge * throb, r);
+            vec2 spec_c = L * edge * 0.35;
+            float spec = exp(-pow(length(d - spec_c) / max(edge * 0.28, px), 2.0));
+            lip = mix(lip, mix(flesh.rgb * 1.15, vec3(1.0, 0.85, 0.85), 0.35), dome * blister);
+            lip = mix(lip, vec3(1.0, 0.93, 0.92), spec * 0.45 * blister);
+        }
+        worm_over(acc, acc_a, lip, lip_a * flesh.a * fade);
+    }
 
-    // Colour: a lighter crest on the rim, darker toward the mouth, and the
-    // mouth itself.
-    float crest = 1.0 - smoothstep(0.0, R * 0.35, abs(r - mix(H, R, 0.55)));
-    vec3 rgb = dirt.rgb * mix(0.75, 1.35, crest);
-    float mouth = 1.0 - smoothstep(H - 0.012, H + 0.004, r);
-    rgb = mix(rgb, hole.rgb, mouth);
-    rgb = mix(rgb, dirt.rgb * 1.2, clod * (1.0 - ring));
-    mound_rgb = rgb;
-    float edge_fade = mix(0.55, 1.0, 1.0 - smoothstep(H, R, r));
-    return max(ring * edge_fade, clod) * dirt.a;
+    // ---- The part of the body that is under the skin: a dark ridge ---------
+    float u, lat;
+    float body_d = sdf_worm(p, phase, shape, extra, shift, 0.5 * px, u, lat);
+    float past = burrowing ? (p.x - hole_x) * under_dir : -1.0;   // > 0: under the floor
+    if (burrowing && look2.z > 0.0 && past > 0.0 && body_up) {
+        float ridge = 1.0 - smoothstep(-thick, thick * 1.5 + px, body_d);
+        float a = look2.z * ridge * exp(-past / 0.3);
+        worm_over(acc, acc_a, mix(flesh.rgb * 0.7, wound, 0.45), a * fade);
+    }
+
+    // ---- The puncture itself ----------------------------------------------
+    if (P > 0.0) {
+        vec2 dp = d * vec2(0.7, 1.35);         // an oval along the line of travel
+        float rp = length(dp);
+        float pucker = 1.0 + 0.07 * sin(atan(dp.y, dp.x) * 6.0 + seed);
+        float pm = 1.0 - smoothstep(P * pucker * 0.55, P * pucker * 1.2 + px, rp);
+        vec3 hole = mix(wound, wound * 0.6, 1.0 - clamp(rp / max(P, 1e-4), 0.0, 1.0));
+        worm_over(acc, acc_a, hole, pm * 0.9 * fade);
+    }
+
+    // ---- The body above the floor -----------------------------------------
+    if (body_up) {
+        float body_a = 1.0 - smoothstep(-px, px, body_d);
+        // Gone the moment it passes the lip of the hole, with a short soft
+        // edge so the cut reads as sinking, not slicing.
+        if (burrowing) body_a *= 1.0 - smoothstep(-look.y * 0.6 - px, px, past);
+        if (body_a > 0.0) {
+            vec3 base = v_tint.rgb;
+            float cyl = sqrt(max(0.0, 1.0 - lat * lat));   // 1 on the centre line
+            vec3 col = base * mix(0.55, 1.1, cyl);
+            // Gut through the translucent cuticle, beaded, from behind the
+            // pharynx to short of the tail.
+            float gut = exp(-pow(lat / 0.3, 2.0)) * smoothstep(0.1, 0.22, u) *
+                        (1.0 - smoothstep(0.74, 0.84, u));
+            float beads = 0.7 + 0.3 * sin(u * 70.0 - phase * 0.5);
+            col = mix(col, base * 0.32, gut * 0.6 * beads);
+
+            // Fine annulation of the cuticle.
+            col *= 0.93 + 0.07 * abs(sin(u * extra.x * kWormPi));
+            // One wet highlight line on the lit side.
+            float lc = 0.45 * clamp(L.y * 2.0, -1.0, 1.0);
+            float spec = exp(-pow((lat - lc) / 0.22, 2.0));
+            col = mix(col, vec3(1.0, 0.94, 0.9), spec * 0.5);
+            // A slightly paler, rounder head.
+            col = mix(col, mix(base, vec3(0.95, 0.78, 0.7), 0.35), smoothstep(0.84, 0.97, u) * 0.6);
+            // Darkening into the hole as it goes under.
+            if (burrowing) col = mix(col, wound * 0.7, smoothstep(-2.0 * look.y - px, 0.0, past) * 0.8);
+
+            if ((flags & FLAG_MARKED) != 0u) col = mix(col, vec3(1.0), 0.25);
+            if ((flags & FLAG_SLOWED) != 0u) col = mix(col, vec3(0.05, 0.19, 0.27), 0.78);
+            float hit_flash = float((flags >> CHAFF_FLASH_SHIFT) & CHAFF_FLASH_MASK) * (1.0 / 255.0);
+            if (hit_flash > 0.0) col = mix(col, u_hit_flash_color[fs].rgb, hit_flash);
+            // The thin edge lets a little of the lumen through: a wet, not
+            // painted, body.
+            worm_over(acc, acc_a, col, body_a * mix(0.75, 1.0, cyl) * fade);
+        }
+    }
+
+    if (acc_a <= 0.001) return vec4(0.0);
+    return vec4(acc / acc_a, acc_a);
 }
 
 void main() {
@@ -517,6 +718,14 @@ void main() {
     // owns the whole deformation (and v_wobble is the throb clock, not the
     // wobble amount). `stroke` beats -1..1 with it for everything below.
     bool latched = (v_flags & FLAG_LATCHED) != 0u;
+
+    // A worm (any family whose slither block is on) draws itself whole.
+    if (u_slither_shape[fam_slot].z > 0.0 && !latched) {
+        vec4 worm_out = draw_worm(fam_slot);
+        if (worm_out.a <= 0.001) discard;
+        o_color = worm_out;
+        return;
+    }
     float stroke = 0.0;
     float throb_T = v_wobble;
     float spike_phase = v_anim_phase;
@@ -544,66 +753,7 @@ void main() {
     float core_shade = 0.62; // per-species interior darkening (see depth below)
     vec2 bacteria_skin = v_local;
 
-    // The worm and its burrow. Everything below keys off `worm`, never off
-    // the family id, so any family whose slither block is enabled is drawn
-    // this way.
-    vec4 worm_shape = u_slither_shape[fam_slot];
-    bool worm = worm_shape.z > 0.0 && !latched;
-    float worm_u = 0.0;
-    float worm_lat = 0.0;
-    float worm_mode = WORM_SURFACE;
-    float worm_t = 0.0;
-    float worm_shift = 0.0;
-    float worm_clip = 1.0;       // body visibility (0 = inside the hole)
-    float hole_x = 0.0;          // local x of the hole being used
-    bool hole_is_head = true;    // dive: the hole swallows x > hole_x
-    float mound = 0.0;
-    vec3 mound_rgb = vec3(0.0);
-
-    if (worm) {
-        worm_burrow_mode(v_wobble, worm_mode, worm_t);
-        vec4 look = u_burrow_look[fam_slot];
-        vec4 look2 = u_burrow_look2[fam_slot];
-        float sink_frac = clamp(look2.y, 0.05, 1.0);
-        float sink = clamp(worm_t / sink_frac, 0.0, 1.0);
-        float settle = 1.0 - smoothstep(sink_frac, 1.0, worm_t);
-        float len = worm_shape.z;
-        float grow = 0.0;
-        float churn = 0.0;
-        if (worm_mode == WORM_DIVING) {
-            hole_x = 0.5 * len;
-            hole_is_head = true;
-            worm_shift = sink * len;
-            grow = smoothstep(0.0, 0.12, worm_t) * settle;
-            churn = sin(3.14159265 * sink);
-        } else if (worm_mode == WORM_UNDERGROUND) {
-            hole_x = -0.5 * len;
-            hole_is_head = false;
-            // The exit telegraph: the mound heaves up as the worm arrives.
-            grow = smoothstep(0.0, 1.0, worm_t);
-            churn = 0.5 + 0.5 * sin(worm_t * 25.0);
-            worm_clip = 0.0;
-        } else if (worm_mode == WORM_EMERGING) {
-            hole_x = -0.5 * len;
-            hole_is_head = false;
-            worm_shift = -(1.0 - sink) * len;
-            grow = settle;
-            churn = sin(3.14159265 * sink);
-        }
-        body_d = sdf_worm(v_local, v_anim_phase, worm_shape, u_slither_extra[fam_slot],
-                          worm_shift, worm_u, worm_lat);
-        if (worm_mode != WORM_SURFACE && worm_mode != WORM_UNDERGROUND) {
-            float past = hole_is_head ? v_local.x - hole_x : hole_x - v_local.x;
-            worm_clip = 1.0 - smoothstep(-0.01, 0.01, past);
-        }
-        if (grow > 0.0) {
-            mound = burrow_mound(v_local, vec2(hole_x, 0.0), grow, churn, v_anim_phase,
-                                 look, look2, u_burrow_dirt[fam_slot], u_burrow_hole[fam_slot],
-                                 mound_rgb);
-        }
-        rim_scale = 0.9;
-        core_shade = 0.85;
-    } else if (family == FAM_VIRUS) {
+    if (family == FAM_VIRUS) {
         body_d = sdf_virus(body_p, 0.36, spike_phase, pulse, spike_scale);
         rim_scale = 0.8;     // crisper edge; a capsid is a hard shell
         if (latched && throb_skin.w > 0.0) {
@@ -630,12 +780,8 @@ void main() {
         body_d = length(v_local) - (0.5 + pulse);
     }
 
-    // The worm's rim ramp is scaled to its thickness: the shared 0.06 is
-    // wider than the whole worm and would draw it as a blur.
-    float rim_w = worm ? 0.35 * worm_shape.w * rim_scale : 0.06 * rim_scale;
-    float body_alpha = 1.0 - smoothstep(-rim_w, 0.0, body_d);
+    float body_alpha = 1.0 - smoothstep(-0.06 * rim_scale, 0.0, body_d);
     body_alpha = max(body_alpha, flagellum);
-    body_alpha *= worm_clip;
 
     // A replication begins as two complementary hemispheres occupying the
     // parent's original position. Their local frame is shared, so opposite
@@ -690,27 +836,10 @@ void main() {
     // the mass gets ONE contact shadow, around the outside.
     float crowd = float((v_flags >> CHAFF_CROWD_SHIFT) & CHAFF_CROWD_MASK) * (1.0 / 255.0);
     float shadow_d = length(v_local - v_shadow_offset) - 0.52;
-    float shadow_soft = 0.18;
-    float shadow_clip = 1.0;
-    if (worm) {
-        // A worm casts a worm-shaped shadow, clipped at the same hole.
-        vec2 sp = v_local - v_shadow_offset;
-        float su, slat;
-        shadow_d = sdf_worm(sp, v_anim_phase, worm_shape, u_slither_extra[fam_slot],
-                            worm_shift, su, slat) - 0.25 * worm_shape.w;
-        shadow_soft = 0.6 * worm_shape.w;
-        if (worm_mode == WORM_UNDERGROUND) {
-            shadow_clip = 0.0;
-        } else if (worm_mode != WORM_SURFACE) {
-            float past = hole_is_head ? sp.x - hole_x : hole_x - sp.x;
-            shadow_clip = 1.0 - smoothstep(-0.01, 0.01, past);
-        }
-    }
-    float shadow_alpha = (1.0 - smoothstep(-shadow_soft, 0.02, shadow_d)) * 0.46 *
-                         mix(1.0, 0.18, crowd) * sprite_fade * split_mask * u_shadows *
-                         shadow_clip;
+    float shadow_alpha = (1.0 - smoothstep(-0.18, 0.02, shadow_d)) * 0.46 *
+                         mix(1.0, 0.18, crowd) * sprite_fade * split_mask * u_shadows;
 
-    if (body_alpha <= 0.0 && shadow_alpha <= 0.0 && mound <= 0.0) discard;
+    if (body_alpha <= 0.0 && shadow_alpha <= 0.0) discard;
 
     vec3 rgb = v_tint.rgb;
 
@@ -719,36 +848,17 @@ void main() {
     // the edge lifts toward white, which fakes a wet membrane over a darker
     // cytoplasm. This is the whole "biological" budget at this sprite size, and
     // it is what separates a cell from a flat dot.
-    // A worm is a thin tube: its depth is measured against its own
-    // half-width, or the ramp never gets past the rim.
-    float depth = worm ? clamp(-body_d / max(worm_shape.w, 1e-4), 0.0, 1.0)
-                       : clamp(-body_d * 3.4, 0.0, 1.0);    // 0 at edge, 1 deep inside
-    rgb *= mix(worm ? 1.12 : 1.30, core_shade, depth);      // bright rim, dark core
+    float depth = clamp(-body_d * 3.4, 0.0, 1.0);          // 0 at edge, 1 deep inside
+    rgb *= mix(1.30, core_shade, depth);                    // bright rim, dark core
     // The push lights the whole body. Colour survives any zoom; at gameplay
     // distance this is most of what "feeding" looks like.
     if (latched) rgb *= 1.0 - u_latch_throb_pump[fam_slot].x * stroke;
-    float rim = 1.0 - smoothstep(0.0, worm ? 0.5 * worm_shape.w : 0.11, abs(body_d));
+    float rim = 1.0 - smoothstep(0.0, 0.11, abs(body_d));
     // A feeding membrane glistens on the push: wet, not lacquered.
-    float rim_gain = latched ? 0.80 - 0.15 * stroke : (worm ? 0.35 : 0.80);
+    float rim_gain = latched ? 0.80 - 0.15 * stroke : 0.80;
     rgb = mix(rgb, mix(rgb, vec3(1.0), 0.72), rim * rim_gain);  // membrane highlight
 
-    if (worm) {
-        // Annulation: dark grooves between the body rings, the rings bulging
-        // lighter between them. A lit dorsal stripe down the back and a paler
-        // saddle where the clitellum swells. All of it rides the deformed
-        // body coordinates, so it slithers with the body.
-        vec4 extra = u_slither_extra[fam_slot];
-        float rings = abs(sin(worm_u * extra.x * 3.14159265));
-        float groove = 1.0 - smoothstep(0.0, 0.35, rings);
-        rgb *= mix(1.08, 0.62, groove * smoothstep(0.02, 0.1, worm_u));
-        float dorsal = 1.0 - smoothstep(0.0, 0.45, abs(worm_lat + 0.25));
-        rgb = mix(rgb, mix(v_tint.rgb, vec3(1.0), 0.45), dorsal * 0.35);
-        float saddle = exp(-pow((worm_u - 0.68) / 0.07, 2.0));
-        rgb = mix(rgb, mix(v_tint.rgb, vec3(1.0, 0.85, 0.75), 0.5), saddle * 0.45);
-        // Blunt head, a touch darker, with a mouth pore.
-        float head = smoothstep(0.93, 1.0, worm_u);
-        rgb *= 1.0 - 0.25 * head;
-    } else if (family == FAM_VIRUS) {
+    if (family == FAM_VIRUS) {
         // Dense genetic core: a small hot centre, which is what makes a virion
         // read as "shell around cargo" rather than a knobbed blob.
         vec2 core_p = v_local;
@@ -823,15 +933,6 @@ void main() {
     }
 
     float body_a = body_alpha * sprite_fade;
-
-    // The burrow mound sits OVER the body: it is the tissue the body is
-    // sliding into, and it hides the clipped end.
-    if (mound > 0.0) {
-        float m = mound * v_tint.a;
-        rgb = mix(rgb * body_a, mound_rgb, m);
-        body_a = m + body_a * (1.0 - m);
-        rgb /= max(body_a, 1e-4);
-    }
 
     // Standard "body over shadow" compositing so the whole sprite + shadow
     // resolves to one straight-alpha output for the destination blend.

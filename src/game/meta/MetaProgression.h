@@ -98,7 +98,9 @@ struct CampaignProgress {
 
 class MetaProgression {
 public:
-    static constexpr i32 kSaveVersion = 1;
+    /// v2: tower indices renumbered when a roster slot was cut (v1 slot 2 is
+    /// dropped, slots 3-5 move down one). from_json() migrates v1 saves.
+    static constexpr i32 kSaveVersion = 2;
 
     // ---- Wave 5A earn-rate constants ---------------------------------------
     // DESIGN.md §14 flags the exact antibody-memory earn-rate curve and

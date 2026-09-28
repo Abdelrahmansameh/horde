@@ -34,6 +34,25 @@ f32 wrap_angle(f32 a) {
     return a;
 }
 
+/// True if `p` is at least `margin` inside `area`, or `area` is empty.
+bool inside_play_area(const Rect& area, Vec2 p, f32 margin) {
+    const Vec2 size = area.size();
+    if (size.x <= 0.0f || size.y <= 0.0f) return true;
+    return p.x >= area.min.x + margin && p.x <= area.max.x - margin &&
+           p.y >= area.min.y + margin && p.y <= area.max.y - margin;
+}
+
+/// Open lane: walkable in the live mask (a clot or scar is not) and at least
+/// `clearance` from any wall. An unbaked mask or field checks nothing.
+bool on_open_lane(const TissueMask& mask, const DistanceField& sdf, Vec2 p, f32 clearance) {
+    if (mask.width() > 0 && mask.height() > 0) {
+        const IVec2 c = mask.world_to_cell(p);
+        if (!mask.walkable(c.x, c.y)) return false;
+    }
+    if (sdf.width() > 0 && sdf.height() > 0 && sdf.sample(p) < clearance) return false;
+    return true;
+}
+
 /// A fresh cooldown: base +- uniform jitter, never below one tick so a
 /// zero-cooldown config still takes at least a tick on the surface.
 f32 roll_cooldown(const BurrowParams& bp, Rng& rng, f32 dt) {
@@ -96,16 +115,24 @@ bool BurrowSystem::score_exit(const BurrowParams& bp, Vec2 from, f32 from_cost, 
                               const ChaffBuffers& chaff, const FlowField& flow,
                               const DistanceField& sdf, const TissueMask& mask,
                               const SpatialHash& hash, const std::vector<BurrowThreat>& threats,
-                              f32& out_score) const {
+                              f32& out_score, const Rect& play_area, f32 body_half) const {
     (void)from;
-    // Standing ground: walkable in the live mask (a clot or scar is not), and
-    // with room for the body.
-    if (mask.width() > 0 && mask.height() > 0) {
-        const IVec2 c = mask.world_to_cell(exit);
-        if (!mask.walkable(c.x, c.y)) return false;
-    }
-    if (sdf.width() > 0 && sdf.height() > 0 && sdf.sample(exit) < bp.wall_clearance) return false;
+    if (!inside_play_area(play_area, exit, bp.edge_margin)) return false;
+    // Standing ground with room for the body.
+    if (!on_open_lane(mask, sdf, exit, bp.wall_clearance)) return false;
     if (!flow.reachable(exit)) return false;
+    // It comes up facing down the lane, so the whole body -- and the exit
+    // hole under its tail -- lie along the flow either side of the exit.
+    // Each end has to be on open lane too, or the hole is dug in the wall.
+    if (body_half > 0.0f) {
+        const Vec2 fwd = math::normalize_safe(flow.sample(exit));
+        if (math::length_sq(fwd) <= math::kEpsilon) return false;
+        const Vec2 tail = exit - fwd * body_half;
+        const Vec2 head = exit + fwd * body_half;
+        if (!on_open_lane(mask, sdf, tail, bp.wall_clearance)) return false;
+        if (!on_open_lane(mask, sdf, head, bp.wall_clearance)) return false;
+        if (!inside_play_area(play_area, tail, bp.edge_margin)) return false;
+    }
 
     // Further along the lane, measured along the lane: the cone decides which
     // way to LOOK, cost-to-goal decides what counts as forward, so a cone that
@@ -131,7 +158,7 @@ bool BurrowSystem::score_exit(const BurrowParams& bp, Vec2 from, f32 from_cost, 
 BurrowStats BurrowSystem::update(ChaffBuffers& chaff, const FlowField& flow,
                                  const DistanceField& sdf, const TissueMask& mask,
                                  const SpatialHash& hash, const std::vector<BurrowThreat>& threats,
-                                 Rng& rng, f32 dt) {
+                                 Rng& rng, f32 dt, const Rect& play_area) {
     BurrowStats stats{};
     if (!active_ || dt <= 0.0f) return stats;
 
@@ -194,7 +221,27 @@ BurrowStats BurrowSystem::update(ChaffBuffers& chaff, const FlowField& flow,
                 timer -= dt;
                 if (timer > 0.0f) break;
 
-                // Due. Look down the lane from here.
+                // Due -- but only where the player can see it: off-screen
+                // (a spawn point outside the play area) it waits until it
+                // has walked in.
+                if (!inside_play_area(play_area, p, bp.edge_margin)) {
+                    timer = math::max(bp.retry_delay, dt);
+                    break;
+                }
+                // The dive's hole is dug under the head. A worm shoved against
+                // a wall, or rounding a bend with its head over the lining,
+                // waits until its head is back over open lane.
+                const f32 body_half = tuning_.body_half_length[f];
+                if (body_half > 0.0f) {
+                    const f32 h = chaff.body_heading[i];
+                    const Vec2 head = p + Vec2{std::cos(h), std::sin(h)} * body_half;
+                    if (!on_open_lane(mask, sdf, head, bp.wall_clearance) ||
+                        !inside_play_area(play_area, head, bp.edge_margin)) {
+                        timer = math::max(bp.retry_delay, dt);
+                        break;
+                    }
+                }
+                // Look down the lane from here.
                 Vec2 fwd = flow.sample(p);
                 const f32 from_cost = flow.sample_cost(p);
                 if (math::length_sq(fwd) <= math::kEpsilon || !std::isfinite(from_cost)) {
@@ -216,7 +263,7 @@ BurrowStats BurrowSystem::update(ChaffBuffers& chaff, const FlowField& flow,
                     const Vec2 exit = p + Vec2{std::cos(a), std::sin(a)} * d;
                     f32 score = 0.0f;
                     if (!score_exit(bp, p, from_cost, exit, chaff, flow, sdf, mask, hash, threats,
-                                    score)) {
+                                    score, play_area, body_half)) {
                         continue;
                     }
                     if (!found || score > best_score) {

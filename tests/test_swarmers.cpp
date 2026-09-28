@@ -36,7 +36,6 @@ const Rect kBounds{Vec2{0.0f, 0.0f}, Vec2{128.0f, 128.0f}};
 constexpr u16 kLatch = 0;
 constexpr u16 kShooter = 1;
 constexpr u16 kBomber = 2;
-constexpr u16 kSlow = 3;
 constexpr u16 kMucus = 4;
 constexpr u16 kArbor = 5;
 
@@ -91,11 +90,6 @@ struct Fixture {
         bomber.burst_damage = 25.0f;
         bomber.burst_named_damage = 30.0f;
         swarm.set_profile(kBomber, bomber);
-
-        SwarmerProfile slow = base;
-        slow.kind = SwarmerKind::SlowBomber;
-        slow.source = TowerType::Interferon;
-        swarm.set_profile(kSlow, slow);
 
         SwarmerProfile mucus = base;
         mucus.kind = SwarmerKind::MucusBomber;
@@ -750,8 +744,7 @@ TEST_CASE("an arbor arm captures and pulls a configurable nearby chaff chunk",
 TEST_CASE("a bomber detonates on contact and asks for its effect, killing itself",
           "[swarm][sim][bomber]") {
     struct Case { u16 profile; TowerType source; };
-    const Case cases[] = {{kBomber, TowerType::Count}, {kSlow, TowerType::Interferon},
-                          {kMucus, TowerType::GobletCell}};
+    const Case cases[] = {{kBomber, TowerType::Count}, {kMucus, TowerType::GobletCell}};
     for (const Case& c : cases) {
         INFO("profile " << c.profile);
         Fixture f;
@@ -766,7 +759,6 @@ TEST_CASE("a bomber detonates on contact and asks for its effect, killing itself
             f.step(1, &sink);
             const SwarmerEffects& fx = f.system.effects();
             if (c.profile == kBomber && !fx.bursts.empty()) { detonated = true; where = fx.bursts[0].origin; }
-            if (c.profile == kSlow && !fx.zones.empty()) { detonated = true; where = fx.zones[0].origin; }
             if (c.profile == kMucus && !fx.splashes.empty()) { detonated = true; where = fx.splashes[0].origin; }
         }
         REQUIRE(detonated);

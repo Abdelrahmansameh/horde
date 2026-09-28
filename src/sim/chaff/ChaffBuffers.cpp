@@ -288,4 +288,15 @@ void ChaffBuffers::assert_invariants() const {
 #endif
 }
 
+void ChaffBuffers::expire_slows(f32 dt) {
+    for (usize i = 0; i < count_; ++i) {
+        if ((flags[i] & chaff_flags::kSlowed) == 0) continue;
+        slow_remaining[i] -= dt;
+        if (slow_remaining[i] > 0.0f) continue;
+        slow_remaining[i] = 0.0f;
+        slow_factor[i] = chaff_flags::kDefaultSlowFactor;
+        flags[i] &= static_cast<u8>(~chaff_flags::kSlowed);
+    }
+}
+
 } // namespace immune::sim

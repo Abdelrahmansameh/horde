@@ -510,6 +510,15 @@ TEST_CASE("a builder arriving on a standing scar reinforces it instead of stacki
     REQUIRE(hp.current == Catch::Approx(100.0f));
     REQUIRE(f.world.scars().stats().reinforced_total == 2);
 
+    // Outside the spacing, but with its bar lying across the standing one's
+    // far end: still reinforced, never a wall laid over a wall.
+    REQUIRE(math::length(Vec2{30.5f, 16.2f} - Vec2{30.0f, 10.0f}) > f.builder.scar_spacing);
+    const EntityId across = f.world.scars().build(f.world, f.desc_at(Vec2{30.5f, 16.2f}), &r, nullptr);
+    REQUIRE(r == ScarBuildResult::Reinforced);
+    REQUIRE(across == id);
+    REQUIRE(f.scar_count() == 1);
+    REQUIRE(f.world.scars().stats().reinforced_total == 3);
+
     // Outside it: a second scar.
     const EntityId second = f.world.scars().build(f.world, f.desc_at(Vec2{44.0f, 10.0f}), &r, nullptr);
     REQUIRE(r == ScarBuildResult::Built);
@@ -659,6 +668,12 @@ TEST_CASE("a Fibroblast releases builders that lay scars in its reach, up to its
         REQUIRE(f.world.ecs().registry().get<comp::Scar>(e).owner == tower);
         REQUIRE(std::fabs(std::sin(bar.rotation)) == Catch::Approx(1.0f).margin(0.1f));
     }
+    // No two walls lie on top of each other, even though several builders
+    // were in flight at once.
+    std::vector<Bar> bars;
+    for (auto e : f.world.ecs().registry().view<comp::Scar>()) bars.push_back(f.bar_of(e));
+    for (usize i = 0; i < bars.size(); ++i)
+        for (usize j = i + 1; j < bars.size(); ++j) REQUIRE_FALSE(bars_overlap(bars[i], bars[j]));
     // And the horde never sealed itself out: the goal stays reachable.
     f.world.flow().rebake_pending(f.world.tissue());
     REQUIRE(f.world.flow().reachable(Vec2{4.0f, 10.0f}));

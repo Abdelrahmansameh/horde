@@ -149,18 +149,6 @@ struct ArborGrabberParams {
     f32 body_block = 0.9f;
 };
 
-struct SlowBomberParams {
-    /// Seconds a bomber chases one target before detonating where it is.
-    f32 chase_seconds = 1.0f;
-    f32 zone_radius = 3.0f;
-    /// Seconds the circle stays on the ground.
-    f32 zone_duration = 3.0f;
-    /// Seconds an agent stays slowed after its last tick inside the circle.
-    f32 slow_duration = 1.5f;
-    /// Max-speed multiplier while slowed; 0.4 = 40% speed.
-    f32 slow_factor = 0.4f;
-};
-
 struct MucusBomberParams {
     /// Seconds a bomber chases one target before detonating where it is.
     f32 chase_seconds = 1.0f;
@@ -223,7 +211,6 @@ struct TowerMechanics {
     ShooterParams shooter{};
     BomberParams bomber{};
     ArborGrabberParams arbor_grabber{};
-    SlowBomberParams slow_bomber{};
     MucusBomberParams mucus_bomber{};
     BuilderParams builder{};
 };
@@ -372,7 +359,6 @@ struct SimCapacities {
     u32 max_damage_fields = 512;
     u32 max_projectiles = 8192;
     u32 max_swarmers = 32768;
-    u32 max_slow_zones = 256;
     u32 max_fluid_particles = 8192;
     u32 max_combat_events = 8192;
     /// Chaff death bursts raised per tick, out of the budget above. See

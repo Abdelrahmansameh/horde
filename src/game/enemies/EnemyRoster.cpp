@@ -354,6 +354,12 @@ sim::BurrowTuning burrow_tuning() {
     for (u32 i = 0; i < kFamilyCount; ++i) {
         t.burrow[i] = cfg.families[i].burrow;
         t.slither[i] = cfg.families[i].slither;
+        // The drawn body's reach from its centre: its length in sprite units
+        // times the sprite's world size, read from the renderer's table,
+        // which holds the live silhouette with or without a config file.
+        const sim::SlitherParams& sl = cfg.families[i].slither;
+        const f32 silhouette = render::family_visual(static_cast<PathogenFamily>(i)).silhouette;
+        t.body_half_length[i] = sl.enabled ? 0.5f * sl.body_length * silhouette : 0.0f;
     }
     return t;
 }

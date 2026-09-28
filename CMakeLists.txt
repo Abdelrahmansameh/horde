@@ -91,8 +91,7 @@ add_library(immune_sim STATIC
   src/sim/scar/Scars.cpp
   src/sim/swarm/Swarmers.cpp
   src/sim/spatial/SpatialHash.cpp
-  src/sim/squad/Squads.cpp
-  src/sim/zone/SlowZones.cpp)
+  src/sim/squad/Squads.cpp)
 target_link_libraries(immune_sim PUBLIC immune_core EnTT::EnTT)
 
 add_library(immune_render STATIC

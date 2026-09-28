@@ -469,11 +469,11 @@ void Hud::build(const sim::SimWorld& world, const game::Economy& economy,
 
     // ---- Number-key shortcuts arm the same build cursor as clicking a button.
     using platform::Action;
-    // Sized to the roster, not to the 8 available key bindings: SelectTower8
-    // remains available for a future roster slot.
+    // Sized to the roster, not to the 8 available key bindings: SelectTower6-8
+    // remain available for future roster slots.
     static constexpr Action kSelectActions[kTowerTypeCount] = {
         Action::SelectTower1, Action::SelectTower2, Action::SelectTower3,
-        Action::SelectTower4, Action::SelectTower5, Action::SelectTower6,
+        Action::SelectTower4, Action::SelectTower5,
     };
     if (!input.ui_capture_keyboard()) {
         for (u32 i = 0; i < kTowerTypeCount; ++i) {

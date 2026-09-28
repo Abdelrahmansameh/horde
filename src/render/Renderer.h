@@ -46,7 +46,6 @@ class TissueMask;
 class DistanceField;
 class ProjectileBuffers;
 class SwarmerBuffers;
-struct SlowZone;
 class FluidBuffers;
 struct DamageField;
 }
@@ -281,12 +280,8 @@ public:
     void submit_entities(const sim::EcsWorld& ecs);
 
     /// Damage/AoE fields as fluid shader effects (DESIGN.md §8.5): toxin clouds,
-    /// histamine blooms, antibody tides, complement lightning. The Interferon's
-    /// slow circles (sim/zone/SlowZones.h) ride the same pass as their own
-    /// shape, so pass them alongside; they share the instance buffer and the
-    /// draw call.
-    void submit_fields(const sim::DamageField* fields, usize count,
-                       const sim::SlowZone* zones = nullptr, usize zone_count = 0);
+    /// histamine blooms, antibody tides, complement lightning.
+    void submit_fields(const sim::DamageField* fields, usize count);
 
     /// The Goblet Cell's live mucus (sim/fluid/Fluid.h), surfaced as a real
     /// liquid rather than as a cloud of sprites.

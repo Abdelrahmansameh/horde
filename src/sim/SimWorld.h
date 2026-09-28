@@ -22,7 +22,7 @@
 //   2b. burrowing + slither        [prof: burrow] (sim/burrow/Burrow.h)
 //   3. ECS systems                 [prof: ecs_tick]
 //   4. damage fields apply
-//   4b. projectiles, swarmers (and what they asked for), slow zones, fluid
+//   4b. projectiles, swarmers (and what they asked for), slow expiry, fluid
 //   4c''. hostile pass: pathogens vs towers, scars and swarmers (sim/hostile),
 //       after the swarmers have moved and before the fluid; then the scar
 //       sweep (sim/scar), which tears down what the pass just emptied
@@ -50,7 +50,6 @@
 #include "sim/swarm/Swarmers.h"
 #include "sim/spatial/SpatialHash.h"
 #include "sim/squad/Squads.h"
-#include "sim/zone/SlowZones.h"
 
 #include <string>
 #include <vector>
@@ -72,9 +71,6 @@ struct SimDesc {
     /// standing cloud; this only has to be above the equilibrium a full board
     /// of maxed towers reaches.
     usize max_swarmers = 32768;
-    /// Live Interferon slow zones (sim/zone/SlowZones.h). Each is one circle
-    /// query per tick, so this is a cost cap as much as a memory one.
-    usize max_slow_zones = 256;
     /// Live Goblet Cell fluid particles (sim/fluid/Fluid.h). Emission rate is
     /// derived from nozzle geometry rather than authored, so the standing
     /// population is a firm number -- roughly 380 per firing tower at tier 3.
@@ -283,10 +279,6 @@ public:
     const SwarmerBuffers& swarmers() const { return swarmers_; }
     SwarmerSystem& swarmer_system() { return swarmer_system_; }
 
-    /// The Interferon's live slow circles.
-    SlowZoneSystem& slow_zones() { return slow_zones_; }
-    const SlowZoneSystem& slow_zones() const { return slow_zones_; }
-
     /// The horde's attacks on the player's cells (sim/hostile).
     HostileSystem& hostile() { return hostile_; }
     const HostileSystem& hostile() const { return hostile_; }
@@ -330,7 +322,7 @@ public:
     NamedTargetList& named_targets() { return named_targets_; }
 
     /// Resolves what the last swarmer update asked for -- bursts into the
-    /// damage system, slow circles into slow_zones(), splashes into the fluid,
+    /// damage system, splashes into the fluid,
     /// rounds into projectiles() -- and applies the hit points the kernel
     /// accumulated against named agents. tick() calls this right after the
     /// swarmer update; a test driving the pieces by hand calls it the same way.
@@ -431,7 +423,6 @@ private:
     u64 burrows_total_ = 0;
     FriendlyTowerList friendly_towers_;
     ScarSystem scars_;
-    SlowZoneSystem slow_zones_;
     FluidBuffers fluid_;
     FluidSystem fluid_system_;
     CombatEventSink combat_events_;

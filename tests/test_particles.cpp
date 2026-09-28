@@ -61,7 +61,6 @@ TEST_CASE("each tower source produces particles for its own signature event",
         {TowerType::Neutrophil, sim::CombatEventType::MuzzleFlash},
         {TowerType::Macrophage, sim::CombatEventType::MuzzleFlash},
         {TowerType::Macrophage, sim::CombatEventType::ProjectileImpact},
-        {TowerType::Interferon, sim::CombatEventType::Explosion},
         {TowerType::CytotoxicT, sim::CombatEventType::ProjectileImpact},
         {TowerType::GobletCell, sim::CombatEventType::Explosion},
         {TowerType::GobletCell, sim::CombatEventType::MuzzleFlash},
@@ -82,7 +81,7 @@ TEST_CASE("capacity is a hard wall and overflow is counted, not crashed",
     ParticleSystem ps;
     ps.init(64, 7);
     for (int i = 0; i < 500; ++i) {
-        ps.emit_for_event(make_event(sim::CombatEventType::Explosion, TowerType::Interferon, 5));
+        ps.emit_for_event(make_event(sim::CombatEventType::Explosion, TowerType::GobletCell, 5));
     }
     REQUIRE(ps.live_count() <= ps.capacity());
     REQUIRE(ps.capacity() == 64);
@@ -108,7 +107,7 @@ TEST_CASE("build_instances returns only the requested blend mode", "[vfx][partic
     // Mist is the alpha-blended kind; explosions author both it and additive
     // sparks, so this event exercises the split.
     for (int i = 0; i < 20; ++i) {
-        ps.emit_for_event(make_event(sim::CombatEventType::Explosion, TowerType::Interferon, 3));
+        ps.emit_for_event(make_event(sim::CombatEventType::Explosion, TowerType::GobletCell, 3));
     }
     ps.update(0.016f, nullptr);
 

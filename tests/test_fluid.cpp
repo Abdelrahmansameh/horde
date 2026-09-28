@@ -326,8 +326,7 @@ TEST_CASE("damage is aggregate: soaked chaff loses density and is weakened",
     REQUIRE((h.chaff.flags[0] & chaff_flags::kMarked) != 0);
     REQUIRE((h.chaff.flags[1] & chaff_flags::kMarked) == 0);
     // Deliberately NOT slowed. The Goblet Cell weakens; it does not root, or
-    // it would make Interferon's cone and Neutrophil's NET redundant instead
-    // of stacking with them.
+    // it would make Neutrophil's NET redundant instead of stacking with it.
     REQUIRE((h.chaff.flags[0] & chaff_flags::kSlowed) == 0);
     REQUIRE((h.chaff.flags[1] & chaff_flags::kSlowed) == 0);
 }

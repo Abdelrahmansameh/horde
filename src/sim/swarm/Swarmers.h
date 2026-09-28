@@ -20,8 +20,6 @@
 //                              projectile store; chases if the target moves off.
 //   Bomber       Generic burst primitive retained for authored encounters and tests;
 //                no current tower maps to it.
-//   SlowBomber   Interferon.   Detonates on contact: a timed slow zone
-//                              (sim/zone/SlowZones.h). No damage at all.
 //   MucusBomber  Goblet Cell.  Detonates on contact: a splash of real fluid
 //                              (sim/fluid/Fluid.h) that strongly slows what it soaks.
 //   Builder      Fibroblast.   Hunts nothing. Walks to the spot it was given
@@ -153,7 +151,7 @@
 //
 // WHAT THIS LAYER DOES NOT DO ITSELF
 // A detonation or a shot lands in some OTHER store: a burst is a DamageField,
-// a slow circle is a SlowZone, a splash is fluid, a round is a projectile.
+// a splash is fluid, a round is a projectile.
 // This layer knows none of those. It records what should happen in
 // SwarmerEffects, and SimWorld resolves that list right after update()
 // (SimWorld::apply_swarmer_effects). That keeps the kernel testable with a
@@ -216,7 +214,8 @@ enum class SwarmerKind : u8 {
     Latch = 0,
     Shooter = 1,
     Bomber = 2,
-    SlowBomber = 3,
+    // 3 is unused. Left as a gap so the kind ids the swarmer shaders branch
+    // on stay put.
     MucusBomber = 4,
     Builder = 5,
     /// Macrophage unit. Several independently timed branching pseudopods.
@@ -226,8 +225,7 @@ enum class SwarmerKind : u8 {
 
 const char* swarmer_kind_name(SwarmerKind kind);
 inline bool swarmer_kind_detonates(SwarmerKind kind) {
-    return kind == SwarmerKind::Bomber || kind == SwarmerKind::SlowBomber ||
-           kind == SwarmerKind::MucusBomber;
+    return kind == SwarmerKind::Bomber || kind == SwarmerKind::MucusBomber;
 }
 
 /// Everything a swarmer of one type/tier does, in one flat record. Swarmers
@@ -325,12 +323,6 @@ struct SwarmerProfile {
     /// Hit points taken off a named agent at the centre, before armor.
     f32 burst_named_damage = 20.0f;
 
-    // ---- SlowBomber ----
-    f32 zone_radius = 3.0f;
-    f32 zone_duration = 3.0f;
-    f32 slow_duration = 1.5f;
-    f32 slow_factor = 0.4f;
-
     // ---- MucusBomber ----
     u32 splash_droplets = 24;
     f32 splash_radius = 1.2f;
@@ -390,7 +382,7 @@ inline constexpr f32 kWallContactFraction = 0.8f;
 /// same membrane the wall projection keeps off the vessel, and where the
 /// renderer draws the edge -- and a pathogen's is its family radius. Every
 /// number below is a plain multiplier on those, so the block reads the same
-/// for a tiny interferon granule and a fat macrophage.
+/// for a tiny granule and a fat macrophage.
 struct SwarmerCollisionTuning {
     /// Master switch; off reproduces the pre-collision swarm exactly.
     bool enabled = true;
@@ -554,18 +546,6 @@ struct SwarmerBurst {
     u16 visual_id = 0;
 };
 
-struct SwarmerSlowZone {
-    Vec2 origin{0.0f, 0.0f};
-    f32 radius = 3.0f;
-    f32 duration = 3.0f;
-    f32 slow_duration = 1.5f;
-    f32 slow_factor = 0.4f;
-    u8 family_mask = 0xFF;
-    EntityId owner{};
-    TowerType source = TowerType::Interferon;
-    u16 visual_id = 0;
-};
-
 struct SwarmerSplash {
     Vec2 origin{0.0f, 0.0f};
     u32 droplets = 24;
@@ -607,7 +587,6 @@ struct SwarmerBuild {
 
 struct SwarmerEffects {
     std::vector<SwarmerBurst> bursts;
-    std::vector<SwarmerSlowZone> zones;
     std::vector<SwarmerSplash> splashes;
     std::vector<SwarmerShot> shots;
     std::vector<SwarmerBuild> builds;
@@ -615,7 +594,7 @@ struct SwarmerEffects {
     void reserve(usize n);
     void clear();
     bool empty() const {
-        return bursts.empty() && zones.empty() && splashes.empty() && shots.empty() &&
+        return bursts.empty() && splashes.empty() && shots.empty() &&
                builds.empty();
     }
 };

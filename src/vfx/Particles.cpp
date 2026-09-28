@@ -110,7 +110,6 @@ inline Vec4 mix4(const Vec4& a, const Vec4& b, f32 t) { return a + (b - a) * t; 
 //
 //   Neutrophil SHOOTER       warm white-yellow
 //   Macrophage ARBOR GRABBER orange (digestive, not fire — no reds)
-//   Interferon SLOW BOMBER   blue-white / cyan
 //   CytotoxicT LATCH         violet-white
 //   GobletCell MUCUS BOMBER  jade green (mucin)
 //   Fibroblast BUILDER       salmon / dusty rose (collagen)
@@ -124,7 +123,6 @@ TowerPalette palette_for(TowerType t) {
     switch (t) {
     case TowerType::Neutrophil: return {Vec4{1.00f, 0.96f, 0.68f, 1.0f}, Vec4{1.00f, 1.00f, 0.94f, 1.0f}};
     case TowerType::Macrophage: return {Vec4{1.00f, 0.56f, 0.14f, 1.0f}, Vec4{1.00f, 0.95f, 0.88f, 1.0f}};
-    case TowerType::Interferon: return {Vec4{0.52f, 0.84f, 1.00f, 1.0f}, Vec4{0.88f, 0.98f, 1.00f, 1.0f}};
     case TowerType::CytotoxicT: return {Vec4{0.76f, 0.66f, 1.00f, 1.0f}, Vec4{1.00f, 1.00f, 1.00f, 1.0f}};
     case TowerType::GobletCell: return {Vec4{0.55f, 0.98f, 0.74f, 1.0f}, Vec4{0.90f, 1.00f, 0.92f, 1.0f}};
     case TowerType::Fibroblast: return {Vec4{1.00f, 0.72f, 0.64f, 1.0f}, Vec4{1.00f, 0.94f, 0.90f, 1.0f}};
@@ -624,9 +622,6 @@ void ParticleSystem::emit_for_event(const sim::CombatEvent& event) {
     // Explosion — a bomber swarmer went off. What that looks like is the
     // TOWER's, because what it leaves behind is:
     //
-    //   Interferon   a slow circle. Frost: a cold ring settling outward and a
-    //                few crystal motes drifting down. No fragments, no heat —
-    //                nothing was damaged.
     //   Goblet Cell  a mucus splash. The fluid itself is real and drawn from
     //                sim state; this is only the wet spatter that a particle
     //                surface cannot resolve, same job FluidSplash does.
@@ -641,48 +636,6 @@ void ParticleSystem::emit_for_event(const sim::CombatEvent& event) {
     case sim::CombatEventType::Explosion: {
         const f32 radius = math::max(event.radius, 1.5f);
         constexpr f32 kCharge = 0.055f;   // the ~0.05s pause the brief asks for
-
-        if (event.source == TowerType::Interferon) {
-            // The pop itself: small and cold.
-            ParticleSpawnParams s;
-            s.kind = ParticleKind::Spark;
-            s.blend = BlendMode::Additive;
-            s.position = event.origin;
-            s.color = pal.accent;
-            s.size = 0.45f;
-            s.lifetime = 0.10f;
-            s.drag = 6.0f;
-            push(s);
-            // One ring settling out to the zone's edge — slower than the
-            // generic burst's shock so it reads as spreading cold, not a blast.
-            ParticleSpawnParams r;
-            r.kind = ParticleKind::Ring;
-            r.blend = BlendMode::Additive;
-            r.position = event.origin;
-            r.color = mix4(pal.primary, pal.accent, 0.4f);
-            r.size = radius;
-            r.lifetime = 0.34f;
-            push(r);
-            // Crystal motes drifting down inside the circle.
-            const u32 motes = 8u + 3u * tier;
-            for (u32 k = 0; k < motes; ++k) {
-                const f32 a = pcg_range(rs, 0.0f, math::kTwoPi);
-                const Vec2 radial{std::cos(a), std::sin(a)};
-                ParticleSpawnParams sh;
-                sh.kind = ParticleKind::Shard;
-                sh.blend = BlendMode::AlphaBlend;
-                sh.position = event.origin + radial * pcg_range(rs, 0.0f, radius * 0.8f);
-                sh.velocity = radial * pcg_range(rs, 0.4f, 1.4f);
-                sh.color = mix4(pal.primary, Vec4{1.0f, 1.0f, 1.0f, 1.0f}, 0.5f);
-                sh.size = pcg_range(rs, 0.08f, 0.16f);
-                sh.lifetime = pcg_range(rs, 0.30f, 0.55f);
-                sh.drag = 2.0f;
-                sh.rotation = a;
-                sh.spin = pcg_signed(rs) * 3.0f;
-                push(sh, pcg_range(rs, 0.0f, 0.12f));
-            }
-            break;
-        }
 
         if (event.source == TowerType::GobletCell) {
             ParticleSpawnParams s;
@@ -1062,14 +1015,10 @@ void ParticleSystem::emit_for_event(const sim::CombatEvent& event) {
     }
 
     // -----------------------------------------------------------------------
-    // ConePulse — the CRYO signal. No projectile at all: a slow cold haze
-    // filling the cone. Used to also throw a volley of additive tracers
-    // sweeping out toward the cone's reach on every pulse, but the Interferon
-    // pulses continuously while it has a target, so that read as a constant
-    // spray of bright blue flares flashing out near the edge of its range
-    // rather than as a discrete attack. The standing field (field.frag's
-    // Cone shape) already draws the cone itself, so the haze is enough to
-    // sell "this tick fired".
+    // ConePulse — a cone signal. No projectile at all: a slow cold haze
+    // filling the cone. No tower in the current roster raises one. The
+    // standing field (field.frag's Cone shape) already draws the cone itself,
+    // so the haze is enough to sell "this tick fired".
     // -----------------------------------------------------------------------
     case sim::CombatEventType::ConePulse: {
         const f32 reach = math::max(event.radius, 2.0f);

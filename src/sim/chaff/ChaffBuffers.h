@@ -74,10 +74,10 @@ inline constexpr u8 kAlive      = 1u << 0; ///< Slot occupied.
 /// fluid is actively touching it.
 inline constexpr u8 kMarked     = 1u << 1;
 /// Slow debuff. Unlike kMarked this one is TIMED: `slow_remaining` counts down
-/// and sim/zone/SlowZones.cpp clears the bit when it reaches zero, so a slow
-/// is something an agent walks out of. While set, the movement kernel scales
-/// the family's max speed by `slow_factor`. The Interferon's slow zones are the
-/// only source today.
+/// and SimWorld::tick clears the bit when it reaches zero, so a slow is
+/// something an agent walks out of. While set, the movement kernel scales the
+/// family's max speed by `slow_factor`. The Goblet Cell's mucus
+/// (sim/fluid/Fluid.cpp) is the only source today.
 inline constexpr u8 kSlowed     = 1u << 2;
 /// Burrowed. Untargetable by every tower's swarmers (sim/swarm/Swarmers.cpp)
 /// and by the aim-point search in game/towers; the aggregate damage paths
@@ -104,7 +104,7 @@ inline constexpr u8 kPendingKill= 1u << 7; ///< Scheduled for removal by the nex
 inline constexpr f32 kMarkedDamageMultiplier = 1.5f;
 /// What `slow_factor` holds for an agent nothing has slowed yet, and what a
 /// spawn that arrives already carrying kSlowed (a test, a scripted hazard)
-/// gets: a slow zone overwrites it with its own factor, but a bare flag still
+/// gets: the mucus overwrites it with its own factor, but a bare flag still
 /// has to mean "slowed" rather than silently doing nothing.
 inline constexpr f32 kDefaultSlowFactor = 0.4f;
 } // namespace chaff_flags
@@ -223,8 +223,8 @@ public:
     std::vector<f32> replication_origin_y;
 
     /// The timed half of chaff_flags::kSlowed. `slow_remaining` is seconds of
-    /// slow left (meaningful only while the bit is set; a slow zone refreshes
-    /// it every tick an agent stays inside), and `slow_factor` is the max-speed
+    /// slow left (meaningful only while the bit is set; the mucus refreshes
+    /// it every tick an agent stays in it), and `slow_factor` is the max-speed
     /// multiplier the movement kernel applies while it lasts. Both are sim
     /// state and both are in SimWorld::state_hash(): the bit alone is not the
     /// whole debuff any more.
@@ -325,6 +325,12 @@ public:
     /// the tissue. Every caller measures what it removed as density before
     /// minus density after, so a no-op here books no damage and no kill.
     void apply_density_loss(usize index, f32 amount);
+
+    /// Counts every kSlowed agent's `slow_remaining` down by `dt` and clears
+    /// the bit (resetting its factor) on the ones that ran out. SimWorld::tick
+    /// calls it once per tick, before the mucus refresh; nothing else clears
+    /// kSlowed.
+    void expire_slows(f32 dt);
 
     /// Swap-removes every kPendingKill agent. Invalidates all raw indices and
     /// the spatial hash. Returns the number removed (feeds kill accounting).

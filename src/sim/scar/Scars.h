@@ -24,8 +24,9 @@
 // scar numbers read off the unit's profile. build() may refuse: a bar that
 // would seal the lane is never laid (LaneConnectivity.h, the same rule the
 // clot and, once, tower footprints followed), and one arriving inside the
-// spacing of a live scar reinforces that scar instead -- collagen is laid on
-// collagen -- rather than stacking a second wall on the first. The owner's
+// spacing of a live scar, or whose bar would overlap one, reinforces that
+// scar instead -- collagen is laid on collagen -- rather than stacking a
+// second wall on the first. The owner's
 // live-scar cap is honoured the same way.
 //
 // COST. A build is one BFS window (would_sever_lane) plus one mask stamp,
@@ -129,7 +130,11 @@ public:
     /// between centers (see `nearest`, `spacing`) is not enough to answer
     /// this: a long scar's far end can sit well past `spacing` from its
     /// center while still standing under a bar laid there.
-    bool overlaps(const SimWorld& world, const Bar& bar) const;
+    bool overlaps(const SimWorld& world, const Bar& bar) const { return overlapping(world, bar).valid(); }
+
+    /// The live scar `bar` physically overlaps (the lowest entity, if several,
+    /// so the answer does not depend on pool order). Invalid if none.
+    EntityId overlapping(const SimWorld& world, const Bar& bar) const;
 
     /// Live scars `owner` laid.
     u32 count_owned(const SimWorld& world, EntityId owner) const;

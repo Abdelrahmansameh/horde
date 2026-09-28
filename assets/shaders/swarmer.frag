@@ -5,8 +5,8 @@
 // that released it. The Neutrophil's units ARE little neutrophils (the same
 // sdf_neutrophil entity.frag draws the tower with, at a fraction of the size),
 // the Macrophage's are little macrophages (sdf_arbor_macrophage, branching
-// pseudopods facing the heading), and the Cytotoxic T's, the Interferon's and the Goblet Cell's are
-// the neutrophil body again in their own identity hue — violet, ice blue,
+// pseudopods facing the heading), and the Cytotoxic T's and the Goblet Cell's are
+// the neutrophil body again in their own identity hue — violet and
 // jade — so a cloud reads as "which tower" by colour and "what kind" by
 // silhouette, exactly as the tower bodies do. The Fibroblast's builders are
 // little fibroblasts: a spindle (sdf_fibroblast_unit below, a cut-down

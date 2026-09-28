@@ -110,17 +110,19 @@ EntityId ScarSystem::nearest(const SimWorld& world, Vec2 p, f32 radius, EntityId
     return best == entt::null ? EntityId{} : world.ecs().to_id(best);
 }
 
-bool ScarSystem::overlaps(const SimWorld& world, const Bar& bar) const {
+EntityId ScarSystem::overlapping(const SimWorld& world, const Bar& bar) const {
     const entt::registry& registry = world.ecs().registry();
     auto view = registry.view<const comp::Scar, const comp::Transform, const comp::Health>();
+    entt::entity best = entt::null;
     for (auto e : view) {
         if (view.get<const comp::Health>(e).dead()) continue;
+        if (best != entt::null && e > best) continue;
         const comp::Scar& sc = view.get<const comp::Scar>(e);
         const comp::Transform& tf = view.get<const comp::Transform>(e);
         const Bar other{tf.position, sc.half_extents, tf.rotation};
-        if (bars_overlap(bar, other)) return true;
+        if (bars_overlap(bar, other)) best = e;
     }
-    return false;
+    return best == entt::null ? EntityId{} : world.ecs().to_id(best);
 }
 
 u32 ScarSystem::count_owned(const SimWorld& world, EntityId owner) const {
@@ -163,6 +165,19 @@ EntityId ScarSystem::build(SimWorld& world, const ScarDesc& desc, ScarBuildResul
         const EntityId blocking = nearest(world, desc.center, desc.spacing);
         if (blocking.valid()) return reinforce(blocking);
     }
+
+    Bar bar;
+    bar.center = desc.center;
+    bar.half_extents = desc.half_extents;
+    bar.rotation = scar_rotation(world.flow(), desc.center, desc.owner, desc.tilt);
+
+    // In the way, by geometry: spacing only sees other scars' CENTERS, and a
+    // long wall's far end reaches well past that. The site was clear when the
+    // builder was sent, but another wall may have gone down across it since;
+    // never lay collagen on top of collagen. Checked before the tissue test,
+    // because the cells under a standing scar are carved and read as rock.
+    if (const EntityId under = overlapping(world, bar); under.valid()) return reinforce(under);
+
     // At the cap: the owner's nearest scar takes it, wherever it stands.
     if (desc.max_scars > 0 && desc.owner.valid() && count_owned(world, desc.owner) >= desc.max_scars) {
         const EntityId own = nearest(world, desc.center, 1e9f, desc.owner);
@@ -185,11 +200,6 @@ EntityId ScarSystem::build(SimWorld& world, const ScarDesc& desc, ScarBuildResul
         ++stats_.refused_total;
         return finish(ScarBuildResult::NoCells, EntityId{});
     }
-
-    Bar bar;
-    bar.center = desc.center;
-    bar.half_extents = desc.half_extents;
-    bar.rotation = scar_rotation(world.flow(), desc.center, desc.owner, desc.tilt);
 
     // A wall that seals the lane is refused outright, never laid and lived
     // with: the incremental rebake cannot represent a dead-end pocket

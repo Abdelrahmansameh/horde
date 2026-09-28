@@ -27,7 +27,6 @@
 #include "sim/projectile/Projectiles.h"
 #include "sim/fluid/Fluid.h"
 #include "sim/swarm/Swarmers.h"
-#include "sim/zone/SlowZones.h"
 #include "sim/spatial/SpatialHash.h"
 #include "vfx/Particles.h"
 
@@ -72,14 +71,14 @@ struct FamilyTables {
         color[static_cast<u32>(PathogenFamily::Bacteria)]    = Vec4{0.72f, 0.80f, 0.22f, 1.0f};
         // PARASITE IS BROWN: an earthy worm colour, a clear value step darker
         // than the red lumen and a clear hue step off both greens.
-        color[static_cast<u32>(PathogenFamily::Parasite)]    = Vec4{0.46f, 0.28f, 0.14f, 1.0f};
+        color[static_cast<u32>(PathogenFamily::Parasite)]    = Vec4{0.55f, 0.30f, 0.15f, 1.0f};
 
         // silhouette = THREAT tier, tempo = SPEED tier, wobble = family
         // texture. Virus smaller and faster; bacteria bigger and slower.
         visual[static_cast<u32>(PathogenFamily::Virus)]       = FamilyVisual{3.06f, 3.4f, 0.0f};
         visual[static_cast<u32>(PathogenFamily::Bacteria)]    = FamilyVisual{4.50f, 1.5f, 0.0f};
-        // A long worm: the sprite is big, the body inside it is thin.
-        visual[static_cast<u32>(PathogenFamily::Parasite)]    = FamilyVisual{10.0f, 1.0f, 0.0f};
+        // A long thread of a worm: the sprite is big, the body inside it is thin.
+        visual[static_cast<u32>(PathogenFamily::Parasite)]    = FamilyVisual{9.0f, 1.0f, 0.0f};
     }
 };
 
@@ -206,7 +205,6 @@ Vec4 swarmer_tint(TowerType source) {
     switch (source) {
     case TowerType::Neutrophil: return Vec4{1.00f, 0.96f, 0.68f, 1.0f};
     case TowerType::Macrophage: return Vec4{1.00f, 0.56f, 0.14f, 1.0f};
-    case TowerType::Interferon: return Vec4{0.52f, 0.84f, 1.00f, 1.0f};
     case TowerType::CytotoxicT: return Vec4{0.78f, 0.68f, 1.00f, 1.0f};
     case TowerType::GobletCell: return Vec4{0.55f, 0.98f, 0.74f, 1.0f};
     case TowerType::Fibroblast: return Vec4{1.00f, 0.72f, 0.64f, 1.0f};
@@ -1662,8 +1660,8 @@ void Renderer::submit_chaff(const sim::ChaffBuffers& chaff, const sim::SpatialHa
             Vec4 slither_extra[kFamilyCount];
             Vec4 burrow_look[kFamilyCount];
             Vec4 burrow_look2[kFamilyCount];
-            Vec4 burrow_dirt[kFamilyCount];
-            Vec4 burrow_hole[kFamilyCount];
+            Vec4 burrow_tissue[kFamilyCount];
+            Vec4 burrow_wound[kFamilyCount];
             for (u32 f = 0; f < kFamilyCount; ++f) {
                 const auto fam = static_cast<PathogenFamily>(f);
                 const sim::SlitherParams& sl = sim::family_slither(fam);
@@ -1674,12 +1672,13 @@ void Renderer::submit_chaff(const sim::ChaffBuffers& chaff, const sim::SpatialHa
                 // body_length 0 is how chaff.frag knows this family is not a worm.
                 slither_shape[f] = Vec4{sl.amplitude, k_local, sl.enabled ? sl.body_length : 0.0f,
                                         sl.thickness};
-                slither_extra[f] = Vec4{sl.segments, sl.head_amplitude, 0.0f, 0.0f};
+                slither_extra[f] = Vec4{sl.segments, sl.head_amplitude, sl.curl, sl.probe};
                 const sim::BurrowParams& bp = sim::family_burrow(fam);
-                burrow_look[f] = Vec4{bp.mound_radius, bp.hole_radius, bp.clod_count, bp.clod_size};
-                burrow_look2[f] = Vec4{bp.clod_throw, bp.sink_fraction, 0.0f, 0.0f};
-                burrow_dirt[f] = bp.dirt_color;
-                burrow_hole[f] = bp.hole_color;
+                burrow_look[f] = Vec4{bp.wound_radius, bp.puncture_radius, bp.ripple_count,
+                                      bp.ripple_width};
+                burrow_look2[f] = Vec4{bp.ripple_reach, bp.sink_fraction, bp.subsurface, 0.0f};
+                burrow_tissue[f] = bp.tissue_color;
+                burrow_wound[f] = bp.wound_color;
             }
             for (u32 f = 0; f < kFamilyCount; ++f) {
                 flash_color[f] = sim::family_hit_flash(static_cast<PathogenFamily>(f)).color;
@@ -1705,8 +1704,8 @@ void Renderer::submit_chaff(const sim::ChaffBuffers& chaff, const sim::SpatialHa
             glUniform4fv(3 + 6 * F, F, glm::value_ptr(slither_extra[0]));
             glUniform4fv(3 + 7 * F, F, glm::value_ptr(burrow_look[0]));
             glUniform4fv(3 + 8 * F, F, glm::value_ptr(burrow_look2[0]));
-            glUniform4fv(3 + 9 * F, F, glm::value_ptr(burrow_dirt[0]));
-            glUniform4fv(3 + 10 * F, F, glm::value_ptr(burrow_hole[0]));
+            glUniform4fv(3 + 9 * F, F, glm::value_ptr(burrow_tissue[0]));
+            glUniform4fv(3 + 10 * F, F, glm::value_ptr(burrow_wound[0]));
         }
         imp.chaff_vao.bind();
         const u32 region_base_instance = imp.chaff_region * kFamilyCount * per_family_cap;
@@ -1802,7 +1801,7 @@ void Renderer::submit_entities(const sim::EcsWorld& ecs) {
         inst.shape_param = 0.0f;
 
         // Every tower body spends its tier on a countable feature — the
-        // Macrophage's phagosomes, the Interferon crystal's reach, the
+        // Macrophage's phagosomes, the
         // Cytotoxic T's lytic granules, the Goblet Cell's granules, the NK Cell's
         // blades — so an upgrade is legible from the silhouette alone rather
         // than only from the stat panel.
@@ -1972,8 +1971,7 @@ void Renderer::submit_entities(const sim::EcsWorld& ecs) {
     stats_.submit_ms += timer.elapsed_ms();
 }
 
-void Renderer::submit_fields(const sim::DamageField* fields, usize count,
-                             const sim::SlowZone* zones, usize zone_count) {
+void Renderer::submit_fields(const sim::DamageField* fields, usize count) {
     // DESIGN.md §9.5: tower AoEs render as literal fluid/chemical fields that
     // visibly reshape the pathogen river. See field.vert/field.frag for the
     // shape-specific SDF treatment; this function's job is purely the CPU-side
@@ -1985,16 +1983,11 @@ void Renderer::submit_fields(const sim::DamageField* fields, usize count,
     WallClock timer;
 
     if (count > 0 && fields == nullptr) count = 0;
-    if (zone_count > 0 && zones == nullptr) zone_count = 0;
     const u32 draw_count = math::min(static_cast<u32>(count), kMaxFieldInstances);
     if (count > draw_count) {
         IMMUNE_LOG_WARN("field VFX: dropped %zu fields (exceeds kMaxFieldInstances=%u)",
                         count - draw_count, kMaxFieldInstances);
     }
-    // Zones take whatever room the fields left. They are the rarer thing and
-    // the quieter one on screen, so they are the ones to lose under pressure.
-    const u32 zone_draw = math::min(static_cast<u32>(zone_count), kMaxFieldInstances - draw_count);
-    stats_.vfx_fields_drawn += zone_draw;
 
     imp.field_fence.wait(imp.field_region);
     FieldGpuInstance* region_base = imp.field_instances.mapped_as<FieldGpuInstance>() +
@@ -2006,15 +1999,14 @@ void Renderer::submit_fields(const sim::DamageField* fields, usize count,
     // vfx/Particles.cpp entry for entry.
     //
     // Before this they were an unrelated per-shape palette, and it actively
-    // fought the roster's own legibility rule (DESIGN.md §9.3): the Interferon
-    // is the cyan tower and its cone rendered PINK, and the tower in slot 4 was
+    // fought the roster's own legibility rule (DESIGN.md §9.3): a cyan tower's
+    // cone rendered PINK, and the tower in slot 4 was
     // green while its attack rendered VIOLET. The player's only cheap "who is
     // shooting" channel is hue, and half the roster was spending it saying
     // something different in two places at once.
     //
     // Shape maps to tower one-to-one across the current roster, so the tower
-    // does not have to be looked up: only the Interferon casts Cones, and Chain
-    // is the Cytotoxic T (the Complement Cascade
+    // does not have to be looked up: Chain is the Cytotoxic T (the Complement Cascade
     // ABILITY also resolves through Chain, and reading as a T-Cell discharge is
     // the right answer there — it is the same mechanism fired by the player).
     // Circle is the one genuine ambiguity and is split below by lifetime.
@@ -2028,7 +2020,8 @@ void Renderer::submit_fields(const sim::DamageField* fields, usize count,
     // shape a future caster (or a scripted hazard) may submit, and an unhandled
     // shape would render untinted.
     const Vec4 kRectTint{0.62f, 1.00f, 0.80f, 1.0f};    // unclaimed  — pale green
-    const Vec4 kConeTint{0.52f, 0.84f, 1.00f, 1.0f};    // Interferon — cyan
+    // No tower casts a Cone any more either; same reason for keeping it.
+    const Vec4 kConeTint{0.52f, 0.84f, 1.00f, 1.0f};    // unclaimed  — cyan
     const Vec4 kChainTint{0.76f, 0.66f, 1.00f, 1.0f};   // Cytotoxic T— violet
     // friendly_fire fields override to a hot warning colour regardless of
     // shape, since those damage the player.
@@ -2134,28 +2127,7 @@ void Renderer::submit_fields(const sim::DamageField* fields, usize count,
         region_base[i] = inst;
     }
 
-    // Slow zones: shape 5, the Interferon's cyan. Intensity fades over the
-    // zone's OWN duration (unlike a DamageField it knows what it started at),
-    // so a circle that is about to close visibly thins rather than popping.
-    for (u32 z = 0; z < zone_draw; ++z) {
-        const sim::SlowZone& zone = zones[z];
-        FieldGpuInstance inst{};
-        inst.x = zone.origin.x;
-        inst.y = zone.origin.y;
-        const f32 diameter = math::max(zone.radius, 0.05f) * 2.0f;
-        inst.scale_x = diameter;
-        inst.scale_y = diameter;
-        inst.rotation = 0.0f;
-        inst.arc_cos = -1.0f;
-        inst.falloff = 0.0f;
-        inst.shape_id = 5;
-        const f32 life = zone.duration > math::kEpsilon ? zone.remaining / zone.duration : 1.0f;
-        // Hold near-full for most of the life, fade over the last third.
-        inst.intensity = math::saturate(life * 3.0f) * (0.55f + 0.20f * math::saturate(life));
-        inst.tint_rgba8 = pack_rgba8(swarmer_tint(zone.source));
-        region_base[draw_count + z] = inst;
-    }
-    const u32 total_draw = draw_count + zone_draw;
+    const u32 total_draw = draw_count;
 
     const ShaderProgram prog = imp.shaders.get("field");
     if (prog.valid() && total_draw > 0) {

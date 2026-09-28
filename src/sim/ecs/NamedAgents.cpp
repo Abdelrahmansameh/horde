@@ -225,7 +225,7 @@ void system_named_movement(SystemContext& ctx) {
         // 6. Deterministic per-entity wander.
         accel += wander_impulse(seed ? seed->seed : 0u, ctx.tick, steer.jitter);
 
-        // A live slow (comp::Slowed, the Interferon's zones) scales the top
+        // A live slow (comp::Slowed, the Goblet Cell's mucus) scales the top
         // speed the same way chaff_flags::kSlowed scales a chaff agent's.
         f32 slow = 1.0f;
         if (const comp::Slowed* sl = registry.try_get<comp::Slowed>(e)) {

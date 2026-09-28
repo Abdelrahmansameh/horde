@@ -18,14 +18,12 @@
 //                             digestive burst behind a hard shock rim
 //     1 = Rect                B-Cell beam — hot centreline with antibody
 //                             packets running down it
-//     2 = Cone                Interferon signal — crystalline striations
-//                             fanning out, riming over toward the far edge
+//     2 = Cone                unclaimed — crystalline striations fanning
+//                             out, riming over toward the far edge
 //     3 = Chain               Cytotoxic T discharge — crackling rings plus
 //                             radial filaments
 //     4 = Circle, PERSISTENT  unclaimed (was the NK Cell rotor disc) —
 //                             deliberately the quietest thing in this file
-//     5 = Slow zone           Interferon slow circle (sim/zone/SlowZones.h):
-//                             a rimed disc of frost that agents wade through
 //
 // The tint arrives already set to the casting tower's identity hue (see
 // submit_fields), so nothing here picks a colour from scratch — the shapes only
@@ -116,14 +114,13 @@ void main() {
 
     } else if (v_shape_id == 2u) {
         // ---------------------------------------------------------------
-        // INTERFERON CONE. Rotation is already applied at the vertex stage, so
-        // the cone always opens along local +x here.
+        // CONE, unclaimed: no tower in the current roster casts one. Kept so a
+        // scripted cone still renders. Rotation is already applied at the
+        // vertex stage, so the cone always opens along local +x here.
         //
         // Two cues carry "this is cold", and neither is the colour: STRIATIONS
         // fanning out from the emitter (a signal propagating, not a fog
-        // sitting), and RIME thickening toward the far edge, which is exactly
-        // where kCryoInnerFraction stops merely slowing and starts locking
-        // agents down. The visual gradient and the mechanical one agree.
+        // sitting), and RIME thickening toward the far edge.
         // ---------------------------------------------------------------
         float dist = length(v_local);
         float t = clamp(dist / 0.5, 0.0, 1.0);
@@ -208,33 +205,6 @@ void main() {
         // the punctures read against it instead of washing the whole disc out.
         rgb = mix(rgb, vec3(1.0), clamp(pore * 0.85, 0.0, 1.0));
         cap = 0.72;
-
-    } else if (v_shape_id == 5u) {
-        // ---------------------------------------------------------------
-        // INTERFERON SLOW ZONE. A circle a swarmer left on the ground, that
-        // slows what walks through it. It has to read as a PLACE — a patch of
-        // tissue that has gone cold and stays that way for a few seconds —
-        // rather than as an explosion, so nothing here flashes or expands.
-        //
-        // Cues: a crystalline rim (hexagonal-ish striations, because it is
-        // frost, not fog), a frosted fill that thickens toward the edge, and
-        // slow-drifting rime inside. The fill stays low so the slowed agents
-        // inside it remain legible; the rim carries the boundary.
-        // ---------------------------------------------------------------
-        float dist = length(v_local);
-        float t = clamp(dist / 0.5, 0.0, 1.0);
-        float edge = 1.0 - smoothstep(0.44, 0.52, dist);
-        float rim = 1.0 - smoothstep(0.0, 0.07, abs(dist - 0.44));
-        float ang = atan(v_local.y, v_local.x);
-        // Six-fold striation so the rim reads as crystal rather than as a
-        // drawn circle; slow drift so it is alive without ever "pulsing".
-        float crystal = 0.55 + 0.45 * pow(abs(sin(ang * 6.0 + dist * 14.0 - u_time * 0.8)), 2.0);
-        float rime = fbm2(v_local * 9.0 + vec2(u_time * 0.15, -u_time * 0.1));
-        float fill = mix(0.16, 0.34, rime) * (0.35 + 0.65 * smoothstep(0.0, 1.0, t));
-
-        alpha = edge * (fill + rim * 0.75 * crystal);
-        rgb = mix(rgb, vec3(1.0), clamp(rim * crystal * 0.55 + rime * 0.18, 0.0, 1.0));
-        cap = 0.62;
 
     } else if (v_shape_id == 4u) {
         // ---------------------------------------------------------------

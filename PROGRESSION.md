@@ -37,7 +37,7 @@ Strengthen Immunity is your **adaptive** immune system maturing through repeated
 
 - **Earned:** exactly once per level, on that level's **first** clear. Replaying an already-cleared level, at any grade, earns zero additional Antibodies. (Grade — §7.4 of `DESIGN.md` — still affects Memory Cells and bragging rights; it never affects Antibody count.)
 - **Spent on:** the tree's milestone nodes only —
-  1. Unlocking one of the five towers the player doesn't start with.
+  1. Unlocking one of the four towers the player doesn't start with.
   2. A tower branch's capstone node.
   3. Unlocking one of the four active abilities.
 - **Feel:** rare and milestone-shaped. Earning one should read as "I beat something," not "I ground for a while." Because there's roughly one Antibody per level and a bounded number of Antibody-gated nodes (§5), the player is guaranteed to be making a real choice about what to unlock next rather than eventually affording everything at once.
@@ -54,10 +54,10 @@ Strengthen Immunity is a single connected graph, not a flat shop list, and it's 
                               [ HUB ]
                  economy lines + 4 ability unlocks
                /       |        |        |        \
-        Neutrophil  Macrophage Interferon Goblet  Fibroblast
-        (owned from   (Antibody  (Antibody  Cell    (Antibody
-         start)        to open)  to open)  (Antibody  to open)
-           |               |         |     to open)     |
+        Neutrophil  Cytotoxic  Macrophage Goblet  Fibroblast
+        (owned from    T         (Antibody  Cell    (Antibody
+         start)     (Antibody    to open) (Antibody  to open)
+           |         to open)      |     to open)     |
        [stat lines]   [stat lines][stat lines][stat lines][stat lines]
            |               |         |         |            |
        [capstone]     [capstone][capstone] [capstone]   [capstone]
@@ -66,14 +66,14 @@ Strengthen Immunity is a single connected graph, not a flat shop list, and it's 
 
 ### 4.1 Node types
 
-- **Root (unlock) node.** One per tower branch. Neutrophil's is already owned at campaign start; the other five each cost a small number of Antibodies and have **no prerequisite on any other root** — every locked tower is purchasable the moment the player has an Antibody to spend, in whatever order they want. This is the direct answer to "you can choose the order in which you unlock the towers."
+- **Root (unlock) node.** One per tower branch. Neutrophil's is already owned at campaign start; the other four each cost a small number of Antibodies and have **no prerequisite on any other root** — every locked tower is purchasable the moment the player has an Antibody to spend, in whatever order they want. This is the direct answer to "you can choose the order in which you unlock the towers."
 - **Stat (leveled) node.** Multiple per branch, each representing one upgradeable dimension of that tower, bought in discrete levels (roughly 3-5 per line) at Memory Cell cost that increases per level. Different lines within the same branch have no prerequisites on each other — a player can dump everything into Damage and ignore Range, or spread evenly.
 - **Capstone node.** One per branch, gated behind (a) the branch's root being owned and (b) a minimum number of points already spent somewhere in that branch (a simple threshold, not a specific chain of prior nodes — e.g. "6 points spent in this branch," exact number is a balance call). Costs both Antibodies and Memory Cells. This is the build-defining, unique-effect purchase at the end of investing in one tower, distinct in kind from the stat lines feeding it.
 - **Hub nodes.** Economy lines (Memory-Cell-only, no prerequisites, always available) and ability-unlock nodes (Antibody-gated roots, exactly like a tower root, each with its own Memory-Cell-funded stat lines beneath it).
 
 ### 4.2 What's deliberately *not* in the tree (v1)
 
-- **Cross-branch synergy nodes** — small bridge nodes requiring points in two adjacent branches (e.g., something between Interferon and Goblet Cell reading "slowed targets count as marked"). Good future texture once the base tree exists and its balance is understood; not required to make the tree function, and adding it later is additive, not a rework.
+- **Cross-branch synergy nodes** — small bridge nodes requiring points in two adjacent branches (e.g., something between the Goblet Cell and the Fibroblast reading "slowed targets count as marked"). Good future texture once the base tree exists and its balance is understood; not required to make the tree function, and adding it later is additive, not a rework.
 - **Respec / refund.** Recommended for inclusion (a tree this size benefits from letting players correct an early mistake, and the game already has a refund-fraction precedent for tower sell/placement) but the cost/availability of a respec is a balance call, not a structural one — see §8.
 
 ## 5. Tower branches
@@ -115,28 +115,17 @@ Each branch's stat lines are drawn directly from what's already tunable per towe
 |---|---|
 | Arm Count | how many independent pseudopod trees grow at once |
 | Extend/Latch/Pull/Recover Speed | how fast one arm's grab cycle completes |
+| Captive Capacity | how many pathogens one body can hold and be killing simultaneously |
 | Deploy Cadence | how often the tower releases new bodies |
 | Search Radius | how far a body will reach for a target |
 | Body Count | how many macrophage bodies are active at once |
+| Body Mass | how strongly a body resists being pushed by the crowd — directly feeds how much backpressure/pile-up (`DESIGN.md` §4.2) it causes standing in the lane |
 | Body/Tower Health | HP of both the released bodies and the tower itself |
 | Wall Spacing/Body Block | how tightly a volley's LANE WALL packs and how much it shoves the horde back rather than yielding |
 
 **Capstone — Phagocytic Sustain:** a kill heals the tower — the "eats what it kills" fiction made mechanical.
 
-### 5.4 Interferon (Slow bomber) — Antibody-gated unlock
-
-| Line | What it governs |
-|---|---|
-| Slow Potency | how much a slow zone reduces enemy speed |
-| Slow Duration | how long the slow lingers after leaving the zone |
-| Zone Radius | the slow field's size |
-| Zone Duration | how long the field itself persists |
-| Deploy Cadence | how often the tower drops a new zone |
-| Tower Health | the tower's own max HP |
-
-**Capstone — Cytokine Storm:** targets currently slowed take bonus damage from *every* tower on the field, not just this one — a systemic synergy payoff, the first of two "amplify a status effect globally" capstones (see §5.5 for the other).
-
-### 5.5 Goblet Cell (Mucus bomber) — Antibody-gated unlock
+### 5.4 Goblet Cell (Mucus bomber) — Antibody-gated unlock
 
 | Line | What it governs |
 |---|---|
@@ -149,7 +138,7 @@ Each branch's stat lines are drawn directly from what's already tunable per towe
 
 **Capstone — Anaphylactic Shock:** a slowed target's death spreads the slow to nearby chaff, extending the Goblet Cell's lane-control role.
 
-### 5.6 Fibroblast (Builder) — Antibody-gated unlock
+### 5.5 Fibroblast (Builder) — Antibody-gated unlock
 
 | Line | What it governs |
 |---|---|
@@ -178,6 +167,7 @@ Cheap, broad, prerequisite-free — the first thing any player buys, struggling 
 - **Rapid Deployment** — refund fraction increase on sell
 - **Elite Response** — global bonus damage vs. elites/bosses
 - **Homeostasis** — objective integrity max, or leak-damage reduction
+- **Membrane Resilience** — reduces damage taken by towers and swarmers from hostile pathogen attacks (Virus latch, Bacteria aura — `DESIGN.md` §5.7), globally across the whole roster. This line didn't exist when this document was first written; towers and swarmers used to be untouchable, and now the horde can kill them back, so surviving that is now a real thing to invest in rather than a placement afterthought.
 
 **Active ability unlocks (Antibody-gated roots, Memory-Cell-funded lines beneath each):**
 
@@ -206,6 +196,9 @@ These are genuinely undecided and intentionally deferred to a balance/implementa
 - **Capstone threshold.** The exact "points spent in this branch" number gating a capstone purchase.
 - **Antibody count per tower/ability unlock and per capstone.** Whether every Antibody-gated node costs the same flat amount, or milestone nodes scale in cost — matters for how quickly a campaign-length player can realistically unlock everything.
 - **Existing tooling fallout.** The project's balance-testing harness currently includes at least one automated play-strategy specifically built around the old in-run tier-upgrade path ("deepen existing towers before adding new ones," ranking towers by solo performance). That strategy's premise no longer applies and will need rethinking once tiers move to the tree — flagged here as a downstream implication of this design, not something this document resolves.
+- **Whether "Membrane Resilience" (§6) is enough, or hostile-pressure survivability needs per-tower lines too.** The hub's flat global line is the minimum viable answer to towers/swarmers now being killable (`DESIGN.md` §5.7); it's an open question whether a tower that leans into standing its ground (the Macrophage, whose whole kit is built around not yielding) should get its own branch-specific resilience line instead of or in addition to the global one.
+- **Whether a "marked" weaken debuff should get a real source again.** `DESIGN.md` §5.5 notes the mechanism exists in code but nothing currently sets it, now that the Goblet Cell deals no damage. If it's revived, the natural place to attach it is a capstone (the Goblet Cell's `Anaphylactic Shock` as currently specified, or a new one) rather than a base-kit change — undecided.
+- **Whether a burrowed Parasite should ever have a hard counter.** `DESIGN.md` §5.7/§14 raises this; if the answer is yes, the likely home is a capstone or ability unlock in this tree (an "anti-stealth" node echoing the retired NK Cell's niche) rather than a change to the base roster — undecided pending that call.
 
 ---
 

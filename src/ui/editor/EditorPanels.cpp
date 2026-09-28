@@ -63,7 +63,7 @@ ImVec4 family_tint(PathogenFamily f, const game::EnemyRoster* roster) {
     }
     switch (f) {
         case PathogenFamily::Virus: return ImVec4(0.5f, 0.8f, 1.0f, 1.0f);
-        case PathogenFamily::Parasite: return ImVec4(0.46f, 0.28f, 0.14f, 1.0f);
+        case PathogenFamily::Parasite: return ImVec4(0.55f, 0.30f, 0.15f, 1.0f);
         default: return ImVec4(0.9f, 0.75f, 0.35f, 1.0f);
     }
 }

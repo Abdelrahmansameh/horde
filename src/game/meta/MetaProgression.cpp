@@ -14,6 +14,18 @@ namespace immune::game {
 
 namespace {
 using json = nlohmann::json;
+
+/// A saved tower index, read in the numbering of save `version`, as today's
+/// index. kTowerTypeCount means "no such tower any more".
+u32 migrate_tower_index(u32 idx, i32 version) {
+    if (version < 2) {
+        // v1 had six slots; slot 2 was cut and 3..5 moved down one.
+        if (idx == 2) return kTowerTypeCount;
+        if (idx > 2 && idx < 6) return idx - 1;
+        if (idx >= 6) return kTowerTypeCount;
+    }
+    return idx < kTowerTypeCount ? idx : kTowerTypeCount;
+}
 } // namespace
 
 void MetaProgression::reset_to_new_game() {
@@ -199,7 +211,7 @@ bool MetaProgression::from_json(const std::string& text, std::string& out_error)
             const json& arr = j.at("unlocked_towers");
             if (!arr.is_array()) throw std::runtime_error("'unlocked_towers' must be an array");
             for (const auto& idx_j : arr) {
-                const u32 idx = idx_j.get<u32>();
+                const u32 idx = migrate_tower_index(idx_j.get<u32>(), version);
                 if (idx < kTowerTypeCount) towers[idx] = true;
             }
         }
@@ -228,8 +240,8 @@ bool MetaProgression::from_json(const std::string& text, std::string& out_error)
                 m.tier = static_cast<MemoryTier>(
                     mj.value("tier", static_cast<u32>(MemoryTier::GlobalBaseline)));
                 m.cost = mj.value("cost", u32{0});
-                m.unlocks_tower = static_cast<TowerType>(
-                    mj.value("unlocks_tower", static_cast<u32>(TowerType::Count)));
+                m.unlocks_tower = static_cast<TowerType>(migrate_tower_index(
+                    mj.value("unlocks_tower", static_cast<u32>(TowerType::Count)), version));
                 memories.push_back(std::move(m));
             }
         }

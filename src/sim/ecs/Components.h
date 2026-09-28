@@ -93,8 +93,8 @@ struct Marked {
 
 /// The named-agent half of the slow debuff (chaff_flags::kSlowed plus
 /// ChaffBuffers::slow_remaining / slow_factor are the chaff half). Applied by
-/// the Interferon's slow zones (sim/zone/SlowZones.cpp), refreshed every tick
-/// the agent stays inside one; system_named_movement scales max speed by
+/// the Goblet Cell's mucus (SimWorld::tick), refreshed every tick the agent
+/// stays in it; system_named_movement scales max speed by
 /// `factor` while `remaining` > 0. Same no-lifecycle arrangement as Marked:
 /// game/towers/TowerSystem.cpp's slowed_upkeep decays and removes it.
 struct Slowed {

@@ -137,7 +137,9 @@ TEST_CASE("purchase of a roster-unlock memory also unlocks its tower", "[meta]")
     })JSON";
     std::string err;
     REQUIRE(meta.from_json(json, err));
-    REQUIRE(static_cast<u32>(TowerType::GobletCell) == 4);
+    // A v1 save: index 4 was the Goblet Cell before the roster renumbering,
+    // and loading migrates it to today's slot.
+    REQUIRE(static_cast<u32>(TowerType::GobletCell) == 3);
 
     REQUIRE(meta.purchase("unlock_bcell") == MetaProgression::PurchaseResult::Ok);
     REQUIRE(meta.tower_unlocked(TowerType::GobletCell));
@@ -338,4 +340,21 @@ TEST_CASE("compute_loadout_modifiers reflects the instance's selected_loadout", 
 
     const LoadoutModifiers mods = meta.compute_loadout_modifiers();
     REQUIRE(std::abs(mods.damage_vs_family[static_cast<u32>(PathogenFamily::Virus)] - 2.0f) < 1e-4f);
+}
+
+TEST_CASE("a v1 save's tower indices migrate across the roster renumbering", "[meta]") {
+    MetaProgression meta;
+    // v1 order: 0 Neutrophil, 1 Macrophage, 2 (cut), 3 Cytotoxic T,
+    // 4 Goblet Cell, 5 Fibroblast.
+    const std::string json = R"JSON({
+      "version": 1,
+      "unlocked_towers": [0, 1, 2, 3, 5]
+    })JSON";
+    std::string err;
+    REQUIRE(meta.from_json(json, err));
+    REQUIRE(meta.tower_unlocked(TowerType::Neutrophil));
+    REQUIRE(meta.tower_unlocked(TowerType::Macrophage));
+    REQUIRE(meta.tower_unlocked(TowerType::CytotoxicT));
+    REQUIRE_FALSE(meta.tower_unlocked(TowerType::GobletCell));
+    REQUIRE(meta.tower_unlocked(TowerType::Fibroblast));
 }

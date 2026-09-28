@@ -90,7 +90,6 @@ bool build_world(sim::SimWorld& world, const Options& opt, usize max_chaff,
             desc.max_damage_fields = cfg.sim.capacities.max_damage_fields;
             desc.max_projectiles = cfg.sim.capacities.max_projectiles;
             desc.max_swarmers = cfg.sim.capacities.max_swarmers;
-            desc.max_slow_zones = cfg.sim.capacities.max_slow_zones;
             desc.max_fluid_particles = cfg.sim.capacities.max_fluid_particles;
             desc.max_combat_events = cfg.sim.capacities.max_combat_events;
             desc.max_chaff_death_events = cfg.sim.capacities.max_chaff_death_events;
@@ -909,8 +908,7 @@ int run_screenshot(const Options& opt) {
     renderer.submit_chaff(world.chaff(), world.spatial());
     renderer.submit_entities(world.ecs());
     renderer.submit_fields(world.damage().rendered_fields().data(),
-                           world.damage().rendered_fields().size(),
-                           world.slow_zones().zones().data(), world.slow_zones().zones().size());
+                           world.damage().rendered_fields().size());
     renderer.submit_projectiles(world.projectiles());
     renderer.submit_swarmers(world.swarmers());
     renderer.submit_fluid(world.fluid(), world.fluid_system().draw_radius());

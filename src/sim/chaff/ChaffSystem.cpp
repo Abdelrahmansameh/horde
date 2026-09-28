@@ -989,8 +989,8 @@ ChaffUpdateStats ChaffSystem::update(ChaffBuffers& buffers, const FlowField& flo
             vx[i] = v.x;
             vy[i] = v.y;
             // The slow's strength is per agent (ChaffBuffers::slow_factor),
-            // written by whichever slow zone last touched it; its expiry is the
-            // zone system's job, not this kernel's.
+            // written by whatever last slowed it; its expiry is
+            // ChaffBuffers::expire_slows's job, not this kernel's.
             max_speed_scratch[i] = fp.max_speed * (slowed ? slow_factor[i] : 1.0f);
 
             if (fp.replication_rate > 0.0f && local_rng.chance(fp.replication_rate * dt)) {

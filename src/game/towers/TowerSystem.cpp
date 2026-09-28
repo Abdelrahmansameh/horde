@@ -73,7 +73,6 @@ namespace {
 constexpr const char* kTowerNames[kTowerTypeCount] = {
     "neutrophil",   // SHOOTER
     "macrophage",   // ARBOR GRABBER
-    "interferon",   // SLOW BOMBER
     "cytotoxic_t",  // LATCH
     "goblet_cell",  // MUCUS BOMBER
     "fibroblast"};  // BUILDER
@@ -183,20 +182,6 @@ void init_mechanics_once() {
                                                   kPull[tier], kRecover[tier], kFakeMass[tier],
                                                   0.0f, 1.0f, 1.1f, 4.5f, 0.9f};
         }
-        // SLOW BOMBER -- Interferon. No damage at all; the swarmers pop into
-        // circles that slow, and the circles are what the tower is for.
-        {
-            TowerMechanics& m = g_mechanics[static_cast<u32>(TowerType::Interferon)][tier];
-            constexpr u32 kRelease[3] = {1u, 2u, 3u};
-            constexpr f32 kSpeed[3] = {16.0f, 18.0f, 20.0f};
-            constexpr f32 kSearch[3] = {14.0f, 16.0f, 18.0f};
-            m.swarm = SwarmParams{kRelease[tier], 6.0f, kSpeed[tier], kSearch[tier], 0.70f, 0.60f, 1.80f};
-            constexpr f32 kRadius[3] = {3.0f, 3.5f, 4.0f};
-            constexpr f32 kZone[3] = {3.0f, 3.5f, 4.0f};
-            constexpr f32 kSlow[3] = {1.5f, 2.0f, 2.5f};
-            constexpr f32 kFactor[3] = {0.50f, 0.42f, 0.35f};
-            m.slow_bomber = SlowBomberParams{1.0f, kRadius[tier], kZone[tier], kSlow[tier], kFactor[tier]};
-        }
         // LATCH -- Cytotoxic T. The original: many small swarmers, each one a
         // lytic granule that rides its host and drains it. Still the biggest
         // cloud in the roster -- 4 per half-second over 4s is ~32 live at
@@ -284,11 +269,6 @@ void load_default_stats(TowerSystem& self) {
     self.set_stats(TowerType::Neutrophil, 1, make_stats(1.00f, 1.4f, 70, 45, 220.0f));
     self.set_stats(TowerType::Neutrophil, 2, make_stats(0.85f, 1.4f, 70, 38, 300.0f));
     self.set_stats(TowerType::Neutrophil, 3, make_stats(0.70f, 1.4f, 70, 0, 400.0f));
-
-    // SLOW BOMBER -- crowd control only. Its whole output is the circles.
-    self.set_stats(TowerType::Interferon, 1, make_stats(2.00f, 2.4f, 110, 70, 260.0f));
-    self.set_stats(TowerType::Interferon, 2, make_stats(1.70f, 2.4f, 110, 60, 360.0f));
-    self.set_stats(TowerType::Interferon, 3, make_stats(1.40f, 2.4f, 110, 0, 480.0f));
 
     // LATCH -- the fastest cadence: a steady trickle of granules.
     self.set_stats(TowerType::CytotoxicT, 1, make_stats(0.50f, 1.6f, 130, 84, 280.0f));
@@ -482,7 +462,8 @@ bool acquire_aim_point(TowerSystem& self, sim::SystemContext& ctx, Vec2 origin, 
 // tower, `build_candidates` tries; a site must be on walkable tissue, carry
 // a flow direction (be in a lane the horde uses), have the profile's SDF
 // clearance, keep scar_spacing from every live scar, stay clear of every
-// tower's footprint, and -- the expensive test, last -- not seal the lane.
+// tower's footprint, not overlap a standing wall or one a builder is already
+// on its way to lay, and -- the expensive test, last -- not seal the lane.
 // The draws come from the builder's own seed stream, never the shared sim
 // Rng, for the same reason the volley scatter does.
 //
@@ -515,6 +496,26 @@ bool pick_scar_site(const sim::SimWorld& world, const std::vector<EntityId>& pla
     const Vec2 he{math::max(pr.scar_half_length, 0.0f), math::max(pr.scar_half_width, 0.0f)};
     const Rect& play = world.desc().world_bounds;
     const entt::registry& registry = world.ecs().registry();
+
+    // The walls builders are already walking out to lay. They do not stand
+    // yet, so scars.overlaps() cannot see them: without this, one volley's
+    // rank (each unit is spawned before the next picks) or successive volleys
+    // send builders to the same spot, and the later ones arrive to find a
+    // wall already there. A reinforcement goal is a standing scar's centre,
+    // which the site must avoid anyway.
+    static thread_local std::vector<sim::Bar> planned;
+    planned.clear();
+    const sim::SwarmerBuffers& sw = world.swarmers();
+    for (usize i = 0; i < sw.count(); ++i) {
+        if ((sw.flags[i] & sim::swarmer_flags::kHasGoal) == 0) continue;
+        const sim::SwarmerProfile& other = sw.profile_of(i);
+        if (other.kind != sim::SwarmerKind::Builder) continue;
+        sim::Bar b;
+        b.center = Vec2{sw.goal_x[i], sw.goal_y[i]};
+        b.half_extents = Vec2{math::max(other.scar_half_length, 0.0f), math::max(other.scar_half_width, 0.0f)};
+        b.rotation = sim::scar_rotation(flow, b.center, sw.owner[i], other.scar_tilt);
+        planned.push_back(b);
+    }
 
     for (u32 c = 0; c < pr.build_candidates; ++c) {
         // Uniform over the annulus' AREA, not its radius, so sites do not
@@ -554,6 +555,14 @@ bool pick_scar_site(const sim::SimWorld& world, const std::vector<EntityId>& pla
         // a long wall's far end reaches well past that, so check the actual
         // bar geometry too before this one gets laid on top of it.
         if (scars.overlaps(world, bar)) continue;
+        bool claimed = false;
+        for (const sim::Bar& other : planned) {
+            if (sim::bars_overlap(bar, other)) {
+                claimed = true;
+                break;
+            }
+        }
+        if (claimed) continue;
 
         const bool sever = sim::would_sever_lane(mask, flow, bar.bounds(), [&](i32 x, i32 y) {
             return bar.contains(mask.cell_to_world(x, y));
@@ -723,8 +732,8 @@ void system_marked_upkeep(sim::SystemContext& ctx) {
     for (entt::entity e : expired) ctx.registry.remove<comp::Marked>(e);
 }
 
-/// Same arrangement for comp::Slowed, the named-agent half of the Interferon's
-/// slow. The chaff half expires in sim/zone/SlowZones.cpp.
+/// Same arrangement for comp::Slowed, the named-agent half of the mucus
+/// slow. The chaff half expires in SimWorld::tick.
 void system_slowed_upkeep(sim::SystemContext& ctx) {
     static thread_local std::vector<entt::entity> expired;
     expired.clear();
@@ -1198,7 +1207,6 @@ sim::SwarmerProfile swarmer_profile(TowerType type, u8 tier) {
 
     switch (p.kind) {
     case sim::SwarmerKind::Bomber:      p.chase_seconds = m.bomber.chase_seconds; break;
-    case sim::SwarmerKind::SlowBomber:  p.chase_seconds = m.slow_bomber.chase_seconds; break;
     case sim::SwarmerKind::MucusBomber: p.chase_seconds = m.mucus_bomber.chase_seconds; break;
     case sim::SwarmerKind::ArborGrabber:p.chase_seconds = 0.0f; break;
     default:                            p.chase_seconds = 0.0f; break;
@@ -1209,11 +1217,6 @@ sim::SwarmerProfile swarmer_profile(TowerType type, u8 tier) {
     p.burst_seconds = m.bomber.burst_seconds;
     p.burst_falloff = m.bomber.burst_falloff;
     p.burst_named_damage = m.bomber.named_damage;
-
-    p.zone_radius = m.slow_bomber.zone_radius;
-    p.zone_duration = m.slow_bomber.zone_duration;
-    p.slow_duration = m.slow_bomber.slow_duration;
-    p.slow_factor = m.slow_bomber.slow_factor;
 
     p.splash_droplets = m.mucus_bomber.droplets;
     p.splash_radius = m.mucus_bomber.splash_radius;

@@ -129,7 +129,6 @@ const char* swarmer_kind_name(SwarmerKind kind) {
         case SwarmerKind::Latch:       return "latch";
         case SwarmerKind::Shooter:     return "shooter";
         case SwarmerKind::Bomber:      return "bomber";
-        case SwarmerKind::SlowBomber:  return "slow_bomber";
         case SwarmerKind::MucusBomber: return "mucus_bomber";
         case SwarmerKind::Builder:     return "builder";
         case SwarmerKind::ArborGrabber:return "arbor_grabber";
@@ -181,7 +180,6 @@ usize NamedTargetList::find(EntityId id) const {
 
 void SwarmerEffects::reserve(usize n) {
     bursts.reserve(n);
-    zones.reserve(n);
     splashes.reserve(n);
     shots.reserve(n);
     builds.reserve(n);
@@ -189,7 +187,6 @@ void SwarmerEffects::reserve(usize n) {
 
 void SwarmerEffects::clear() {
     bursts.clear();
-    zones.clear();
     splashes.clear();
     shots.clear();
     builds.clear();
@@ -523,20 +520,6 @@ SwarmerStats SwarmerSystem::update(SwarmerBuffers& sw,
             effects_.bursts.push_back(b);
             break;
         }
-        case SwarmerKind::SlowBomber: {
-            SwarmerSlowZone z;
-            z.origin = p;
-            z.radius = pr.zone_radius;
-            z.duration = pr.zone_duration;
-            z.slow_duration = pr.slow_duration;
-            z.slow_factor = pr.slow_factor;
-            z.family_mask = sw.family_mask[i];
-            z.owner = sw.owner[i];
-            z.source = pr.source;
-            z.visual_id = sw.visual_id[i];
-            effects_.zones.push_back(z);
-            break;
-        }
         case SwarmerKind::MucusBomber: {
             SwarmerSplash s;
             s.origin = p;
@@ -561,9 +544,7 @@ SwarmerStats SwarmerSystem::update(SwarmerBuffers& sw,
         sw.flags[i] |= swarmer_flags::kPendingKill;
         if (events) {
             CombatEvent e = make_event(CombatEventType::Explosion, pr.source, p, dir, sw.visual_id[i]);
-            e.radius = pr.kind == SwarmerKind::Bomber      ? pr.burst_radius
-                     : pr.kind == SwarmerKind::SlowBomber  ? pr.zone_radius
-                                                           : pr.splash_radius;
+            e.radius = pr.kind == SwarmerKind::Bomber ? pr.burst_radius : pr.splash_radius;
             e.magnitude = 1.0f;
             events->push(e);
         }
@@ -1409,7 +1390,6 @@ SwarmerStats SwarmerSystem::update(SwarmerBuffers& sw,
             }
 
             case SwarmerKind::Bomber:
-            case SwarmerKind::SlowBomber:
             case SwarmerKind::MucusBomber:
                 detonate(i, pr, p, dir);
                 continue;

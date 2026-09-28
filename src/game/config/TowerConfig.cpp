@@ -17,7 +17,6 @@ sim::SwarmerKind tower_kind(TowerType type) {
     switch (type) {
         case TowerType::Neutrophil: return sim::SwarmerKind::Shooter;
         case TowerType::Macrophage: return sim::SwarmerKind::ArborGrabber;
-        case TowerType::Interferon: return sim::SwarmerKind::SlowBomber;
         case TowerType::CytotoxicT: return sim::SwarmerKind::Latch;
         case TowerType::GobletCell: return sim::SwarmerKind::MucusBomber;
         case TowerType::Fibroblast: return sim::SwarmerKind::Builder;
@@ -44,7 +43,6 @@ IMMUNE_CONFIG_SCHEMA_ASSERT(LatchParams);
 IMMUNE_CONFIG_SCHEMA_ASSERT(ShooterParams);
 IMMUNE_CONFIG_SCHEMA_ASSERT(BomberParams);
 IMMUNE_CONFIG_SCHEMA_ASSERT(ArborGrabberParams);
-IMMUNE_CONFIG_SCHEMA_ASSERT(SlowBomberParams);
 IMMUNE_CONFIG_SCHEMA_ASSERT(MucusBomberParams);
 IMMUNE_CONFIG_SCHEMA_ASSERT(BuilderParams);
 IMMUNE_CONFIG_SCHEMA_ASSERT(TowerGlobals);
@@ -118,15 +116,6 @@ constexpr Field kArborGrabberFields[] = {
 };
 constexpr Schema kArborGrabberSchema{"arbor_grabber", kArborGrabberFields};
 
-constexpr Field kSlowBomberFields[] = {
-    IMMUNE_CONFIG_FIELD(SlowBomberParams, chase_seconds, FieldKind::F32, "Seconds a bomber chases one target before detonating where it is"),
-    IMMUNE_CONFIG_FIELD(SlowBomberParams, zone_radius, FieldKind::F32, "Slow circle radius"),
-    IMMUNE_CONFIG_FIELD(SlowBomberParams, zone_duration, FieldKind::F32, "Seconds the circle stays on the ground"),
-    IMMUNE_CONFIG_FIELD(SlowBomberParams, slow_duration, FieldKind::F32, "Seconds an agent stays slowed after leaving the circle"),
-    IMMUNE_CONFIG_FIELD(SlowBomberParams, slow_factor, FieldKind::F32, "Max-speed multiplier while slowed; 0.4 = 40% speed"),
-};
-constexpr Schema kSlowBomberSchema{"slow_bomber", kSlowBomberFields};
-
 constexpr Field kMucusBomberFields[] = {
     IMMUNE_CONFIG_FIELD(MucusBomberParams, chase_seconds, FieldKind::F32, "Seconds a bomber chases one target before detonating where it is"),
     IMMUNE_CONFIG_FIELD(MucusBomberParams, droplets, FieldKind::U32, "Fluid particles one splash puts down"),
@@ -174,7 +163,6 @@ KindBinding kind_binding(sim::SwarmerKind kind) {
         case sim::SwarmerKind::Latch:       return {&kLatchSchema,      offsetof(TowerMechanics, latch)};
         case sim::SwarmerKind::Shooter:     return {&kShooterSchema,    offsetof(TowerMechanics, shooter)};
         case sim::SwarmerKind::Bomber:      return {&kBomberSchema,     offsetof(TowerMechanics, bomber)};
-        case sim::SwarmerKind::SlowBomber:  return {&kSlowBomberSchema, offsetof(TowerMechanics, slow_bomber)};
         case sim::SwarmerKind::MucusBomber: return {&kMucusBomberSchema, offsetof(TowerMechanics, mucus_bomber)};
         case sim::SwarmerKind::Builder:     return {&kBuilderSchema,     offsetof(TowerMechanics, builder)};
         case sim::SwarmerKind::ArborGrabber:return {&kArborGrabberSchema,offsetof(TowerMechanics, arbor_grabber)};
