@@ -2,7 +2,7 @@
 //
 // RATIONALE
 // Balance numbers are only worth reading if something was actually playing.
-// This is that something: it places towers, upgrades them, and spends ATP
+// This is that something: it deploys cells and spends ATP
 // against the same Economy and the same TowerSystem::validate() a human's
 // mouse goes through. There is no privileged path -- if the bot can build it,
 // a player standing in the same spot can build it.
@@ -50,17 +50,14 @@ enum class AutoPlayProfile : u8 {
     /// Always buy the cheapest thing currently affordable. The baseline
     /// "average player" and the default.
     GreedyCheapest = 0,
-    /// Fill every planned site before upgrading anything. Tests breadth.
+    /// Fill planned sites in coverage order.
     SpreadCoverage,
-    /// Take existing towers to tier 3 before adding new ones. Tests depth,
-    /// and is the profile that exposes an underpriced or overpowered tier 3.
-    SaveForTier3,
     /// Build one tower type and nothing else. Six of these on one level rank
     /// the six towers against each other with everything else held constant.
     SingleType,
 };
 
-/// "greedy-cheapest" | "spread-coverage" | "save-for-tier3" | "single-type:<tower>".
+/// "greedy-cheapest" | "spread-coverage" | "single-type:<tower>".
 /// Round-trips through parse_autoplay_profile().
 std::string autoplay_profile_name(AutoPlayProfile profile, TowerType single_type);
 bool parse_autoplay_profile(std::string_view text, AutoPlayProfile& out_profile,
@@ -87,23 +84,19 @@ struct PlannedSite {
     f32 lumen_width = 0.0f;     ///< Vessel width at the site; the choke term.
     f32 cost_to_goal = 0.0f;    ///< Flow-field cost; lower = later in the path.
     EntityId built{};           ///< Valid once something stands here.
-    /// Tier of the tower standing here, tracked by the bot rather than read
-    /// back out of the ECS: the bot is the only thing that ever upgrades one,
-    /// so its own record is authoritative and needs no registry lookup.
-    u8 tier = 0;
+    bool deployed = false;       ///< One directly placed cell has used this site.
     bool rejected = false;      ///< validate() refused it at purchase time.
 };
 
 /// What the bot did on one decision tick. Reported so the caller can book the
 /// purchase into telemetry -- the bot deliberately owns no collector.
 struct AutoPlayAction {
-    enum class Kind : u8 { None = 0, Placed, Upgraded };
+    enum class Kind : u8 { None = 0, Placed };
     Kind kind = Kind::None;
     EntityId tower{};
     TowerType type = TowerType::Neutrophil;
     Vec2 position{0.0f, 0.0f};
     u32 cost = 0;
-    u8 tier = 0;   ///< Tier after the action.
 };
 
 class AutoPlayer {

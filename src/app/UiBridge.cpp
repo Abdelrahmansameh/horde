@@ -205,6 +205,48 @@ void refresh_campaign(std::vector<ui::CampaignLevel>& campaign, const std::vecto
     for (usize i = 0; i < campaign.size(); ++i) campaign[i].locked = !ui::campaign_unlocked(campaign, i);
 }
 
+ui::TreeModel make_screenshot_tree_model(ScreenshotTree progress) {
+    const game::MetaConfig cfg;
+    game::MetaProgression meta;
+    meta.reset_to_new_game();
+    using T = game::TreeNode;
+    switch (progress) {
+        case ScreenshotTree::New:
+            // A first run lost: enough for one of the two nodes on offer.
+            meta.credit(30);
+            break;
+        case ScreenshotTree::Sample: {
+            // A few runs and two first clears in: the heart's lines, an arm
+            // and the head opened, 486 Memory Cells and an Antibody to spend.
+            const T buys[] = {T::NeutrophilRoundDamage, T::NeutrophilRoundDamage, T::NeutrophilRoundDamage,
+                              T::BoneMarrowReserve,     T::BoneMarrowReserve,     T::NeutrophilTriggerRate,
+                              T::NeutrophilTriggerRate, T::NeutrophilAccuracy,    T::RapidMetabolism,
+                              T::CytotoxicRoot,         T::CytotoxicDrain,        T::EliteResponse,
+                              T::Homeostasis,           T::HistamineUnlock,       T::HistamineCooldown};
+            game::MetaProgression rich = meta;
+            rich.credit(100000, 100);
+            for (T b : buys) rich.purchase(b, cfg);
+            meta.credit(486 + rich.spent_memory_cells(), 1 + rich.spent_antibodies());
+            for (T b : buys) meta.purchase(b, cfg);
+            break;
+        }
+        case ScreenshotTree::Full: {
+            // Everything, bought in whatever order the tree allows.
+            meta.credit(1000000, 100);
+            for (bool bought = true; bought;) {
+                bought = false;
+                for (u32 i = 0; i < game::kTreeNodeCount; ++i) {
+                    while (meta.purchase(static_cast<T>(i), cfg) == game::MetaProgression::PurchaseResult::Ok) {
+                        bought = true;
+                    }
+                }
+            }
+            break;
+        }
+    }
+    return make_tree_model(meta, cfg);
+}
+
 ui::FrontModel make_screenshot_front_model(const game::LevelDef& level, const std::string& current_level_path) {
     std::vector<ui::LevelEntry> entries;
     std::vector<game::LevelDef> defs;
@@ -233,26 +275,9 @@ ui::FrontModel make_screenshot_front_model(const game::LevelDef& level, const st
     for (i32 i = 0; i < m.campaign_slot; ++i) entries[m.campaign[static_cast<usize>(i)].level_index].cleared = true;
     refresh_campaign(m.campaign, entries);
     m.level_name = !level.display_name.empty() ? level.display_name : level.name;
-    // The tree as the canvas's Tree artboard shows it: a few levels bought,
-    // 486 Memory Cells and an Antibody to spend.
-    {
-        const game::MetaConfig cfg;
-        using T = game::TreeNode;
-        const T buys[] = {T::NeutrophilRoundDamage, T::NeutrophilRoundDamage, T::NeutrophilRoundDamage,
-                          T::NeutrophilVolleyCadence, T::NeutrophilVolleyCadence, T::NeutrophilAggroRange,
-                          T::NeutrophilHealth, T::NeutrophilHealth, T::CytotoxicRoot, T::CytotoxicDrain,
-                          T::BoneMarrowReserve, T::BoneMarrowReserve, T::RapidMetabolism, T::CellularResilience,
-                          T::HistamineUnlock, T::HistamineCooldown};
-        game::MetaProgression rich;
-        rich.reset_to_new_game();
-        rich.credit(100000, 100);
-        for (T b : buys) rich.purchase(b, cfg);
-        game::MetaProgression meta;
-        meta.reset_to_new_game();
-        meta.credit(486 + rich.spent_memory_cells(), 1 + rich.spent_antibodies());
-        for (T b : buys) meta.purchase(b, cfg);
-        m.tree = make_tree_model(meta, cfg);
-    }
+    // The tree a few runs into a campaign: a few levels bought, 486 Memory
+    // Cells and an Antibody to spend (`ui tree` swaps in another).
+    m.tree = make_screenshot_tree_model(ScreenshotTree::Sample);
     m.run.valid = true;
     m.run.memory_cells = 120;
     m.run.antibodies = 1;
@@ -277,6 +302,7 @@ ui::TreeModel make_tree_model(const game::MetaProgression& meta, const game::Met
         const game::TreeNodeDef& d = game::tree_node(n);
         ui::TreeNodeView v;
         v.key = d.key;
+        if (d.parent != game::TreeNode::Count) v.parent = game::tree_node(d.parent).key;
         v.node = i;
         v.name = d.name;
         v.effect = d.effect;
@@ -299,11 +325,10 @@ ui::TreeModel make_tree_model(const game::MetaProgression& meta, const game::Met
         }
         if (r == PR::BelowThreshold) {
             v.requirement = "Needs " + std::to_string(cfg.capstone_threshold) + " points in " +
-                            game::branch_name(d.branch);
-        } else if (r == PR::Locked) {
-            const game::TreeNode root = d.ability != game::AbilityId::Count ? game::ability_root(d.ability)
-                                                                             : game::tower_root(game::branch_tower(d.branch));
-            v.requirement = std::string("Needs ") + game::tree_node(root).name;
+                            game::branch_name(d.branch) + " (" + std::to_string(meta.branch_points(d.branch)) +
+                            "/" + std::to_string(cfg.capstone_threshold) + ")";
+        } else if (r == PR::Locked && d.parent != game::TreeNode::Count) {
+            v.requirement = std::string("Needs ") + game::tree_node(d.parent).name;
         }
         if (v.state != ui::TreeNodeState::Maxed) {
             const game::TreeCost c = meta.next_cost(n, cfg);
@@ -332,6 +357,7 @@ ui::HudModel make_hud_model(const HudSources& src, const ui::HudScreen& screen, 
     const std::vector<game::WaveDef>& table = src.waves->waves();
     m.phase = phase_of(ws.phase);
     m.all_waves_complete = ws.all_waves_complete;
+    m.auto_start = src.waves->auto_start();
     m.wave_count = static_cast<u32>(table.size());
     m.wave_number = ws.wave_index + 1;
     m.phase_time_remaining = ws.phase_time_remaining;
@@ -355,8 +381,8 @@ ui::HudModel make_hud_model(const HudSources& src, const ui::HudScreen& screen, 
         ui::HudTowerCard& c = m.cards[i];
         c.unlocked = towers.tower_unlocked(t);
         c.allowed = towers.tower_allowed(t);
-        c.cost = towers.stats(t, 1).build_cost;
-        c.range = game::tower_mechanics(t, 1).swarm.search_radius;
+        c.cost = towers.stats(t).build_cost;
+        c.range = game::tower_mechanics(t).swarm.search_radius;
     }
 
     // ---- Board ----
@@ -381,7 +407,7 @@ ui::HudModel make_hud_model(const HudSources& src, const ui::HudScreen& screen, 
         }
         // Towers have no in-run upgrades, so what was invested is the build
         // cost; TowerSystem::sell applies the same fraction to it.
-        t.refund = static_cast<u32>(static_cast<f32>(towers.stats(tower->type, tower->tier).build_cost) *
+        t.refund = static_cast<u32>(static_cast<f32>(towers.stats(tower->type).build_cost) *
                                     refund_fraction);
         m.towers.push_back(t);
     }
@@ -402,7 +428,7 @@ ui::HudModel make_hud_model(const HudSources& src, const ui::HudScreen& screen, 
 
     // ---- Placement preview ----
     if (screen.has_build_cursor()) {
-        const game::PlacementQuery q = towers.validate(world, screen.build_cursor(), world_cursor, m.atp);
+        const game::PlacementQuery q = towers.validate_deploy(world, screen.build_cursor(), world_cursor, m.atp);
         m.placement.active = true;
         m.placement.valid = q.valid();
         m.placement.world = q.snapped_position;
@@ -471,6 +497,19 @@ game::GymResult run_ui_command(const UiDriver& d, const std::vector<std::string>
             }
         }
         return fail("usage: ui screen none|menu|tree|levels|pause|victory|defeat");
+    }
+    if (sub == "tree") {
+        if (d.front_model == nullptr) return fail("ui tree only works in --screenshot --ui (the save decides)");
+        const std::string name = tok.size() > 2 ? tok[2] : std::string();
+        const std::pair<const char*, ScreenshotTree> kinds[] = {
+            {"new", ScreenshotTree::New}, {"sample", ScreenshotTree::Sample}, {"full", ScreenshotTree::Full}};
+        for (const auto& [n, progress] : kinds) {
+            if (name == n) {
+                d.front_model->tree = make_screenshot_tree_model(progress);
+                return okay("tree progress: " + name);
+            }
+        }
+        return fail("usage: ui tree new|sample|full");
     }
     return fail("unknown ui subcommand '" + sub + "'");
 }

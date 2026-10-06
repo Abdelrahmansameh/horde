@@ -305,7 +305,7 @@ const float kBacteriaRadius  = 0.255;
 // shy of the pad.
 const float kBacteriaBodyOffset = 0.25;
 
-float sdf_bacteria(vec2 p, float phase, float pulse, out float flagellum,
+float sdf_bacteria(vec2 p, float phase, float pulse, float spit, out float flagellum,
                    out vec2 skin_p) {
     const float h = kBacteriaHalfLen;
     const float r = kBacteriaRadius;
@@ -329,7 +329,10 @@ float sdf_bacteria(vec2 p, float phase, float pulse, out float flagellum,
 
     // Pulse: a peristaltic swell rolling tailward, over a whole-body breath.
     float swell = 0.055 * sin(bp.x * 7.0 + phase * 0.9) + 0.025 * sin(phase * 0.55);
-    float body = sdf_capsule(bp, h, r + r * swell + pulse);
+    float body = sdf_capsule(bp, h, r + r * swell + pulse +
+                             spit * 0.065 * smoothstep(-0.1, 0.45, bp.x));
+    // The front membrane briefly bulges outward when a toxin pellet leaves.
+    body = min(body, length(p - vec2(0.76, 0.0)) - (0.035 + 0.095 * spit));
 
     // Receptors: nearest-slot lookup along the unrolled outline (see above).
     float perim = 6.28318530 * r + 4.0 * h;
@@ -496,8 +499,14 @@ float sdf_worm(vec2 p, float phase, vec4 shape, vec4 extra, float shift, float m
     prof *= 1.0 + 0.08 * sin(u * 26.0 - phase * 0.6) * (1.0 - smoothstep(0.75, 0.9, u));
     float r = max(shape.w * prof, min_r);
 
-    float dy = (p.y - w) * inversesqrt(1.0 + slope * slope);
-    float dist = length(vec2(bx - xc, dy));
+    // The slope-corrected offset is right along the tube, but past an end it
+    // squashes the cap into an ellipse on a steep bend (the head, mid-slither).
+    // Blend to the plain screen-space offset over the cap so it stays round.
+    float dx = bx - xc;
+    float dy_raw = p.y - w;
+    float dy = dy_raw * inversesqrt(1.0 + slope * slope);
+    float cap = smoothstep(0.0, r, abs(dx));
+    float dist = length(vec2(dx, mix(dy, dy_raw, cap)));
     // Measured from the centre line in 2D, so the rounded caps shade as the
     // domes they are rather than as a flat continuation of the tube.
     lat = (dy < 0.0 ? -1.0 : 1.0) * min(dist / r, 1.0);
@@ -711,8 +720,11 @@ void main() {
     uint family = (v_flags >> CHAFF_FAMILY_SHIFT) & CHAFF_FAMILY_MASK;
     uint fam_slot = min(family, FAM_COUNT - 1u);
 
+    float toxin_spit = family == FAM_BACTERIA ? clamp(v_wobble, 0.0, 1.0) : 0.0;
+
     // Tempo pulse: small so 10k instances read as "alive", not "flickering".
     float pulse = sin(v_anim_phase) * 0.05 * v_wobble;
+    if (family == FAM_BACTERIA) pulse = sin(v_anim_phase) * 0.018 + toxin_spit * 0.025;
 
     // Feeding on a host: the tempo pulse gives way to the latch throb, which
     // owns the whole deformation (and v_wobble is the throb clock, not the
@@ -772,7 +784,7 @@ void main() {
             body_d = min(body_d, length(q) - thick);
         }
     } else if (family == FAM_BACTERIA) {
-        body_d = sdf_bacteria(v_local, v_anim_phase, pulse, flagellum, bacteria_skin);
+        body_d = sdf_bacteria(v_local, v_anim_phase, pulse, toxin_spit, flagellum, bacteria_skin);
         rim_scale = 1.2;     // softer; a bacterium is a wet sac
         core_shade = 1.18;   // ...and a lit one: the interior stays as bright as
                              // the membrane, no darkening at all under the streaks
@@ -903,6 +915,9 @@ void main() {
         float inner = smoothstep(0.0, 0.45, depth) *
                       (1.0 - smoothstep(0.24, 0.36, abs(sp.x)));
         rgb = mix(rgb, mix(v_tint.rgb, vec3(1.0), 0.6), streak * inner * 0.8);
+
+        float mouth = 1.0 - smoothstep(0.035, 0.15, length(v_local - vec2(0.78, 0.0)));
+        rgb = mix(rgb, vec3(0.91, 1.0, 0.42), mouth * toxin_spit);
     }
 
     if ((v_flags & FLAG_MARKED) != 0u) rgb = mix(rgb, vec3(1.0), 0.25);

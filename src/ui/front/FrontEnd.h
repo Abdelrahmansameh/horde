@@ -23,6 +23,7 @@
 #include "ui/front/TreeScreen.h"
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -99,11 +100,11 @@ private:
     gui::Widget* play_button_ = nullptr;
     i32 selected_ = -1;
 
-    // Tree state: the layout (loaded once), the live screen, and the node
-    // the top bar showed last, kept across visits.
+    // Tree state: the layout (loaded once), the live screen, and where its
+    // view was left, so a visit after a run opens where the last one ended.
     TreeLayout tree_layout_;
     std::unique_ptr<TreeScreen> tree_;
-    std::string tree_selected_;
+    std::optional<TreeScreen::View> tree_view_;
 };
 
 } // namespace immune::ui

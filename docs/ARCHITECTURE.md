@@ -363,7 +363,7 @@ none; the swarmers pick a target --
 chaff or named agent, whichever is nearest inside their search radius; Burrowed
 (`kHidden`) is invisible to all of them -- chase it, and do the tower's work on
 contact. What a swarmer does on contact is its `SwarmerKind`, and every number
-about it comes from a `SwarmerProfile` the tower registers per type and tier
+about it comes from a `SwarmerProfile` the tower registers per type
 (filled from `towers.json` by `game/towers`):
 
 | Tower | Kind | On contact |
@@ -511,7 +511,7 @@ releases nothing. Builders take only `crowd_push` of the horde's shove in the
 BODIES pass (shipped 0: a fibroblast crawls through the matrix), so they can
 reach a site behind the horde's front; they are still latched and burned on
 the way, which is why their `max_health` is an order of magnitude above the
-other kinds'. Every number is per tier in `towers.json` (`builder` payload
+other kinds'. Every number comes from the tower baseline in `towers.json` (`builder` payload
 plus the shared `swarm` chassis). `SimSnapshot` gains `scars_live`,
 `scars_built_total`, `scars_lost_total`.
 
@@ -736,7 +736,7 @@ PNG top-down flip. This is the project's primary visual verification channel.
   through the spatial hash; a tower asks the grid for cells in range and never
   iterates agents. And a tower never damages anything itself: it releases a
   volley of swarmers (`sim/swarm`, §4.5b) and the swarmers do the work. The
-  per-type/per-tier swarmer table (`TowerMechanics`: the shared `swarm` chassis
+  per-type swarmer table (`TowerMechanics`: the shared `swarm` chassis
   plus a per-kind `payload`) lives behind `TowerMechanics.h` and is filled from
   `assets/config/towers.json`.
 - **`enemies/`** — the DESIGN.md §6 readability rule (colour = family, silhouette
@@ -802,11 +802,12 @@ PNG top-down flip. This is the project's primary visual verification channel.
   version must fail loudly rather than silently drop fields (the app then plays
   a fresh campaign and refuses to write over the file).
   `ImmunityTree` is a compiled-in node catalog — every line PROGRESSION.md
-  names, keyed by a stable string so saves survive catalog changes — plus
+  names, keyed by a stable string so saves survive catalog changes, and the
+  tree's shape (each node's parent, checked at compile time to be one tree
+  rooted at the Neutrophil with at most three children per node) — plus
   `apply_immunity_tree()`, which **folds the purchases into a copy of the
-  loaded config**: the tier-1 row of every tower becomes its tree-boosted
-  baseline and is written over tiers 2–3 with `upgrade_cost` 0 (towers have no
-  in-run tiers any more), and the economy/ability lines edit their blocks. No
+  loaded config**: the baseline of every tower is boosted by tree purchases,
+  and the economy/ability lines edit their blocks. No
   system learns that a tree exists; `App::apply_tuning_config()` feeds them
   `run_config_` instead of `config_` (which stays the file's values because the
   gym registry is bound to it). What is not a config number rides alongside in

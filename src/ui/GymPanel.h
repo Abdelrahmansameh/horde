@@ -111,7 +111,6 @@ private:
     i32 flood_count_ = 900;
 
     i32 tower_ = 0;
-    i32 tower_tier_ = 1;
     i32 atp_amount_ = 5000;
 
     f32 field_radius_ = 18.0f;

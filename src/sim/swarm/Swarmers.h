@@ -126,10 +126,10 @@
 //     whether or not it was the enemy it had picked, and the payload leaves
 //     from the point of contact on its membrane rather than from its centre.
 //     A shell that grazes the front of a horde does not get to fly through it.
-// Latch units (Cytotoxic T) take no part in any of it: a latcher's whole job
-// is to sit ON a pathogen, and a clump of them on one host is the intended
-// read. The pass costs every non-Latch swarmer one 3x3 walk of a swarmer-only
-// hash and one of the chaff hash, both walk-capped, plus the named list.
+// Free directly deployed latchers (Cytotoxic T) push other friendly cells.
+// Once attached to a pathogen they become intangible, so several can ride
+// one host. Legacy volley latchers remain intangible. The pass costs each
+// solid swarmer one walk of each nearby-body hash, plus the named list.
 //
 // HEALTH. Swarmers can be killed. The horde fights back
 // (sim/hostile/HostileAttacks.h): a virus latches onto a unit and drains it,
@@ -218,6 +218,7 @@ inline constexpr u8 kAttached    = 1u << 2;
 /// Builder: the goal streams hold a real site. Without it the unit has
 /// nowhere to go and only drifts.
 inline constexpr u8 kHasGoal     = 1u << 3;
+inline constexpr u8 kPersistent  = 1u << 4; ///< Deployed cell has no age limit.
 } // namespace swarmer_flags
 
 /// Set on the `visual_id` of every CombatEvent a swarmer raises, so the VFX
@@ -449,7 +450,8 @@ inline constexpr f32 kWallContactFraction = 0.8f;
 /// this over two).
 inline constexpr f32 kShooterMuzzleFraction = 0.54f;
 
-/// Body collision for the non-Latch kinds. See BODIES in the file header for
+/// Body collision for solid cells, including free directly deployed latchers.
+/// See BODIES in the file header for
 /// the model. A swarmer's BODY here is `size * kWallContactFraction` -- the
 /// same membrane the wall projection keeps off the vessel, and where the
 /// renderer draws the edge -- and a pathogen's is its family radius. Every
@@ -490,13 +492,12 @@ struct SwarmerCollisionTuning {
     f32 bomber_contact_mult = 1.0f;
 };
 
-/// Profile slots. One per tower type and tier, plus spares for tests and for
+/// Profile slots. One per tower type, plus spares for tests and for
 /// scripted hazards that want a swarmer of their own.
 inline constexpr u16 kSwarmerProfileSlots = 32;
-inline u16 swarmer_profile_slot(TowerType type, u8 tier) {
+inline u16 swarmer_profile_slot(TowerType type) {
     const u16 t = static_cast<u16>(static_cast<u32>(type) < kTowerTypeCount ? static_cast<u32>(type) : 0u);
-    const u16 k = static_cast<u16>(tier >= 3 ? 2u : (tier == 2 ? 1u : 0u));
-    return static_cast<u16>(t * 3u + k);
+    return t;
 }
 
 struct SwarmerSpawnParams {
@@ -522,6 +523,7 @@ struct SwarmerSpawnParams {
     /// the unit was released with nowhere to build and will only drift.
     Vec2 goal{0.0f, 0.0f};
     bool has_goal = false;
+    bool persistent = false;
 };
 
 /// One named agent (elite/boss) as the swarmer kernel sees it. SimWorld
@@ -872,12 +874,13 @@ public:
     void set_attribution(DamageAttribution* sink) { attribution_ = sink; }
 
     /// Inflammation (sim/Immunity.h): a unit standing in any of `zones` deals
-    /// `mult` times its latch drain and round damage. The list is the
-    /// caller's (SimWorld rebuilds it every tick) and must outlive update();
-    /// null or mult 1 is off.
-    void set_inflamed_zones(const std::vector<InflamedZone>* zones, f32 mult) {
+    /// `damage_mult` times its latch drain and round damage, and its magazine
+    /// reloads `reload_mult` times as fast. The list is the
+    /// caller's (SimWorld rebuilds it every tick) and must outlive update().
+    void set_inflamed_zones(const std::vector<InflamedZone>* zones, f32 damage_mult, f32 reload_mult) {
         inflamed_zones_ = zones;
-        inflamed_mult_ = mult;
+        inflamed_mult_ = damage_mult;
+        inflamed_reload_mult_ = reload_mult;
     }
 
     /// Body collision knobs. Defaults are live; see SwarmerCollisionTuning.
@@ -902,6 +905,7 @@ private:
     DamageAttribution* attribution_ = nullptr;
     const std::vector<InflamedZone>* inflamed_zones_ = nullptr;
     f32 inflamed_mult_ = 1.0f;
+    f32 inflamed_reload_mult_ = 1.0f;
     SwarmerEffects effects_;
     /// Scratch for the targetless swarmers' hash queries. A member so the
     /// vector is allocated once and reused, never per-swarmer inside the tick.

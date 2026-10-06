@@ -71,11 +71,20 @@ public:
     /// to 32 px, then in steps of ~6% so animated sizes share bakes.
     static i32 bake_size(f32 on_screen_px);
 
+    /// The pixel size an icon drawn `on_screen_px` big is baked at in a view
+    /// that zooms continuously: half-octave steps (16, 23, 32, 45, 64, 91, ...),
+    /// so an icon passing through every size reuses a handful of bakes
+    /// instead of filling the atlas. It is drawn at most ~1.4x smaller than
+    /// baked, which the linear filter still shrinks cleanly.
+    static i32 zoom_bake_size(f32 on_screen_px);
+
     /// Draws `name` fitted into `dst` (logical px; the viewBox maps onto dst,
     /// overflow draws outside it as in the canvas). `device_scale` is
     /// framebuffer px per logical px so the bake is pixel-exact.
     void draw(DrawList& dl, std::string_view name, Rect dst, Color tint = kWhite, f32 device_scale = 1.0f,
               bool grayscale = false);
+    /// draw() for a zoomable view: baked at zoom_bake_size().
+    void draw_zoomable(DrawList& dl, std::string_view name, Rect dst, Color tint = kWhite, f32 device_scale = 1.0f);
 
     Atlas& atlas() { return atlas_; }
     const Atlas& atlas() const { return atlas_; }
@@ -84,6 +93,8 @@ public:
 
 private:
     struct Icon;
+    void draw_baked(DrawList& dl, std::string_view name, Rect dst, i32 bake_px, Color tint, bool grayscale);
+
     std::map<std::string, std::unique_ptr<Icon>, std::less<>> icons_;
     std::vector<std::string> errors_;
     Atlas atlas_;

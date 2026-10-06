@@ -7,8 +7,7 @@
 //                  cues agree), and feeds on it. A host that is gone drops
 //                  its passenger back into the lane where it stood.
 //   2. SWARMERS    every live unit queries the chaff hash once around itself:
-//                  aura damage from every bacterium in reach, and a new
-//                  passenger from every virus touching it while it has room.
+//                  toxin targets, optional aura damage, and new viral latches.
 //   3. TOWERS      the same, for every tower SimWorld listed -- and every
 //                  scar, which is a BAR host: walked in segments along its
 //                  length, measured to its nearest face (bar_* below).
@@ -315,12 +314,130 @@ HostileStats HostileSystem::update(ChaffBuffers& chaff, const SpatialHash& hash,
     // a host from before the switch is let go, so a gym toggle cannot leave
     // a virus frozen on a tower for the rest of the run.
     if (!tuning_.enabled || dt <= 0.0f) {
+        toxin_shots_.clear();
         for (usize i = 0; i < chaff_n; ++i) {
             if ((chaff.flags[i] & chaff_flags::kLatched) != 0) release(i);
         }
         last_ = stats;
         return last_;
     }
+
+    ++shot_tick_;
+    if (shot_tick_ == 0u) ++shot_tick_;
+    if (shot_stamp_.size() < chaff.capacity()) shot_stamp_.resize(chaff.capacity(), 0u);
+
+    // Each bacterium carries real rounds. The recoil clock starts only when
+    // an actual shot leaves.
+    for (usize i = 0; i < chaff_n; ++i) {
+        const u32 fam = chaff.family[i] < kFamilyCount ? chaff.family[i] : 0u;
+        const HostileFamilyParams& fp = tuning_.family[fam];
+        if (fp.toxin_damage <= 0.0f) continue;
+        const u8 magazine = static_cast<u8>(math::min(8u, math::max(1u, fp.toxin_magazine_size)));
+        if (chaff.toxin_cooldown[i] < 0.0f) {
+            chaff.toxin_rounds[i] = magazine;
+            chaff.toxin_cooldown[i] =
+                static_cast<f32>(chaff.generation[i] % 8u) * (math::max(fp.toxin_interval, dt) / 8.0f);
+        } else {
+            chaff.toxin_cooldown[i] = math::max(0.0f, chaff.toxin_cooldown[i] - dt);
+        }
+        chaff.toxin_spit_pulse[i] = math::max(0.0f, chaff.toxin_spit_pulse[i] - dt / 0.18f);
+        if (chaff.toxin_reload[i] >= 0.0f) {
+            chaff.toxin_reload[i] += dt / math::max(fp.toxin_reload_seconds, dt);
+            if (chaff.toxin_reload[i] >= 1.0f) {
+                chaff.toxin_reload[i] = -1.0f;
+                chaff.toxin_rounds[i] = magazine;
+            }
+        }
+    }
+
+    // Fly last tick's pellets before spawning new ones. Each pellet keeps the
+    // identity of its intended target, so a compacted swarmer slot or a
+    // removed tower can never receive a stray hit.
+    for (usize i = 0; i < toxin_shots_.size();) {
+        ToxinShot& shot = toxin_shots_[i];
+        shot.position += shot.velocity * dt;
+        shot.life -= dt;
+        bool retire = shot.life <= 0.0f;
+        if (!retire && shot.target_tower) {
+            const usize k = towers.find(EntityId{shot.target_index});
+            if (k == FriendlyTowerList::npos) {
+                retire = true;
+            } else {
+                const FriendlyTower& t = towers.items[k];
+                f32 d2 = math::length_sq(shot.position - t.position);
+                if (t.is_bar()) {
+                    const BarFrame bar(t);
+                    d2 = bar_dist_sq(bar, bar.to_local(shot.position));
+                }
+                const f32 r = shot.radius + (t.is_bar() ? 0.0f : t.radius);
+                if (d2 <= r * r) {
+                    const f32 damage = shot.damage * tuning_.damage_taken_mult;
+                    towers.damage[k] += damage;
+                    stats.tower_damage += damage;
+                    ++stats.toxin_hits;
+                    retire = true;
+                }
+            }
+        } else if (!retire) {
+            const u32 k = shot.target_index;
+            if (!sw.alive_at(k, shot.target_generation) ||
+                (sw.flags[k] & swarmer_flags::kPendingKill) != 0) {
+                retire = true;
+            } else {
+                const f32 body = sw.profile_of(k).size * kWallContactFraction;
+                const f32 r = shot.radius + body;
+                if (math::length_sq(shot.position - Vec2{sw.pos_x[k], sw.pos_y[k]}) <= r * r) {
+                    const f32 damage = shot.damage * tuning_.damage_taken_mult;
+                    sw.health[k] -= damage;
+                    stats.swarmer_damage += damage;
+                    ++stats.toxin_hits;
+                    retire = true;
+                }
+            }
+        }
+        if (!retire && mask.width() > 0) {
+            const IVec2 cell = mask.world_to_cell(shot.position);
+            retire = !mask.walkable(cell.x, cell.y);
+        }
+        if (retire) {
+            toxin_shots_[i] = toxin_shots_.back();
+            toxin_shots_.pop_back();
+        } else {
+            ++i;
+        }
+    }
+
+    const auto shoot = [&](u32 j, Vec2 target, Vec2 target_velocity, u32 index,
+                           u32 generation, bool tower) {
+        const u32 fam = chaff.family[j] < kFamilyCount ? chaff.family[j] : 0u;
+        const HostileFamilyParams& fp = tuning_.family[fam];
+        if (fp.toxin_damage <= 0.0f || fp.toxin_range <= 0.0f || fp.toxin_speed <= 0.0f ||
+            toxin_shots_.size() >= tuning_.max_toxin_shots || shot_stamp_[j] == shot_tick_) return;
+        if (chaff.toxin_reload[j] >= 0.0f || chaff.toxin_rounds[j] == 0u ||
+            chaff.toxin_cooldown[j] > 0.0f) return;
+        const Vec2 origin{chaff.pos_x[j], chaff.pos_y[j]};
+        const f32 travel = math::length(target - origin) / fp.toxin_speed;
+        const Vec2 aim = target + target_velocity * travel;
+        const Vec2 dir = math::normalize_safe(aim - origin);
+        if (dir.x == 0.0f && dir.y == 0.0f) return;
+        ToxinShot shot;
+        shot.position = origin + dir * (chaff_radius_[fam] * 1.35f);
+        shot.velocity = dir * fp.toxin_speed;
+        shot.damage = fp.toxin_damage;
+        shot.life = (fp.toxin_range + 8.0f) / fp.toxin_speed;
+        shot.radius = fp.toxin_hit_radius;
+        shot.target_index = index;
+        shot.target_generation = generation;
+        shot.target_tower = tower;
+        toxin_shots_.push_back(shot);
+        shot_stamp_[j] = shot_tick_;
+        --chaff.toxin_rounds[j];
+        chaff.toxin_cooldown[j] = math::max(fp.toxin_interval, dt);
+        if (chaff.toxin_rounds[j] == 0u) chaff.toxin_reload[j] = 0.0f;
+        chaff.toxin_spit_pulse[j] = 1.0f;
+        chaff.body_heading[j] = std::atan2(dir.y, dir.x);
+        ++stats.toxin_fired;
+    };
 
     // ---- 1. PASSENGERS ----------------------------------------------------
     for (usize i = 0; i < chaff_n; ++i) {
@@ -425,6 +542,7 @@ HostileStats HostileSystem::update(ChaffBuffers& chaff, const SpatialHash& hash,
     for (u32 f = 0; f < kFamilyCount; ++f) {
         const HostileFamilyParams& fp = tuning_.family[f];
         if (fp.aura_dps > 0.0f) reach_past_body = math::max(reach_past_body, fp.aura_radius);
+        if (fp.toxin_damage > 0.0f) reach_past_body = math::max(reach_past_body, fp.toxin_range);
         if (fp.latch_dps > 0.0f) {
             reach_past_body = math::max(reach_past_body, chaff_radius_[f] + fp.latch_reach);
         }
@@ -502,6 +620,9 @@ HostileStats HostileSystem::update(ChaffBuffers& chaff, const SpatialHash& hash,
                     ++stats.aura_hits;
                 }
             }
+            if (fp.toxin_damage > 0.0f && d2 <= (fp.toxin_range + body) * (fp.toxin_range + body)) {
+                shoot(j, p, v, static_cast<u32>(i), sw.generation[i], false);
+            }
             if (fp.latch_dps > 0.0f && latchable && swarmer_passengers_[i] < fp.latch_cap_swarmer) {
                 const f32 r = chaff_radius_[fam] + body + fp.latch_reach;
                 if (d2 < r * r) {
@@ -560,6 +681,10 @@ HostileStats HostileSystem::update(ChaffBuffers& chaff, const SpatialHash& hash,
                             ++stats.aura_hits;
                         }
                     }
+                    if (fp.toxin_damage > 0.0f && d2 <= fp.toxin_range * fp.toxin_range) {
+                        shoot(j, frame.to_world(bar_surface_point(frame, l)), Vec2{0.0f, 0.0f},
+                              t.id.value, 0u, true);
+                    }
                     if (fp.latch_dps > 0.0f && towers.passengers[k] < fp.latch_cap_scar) {
                         const f32 r = chaff_radius_[fam] + fp.latch_reach;
                         if (d2 < r * r) {
@@ -601,6 +726,9 @@ HostileStats HostileSystem::update(ChaffBuffers& chaff, const SpatialHash& hash,
                     incoming += fp.aura_dps * dt;
                     ++stats.aura_hits;
                 }
+            }
+            if (fp.toxin_damage > 0.0f && d2 <= (fp.toxin_range + body) * (fp.toxin_range + body)) {
+                shoot(j, p, Vec2{0.0f, 0.0f}, t.id.value, 0u, true);
             }
             if (fp.latch_dps > 0.0f && towers.passengers[k] < fp.latch_cap_tower) {
                 const f32 r = chaff_radius_[fam] + body + fp.latch_reach;

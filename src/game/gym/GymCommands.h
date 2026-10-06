@@ -205,7 +205,7 @@ struct GymContext {
     // has no config, in which case `config` reports that rather than lying.
     //
     // These are what make a balance tweak a one-liner: `config set
-    // towers.macrophage.3.damage 200` reaches the same bytes the JSON loader
+    // towers.macrophage.stats.max_health 800` reaches the same bytes the JSON loader
     // writes, and `config dump` writes the live values back out so an
     // experiment that worked can be kept.
 

@@ -85,6 +85,12 @@ public:
     /// Skips the remaining prep time (player pressed "start wave early").
     void request_early_start();
 
+    /// Whether prep ends by itself when its timer runs out. Off: prep waits
+    /// for request_early_start(). On by default so headless runs (tests, the
+    /// balance harness) keep the timed cadence; the app turns it off.
+    void set_auto_start(bool on) { auto_start_ = on; }
+    bool auto_start() const { return auto_start_; }
+
     WaveStatus status() const { return status_; }
 
     /// Preview of the next wave's composition, for the HUD.
@@ -103,6 +109,7 @@ private:
     WaveStatus status_{};
     f32 wave_time_ = 0.0f;
     bool early_start_requested_ = false;
+    bool auto_start_ = true;
     /// Per-SpawnEntry running count for the current wave's Spawning phase,
     /// sized to waves_[status_.wave_index].spawns and reset on entry.
     std::vector<u32> spawned_so_far_;

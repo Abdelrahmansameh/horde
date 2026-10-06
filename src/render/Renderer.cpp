@@ -25,6 +25,7 @@
 #include "sim/flowfield/FlowField.h"
 #include "sim/squad/Squads.h"
 #include "sim/projectile/Projectiles.h"
+#include "sim/hostile/HostileAttacks.h"
 #include "sim/fluid/Fluid.h"
 #include "sim/swarm/Swarmers.h"
 #include "sim/spatial/SpatialHash.h"
@@ -1671,7 +1672,7 @@ void Renderer::submit_chaff(const sim::ChaffBuffers& chaff, const sim::SpatialHa
         // too, so it keeps its own contact shadow.
         inst.flags = (f << 8) | (static_cast<u32>(flash_k * 255.0f + 0.5f) << 24);
         inst.anim_phase = imp.time * vis.tempo * math::kTwoPi;
-        inst.pad = vis.wobble;
+        inst.pad = f == static_cast<u32>(PathogenFamily::Bacteria) ? 0.0f : vis.wobble;
     }
 
     if (result.instances_dropped > 0) {
@@ -1852,24 +1853,10 @@ void Renderer::submit_entities(const sim::EcsWorld& ecs) {
             static_cast<f32>(h & 0xFFFFu) * (math::kTwoPi / 65536.0f) + imp.time * tempo * math::kTwoPi;
         inst.shape_param = 0.0f;
 
-        // Every tower body spends its tier on a countable feature — the
-        // Macrophage's phagosomes, the
-        // Cytotoxic T's lytic granules, the Goblet Cell's granules, the NK Cell's
-        // blades — so an upgrade is legible from the silhouette alone rather
-        // than only from the stat panel.
-        //
-        // What travels is the RAW tier, not any one shape's derived count.
-        // entity.frag turns it into blades (2 + tier) or antibodies (2 + tier)
-        // or whatever else at the point of use, which keeps the "what does a
-        // tier look like" decision in the shader that draws it — the NK Cell's
-        // blade count in particular has to agree with the rotor-sweep particle
-        // burst in vfx/Particles.cpp, and one owner for that formula is one
-        // fewer place for the two to drift apart.
-        //
-        // Sourced from comp::Tower every frame rather than baked into the
-        // sprite at upgrade time, for the same no-drift reason.
+        // Legacy tower entities use the baseline silhouette. Permanent tree
+        // purchases change stats without introducing an in-run tier.
         if (const auto* tower = registry.try_get<const sim::comp::Tower>(entity)) {
-            inst.shape_param = static_cast<f32>(tower->tier);
+            inst.shape_param = 1.0f;
             // Integrity, read as the body going dull and bruised: the horde
             // chews on towers now (sim/hostile), and a tower at a third of
             // its integrity has to look like one BEFORE the player opens its
@@ -2264,6 +2251,45 @@ void Renderer::submit_projectiles(const sim::ProjectileBuffers& projectiles) {
         ++stats_.draw_calls;
     }
 
+    imp.projectile_fence.signal(imp.projectile_region);
+    imp.projectile_region = (imp.projectile_region + 1) % kInstanceRegions;
+    stats_.submit_ms += timer.elapsed_ms();
+}
+
+void Renderer::submit_toxin_shots(const std::vector<sim::ToxinShot>& shots) {
+    stats_.projectile_instances_drawn += static_cast<u32>(shots.size());
+    if (!ready_ || !impl_ || shots.empty()) return;
+    Impl& imp = *impl_;
+    WallClock timer;
+    const u32 draw_count = math::min(static_cast<u32>(shots.size()), imp.max_projectile_instances);
+    imp.projectile_fence.wait(imp.projectile_region);
+    ProjectileGpuInstance* base = imp.projectile_instances.mapped_as<ProjectileGpuInstance>() +
+        static_cast<usize>(imp.projectile_region) * imp.max_projectile_instances;
+    for (u32 i = 0; i < draw_count; ++i) {
+        const sim::ToxinShot& shot = shots[i];
+        ProjectileGpuInstance inst{};
+        inst.x = shot.position.x;
+        inst.y = shot.position.y;
+        inst.vx = shot.velocity.x;
+        inst.vy = shot.velocity.y;
+        inst.radius = math::max(shot.radius * 0.62f, 0.08f);
+        inst.phase = static_cast<f32>((i * 2654435761u) & 0xFFFFu) * (math::kTwoPi / 65536.0f);
+        inst.r = 0.38f; inst.g = 0.77f; inst.b = 0.27f; inst.a = 1.0f;
+        inst.visual_id = 0;
+        base[i] = inst;
+    }
+    const ShaderProgram prog = imp.shaders.get("projectile");
+    if (prog.valid()) {
+        glUseProgram(prog.gl_id);
+        glUniformMatrix4fv(0, 1, GL_FALSE, glm::value_ptr(imp.view_projection));
+        glUniform1f(1, imp.time);
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        imp.projectile_vao.bind();
+        glDrawArraysInstancedBaseInstance(GL_TRIANGLE_FAN, 0, 4, static_cast<GLsizei>(draw_count),
+                                          imp.projectile_region * imp.max_projectile_instances);
+        ++stats_.draw_calls;
+    }
     imp.projectile_fence.signal(imp.projectile_region);
     imp.projectile_region = (imp.projectile_region + 1) % kInstanceRegions;
     stats_.submit_ms += timer.elapsed_ms();

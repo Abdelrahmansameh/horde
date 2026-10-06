@@ -294,6 +294,14 @@ public:
     std::vector<f32> body_heading;
     std::vector<f32> slither_phase;
 
+    /// Bacterial toxin magazine. A negative cooldown is an uninitialized
+    /// spawn; reload is -1 while ready and 0..1 while rounds reform.
+    std::vector<u8> toxin_rounds;
+    std::vector<f32> toxin_cooldown;
+    std::vector<f32> toxin_reload;
+    /// Cosmetic recoil; body_heading holds the most recent shot direction.
+    std::vector<f32> toxin_spit_pulse;
+
     /// Reserves every stream to `max_agents`. Call once at level load.
     void reserve(usize max_agents);
 

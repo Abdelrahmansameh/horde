@@ -234,20 +234,13 @@ void GymPanel::draw_defense_tab(game::GymContext& ctx) {
     }
     ImGui::SetNextItemWidth(150.0f);
     ImGui::Combo("tower", &tower_, tower_names.data(), static_cast<int>(tower_names.size()));
-    ImGui::SameLine();
-    ImGui::SetNextItemWidth(120.0f);
-    ImGui::SliderInt("tier", &tower_tier_, 1, 3);
-
     if (ImGui::Button("Place")) {
-        execute(ctx, text("tower %s%s tier %d", tower_names[static_cast<usize>(tower_)], at.c_str(),
-                          tower_tier_));
+        execute(ctx, text("tower %s%s", tower_names[static_cast<usize>(tower_)], at.c_str()));
     }
     ImGui::SameLine();
     if (ImGui::Button("Place one of each")) {
-        execute(ctx, text("tower all%s tier %d", at.c_str(), tower_tier_));
+        execute(ctx, text("tower all%s", at.c_str()));
     }
-    ImGui::SameLine();
-    if (command_button("Upgrade all", "upgrade all")) execute(ctx, "upgrade all");
     ImGui::SameLine();
     if (command_button("Fire abilities", "fire")) execute(ctx, "fire");
     ImGui::SameLine();

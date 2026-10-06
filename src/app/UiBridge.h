@@ -80,15 +80,25 @@ struct UiDriver {
     /// Screenshot mode: which front-end screen to show (`ui screen <name>`).
     /// Null in interactive play, where the state machine decides.
     ui::FrontScreen* screen = nullptr;
+    /// Screenshot mode: the data the front-end screens show (`ui tree
+    /// <progress>` swaps the tree's). Null in interactive play.
+    ui::FrontModel* front_model = nullptr;
 };
 
+/// How far along a screenshot's Strengthen Immunity tree is: a new campaign,
+/// a few runs in, or every node bought.
+enum class ScreenshotTree : u8 { New, Sample, Full };
+ui::TreeModel make_screenshot_tree_model(ScreenshotTree progress);
+
 /// Screenshot mode's front-end data: the campaign found on disk (cleared up
-/// to `current_level_path`'s slot), `level` as the level just played, and a
-/// sample first-clear payout for the results screens.
+/// to `current_level_path`'s slot), `level` as the level just played, a
+/// sample first-clear payout for the results screens, and a tree a few runs
+/// into the campaign.
 ui::FrontModel make_screenshot_front_model(const game::LevelDef& level, const std::string& current_level_path);
 
 /// `ui dump | click <path> | hover <path> | pointer <x> <y> | select <n> |
-/// cancel | level <n> | screen <name> | scale <f>` -- tokens as the gym tokenized them, tokens[0] == "ui".
+/// cancel | level <n> | screen <name> | tree <new|sample|full> | scale <f>`
+/// -- tokens as the gym tokenized them, tokens[0] == "ui".
 game::GymResult run_ui_command(const UiDriver& d, const std::vector<std::string>& tokens);
 
 } // namespace immune::app

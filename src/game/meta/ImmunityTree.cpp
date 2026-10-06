@@ -15,6 +15,7 @@
 #include "core/Math.h"
 #include "game/config/GameConfig.h"
 
+#include <array>
 #include <cmath>
 #include <string_view>
 
@@ -46,92 +47,203 @@ constexpr AbilityId kClot = AbilityId::FibrinClot;
 
 // In TreeNode order. The static_assert below and a unit test
 // (tests/test_immunity_tree.cpp) keep the two in step.
-constexpr TreeNodeDef kNodes[] = {
+constexpr TreeNodeDef kCatalog[] = {
     // ---- Hub: economy ----
     node("hub.bone_marrow_reserve", "Bone Marrow Reserve", "+40 starting ATP", K::Economy, B::Hub, 5),
     node("hub.rapid_metabolism", "Rapid Metabolism", "+10% passive ATP/sec", K::Economy, B::Hub, 5),
     node("hub.efficient_clearance", "Efficient Clearance", "+10% ATP per density killed", K::Economy, B::Hub, 5),
-    node("hub.field_requisition", "Field Requisition", "-5% tower build cost", K::Economy, B::Hub, 4, 125),
-    node("hub.systemic_potency", "Systemic Potency", "+4% damage, every tower", K::Economy, B::Hub, 3, 150),
-    node("hub.cellular_resilience", "Cellular Resilience", "+8% tower integrity, every tower", K::Economy, B::Hub, 4),
-    node("hub.rapid_deployment", "Rapid Deployment", "+5% of cost refunded on sell", K::Economy, B::Hub, 3),
+    node("hub.field_requisition", "Field Requisition", "-5% cell placement cost", K::Economy, B::Hub, 4, 125),
+    node("hub.systemic_potency", "Systemic Potency", "+4% damage, every cell", K::Economy, B::Hub, 3, 150),
     node("hub.elite_response", "Elite Response", "+10% damage vs. elites and bosses", K::Economy, B::Hub, 4),
     node("hub.homeostasis", "Homeostasis", "-10% integrity lost per leak", K::Economy, B::Hub, 4, 125),
     node("hub.membrane_resilience", "Membrane Resilience", "-8% damage taken from pathogen attacks", K::Economy, B::Hub, 4, 125),
     // ---- Hub: abilities ----
     node("ability.complement.unlock", "Complement Cascade Burst", "Unlock: a chain of kills jumping target to target", K::AbilityRoot, B::Hub, 1, 100, kCascade),
     node("ability.complement.cooldown", "Cooldown Reduction", "-10% cooldown", K::AbilityStat, B::Hub, 3, 120, kCascade),
-    node("ability.complement.potency", "Blast Potency", "+20% kill rate", K::AbilityStat, B::Hub, 3, 120, kCascade),
     node("ability.complement.chain", "Chain Links", "+2 chain hops", K::AbilityStat, B::Hub, 3, 120, kCascade),
     node("ability.histamine.unlock", "Histamine Flare", "Unlock: a soft-edged nova at a point", K::AbilityRoot, B::Hub, 1, 100, kHistamine),
     node("ability.histamine.cooldown", "Cooldown Reduction", "-10% cooldown", K::AbilityStat, B::Hub, 3, 120, kHistamine),
     node("ability.histamine.radius", "Radius", "+12% nova radius", K::AbilityStat, B::Hub, 3, 120, kHistamine),
-    node("ability.histamine.potency", "Potency / Duration", "+15% kill rate and nova duration", K::AbilityStat, B::Hub, 3, 120, kHistamine),
-    node("ability.fever.unlock", "Fever Response", "Unlock: every tower's reload jumps ahead", K::AbilityRoot, B::Hub, 1, 100, kFever),
+    node("ability.fever.unlock", "Fever Response", "Unlock: heal all deployed cells", K::AbilityRoot, B::Hub, 1, 100, kFever),
     node("ability.fever.cooldown", "Cooldown Reduction", "-10% cooldown", K::AbilityStat, B::Hub, 3, 120, kFever),
-    node("ability.fever.magnitude", "Buff Magnitude", "+25% reload relief", K::AbilityStat, B::Hub, 3, 120, kFever),
-    node("ability.fever.duration", "Buff Duration", "+2 s of 50% faster reloads after the burst", K::AbilityStat, B::Hub, 3, 120, kFever),
+    node("ability.fever.magnitude", "Healing Strength", "+25% healing", K::AbilityStat, B::Hub, 3, 120, kFever),
     node("ability.clot.unlock", "Fibrin Clot", "Unlock: a temporary bar across the lane", K::AbilityRoot, B::Hub, 1, 100, kClot),
     node("ability.clot.cooldown", "Cooldown Reduction", "-10% cooldown", K::AbilityStat, B::Hub, 3, 120, kClot),
     node("ability.clot.duration", "Barrier Duration", "+20% seconds the clot stands", K::AbilityStat, B::Hub, 3, 120, kClot),
-    node("ability.clot.width", "Barrier Width", "+6% span, +10% thickness", K::AbilityStat, B::Hub, 3, 120, kClot),
     // ---- Neutrophil ----
     node("neutrophil.unlock", "Neutrophil", "Owned from the start: the innate first responder", K::TowerRoot, B::Neutrophil, 1),
     node("neutrophil.round_damage", "Round Damage", "+15% per-shot damage", K::Stat, B::Neutrophil, 5),
-    node("neutrophil.volley_cadence", "Volley Cadence", "-8% time between squad releases", K::Stat, B::Neutrophil, 4),
     node("neutrophil.trigger_rate", "Trigger Rate", "-8% swarmer volley and reload time", K::Stat, B::Neutrophil, 4),
     node("neutrophil.aggro_range", "Aggro Range", "+10% swarmer search radius", K::Stat, B::Neutrophil, 3),
-    node("neutrophil.squad_size", "Squad Size", "+1 swarmer per volley", K::Stat, B::Neutrophil, 3, 130),
+    node("neutrophil.squad_size", "Granule Capacity", "+2 rounds per magazine", K::Stat, B::Neutrophil, 3, 130),
     node("neutrophil.accuracy", "Accuracy", "-20% shot spread", K::Stat, B::Neutrophil, 3),
-    node("neutrophil.vitality", "Swarmer Vitality", "+20% swarmer health, +10% lifetime", K::Stat, B::Neutrophil, 4),
-    node("neutrophil.tower_health", "Tower Health", "+20% tower integrity", K::Stat, B::Neutrophil, 4),
+    node("neutrophil.vitality", "Cell Vitality", "+20% cell health, +10% speed", K::Stat, B::Neutrophil, 4),
     node("neutrophil.capstone", "Incendiary Rounds", "Impacts leave a brief burning patch", K::Capstone, B::Neutrophil, 1),
     // ---- Cytotoxic T ----
     node("cytotoxic.unlock", "Cytotoxic T", "Unlock: latchers that ride a host and drain it", K::TowerRoot, B::CytotoxicT, 1),
     node("cytotoxic.drain", "Drain DPS", "+15% drain per second", K::Stat, B::CytotoxicT, 5),
     node("cytotoxic.attach_speed", "Attach Speed", "-25% time to lock on", K::Stat, B::CytotoxicT, 3),
-    node("cytotoxic.cadence", "Deploy Cadence", "-8% time between volleys", K::Stat, B::CytotoxicT, 4),
     node("cytotoxic.search", "Search Radius", "+10% hunt radius", K::Stat, B::CytotoxicT, 3),
-    node("cytotoxic.squad_size", "Squad Size", "+2 latchers per volley", K::Stat, B::CytotoxicT, 3, 130),
-    node("cytotoxic.stamina", "Swarmer Speed / Lifetime", "+10% speed, +15% lifetime", K::Stat, B::CytotoxicT, 3),
-    node("cytotoxic.tower_health", "Tower Health", "+20% tower integrity", K::Stat, B::CytotoxicT, 4),
+    node("cytotoxic.stamina", "Cell Stamina", "+10% speed, +15% health", K::Stat, B::CytotoxicT, 3),
+    node("cytotoxic.tower_health", "Cell Resilience", "+20% cell health", K::Stat, B::CytotoxicT, 4),
     node("cytotoxic.capstone", "Apoptosis Trigger", "A kill bursts on nearby chaff; +50% drain vs. elites and bosses", K::Capstone, B::CytotoxicT, 1),
     // ---- Macrophage ----
     node("macrophage.unlock", "Macrophage", "Unlock: pseudopods that swallow the horde, a wall across the lane", K::TowerRoot, B::Macrophage, 1),
     node("macrophage.arms", "Arm Count", "+1 pseudopod tree", K::Stat, B::Macrophage, 1, 200),
     node("macrophage.grab_speed", "Extend / Latch / Pull / Recover", "-10% grab cycle time", K::Stat, B::Macrophage, 4),
     node("macrophage.captives", "Captive Capacity", "+1 enemy per pull, +0.4 cluster radius", K::Stat, B::Macrophage, 3),
-    node("macrophage.cadence", "Deploy Cadence", "-8% time between releases", K::Stat, B::Macrophage, 4),
     node("macrophage.search", "Search Radius", "+10% reach for a target", K::Stat, B::Macrophage, 3),
-    node("macrophage.body_count", "Body Count", "+1 body per release", K::Stat, B::Macrophage, 2, 150),
-    node("macrophage.body_mass", "Body Mass", "Bodies yield less to the crowd", K::Stat, B::Macrophage, 3),
-    node("macrophage.health", "Body / Tower Health", "+20% body and tower integrity", K::Stat, B::Macrophage, 4),
+    node("macrophage.health", "Body Health", "+20% cell health", K::Stat, B::Macrophage, 4),
     node("macrophage.wall", "Wall Spacing / Body Block", "-10% gap in the lane wall", K::Stat, B::Macrophage, 3),
-    node("macrophage.capstone", "Phagocytic Sustain", "Each enemy swallowed heals the tower", K::Capstone, B::Macrophage, 1),
+    node("macrophage.capstone", "Phagocytic Sustain", "Each enemy swallowed heals the cell", K::Capstone, B::Macrophage, 1),
     // ---- Goblet Cell ----
     node("goblet.unlock", "Goblet Cell", "Unlock: mucus bombs that slow what they soak", K::TowerRoot, B::GobletCell, 1),
     node("goblet.slow_strength", "Slow Strength", "Soaked targets keep 15% less speed", K::Stat, B::GobletCell, 4),
     node("goblet.splash_radius", "Splash Radius", "+15% splash size", K::Stat, B::GobletCell, 3),
-    node("goblet.droplets", "Droplet Count", "+20% droplets per splash", K::Stat, B::GobletCell, 3),
     node("goblet.slow_duration", "Slow Duration", "+20% slow after leaving mucus", K::Stat, B::GobletCell, 4),
     node("goblet.weakness", "Weakening Mucus", "Slowed targets take +10% damage from every source", K::Stat, B::GobletCell, 3, 150),
-    node("goblet.cadence", "Deploy Cadence", "-8% time between shots", K::Stat, B::GobletCell, 4),
-    node("goblet.tower_health", "Tower Health", "+20% tower integrity", K::Stat, B::GobletCell, 4),
+    node("goblet.tower_health", "Cell Resilience", "+20% cell health", K::Stat, B::GobletCell, 4),
     node("goblet.capstone", "Anaphylactic Shock", "A slowed target's death spreads the slow to nearby chaff", K::Capstone, B::GobletCell, 1),
     // ---- Fibroblast ----
     node("fibroblast.unlock", "Fibroblast", "Unlock: builders that lay collagen scars across the lane", K::TowerRoot, B::Fibroblast, 1),
     node("fibroblast.scar_health", "Scar Health", "+20% scar integrity", K::Stat, B::Fibroblast, 5),
     node("fibroblast.reinforce", "Reinforce Rate", "+30% repair per builder", K::Stat, B::Fibroblast, 3),
-    node("fibroblast.max_scars", "Max Scars", "+1 standing scar", K::Stat, B::Fibroblast, 3, 130),
     node("fibroblast.scar_size", "Scar Size", "+10% scar length and width", K::Stat, B::Fibroblast, 3),
     node("fibroblast.build_radius", "Build Radius", "+12% reach for a build site", K::Stat, B::Fibroblast, 3),
-    node("fibroblast.inflammation", "Inflammation", "Scars inflame the tissue around them: allied swarmers there deal +10% damage, towers reload 10% faster", K::Stat, B::Fibroblast, 3, 150),
-    node("fibroblast.cadence", "Build Cadence", "-8% time between builders", K::Stat, B::Fibroblast, 4),
-    node("fibroblast.tower_health", "Tower Health", "+20% tower integrity", K::Stat, B::Fibroblast, 4),
+    node("fibroblast.inflammation", "Inflammation", "Scars inflame the tissue around them: allied cells there deal +10% damage, shooters reload 10% faster", K::Stat, B::Fibroblast, 3, 150),
+    node("fibroblast.tower_health", "Cell Resilience", "+20% cell health", K::Stat, B::Fibroblast, 4),
     node("fibroblast.capstone", "Inflammatory Scarring", "Scars burn whatever presses against them", K::Capstone, B::Fibroblast, 1),
 };
-static_assert(sizeof(kNodes) / sizeof(kNodes[0]) == kTreeNodeCount,
-              "kNodes must list every TreeNode, in TreeNode order");
+static_assert(sizeof(kCatalog) / sizeof(kCatalog[0]) == kTreeNodeCount,
+              "kCatalog must list every TreeNode, in TreeNode order");
+
+// ---------------------------------------------------------------------------
+// The tree's shape: each node's parent. The Strengthen Immunity screen lays
+// the tree out so its nodes and vessels draw a human figure
+// (assets/ui/tree_layout.json, written by tools/gen_tree_layout.py), so the
+// table reads as anatomy: the Neutrophil is the heart, the hub lines run up
+// the sternum and neck and down the abdomen, two abilities ring the head and
+// two run down the sides of the belly, and each of the other four towers is
+// a limb ending in its capstone. Tower and ability unlocks are reached
+// through Memory Cell nodes only, never through another unlock.
+// ---------------------------------------------------------------------------
+
+struct Edge {
+    TreeNode child;
+    TreeNode parent;
+};
+
+using N = TreeNode;
+constexpr Edge kEdges[] = {
+    // The heart: up the sternum, down to the solar plexus.
+    {N::BoneMarrowReserve, N::NeutrophilRoot},
+    {N::NeutrophilRoundDamage, N::NeutrophilRoot},
+    // The sternum: both shoulders and the neck.
+    {N::CytotoxicRoot, N::BoneMarrowReserve},
+    {N::GobletRoot, N::BoneMarrowReserve},
+    {N::EliteResponse, N::BoneMarrowReserve},
+    // The ribs: the Neutrophil's lines curl up around the heart.
+    {N::NeutrophilTriggerRate, N::NeutrophilRoundDamage},
+    {N::NeutrophilAccuracy, N::NeutrophilRoundDamage},
+    {N::NeutrophilSquadSize, N::NeutrophilTriggerRate},
+    {N::NeutrophilCapstone, N::NeutrophilSquadSize},
+    {N::NeutrophilAggroRange, N::NeutrophilAccuracy},
+    {N::NeutrophilVitality, N::NeutrophilAggroRange},
+    // The neck, and the head: a ring, its two sides an ability each, from
+    // the unlock up to its second line.
+    {N::Homeostasis, N::EliteResponse},
+    {N::HistamineUnlock, N::Homeostasis},
+    {N::FeverUnlock, N::Homeostasis},
+    {N::HistamineCooldown, N::HistamineUnlock},
+    {N::HistamineRadius, N::HistamineCooldown},
+    {N::FeverCooldown, N::FeverUnlock},
+    {N::FeverMagnitude, N::FeverCooldown},
+    // The abdomen: an ability down each side of the waist, the economy down
+    // the middle to the pelvis.
+    {N::RapidMetabolism, N::NeutrophilRoundDamage},
+    {N::ComplementUnlock, N::RapidMetabolism},
+    {N::ClotUnlock, N::RapidMetabolism},
+    {N::EfficientClearance, N::RapidMetabolism},
+    {N::ComplementCooldown, N::ComplementUnlock},
+    {N::ComplementChain, N::ComplementCooldown},
+    {N::ClotCooldown, N::ClotUnlock},
+    {N::ClotDuration, N::ClotCooldown},
+    {N::FieldRequisition, N::EfficientClearance},
+    {N::SystemicPotency, N::EfficientClearance},
+    {N::MembraneResilience, N::EfficientClearance},
+    // The left arm: the Cytotoxic T, from the shoulder to the hand.
+    {N::CytotoxicDrain, N::CytotoxicRoot},
+    {N::CytotoxicHealth, N::CytotoxicDrain},
+    {N::CytotoxicAttachSpeed, N::CytotoxicDrain},
+    {N::CytotoxicSearch, N::CytotoxicAttachSpeed},
+    {N::CytotoxicStamina, N::CytotoxicSearch},
+    {N::CytotoxicCapstone, N::CytotoxicStamina},
+    // The right arm: the Goblet Cell.
+    {N::GobletSlowStrength, N::GobletRoot},
+    {N::GobletHealth, N::GobletSlowStrength},
+    {N::GobletSlowDuration, N::GobletSlowStrength},
+    {N::GobletSplashRadius, N::GobletSlowDuration},
+    {N::GobletWeakness, N::GobletSplashRadius},
+    {N::GobletCapstone, N::GobletWeakness},
+    // The hips, and the left leg: the Macrophage, down to the foot.
+    {N::MacrophageRoot, N::MembraneResilience},
+    {N::FibroblastRoot, N::MembraneResilience},
+    {N::MacrophageGrabSpeed, N::MacrophageRoot},
+    {N::MacrophageArms, N::MacrophageGrabSpeed},
+    {N::MacrophageCaptives, N::MacrophageGrabSpeed},
+    {N::MacrophageHealth, N::MacrophageCaptives},
+    {N::MacrophageSearch, N::MacrophageCaptives},
+    {N::MacrophageWall, N::MacrophageSearch},
+    {N::MacrophageCapstone, N::MacrophageWall},
+    // The right leg: the Fibroblast.
+    {N::FibroblastScarHealth, N::FibroblastRoot},
+    {N::FibroblastHealth, N::FibroblastScarHealth},
+    {N::FibroblastReinforce, N::FibroblastScarHealth},
+    {N::FibroblastBuildRadius, N::FibroblastReinforce},
+    {N::FibroblastScarSize, N::FibroblastReinforce},
+    {N::FibroblastInflammation, N::FibroblastScarSize},
+    {N::FibroblastCapstone, N::FibroblastInflammation},
+};
+static_assert(sizeof(kEdges) / sizeof(kEdges[0]) == kTreeNodeCount - 1,
+              "every node but the root has exactly one parent");
+
+constexpr u32 idx(TreeNode n) { return static_cast<u32>(n); }
+
+/// One parent per node but the root, at most kTreeMaxChildren children each,
+/// and every node's parents lead back to the root (no cycles, no islands).
+constexpr bool well_formed_tree() {
+    TreeNode parent[kTreeNodeCount] = {};
+    u32 edges_in[kTreeNodeCount] = {};
+    u32 children[kTreeNodeCount] = {};
+    for (u32 i = 0; i < kTreeNodeCount; ++i) parent[i] = TreeNode::Count;
+    for (const Edge& e : kEdges) {
+        if (e.child == kTreeRoot || e.child == e.parent) return false;
+        if (e.child >= TreeNode::Count || e.parent >= TreeNode::Count) return false;
+        parent[idx(e.child)] = e.parent;
+        ++edges_in[idx(e.child)];
+        ++children[idx(e.parent)];
+    }
+    for (u32 i = 0; i < kTreeNodeCount; ++i) {
+        if (static_cast<TreeNode>(i) != kTreeRoot && edges_in[i] != 1) return false;
+        if (children[i] > kTreeMaxChildren) return false;
+        TreeNode n = static_cast<TreeNode>(i);
+        u32 steps = 0;
+        while (n != kTreeRoot) {
+            if (n == TreeNode::Count || ++steps > kTreeNodeCount) return false;
+            n = parent[idx(n)];
+        }
+    }
+    return true;
+}
+static_assert(well_formed_tree(), "kEdges must make one tree rooted at the Neutrophil");
+
+constexpr std::array<TreeNodeDef, kTreeNodeCount> with_parents() {
+    std::array<TreeNodeDef, kTreeNodeCount> out{};
+    for (u32 i = 0; i < kTreeNodeCount; ++i) out[i] = kCatalog[i];
+    for (const Edge& e : kEdges) out[idx(e.child)].parent = e.parent;
+    return out;
+}
+constexpr std::array<TreeNodeDef, kTreeNodeCount> kNodes = with_parents();
 
 // ---------------------------------------------------------------------------
 // Effects. Per-level magnitudes, grouped as the catalog is.
@@ -142,29 +254,20 @@ constexpr u32 kStartingAtpPerLevel = 40;
 constexpr f32 kIncomePerLevel = 0.10f;
 constexpr f32 kBuildCostCutPerLevel = 0.05f;
 constexpr f32 kPotencyPerLevel = 0.04f;
-constexpr f32 kResiliencePerLevel = 0.08f;
-constexpr f32 kRefundPerLevel = 0.05f;
-constexpr f32 kRefundCeiling = 0.95f;
 constexpr f32 kElitePerLevel = 0.10f;
 constexpr f32 kLeakCutPerLevel = 0.10f;
 constexpr f32 kMembranePerLevel = 0.08f;
 
 // Abilities.
 constexpr f32 kCooldownCutPerLevel = 0.10f;
-constexpr f32 kCascadePotencyPerLevel = 0.20f;
 constexpr u32 kCascadeBaseLinks = 8;          // the damage system's own default
 constexpr u32 kCascadeLinksPerLevel = 2;
 constexpr f32 kHistamineRadiusPerLevel = 0.12f;
-constexpr f32 kHistaminePotencyPerLevel = 0.15f;
 constexpr f32 kFeverMagnitudePerLevel = 0.25f;
-constexpr f32 kFeverLingerSecondsPerLevel = 2.0f;
-constexpr f32 kFeverLingerRate = 0.5f;
 constexpr f32 kClotDurationPerLevel = 0.20f;
-constexpr f32 kClotSpanPerLevel = 0.06f;
-constexpr f32 kClotThicknessPerLevel = 0.10f;
 
-// Shared tower lines.
-constexpr f32 kCadencePerLevel = 0.08f;
+// Tower lines.
+constexpr f32 kTriggerCutPerLevel = 0.08f;
 constexpr f32 kTowerHealthPerLevel = 0.20f;
 constexpr f32 kSearchPerLevel = 0.10f;
 
@@ -199,34 +302,30 @@ u32 scale_u32(u32 v, f32 m) {
     return static_cast<u32>(std::lround(static_cast<f64>(v) * static_cast<f64>(m)));
 }
 
-void apply_tower_lines(const TreeLevels& lv, TowerType type, TowerStats& st, TowerMechanics& m) {
+void apply_tower_lines(const TreeLevels& lv, TowerType type, TowerMechanics& m) {
     using N = TreeNode;
     switch (type) {
     case TowerType::Neutrophil:
         m.shooter.round_damage *= grow(lv[N::NeutrophilRoundDamage], 0.15f);
-        st.fire_interval *= shrink(lv[N::NeutrophilVolleyCadence], kCadencePerLevel);
         // A swarmer's cadence is its whole magazine cycle now, so the line
         // shortens every part of it, not just the gap inside a volley.
-        m.shooter.fire_interval *= shrink(lv[N::NeutrophilTriggerRate], kCadencePerLevel);
-        m.shooter.gather_seconds *= shrink(lv[N::NeutrophilTriggerRate], kCadencePerLevel);
-        m.shooter.reload_seconds *= shrink(lv[N::NeutrophilTriggerRate], kCadencePerLevel);
+        m.shooter.fire_interval *= shrink(lv[N::NeutrophilTriggerRate], kTriggerCutPerLevel);
+        m.shooter.gather_seconds *= shrink(lv[N::NeutrophilTriggerRate], kTriggerCutPerLevel);
+        m.shooter.reload_seconds *= shrink(lv[N::NeutrophilTriggerRate], kTriggerCutPerLevel);
         m.swarm.search_radius *= grow(lv[N::NeutrophilAggroRange], kSearchPerLevel);
-        m.swarm.release_per_shot += lv[N::NeutrophilSquadSize];
+        m.shooter.magazine_size += 2u * lv[N::NeutrophilSquadSize];
         m.shooter.round_spread *= shrink(lv[N::NeutrophilAccuracy], 0.20f);
         m.shooter.volley_cone *= shrink(lv[N::NeutrophilAccuracy], 0.20f);
         m.swarm.max_health *= grow(lv[N::NeutrophilVitality], 0.20f);
-        m.swarm.lifetime *= grow(lv[N::NeutrophilVitality], 0.10f);
-        st.max_health *= grow(lv[N::NeutrophilHealth], kTowerHealthPerLevel);
+        m.swarm.speed *= grow(lv[N::NeutrophilVitality], 0.10f);
         break;
     case TowerType::CytotoxicT:
         m.latch.dps *= grow(lv[N::CytotoxicDrain], 0.15f);
         m.latch.attach_seconds *= shrink(lv[N::CytotoxicAttachSpeed], 0.25f);
-        st.fire_interval *= shrink(lv[N::CytotoxicCadence], kCadencePerLevel);
         m.swarm.search_radius *= grow(lv[N::CytotoxicSearch], kSearchPerLevel);
-        m.swarm.release_per_shot += 2u * lv[N::CytotoxicSquadSize];
         m.swarm.speed *= grow(lv[N::CytotoxicStamina], 0.10f);
-        m.swarm.lifetime *= grow(lv[N::CytotoxicStamina], 0.15f);
-        st.max_health *= grow(lv[N::CytotoxicHealth], kTowerHealthPerLevel);
+        m.swarm.max_health *= grow(lv[N::CytotoxicStamina], 0.15f);
+        m.swarm.max_health *= grow(lv[N::CytotoxicHealth], kTowerHealthPerLevel);
         if (lv.owned(N::CytotoxicCapstone)) {
             m.capstone.kill_pulse_radius = kKillPulseRadius;
             m.capstone.kill_pulse_damage = kKillPulseDamage;
@@ -242,16 +341,8 @@ void apply_tower_lines(const TreeLevels& lv, TowerType type, TowerStats& st, Tow
         m.arbor_grabber.recover_seconds *= cycle;
         m.arbor_grabber.max_captives += lv[N::MacrophageCaptives];
         m.arbor_grabber.cluster_radius += 0.4f * static_cast<f32>(lv[N::MacrophageCaptives]);
-        st.fire_interval *= shrink(lv[N::MacrophageCadence], kCadencePerLevel);
         m.swarm.search_radius *= grow(lv[N::MacrophageSearch], kSearchPerLevel);
-        m.swarm.release_per_shot += lv[N::MacrophageBodyCount];
-        // Body Mass closes a third of the remaining gap to an immovable body
-        // per level, so it approaches 1 without ever passing it.
-        for (u8 i = 0; i < lv[N::MacrophageBodyMass]; ++i) {
-            m.arbor_grabber.body_block += (1.0f - m.arbor_grabber.body_block) / 3.0f;
-        }
         m.swarm.max_health *= grow(lv[N::MacrophageHealth], kTowerHealthPerLevel);
-        st.max_health *= grow(lv[N::MacrophageHealth], kTowerHealthPerLevel);
         m.arbor_grabber.wall_spacing *= shrink(lv[N::MacrophageWall], 0.10f);
         if (lv.owned(N::MacrophageCapstone)) m.capstone.heal_per_kill = kSustainHealPerKill;
         break;
@@ -259,23 +350,19 @@ void apply_tower_lines(const TreeLevels& lv, TowerType type, TowerStats& st, Tow
     case TowerType::GobletCell:
         m.mucus_bomber.slow_factor *= shrink(lv[N::GobletSlowStrength], 0.15f);
         m.mucus_bomber.splash_radius *= grow(lv[N::GobletSplashRadius], 0.15f);
-        m.mucus_bomber.droplets = scale_u32(m.mucus_bomber.droplets, grow(lv[N::GobletDroplets], 0.20f));
         m.mucus_bomber.slow_duration *= grow(lv[N::GobletSlowDuration], 0.20f);
-        st.fire_interval *= shrink(lv[N::GobletCadence], kCadencePerLevel);
-        st.max_health *= grow(lv[N::GobletHealth], kTowerHealthPerLevel);
+        m.swarm.max_health *= grow(lv[N::GobletHealth], kTowerHealthPerLevel);
         break;
     case TowerType::Fibroblast:
         m.builder.scar_health *= grow(lv[N::FibroblastScarHealth], 0.20f);
         m.builder.scar_reinforce *= grow(lv[N::FibroblastReinforce], 0.30f);
-        m.builder.max_scars += lv[N::FibroblastMaxScars];
         m.builder.scar_half_length *= grow(lv[N::FibroblastScarSize], 0.10f);
         m.builder.scar_half_width *= grow(lv[N::FibroblastScarSize], 0.10f);
         m.builder.build_radius *= grow(lv[N::FibroblastBuildRadius], 0.12f);
         // search_radius doubles as the builder's reach (TowerSystem.cpp), so
         // the ring the HUD draws grows with the site annulus.
         m.swarm.search_radius *= grow(lv[N::FibroblastBuildRadius], 0.12f);
-        st.fire_interval *= shrink(lv[N::FibroblastCadence], kCadencePerLevel);
-        st.max_health *= grow(lv[N::FibroblastHealth], kTowerHealthPerLevel);
+        m.swarm.max_health *= grow(lv[N::FibroblastHealth], kTowerHealthPerLevel);
         break;
     case TowerType::Count:
         break;
@@ -286,7 +373,6 @@ void apply_ability_lines(const TreeLevels& lv, AbilityConfig& abilities) {
     using N = TreeNode;
     AbilityTuning& cascade = abilities.ability[static_cast<u32>(kCascade)];
     cascade.cooldown_seconds *= shrink(lv[N::ComplementCooldown], kCooldownCutPerLevel);
-    cascade.kill_rate *= grow(lv[N::ComplementPotency], kCascadePotencyPerLevel);
     if (lv[N::ComplementChain] > 0) {
         cascade.chain_links = kCascadeBaseLinks + kCascadeLinksPerLevel * lv[N::ComplementChain];
     }
@@ -294,21 +380,16 @@ void apply_ability_lines(const TreeLevels& lv, AbilityConfig& abilities) {
     AbilityTuning& histamine = abilities.ability[static_cast<u32>(kHistamine)];
     histamine.cooldown_seconds *= shrink(lv[N::HistamineCooldown], kCooldownCutPerLevel);
     histamine.radius *= grow(lv[N::HistamineRadius], kHistamineRadiusPerLevel);
-    histamine.kill_rate *= grow(lv[N::HistaminePotency], kHistaminePotencyPerLevel);
-    histamine.field_duration *= grow(lv[N::HistaminePotency], kHistaminePotencyPerLevel);
 
     AbilityTuning& fever = abilities.ability[static_cast<u32>(kFever)];
     fever.cooldown_seconds *= shrink(lv[N::FeverCooldown], kCooldownCutPerLevel);
     const f32 magnitude = grow(lv[N::FeverMagnitude], kFeverMagnitudePerLevel);
     fever.fever_cooldown_relief *= magnitude;
-    fever.fever_linger_seconds = kFeverLingerSecondsPerLevel * static_cast<f32>(lv[N::FeverDuration]);
-    fever.fever_linger_rate = fever.fever_linger_seconds > 0.0f ? kFeverLingerRate * magnitude : 0.0f;
+    fever.fever_linger_rate *= magnitude;
 
     AbilityTuning& clot = abilities.ability[static_cast<u32>(kClot)];
     clot.cooldown_seconds *= shrink(lv[N::ClotCooldown], kCooldownCutPerLevel);
     clot.field_duration *= grow(lv[N::ClotDuration], kClotDurationPerLevel);
-    clot.barrier_half_length *= grow(lv[N::ClotWidth], kClotSpanPerLevel);
-    clot.barrier_half_width *= grow(lv[N::ClotWidth], kClotThicknessPerLevel);
 }
 
 } // namespace
@@ -458,41 +539,26 @@ TreeEffects apply_immunity_tree(const TreeLevels& lv, GameConfig& cfg) {
     using N = TreeNode;
     TreeEffects fx;
 
-    // ---- Towers: per-branch lines on the tier-1 row, then the hub's global
-    // lines on top, then the collapse.
+    // ---- Towers: per-branch lines on the baseline, then the hub's global lines.
     const f32 cost_mult = shrink(lv[N::FieldRequisition], kBuildCostCutPerLevel);
     const f32 potency = grow(lv[N::SystemicPotency], kPotencyPerLevel);
-    const f32 resilience = grow(lv[N::CellularResilience], kResiliencePerLevel);
     for (u32 t = 0; t < kTowerTypeCount; ++t) {
-        TowerStats& st = cfg.towers.stats[t][0];
-        TowerMechanics& m = cfg.towers.mechanics[t][0];
-        apply_tower_lines(lv, static_cast<TowerType>(t), st, m);
+        TowerStats& st = cfg.towers.stats[t];
+        TowerMechanics& m = cfg.towers.mechanics[t];
+        apply_tower_lines(lv, static_cast<TowerType>(t), m);
 
         st.build_cost = math::max(1u, scale_u32(st.build_cost, cost_mult));
-        st.max_health *= resilience;
         m.shooter.round_damage *= potency;
         m.latch.dps *= potency;
         m.bomber.burst_damage *= potency;
         m.bomber.named_damage *= potency;
-
-        // No tiers (PROGRESSION.md §7): the boosted baseline is the only row,
-        // and nothing can pay to leave it.
-        st.upgrade_cost = 0;
-        for (u32 tier = 1; tier < 3; ++tier) {
-            cfg.towers.stats[t][tier] = st;
-            cfg.towers.mechanics[t][tier] = m;
-        }
     }
 
     // ---- Economy.
     cfg.economy.starting_atp += kStartingAtpPerLevel * lv[N::BoneMarrowReserve];
     cfg.economy.passive_income_per_second *= grow(lv[N::RapidMetabolism], kIncomePerLevel);
     cfg.economy.atp_per_density *= grow(lv[N::EfficientClearance], kIncomePerLevel);
-    cfg.economy.refund_fraction =
-        math::min(kRefundCeiling, cfg.economy.refund_fraction +
-                                      kRefundPerLevel * static_cast<f32>(lv[N::RapidDeployment]));
-    // The sell path reads the tower copy; parse_game_config keeps the two in
-    // step and so must this.
+    // Legacy tower economics still mirror the economy's refund field.
     cfg.towers.globals.refund_fraction = cfg.economy.refund_fraction;
 
     // ---- Abilities.

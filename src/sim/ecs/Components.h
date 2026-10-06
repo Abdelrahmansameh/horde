@@ -74,7 +74,6 @@ struct Telegraph {
 /// Marks an entity as a placed immune-cell tower.
 struct Tower {
     TowerType type = TowerType::Macrophage;
-    u8 tier = 1;              ///< 1..3 upgrade tier.
     f32 range = 8.0f;
     f32 cooldown = 0.0f;      ///< Seconds until the next volley.
     f32 fire_interval = 1.0f;

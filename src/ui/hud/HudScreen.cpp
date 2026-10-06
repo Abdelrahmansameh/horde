@@ -1,6 +1,7 @@
 #include "ui/hud/HudScreen.h"
 
 #include "core/Math.h"
+#include "game/towers/TowerMechanics.h"
 #include "gui/core/Gui.h"
 #include "gui/widgets/Builders.h"
 #include "platform/Input.h"
@@ -113,17 +114,7 @@ void HudScreen::build() {
     prep_banner_->layout.axis = Axis::Row;
     prep_banner_->layout.align = Align::Center;
     prep_banner_->layout.gap = 18;
-    prep_banner_->layout.padding = Insets{14, 12, 18, 14};
-    Widget& clock = stack(*prep_banner_, Align::Center, "clock");
-    fixed_size(clock, 96, 96);
-    Panel& disc = panel(clock, "disc", th.shape("countdown.disc"));
-    fixed_size(disc, 80, 80);
-    anchor(disc, Vec2{0.5f, 0.5f}, Vec2{0.5f, 0.5f});
-    prep_ring_ = &clock.emplace<Ring>("ring", th.shape("countdown.arc"));
-    fixed_size(*prep_ring_, 96, 96);
-    anchor(*prep_ring_, Vec2{0.5f, 0.5f}, Vec2{0.5f, 0.5f});
-    prep_clock_ = &text(clock, "time", "0:00", th.text("countdown"), TextAlign::Center);
-    anchor(*prep_clock_, Vec2{0.5f, 0.5f}, Vec2{0.5f, 0.5f});
+    prep_banner_->layout.padding = Insets{30, 12, 14, 14};
     prep_wave_ = &text(*prep_banner_, "wave", "Wave 1", th.text("banner"));
     Button& send = prep_banner_->emplace<Button>("send", th.shape("button.primary"));
     send.layout.axis = Axis::Row;
@@ -147,8 +138,8 @@ void HudScreen::build() {
     // ---- Clock controls (top-right) ----
     Widget& controls = row(*hud_, 4, Align::Center, "controls");
     anchor(controls, Vec2{1, 0}, Vec2{1, 0}, Vec2{-22, 18});
-    static constexpr const char* kControlIds[4] = {"pause", "speed1", "speed2", "menu"};
-    for (usize i = 0; i < 4; ++i) {
+    static constexpr const char* kControlIds[5] = {"pause", "speed1", "speed2", "auto", "menu"};
+    for (usize i = 0; i < 5; ++i) {
         Button& b = controls.emplace<Button>(kControlIds[i], th.shape("button.round"));
         fixed_size(b, 56, 56);
         b.layout.axis = Axis::Stack;
@@ -159,11 +150,13 @@ void HudScreen::build() {
     icon(*controls_[0], "glyph", "glyph_pause", 44);
     text(*controls_[1], "label", "1\xC3\x97", th.text("speed"), TextAlign::Center);
     text(*controls_[2], "label", "2\xC3\x97", th.text("speed"), TextAlign::Center);
-    icon(*controls_[3], "glyph", "glyph_menu", 44);
+    text(*controls_[3], "label", "Auto", th.text("speed"), TextAlign::Center);
+    icon(*controls_[4], "glyph", "glyph_menu", 44);
     controls_[0]->tooltip = "Pause (Space)";
     controls_[1]->tooltip = "Normal speed";
     controls_[2]->tooltip = "Double speed";
-    controls_[3]->tooltip = "Menu (Esc)";
+    controls_[3]->tooltip = "Start rounds automatically";
+    controls_[4]->tooltip = "Menu (Esc)";
     controls_[0]->on_click = [this] {
         Intent i{IntentKind::SetTimeScale};
         if (model_.time_scale > 0.0f) {
@@ -184,7 +177,8 @@ void HudScreen::build() {
         i.value = 2.0f;
         push(i);
     };
-    controls_[3]->on_click = [this] { push(Intent{IntentKind::OpenMenu}); };
+    controls_[3]->on_click = [this] { push(Intent{IntentKind::ToggleAutoStart}); };
+    controls_[4]->on_click = [this] { push(Intent{IntentKind::OpenMenu}); };
 
     // ---- Next-wave panel (top-right, 380 wide) ----
     wave_panel_ = &panel(*hud_, "wave", th.shape("membrane.host"));
@@ -214,33 +208,24 @@ void HudScreen::build() {
     elite_label.layout.grow = 1;
     elite_count_ = &text(*elite_row_, "count", "", th.text("elite_count"));
 
-    // ---- Build dock (bottom) ----
-    dock_ = &panel(*hud_, "dock", th.shape("membrane.player"));
-    anchor(*dock_, Vec2{0.5f, 1}, Vec2{0.5f, 1}, Vec2{-100, -16});
-    dock_->layout.height = Size::px(232);
-    dock_->layout.axis = Axis::Row;
-    dock_->layout.align = Align::End;
-    dock_->layout.gap = 18;
+    // ---- Build dock (left, draggable) ----
+    dock_ = &hud_->emplace<DragPanel>("dock", th.shape("membrane.player"));
+    anchor(*dock_, Vec2{0, 0.5f}, Vec2{0, 0.5f}, Vec2{18, 70});
+    dock_->layout.axis = Axis::Column;
+    dock_->layout.align = Align::Start;
+    dock_->layout.gap = 8;
     dock_->layout.padding = Insets{22, 16, 22, 18};
-    Widget& atp = column(*dock_, 0, Align::Center, "atp");
-    atp.layout.width = Size::px(160);
-    atp.layout.height = Size::fill();
-    atp.layout.justify = Justify::Center;
-    atp_icon_ = &icon(atp, "icon", "atp", Vec2{110, 70});
-    atp_value_ = &text(atp, "value", "0", th.text("atp_value"), TextAlign::Center);
-    atp_rate_ = &text(atp, "rate", "ATP", th.text("atp_rate"), TextAlign::Center);
+    Widget& atp = row(*dock_, 10, Align::Center, "atp");
+    atp.layout.padding = Insets{6, 0, 0, 4};
+    atp_icon_ = &icon(atp, "icon", "atp", Vec2{44, 28});
+    Widget& atp_text = column(atp, 0, Align::Start);
+    atp_value_ = &text(atp_text, "value", "0", th.text("atp_value"));
+    atp_rate_ = &text(atp_text, "rate", "ATP", th.text("atp_rate"));
     u32 slot = 0;
-    for (const DockGroup& g : dock_groups()) {
-        Widget& col = column(*dock_, 6, Align::Start);
-        Label& gl = text(col, "group", g.label, th.text("label"));
-        gl.layout.padding.left = 8;
-        Widget& cards = row(col, 8, Align::End);
-        for (TowerType t : g.towers) {
-            BuildCard& card = cards.emplace<BuildCard>(gui_, t, slot++);
-            card.on_click = [this, t] { arm_tower(armed_tower_ == t ? TowerType::Count : t); };
-            cards_[static_cast<usize>(t)] = &card;
-        }
-        dock_group_widgets_.push_back(&col);
+    for (TowerType t : dock_order()) {
+        BuildCard& card = dock_->emplace<BuildCard>(gui_, t, slot++);
+        card.on_click = [this, t] { arm_tower(armed_tower_ == t ? TowerType::Count : t); };
+        cards_[static_cast<usize>(t)] = &card;
     }
 
     // ---- Abilities (bottom-right, 464x156) ----
@@ -261,7 +246,7 @@ void HudScreen::build() {
 
     // ---- Armed-cursor hint and the cost that follows the pointer ----
     hint_ = &hud_->emplace<HintPill>(gui_, "hint");
-    anchor(*hint_, Vec2{0.5f, 1}, Vec2{0.5f, 1}, Vec2{-100, -262});
+    anchor(*hint_, Vec2{0.5f, 1}, Vec2{0.5f, 1}, Vec2{-100, -24});
     hint_->visible = false;
     cursor_cost_ = &panel(*hud_, "cursor_cost", th.shape("pill"));
     cursor_cost_->layout.position = Position::Anchored;
@@ -331,6 +316,7 @@ void HudScreen::build() {
 
 void HudScreen::arm_tower(TowerType t) {
     armed_tower_ = t;
+    place_hold_active_ = false;
     if (t != TowerType::Count) {
         armed_ability_ = game::AbilityId::Count;
         selected_ = EntityId{};
@@ -415,8 +401,6 @@ void HudScreen::sync(const HudModel& m, Vec2 world_cursor) {
     prep_banner_->visible = prep;
     critical_banner_->visible = critical && !prep;
     if (prep) {
-        prep_clock_->set_text(format_clock(m.phase_time_remaining));
-        prep_ring_->progress = m.prep_total > 0.0f ? math::saturate(m.phase_time_remaining / m.prep_total) : 0.0f;
         prep_wave_->set_text("Wave " + std::to_string(m.wave_number));
     }
     // "Wave N cleared" when a wave ends and prep for the next begins.
@@ -453,6 +437,8 @@ void HudScreen::sync(const HudModel& m, Vec2 world_cursor) {
         const bool active = i == 1 ? (!paused && m.time_scale < 1.5f) : m.time_scale >= 1.5f;
         static_cast<Label*>(controls_[i]->find("label"))->style.color = th.color(active ? "white" : "ink");
     }
+    controls_[3]->shape = th.shape(m.auto_start ? "button.round.active" : "button.round");
+    static_cast<Label*>(controls_[3]->find("label"))->style.color = th.color(m.auto_start ? "white" : "ink");
 
     // ---- Dock ----
     atp_value_->set_text(std::to_string(m.atp));
@@ -461,12 +447,6 @@ void HudScreen::sync(const HudModel& m, Vec2 world_cursor) {
     for (usize i = 0; i < kTowerTypeCount; ++i) {
         cards_[i]->sync(m.cards[i], m.atp, armed_tower_ == static_cast<TowerType>(i));
     }
-    usize gi = 0;
-    for (const DockGroup& g : dock_groups()) {
-        bool any = false;
-        for (TowerType t : g.towers) any = any || m.cards[static_cast<usize>(t)].unlocked;
-        dock_group_widgets_[gi++]->visible = any;
-    }
 
     bool any_ability = false;
     for (usize i = 0; i < game::kAbilityCount; ++i) {
@@ -474,14 +454,13 @@ void HudScreen::sync(const HudModel& m, Vec2 world_cursor) {
         any_ability = any_ability || m.abilities[i].unlocked;
     }
     abilities_->visible = any_ability;
-    // The dock sits left of centre when the ability panel shares the bottom.
-    dock_->layout.offset.x = any_ability ? -100.0f : 0.0f;
-    hint_->layout.offset.x = dock_->layout.offset.x;
+    // The hint sits left of centre when the ability panel shares the bottom.
+    hint_->layout.offset.x = any_ability ? -100.0f : 0.0f;
 
     // ---- Armed cursor ----
     if (has_build_cursor()) {
         hint_->visible = true;
-        hint_->sync("Place", th.color("lavender"));
+        hint_->sync("Click or hold to deploy  |  Shift: up to 10", th.color("lavender"));
     } else if (has_cast_cursor()) {
         hint_->visible = true;
         hint_->sync("Cast", th.color("aim"));
@@ -661,17 +640,23 @@ void HudScreen::handle_input(const platform::InputState& in, Vec2 world_cursor, 
     }
 
     // World clicks: only when the pointer is not on the UI.
+    if (!visible_ || pointer_over_ui || !in.mouse_down(MouseButton::Left)) place_hold_active_ = false;
     if (visible_ && !pointer_over_ui) {
         const bool left = in.mouse_pressed(MouseButton::Left);
         const bool right = in.mouse_pressed(MouseButton::Right);
         if (has_build_cursor()) {
-            // The cursor stays armed after a placement so the same tower can be
-            // dropped repeatedly; right-click or Escape disarms it.
-            if (left) {
+            // A press deploys one cell immediately. Holding deploys at the
+            // configured rate, with no backlog after a slow frame or UI hover.
+            const bool held = in.mouse_down(MouseButton::Left);
+            const f32 interval = math::max(game::tower_globals().placement_interval, 0.01f);
+            if (left || (held && place_hold_active_ && t >= next_place_time_)) {
                 Intent i{IntentKind::PlaceTower};
                 i.tower_type = armed_tower_;
+                i.quantity = in.shift_down() ? 10u : 1u;
                 i.world_position = world_cursor;
                 out.push_back(i);
+                next_place_time_ = t + interval;
+                place_hold_active_ = true;
             } else if (right) {
                 arm_tower(TowerType::Count);
             }

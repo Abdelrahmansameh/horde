@@ -49,15 +49,11 @@ class WaveDirector;
 struct TowerTelemetry {
     EntityId id{};
     TowerType type = TowerType::Neutrophil;
-    u8 tier = 1;
-    u8 peak_tier = 1;
     Vec2 position{0.0f, 0.0f};
     std::string lane;            ///< Lane the site sits in, or "" if unowned.
     u64 built_tick = 0;
     u64 removed_tick = 0;        ///< 0 while still standing.
-    /// Tick each tier was reached; index 0 is the build. 0 means "not reached".
-    u64 tier_tick[3] = {};
-    u32 invested_atp = 0;        ///< Build + every upgrade, ignoring refunds.
+    u32 invested_atp = 0;        ///< Build cost, ignoring refunds.
     u32 refunded_atp = 0;
 
     f64 density_removed[kFamilyCount] = {};
@@ -130,7 +126,6 @@ public:
 
     // --- Purchases. Reported by the buyer: Economy only knows a total. ------
     void on_tower_placed(EntityId id, TowerType type, Vec2 position, u32 cost, u64 tick);
-    void on_tower_upgraded(EntityId id, u8 new_tier, u32 cost, u64 tick);
     void on_tower_sold(EntityId id, u32 refund, u64 tick);
 
     /// One sample. Call once per tick, after step_level().

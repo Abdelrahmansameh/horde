@@ -45,6 +45,7 @@ class SquadRegistry;
 class TissueMask;
 class DistanceField;
 class ProjectileBuffers;
+struct ToxinShot;
 class SwarmerBuffers;
 class FluidBuffers;
 struct DamageField;
@@ -311,6 +312,7 @@ public:
     /// are the Gunner's actual simulated rounds — the cosmetic tracer trails
     /// that follow them are particles, submitted separately below.
     void submit_projectiles(const sim::ProjectileBuffers& projectiles);
+    void submit_toxin_shots(const std::vector<sim::ToxinShot>& shots);
 
     /// Every tower's live swarmers (sim/swarm/Swarmers.h). Its own pass rather
     /// than part of submit_projectiles: a round is a streaked slug and a

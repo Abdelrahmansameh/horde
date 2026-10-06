@@ -1,0 +1,36 @@
+{
+  "schema": 1,
+  "name": "bacteria_toxin_burst_takes_down_tower",
+  "seed": 20260928,
+  "ticks": 80,
+  "level": "assets/levels/level_1.json",
+  "actions": [
+    {
+      "tick": 0,
+      "type": "cmd",
+      "cmd": "tower neutrophil at 103,81"
+    },
+    {
+      "tick": 1,
+      "type": "spawn_chaff",
+      "family": "bacteria",
+      "count": 12,
+      "pos": [91, 81],
+      "radius": 1
+    }
+  ],
+  "assertions": [
+    {
+      "tick": 1,
+      "metric": "towers_lost_total",
+      "op": "==",
+      "value": 0
+    },
+    {
+      "tick": 80,
+      "metric": "towers_lost_total",
+      "op": "==",
+      "value": 1
+    }
+  ]
+}

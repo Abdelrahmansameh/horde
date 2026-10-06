@@ -1,22 +1,26 @@
 // ui/front/TreeScreen.h — the Strengthen Immunity tree, on the gui framework.
 //
-// The canvas's Tree artboard lays the 75 nodes out as a lymphatic system:
-// five tower columns grow up from a lymph-node hub (root at the bottom, stat
-// pairs up the trunk, the capstone crowning it), the core upgrades fan out
-// around the hub, and the four abilities sit in the corners on vessels that
-// loop round from it. tools/extract_tree_layout.py writes that placement to
-// assets/ui/tree_layout.json; this screen draws from it, so a node's place,
-// its vessel and its label are exactly as designed.
+// The tree's nodes and vessels draw the body it strengthens -- no outline,
+// the pattern alone. tools/gen_tree_layout.py places every node of
+// game/meta/ImmunityTree on a human figure (the Neutrophil at the heart
+// ringed by its lines like ribs, the hub lines up the sternum and neck and
+// down the belly, two abilities round the head and two down the waist, a
+// tower down each limb to its capstone at the hand or foot) and writes it to
+// assets/ui/tree_layout.json. The vessels between nodes follow the game's
+// parent links (TreeNodeView::parent), so the drawing cannot disagree with
+// the rules.
 //
-// A node shows its state the way the canvas does: dimmed when locked, a white
-// halo when it can be bought now, a lavender body once owned (deeper when
-// maxed), level pips round its lower rim, a gold star ring on capstones. A
-// vessel lights up when the node it feeds is owned. Clicking a node selects
-// it into the top bar (name, level, effect, what it needs, its price, Grow).
+// The figure is uncovered as it grows (TreeModel::revealed): a node shows
+// once its parent is owned, so a new campaign sees the heart and the two
+// nodes it feeds, zoomed in, and each purchase buds the next nodes into
+// view.
 //
-// Buying is app/'s job: Grow reports MenuAction::PurchaseNode, exactly like
-// the ImGui screen this replaces, so the screen can never disagree with the
-// rules it displays.
+// The view pans (drag anywhere), zooms about the pointer (wheel) and has
+// zoom-in, zoom-out and recenter buttons; zooming out stops at the whole
+// figure. Hovering a node opens its card beside it (name, level, effect, what
+// it needs, its price); clicking a node buys its next level. Buying is app/'s
+// job: a click reports MenuAction::PurchaseNode and app/ buys through
+// MetaProgression, exactly as before.
 #pragma once
 
 #include "core/Types.h"
@@ -32,75 +36,92 @@ namespace immune::gui { class Gui; class Widget; class Label; class Icon; class 
 
 namespace immune::ui {
 
-/// assets/ui/tree_layout.json, in canvas pixels of a 1920x1080 frame.
+/// assets/ui/tree_layout.json, in tree units: one logical pixel at zoom 1,
+/// y down, the heart at the origin.
 struct TreeLayout {
     struct Node {
         Vec2 at;
-        f32 size = 48.0f;
+        f32 size = 62.0f;  ///< Diameter.
         std::string icon;
     };
-    struct Vessel {
-        std::string d;         ///< SVG path data.
-        f32 wall = 10.0f;      ///< Plum outer stroke width.
-        f32 lumen = 5.0f;      ///< Inner stroke width.
-        std::string node;      ///< Lit when this node is owned; empty = always lit.
-        f32 flow = 0.0f;       ///< Width of the flowing dash; 0 = none.
-    };
-    struct Label {
-        Vec2 at;               ///< Top centre.
-        std::string text;
-        std::string style;     ///< "root", "ability" or "capstone".
-        std::string branch;    ///< Capstone: whose points it shows.
-    };
     std::map<std::string, Node> nodes;
-    std::vector<Vessel> vessels;
-    std::vector<Label> labels;
-    Vec2 hub{960.0f, 945.0f};
-    f32 hub_scale = 0.72f;
+
+    /// Every node, rims included.
+    Rect bounds() const;
 };
 
 bool parse_tree_layout(const std::string& json, TreeLayout& out, std::string* error = nullptr);
 bool load_tree_layout(const std::string& path, TreeLayout& out, std::string* error = nullptr);
 
 class TreeNodeButton;
-class TreeVessels;
+class TreeCanvas;
 
 class TreeScreen {
 public:
-    /// Builds into `root` (the screen's container). `emit` receives clicks.
-    TreeScreen(gui::Gui& gui, gui::Widget& root, const TreeLayout& layout, std::function<void(MenuResult)> emit);
+    /// Where the view looks: the tree point at the middle of the screen, and
+    /// logical px per tree unit.
+    struct View {
+        Vec2 center{0.0f, 0.0f};
+        f32 zoom = 1.0f;
+    };
+    /// Furthest the player can zoom in; zooming out stops at the whole tree.
+    static constexpr f32 kMaxZoom = 1.8f;
+    /// Opening (and recentering) frames the revealed nodes, never closer than this.
+    static constexpr f32 kFrameZoom = 1.35f;
 
-    /// Brings every node, vessel, label and the top bar up to date.
+    /// Builds into `root` (the screen's container) from the layout and the
+    /// first model; `emit` receives clicks. With `view`, opens where a
+    /// previous visit left off instead of framing the revealed nodes.
+    TreeScreen(gui::Gui& gui, gui::Widget& root, const TreeLayout& layout, const TreeModel& model,
+               std::function<void(MenuResult)> emit, const View* view = nullptr);
+    ~TreeScreen();
+    TreeScreen(const TreeScreen&) = delete;
+    TreeScreen& operator=(const TreeScreen&) = delete;
+
+    /// Brings every node, vessel, label, the card and the wallet up to date.
+    /// Nodes a purchase reveals bud into view.
     void sync(const TreeModel& m);
 
-    /// The node shown in the top bar ("" before the first sync).
-    const std::string& selected() const { return selected_; }
-    bool select(const std::string& key);
+    /// The node whose card is open ("" when none).
+    const std::string& hovered() const { return hovered_; }
+
+    /// Where the view will settle (the target of any running animation).
+    View view() const;
+    /// Jumps the view (no animation), clamped to the tree.
+    void set_view(View v);
+    /// Zooms about the middle of the screen, animated.
+    void zoom_by(f32 factor);
+    /// Frames the revealed nodes, animated.
+    void recenter();
+    /// Ends any view animation at its target (tests, screenshots).
+    void finish_animation();
 
 private:
-    void sync_info();
+    void tick(f32 dt);
+    void sync_card();
+    void buy(const std::string& key);
 
     gui::Gui& gui_;
     std::function<void(MenuResult)> emit_;
     TreeModel model_;
-    std::string selected_;
+    TreeCanvas* canvas_ = nullptr;
     std::map<std::string, TreeNodeButton*> nodes_;
-    TreeVessels* vessels_ = nullptr;
-    std::vector<std::pair<gui::Label*, usize>> capstone_labels_;  ///< Label, branch index.
-    std::vector<std::string> capstone_names_;
+    std::string hovered_;
+    usize revealed_count_ = 0;
 
-    // Top bar.
-    gui::Icon* info_icon_ = nullptr;
-    gui::Label* info_name_ = nullptr;
-    gui::Label* info_level_ = nullptr;
-    gui::Label* info_desc_ = nullptr;
-    gui::Label* info_req_ = nullptr;
-    gui::Widget* info_mem_ = nullptr;
-    gui::Label* info_mem_value_ = nullptr;
-    gui::Widget* info_ab_ = nullptr;
-    gui::Label* info_ab_value_ = nullptr;
-    gui::Button* grow_ = nullptr;
-    gui::Label* grow_label_ = nullptr;
+    // The card of the hovered node.
+    gui::Panel* card_ = nullptr;
+    gui::Icon* card_icon_ = nullptr;
+    gui::Label* card_name_ = nullptr;
+    gui::Label* card_level_ = nullptr;
+    gui::Label* card_desc_ = nullptr;
+    gui::Label* card_req_ = nullptr;
+    gui::Widget* card_mem_ = nullptr;
+    gui::Label* card_mem_value_ = nullptr;
+    gui::Widget* card_ab_ = nullptr;
+    gui::Label* card_ab_value_ = nullptr;
+    gui::Label* card_hint_ = nullptr;
+
     gui::Label* memory_value_ = nullptr;
     gui::Label* antibody_value_ = nullptr;
     gui::Button* respec_ = nullptr;

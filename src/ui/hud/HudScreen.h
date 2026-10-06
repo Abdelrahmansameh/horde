@@ -4,7 +4,7 @@
 // (docs/ui-concepts/canvas: Main, Placing, Inspect, Prep, Critical):
 //
 //   top-left     organ integrity panel (turns red and pulses when critical)
-//   top-centre   prep banner (countdown, "Send now"), "Wave N cleared" toast,
+//   top-centre   prep banner ("Send now"), "Wave N cleared" toast,
 //                "Organ failing" banner
 //   top-right    pause / 1x / 2x / menu, then the next-wave panel
 //   bottom       build dock (ATP, then Attack and Control cards), ability cells
@@ -86,6 +86,8 @@ private:
     HudModel model_{};
 
     TowerType armed_tower_ = TowerType::Count;
+    bool place_hold_active_ = false;
+    f32 next_place_time_ = 0.0f;
     game::AbilityId armed_ability_ = game::AbilityId::Count;
     EntityId selected_{};
     f32 resume_scale_ = 1.0f;
@@ -108,13 +110,11 @@ private:
     gui::Panel* critical_banner_ = nullptr;
 
     gui::Panel* prep_banner_ = nullptr;
-    gui::Ring* prep_ring_ = nullptr;
-    gui::Label* prep_clock_ = nullptr;
     gui::Label* prep_wave_ = nullptr;
     gui::Panel* toast_ = nullptr;
     gui::Label* toast_text_ = nullptr;
 
-    std::array<gui::Button*, 4> controls_{};
+    std::array<gui::Button*, 5> controls_{};
     gui::Panel* wave_panel_ = nullptr;
     gui::Label* wave_title_ = nullptr;
     gui::Label* wave_total_ = nullptr;
@@ -126,7 +126,6 @@ private:
     gui::Icon* atp_icon_ = nullptr;
     gui::Label* atp_value_ = nullptr;
     gui::Label* atp_rate_ = nullptr;
-    std::vector<gui::Widget*> dock_group_widgets_;
     std::array<BuildCard*, kTowerTypeCount> cards_{};
     gui::Panel* abilities_ = nullptr;
     std::array<AbilityCell*, game::kAbilityCount> ability_cells_{};

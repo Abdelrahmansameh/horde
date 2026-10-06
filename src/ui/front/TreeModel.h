@@ -9,6 +9,8 @@
 
 #include <array>
 #include <string>
+#include <string_view>
+#include <unordered_map>
 #include <vector>
 
 namespace immune::ui {
@@ -25,6 +27,9 @@ enum class TreeNodeRole : u8 { Stat, TowerRoot, AbilityRoot, Capstone };
 
 struct TreeNodeView {
     std::string key;            ///< The game's stable key ("neutrophil.round_damage").
+    /// The node it grows from, which must be owned before it can be bought;
+    /// "" for the root.
+    std::string parent;
     u32 node = 0;               ///< game::TreeNode as an integer (MenuResult::node).
     std::string name;
     std::string effect;         ///< What one level does.
@@ -35,11 +40,11 @@ struct TreeNodeView {
     /// Price of the next level (zero when maxed).
     u32 cost_memory = 0;
     u32 cost_antibodies = 0;
-    /// Why it cannot be bought yet, when Locked ("Needs Neutrophil").
+    /// Why it cannot be bought yet, when Locked ("Needs Bone Marrow Reserve").
     std::string requirement;
 };
 
-/// The five tower branches, in the canvas's column order.
+/// The five tower branches, in TreeModel::branch_points order.
 inline constexpr std::array<const char*, 5> kTreeBranchIds = {"Neutrophil", "CytotoxicT", "Macrophage", "GobletCell",
                                                               "Fibroblast"};
 
@@ -59,6 +64,39 @@ struct TreeModel {
             if (n.key == key) return &n;
         }
         return nullptr;
+    }
+
+    /// Which nodes are on the map yet, in `nodes` order. The tree uncovers
+    /// as it grows: the root shows, every owned node shows, and so does every
+    /// node whose parent is owned -- the next thing on offer. The rest stay
+    /// hidden. (An owned node's ancestors always show too, so a save bought
+    /// under older rules never leaves an island.)
+    std::vector<bool> revealed() const {
+        std::unordered_map<std::string_view, usize> index;
+        for (usize i = 0; i < nodes.size(); ++i) index.emplace(nodes[i].key, i);
+        auto parent_of = [&](usize i) -> usize {
+            const auto it = index.find(nodes[i].parent);
+            return it == index.end() ? nodes.size() : it->second;
+        };
+        std::vector<bool> out(nodes.size(), false);
+        for (usize i = 0; i < nodes.size(); ++i) {
+            const usize p = parent_of(i);
+            if (nodes[i].parent.empty() || nodes[i].level > 0 || (p < nodes.size() && nodes[p].level > 0)) {
+                out[i] = true;
+            }
+            if (nodes[i].level == 0) continue;
+            for (usize a = p, steps = 0; a < nodes.size() && steps < nodes.size(); a = parent_of(a), ++steps) {
+                out[a] = true;
+            }
+        }
+        return out;
+    }
+    bool revealed(const std::string& key) const {
+        const std::vector<bool> shown = revealed();
+        for (usize i = 0; i < nodes.size(); ++i) {
+            if (nodes[i].key == key) return shown[i];
+        }
+        return false;
     }
 };
 

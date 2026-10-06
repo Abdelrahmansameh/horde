@@ -138,7 +138,7 @@ int run_autoplay(const Options& opt) {
     game::AutoPlayConfig bot_cfg;
     if (!game::parse_autoplay_profile(opt.profile, bot_cfg.profile, bot_cfg.single_type)) {
         IMMUNE_LOG_ERROR("unknown --profile '%s' (greedy-cheapest | spread-coverage | "
-                         "save-for-tier3 | single-type:<tower>)",
+                         "single-type:<tower>)",
                          opt.profile.c_str());
         return 1;
     }
@@ -178,9 +178,6 @@ int run_autoplay(const Options& opt) {
                 run.telemetry.on_tower_placed(action.tower, action.type, action.position,
                                               action.cost, tick);
                 break;
-            case game::AutoPlayAction::Kind::Upgraded:
-                run.telemetry.on_tower_upgraded(action.tower, action.tier, action.cost, tick);
-                break;
             case game::AutoPlayAction::Kind::None: break;
         }
 
@@ -219,7 +216,7 @@ int run_autoplay(const Options& opt) {
     // A one-line summary on stderr so a sweep's console is readable without
     // opening a hundred JSON files.
     const sim::SimSnapshot snap = run.world.snapshot();
-    IMMUNE_LOG_INFO("autoplay %s: %s in %llu ticks, integrity %.1f, %u/%zu sites built",
+    IMMUNE_LOG_INFO("autoplay %s: %s in %llu ticks, integrity %.1f, %u/%zu cells deployed",
                     header.profile.c_str(), game::run_result_name(result),
                     static_cast<unsigned long long>(snap.tick), snap.objective_integrity,
                     static_cast<u32>(run.telemetry.towers().size()), run.bot.sites().size());

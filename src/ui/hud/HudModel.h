@@ -23,7 +23,7 @@ struct HudTowerCard {
     /// The level's allowed_towers list permits it.
     bool allowed = true;
     u32 cost = 0;
-    /// Range (swarmer aggro radius) at tier 1, world units — the placement ring.
+    /// Baseline swarmer aggro radius, world units — the placement ring.
     f32 range = 0.0f;
 };
 
@@ -85,6 +85,7 @@ struct HudModel {
     f32 phase_time_remaining = 0.0f;
     f32 prep_total = 0.0f;        ///< Length of this prep, for the countdown ring.
     bool all_waves_complete = false;
+    bool auto_start = false;      ///< Prep ends by itself when its timer runs out.
     /// The wave the player should prepare for: the upcoming one in Prep, the
     /// next one while a wave is on.
     HudWavePreview preview;
@@ -118,13 +119,8 @@ const char* ability_color(game::AbilityId id);
 const char* family_display_name(PathogenFamily f, bool plural);
 const char* family_icon(PathogenFamily f);
 
-/// The build dock's order and grouping (the canvas's "Attack" and "Control"
-/// rows). Hotkeys 1-5 follow this order.
-struct DockGroup {
-    const char* label;
-    std::vector<TowerType> towers;
-};
-const std::vector<DockGroup>& dock_groups();
+/// The build dock's order, a flat list top to bottom. Hotkeys 1-5 follow it.
+const std::vector<TowerType>& dock_order();
 /// Position of `t` in dock order (0-based), i.e. its hotkey minus one.
 u32 dock_slot(TowerType t);
 TowerType dock_tower(u32 slot);

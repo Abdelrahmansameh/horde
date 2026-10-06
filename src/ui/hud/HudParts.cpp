@@ -114,31 +114,24 @@ const char* family_icon(PathogenFamily f) {
     return "";
 }
 
-const std::vector<DockGroup>& dock_groups() {
-    static const std::vector<DockGroup> kGroups = {
-        {"Attack", {TowerType::Neutrophil, TowerType::CytotoxicT, TowerType::Macrophage}},
-        {"Control", {TowerType::GobletCell, TowerType::Fibroblast}},
-    };
-    return kGroups;
+const std::vector<TowerType>& dock_order() {
+    static const std::vector<TowerType> kOrder = {TowerType::Neutrophil, TowerType::CytotoxicT,
+                                                  TowerType::Macrophage, TowerType::GobletCell,
+                                                  TowerType::Fibroblast};
+    return kOrder;
 }
 
 u32 dock_slot(TowerType t) {
-    u32 slot = 0;
-    for (const DockGroup& g : dock_groups()) {
-        for (TowerType x : g.towers) {
-            if (x == t) return slot;
-            ++slot;
-        }
+    const auto& order = dock_order();
+    for (u32 i = 0; i < order.size(); ++i) {
+        if (order[i] == t) return i;
     }
-    return slot;
+    return static_cast<u32>(order.size());
 }
 
 TowerType dock_tower(u32 slot) {
-    for (const DockGroup& g : dock_groups()) {
-        if (slot < g.towers.size()) return g.towers[slot];
-        slot -= static_cast<u32>(g.towers.size());
-    }
-    return TowerType::Count;
+    const auto& order = dock_order();
+    return slot < order.size() ? order[slot] : TowerType::Count;
 }
 
 Color health_color(const Theme& theme, f32 frac) {
@@ -180,38 +173,57 @@ Tag::Tag(Gui& g, std::string id, std::string value) : Panel(std::move(id), g.the
     text(*this, "t", std::move(value), g.theme().text("tag"), TextAlign::Center);
 }
 
+// ---- Drag panel ------------------------------------------------------------------------
+
+DragPanel::DragPanel(std::string id, const ShapeDesc& s) : Panel(std::move(id), s) { interactive = true; }
+
+void DragPanel::on_event(Event& e) {
+    if (e.type != EventType::Drag) return;
+    layout.offset += e.delta;
+    clamp_on_screen();
+    e.handled = true;
+}
+
+void DragPanel::update(f32 dt) {
+    Panel::update(dt);
+    clamp_on_screen();
+}
+
+/// The offset is relative to the anchor point, so the limits are the distances
+/// from the panel's current rect to each screen edge.
+void DragPanel::clamp_on_screen() {
+    if (gui() == nullptr) return;
+    const Vec2 vp = gui()->viewport();
+    const Rect r = rect();
+    if (r.size().x <= 0.0f) return;
+    constexpr f32 kMargin = 8.0f;
+    Vec2& o = layout.offset;
+    o.x += math::max(kMargin - r.min.x, 0.0f) - math::max(r.max.x - (vp.x - kMargin), 0.0f);
+    o.y += math::max(kMargin - r.min.y, 0.0f) - math::max(r.max.y - (vp.y - kMargin), 0.0f);
+}
+
 // ---- Build card ------------------------------------------------------------------------
 
 BuildCard::BuildCard(Gui& g, TowerType t, u32 slot)
     : Button(tower_id(t), g.theme().shape("card")), type(t), gui_(g) {
     const Theme& th = g.theme();
-    fixed_size(*this, 138.0f, 178.0f);
-    layout.padding = Insets{14.0f, 18.0f, 14.0f, 12.0f};
-    layout.axis = Axis::Column;
+    // A horizontal strip: key badge, icon, name (and the shortfall under it), cost.
+    fixed_size(*this, 276.0f, 84.0f);
+    layout.padding = Insets{18.0f, 12.0f, 24.0f, 12.0f};
+    layout.axis = Axis::Row;
     layout.align = Align::Center;
-    layout.gap = 1.0f;
+    layout.gap = 10.0f;
 
-    Widget& top = row(*this, 0.0f, Align::Center);
-    top.layout.width = Size::fill();
-    top.layout.justify = Justify::SpaceBetween;
-    badge_ = &top.emplace<Badge>(g, "key", std::to_string(slot + 1));
-    Widget& cost = row(top, 2.0f, Align::Center);
+    badge_ = &emplace<Badge>(g, "key", std::to_string(slot + 1));
+    icon_ = &icon(*this, "icon", tower_icon(t), 54.0f);
+    Widget& names = column(*this, 1.0f, Align::Start);
+    names.layout.grow = 1.0f;
+    name_ = &text(names, "name", tower_display_name(t), th.text("card_name"));
+    short_ = &text(names, "short", "", th.text("card_short"));
+    Widget& cost = row(*this, 2.0f, Align::Center);
     Icon& coin = icon(cost, "atp", "atp", 22.0f);
     coin.anim_transform = Affine2::rotate(-0.14f);
     cost_ = &text(cost, "cost", "0", th.text("card_cost"));
-
-    icon_ = &icon(*this, "icon", tower_icon(t), 76.0f);
-    name_ = &text(*this, "name", tower_display_name(t), th.text("card_name"), TextAlign::Center);
-    short_ = &text(*this, "short", "", th.text("card_short"), TextAlign::Center);
-
-    progress_ = &emplace<Meter>("afford", th.shape("bar.atp"));
-    anchor(*progress_, Vec2{0.5f, 1.0f}, Vec2{0.5f, 1.0f}, Vec2{0.0f, -10.0f});
-    fixed_size(*progress_, 114.0f, 12.0f);
-    progress_->blocks_pointer = false;
-
-    tag_ = &emplace<Tag>(g, "tag", "Placing");
-    anchor(*tag_, Vec2{0.5f, 0.0f}, Vec2{0.5f, 0.5f}, Vec2{0.0f, -2.0f});
-    tag_->visible = false;
 
     has_disabled_shape = true;
     disabled_shape = th.shape("card.short");
@@ -235,21 +247,12 @@ void BuildCard::sync(const HudTowerCard& c, u32 atp, bool armed) {
     if (!c.allowed) {
         short_->set_text("Not on this level");
         short_->visible = true;
-        progress_->visible = false;
         tooltip = "This level does not allow the " + std::string(tower_display_name(type));
-    } else if (!affordable) {
-        short_->set_text(std::to_string(c.cost - atp) + " ATP short");
-        short_->visible = true;
-        progress_->visible = true;
-        progress_->set_level(c.cost > 0 ? static_cast<f32>(atp) / static_cast<f32>(c.cost) : 1.0f, 0.25f);
-        tooltip.clear();
     } else {
         short_->visible = false;
-        progress_->visible = false;
         tooltip.clear();
     }
-    tag_->visible = armed;
-    nudge = armed ? Vec2{0.0f, -14.0f} : Vec2{0.0f, 0.0f};
+    nudge = armed ? Vec2{14.0f, 0.0f} : Vec2{0.0f, 0.0f};
 }
 
 // ---- Ability cell ----------------------------------------------------------------------

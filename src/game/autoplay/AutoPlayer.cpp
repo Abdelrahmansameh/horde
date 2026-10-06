@@ -33,7 +33,7 @@ namespace {
 /// does not produce tens of thousands of candidates to sort.
 constexpr f32 kSampleStep = 1.0f;
 
-/// Minimum spacing between accepted sites, as a multiple of the type's tier-1
+/// Minimum spacing between accepted sites, as a multiple of the type's baseline
 /// range. Below ~0.6 the plan stacks towers into one blob whose fields overlap
 /// almost completely, which reads as "this tower is weak" when what actually
 /// happened is that four copies fought over the same agents.
@@ -106,7 +106,6 @@ std::string autoplay_profile_name(AutoPlayProfile profile, TowerType single_type
     switch (profile) {
         case AutoPlayProfile::GreedyCheapest: return "greedy-cheapest";
         case AutoPlayProfile::SpreadCoverage: return "spread-coverage";
-        case AutoPlayProfile::SaveForTier3: return "save-for-tier3";
         case AutoPlayProfile::SingleType:
             return std::string("single-type:") + tower_type_name(single_type);
     }
@@ -121,10 +120,6 @@ bool parse_autoplay_profile(std::string_view text, AutoPlayProfile& out_profile,
     }
     if (text == "spread-coverage" || text == "spread") {
         out_profile = AutoPlayProfile::SpreadCoverage;
-        return true;
-    }
-    if (text == "save-for-tier3" || text == "tier3") {
-        out_profile = AutoPlayProfile::SaveForTier3;
         return true;
     }
     const std::string_view prefix = "single-type:";
@@ -162,7 +157,7 @@ void AutoPlayer::plan(const LevelDef& level, const LaneOwnershipMap& lanes,
     // candidate's eventual type, which is not chosen yet, keeps the ordering
     // independent of the assignment that follows it.
     (void)towers;
-    const f32 reference_range = tower_mechanics(TowerType::Macrophage, 1).swarm.search_radius;
+    const f32 reference_range = tower_mechanics(TowerType::Macrophage).swarm.search_radius;
 
     f32 max_cost = 0.0f;
     for (const Vessel& v : level.vessels) {
@@ -229,7 +224,7 @@ void AutoPlayer::plan(const LevelDef& level, const LaneOwnershipMap& lanes,
     // hit the dominant family is not a considered choice, it is a wasted site.
     f32 coverage[kTowerTypeCount] = {};
     for (u32 t = 0; t < kTowerTypeCount; ++t) {
-        const TowerStats& st = towers.stats(static_cast<TowerType>(t), 1);
+        const TowerStats& st = towers.stats(static_cast<TowerType>(t));
         for (u32 f = 0; f < kFamilyCount; ++f) {
             if (mask_covers(st.family_mask, f)) coverage[t] += static_cast<f32>(mix[f]);
         }
@@ -274,7 +269,7 @@ void AutoPlayer::plan(const LevelDef& level, const LaneOwnershipMap& lanes,
             tried |= static_cast<u8>(1u << static_cast<u32>(best));
 
             const PlacementQuery q =
-                towers.validate(world, best, c.pos, std::numeric_limits<u32>::max());
+                towers.validate_deploy(world, best, c.pos, std::numeric_limits<u32>::max());
             if (!q.valid() && q.result != PlacementResult::CannotAfford) continue;
 
             PlannedSite site;
@@ -302,68 +297,22 @@ u32 AutoPlayer::rejected_sites() const {
     return n;
 }
 
-AutoPlayAction AutoPlayer::choose(const sim::SimWorld& world, const TowerSystem& towers,
+AutoPlayAction AutoPlayer::choose(const sim::SimWorld& /*world*/, const TowerSystem& towers,
                                   const Economy& economy) {
     // --- The cheapest unbuilt site the plan still wants, in plan order.
     AutoPlayAction place;
     for (usize i = next_site_; i < sites_.size(); ++i) {
         const PlannedSite& s = sites_[i];
-        if (s.built.valid() || s.rejected) continue;
+        if (s.deployed || s.rejected) continue;
         place.kind = AutoPlayAction::Kind::Placed;
         place.type = s.type;
         place.position = s.position;
-        place.cost = towers.stats(s.type, 1).build_cost;
-        place.tier = 1;
+        place.cost = towers.stats(s.type).build_cost;
         break;
     }
 
-    // --- The upgrade this profile wants most. Greedy profiles want the
-    // cheapest; the saver wants the least-developed tower, so investment
-    // deepens evenly instead of taking one tower to tier 3 and abandoning the
-    // rest (which would measure a single tower, not a strategy).
-    AutoPlayAction upgrade;
-    u8 best_tier = 4;
-    for (const PlannedSite& s : sites_) {
-        if (!s.built.valid()) continue;
-        const u32 cost = towers.upgrade_cost(world, s.built);
-        if (cost == 0) continue;   // already tier 3, or sold out from under us
-        bool better = upgrade.kind == AutoPlayAction::Kind::None;
-        if (!better) {
-            better = cfg_.profile == AutoPlayProfile::SaveForTier3
-                         ? (s.tier < best_tier || (s.tier == best_tier && cost < upgrade.cost))
-                         : cost < upgrade.cost;
-        }
-        if (!better) continue;
-        best_tier = s.tier;
-        upgrade.kind = AutoPlayAction::Kind::Upgraded;
-        upgrade.tower = s.built;
-        upgrade.type = s.type;
-        upgrade.position = s.position;
-        upgrade.cost = cost;
-        upgrade.tier = static_cast<u8>(s.tier + 1);
-    }
-
-    const bool can_place =
-        place.kind != AutoPlayAction::Kind::None && economy.can_afford(place.cost);
-    const bool can_upgrade =
-        upgrade.kind != AutoPlayAction::Kind::None && economy.can_afford(upgrade.cost);
-
-    switch (cfg_.profile) {
-        case AutoPlayProfile::SpreadCoverage:
-            if (can_place) return place;
-            return can_upgrade ? upgrade : AutoPlayAction{};
-        case AutoPlayProfile::SaveForTier3:
-            // Depth first, but never stall: with nothing left to upgrade, a
-            // saver still builds rather than banking ATP forever.
-            if (can_upgrade) return upgrade;
-            return can_place ? place : AutoPlayAction{};
-        case AutoPlayProfile::GreedyCheapest:
-        case AutoPlayProfile::SingleType:
-        default:
-            if (can_place && can_upgrade) return place.cost <= upgrade.cost ? place : upgrade;
-            if (can_place) return place;
-            return can_upgrade ? upgrade : AutoPlayAction{};
-    }
+    return place.kind != AutoPlayAction::Kind::None && economy.can_afford(place.cost)
+               ? place : AutoPlayAction{};
 }
 
 AutoPlayAction AutoPlayer::tick(sim::SimWorld& world, TowerSystem& towers, Economy& economy,
@@ -375,15 +324,14 @@ AutoPlayAction AutoPlayer::tick(sim::SimWorld& world, TowerSystem& towers, Econo
     if (action.kind == AutoPlayAction::Kind::None) return action;
 
     if (action.kind == AutoPlayAction::Kind::Placed) {
-        // Re-validate: the neighbouring footprints have moved since the plan
-        // was made, and Overlapping is a function of what is already standing.
+        // Recheck ATP, placement zones, and changing scar geometry.
         for (usize i = next_site_; i < sites_.size(); ++i) {
             PlannedSite& s = sites_[i];
-            if (s.built.valid() || s.rejected) {
+            if (s.deployed || s.rejected) {
                 if (i == next_site_) ++next_site_;
                 continue;
             }
-            const PlacementQuery q = towers.validate(world, s.type, s.position, economy.atp());
+            const PlacementQuery q = towers.validate_deploy(world, s.type, s.position, economy.atp());
             if (!q.valid()) {
                 if (q.result == PlacementResult::CannotAfford) return AutoPlayAction{};
                 // Anything else is permanent for this site: the thing that
@@ -392,38 +340,25 @@ AutoPlayAction AutoPlayer::tick(sim::SimWorld& world, TowerSystem& towers, Econo
                 s.rejected = true;
                 continue;
             }
-            const u32 cost = towers.stats(s.type, 1).build_cost;
+            const u32 cost = towers.stats(s.type).build_cost;
             if (!economy.can_afford(cost)) return AutoPlayAction{};
-            const EntityId placed = towers.place(world, s.type, q.snapped_position);
-            if (!placed.valid()) {
+            if (!towers.deploy(world, s.type, q.snapped_position)) {
                 s.rejected = true;
                 continue;
             }
             economy.spend(cost);
-            s.built = placed;
-            s.tier = 1;
+            s.deployed = true;
             s.position = q.snapped_position;
-            action.tower = placed;
+            action.tower = towers.last_deployment_id();
             action.type = s.type;
             action.position = q.snapped_position;
             action.cost = cost;
-            action.tier = 1;
             return action;
         }
         return AutoPlayAction{};
     }
 
-    // Upgrade. upgrade() charges nothing by design (TowerSystem.h), so the
-    // spend is this caller's, exactly as it is in app/.
-    if (!economy.can_afford(action.cost)) return AutoPlayAction{};
-    const u8 new_tier = towers.upgrade(world, action.tower);
-    if (new_tier == 0) return AutoPlayAction{};
-    economy.spend(action.cost);
-    action.tier = new_tier;
-    for (PlannedSite& s : sites_) {
-        if (s.built == action.tower) s.tier = new_tier;
-    }
-    return action;
+    return AutoPlayAction{};
 }
 
 } // namespace immune::game

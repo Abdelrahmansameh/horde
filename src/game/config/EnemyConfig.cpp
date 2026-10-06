@@ -164,6 +164,13 @@ constexpr Field kAttackFields[] = {
     IMMUNE_CONFIG_FIELD(sim::HostileFamilyParams, latch_ease_power, FieldKind::F32, "Ease-out exponent: speed scales by (distance/ease_distance)^power; higher is a later, heavier brake"),
     IMMUNE_CONFIG_FIELD(sim::HostileFamilyParams, aura_dps, FieldKind::F32, "Hit points/sec dealt to every tower or swarmer whose body is inside the aura; 0 = no aura"),
     IMMUNE_CONFIG_FIELD(sim::HostileFamilyParams, aura_radius, FieldKind::F32, "Aura reach from the agent's centre to the victim's membrane, world units"),
+    IMMUNE_CONFIG_FIELD(sim::HostileFamilyParams, toxin_damage, FieldKind::F32, "Damage dealt by one ranged toxin pellet; 0 disables shooting"),
+    IMMUNE_CONFIG_FIELD(sim::HostileFamilyParams, toxin_range, FieldKind::F32, "Maximum toxin target distance past the target's body, world units"),
+    IMMUNE_CONFIG_FIELD(sim::HostileFamilyParams, toxin_speed, FieldKind::F32, "Toxin pellet flight speed, world units/sec"),
+    IMMUNE_CONFIG_FIELD(sim::HostileFamilyParams, toxin_interval, FieldKind::F32, "Seconds between toxin shots from one pathogen"),
+    IMMUNE_CONFIG_FIELD(sim::HostileFamilyParams, toxin_hit_radius, FieldKind::F32, "Toxin pellet collision radius, world units"),
+    IMMUNE_CONFIG_FIELD(sim::HostileFamilyParams, toxin_magazine_size, FieldKind::U32, "Toxin pellets held before a reload, capped at 8"),
+    IMMUNE_CONFIG_FIELD(sim::HostileFamilyParams, toxin_reload_seconds, FieldKind::F32, "Seconds to reform an empty toxin magazine"),
 };
 constexpr Schema kAttackSchema{"family_attack", kAttackFields};
 

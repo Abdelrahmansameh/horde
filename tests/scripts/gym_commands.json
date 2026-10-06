@@ -14,7 +14,7 @@
     {
       "tick": 30,
       "type": "cmd",
-      "cmd": "atp 9000; tower all at 150,75; upgrade all"
+      "cmd": "atp 9000; tower all at 220,395"
     },
     {
       "tick": 60,

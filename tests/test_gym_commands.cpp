@@ -248,14 +248,14 @@ TEST_CASE("elite reports an empty roster instead of spawning", "[gym][elite]") {
 
 // ---- Towers, abilities, economy ---------------------------------------------
 
-TEST_CASE("tower places for free and upgrades", "[gym][towers]") {
+TEST_CASE("tower places for free and can be sold", "[gym][towers]") {
     Harness h;
     const u32 atp_before = h.economy.atp();
     REQUIRE(h.run("tower all").ok);
     CHECK_FALSE(h.towers.placed_towers().empty());
     CHECK(h.economy.atp() == atp_before);   // the gym never charges
 
-    REQUIRE(h.run("upgrade all").ok);
+    REQUIRE_FALSE(h.run("upgrade all").ok);
     REQUIRE(h.run("fire").ok);
     REQUIRE(h.run("sell all").ok);
     CHECK(h.towers.placed_towers().empty());

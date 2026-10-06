@@ -156,7 +156,7 @@ constexpr Field kAbilityFields[] = {
     IMMUNE_CONFIG_FIELD(AbilityTuning, radius, FieldKind::F32, "Field radius (per-link for the cascade)"),
     IMMUNE_CONFIG_FIELD(AbilityTuning, kill_rate, FieldKind::F32, ""),
     IMMUNE_CONFIG_FIELD(AbilityTuning, field_duration, FieldKind::F32, "Histamine: nova lifetime; Clot: seconds the bar stands"),
-    IMMUNE_CONFIG_FIELD(AbilityTuning, fever_cooldown_relief, FieldKind::F32, "Fever only: seconds shaved off every tower"),
+    IMMUNE_CONFIG_FIELD(AbilityTuning, fever_cooldown_relief, FieldKind::F32, "Fever only: 0.1 times this value is the fraction of maximum cell health restored"),
     IMMUNE_CONFIG_FIELD(AbilityTuning, barrier_half_length, FieldKind::F32, "Clot only: half the bar's length across the lane"),
     IMMUNE_CONFIG_FIELD(AbilityTuning, barrier_half_width, FieldKind::F32, "Clot only: half the bar's thickness"),
 };
@@ -488,10 +488,7 @@ namespace {
 /// where the bootstrap could have disagreed with the code it is bootstrapping.
 void fill_default_mechanics(TowerConfig& towers) {
     for (u32 t = 0; t < kTowerTypeCount; ++t) {
-        for (u32 tier = 0; tier < 3; ++tier) {
-            towers.mechanics[t][tier] =
-                tower_mechanics(static_cast<TowerType>(t), static_cast<u8>(tier + 1));
-        }
+        towers.mechanics[t] = tower_mechanics(static_cast<TowerType>(t));
     }
 }
 
@@ -504,10 +501,7 @@ GameConfig default_game_config() {
     {
         TowerSystem towers;
         for (u32 t = 0; t < kTowerTypeCount; ++t) {
-            for (u32 tier = 0; tier < 3; ++tier) {
-                cfg.towers.stats[t][tier] =
-                    towers.stats(static_cast<TowerType>(t), static_cast<u8>(tier + 1));
-            }
+            cfg.towers.stats[t] = towers.stats(static_cast<TowerType>(t));
         }
     }
     fill_default_mechanics(cfg.towers);

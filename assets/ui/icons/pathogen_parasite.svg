@@ -1,3 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" fill="none" stroke-linecap="round" stroke-linejoin="round">
-<g transform="translate(32 34) scale(1.05)"><path d="M-24 10c6-20 14 8 22-8s14 6 24-12" stroke="#3B200C" stroke-width="15"/><path d="M-24 10c6-20 14 8 22-8s14 6 24-12" stroke="#8A5226" stroke-width="10"/><path d="M-24 10c6-20 14 8 22-8s14 6 24-12" stroke="#C07A45" stroke-width="2.5" stroke-dasharray="3 6"/><circle cx="22" cy="-10" r="2.4" fill="#3B200C"/></g>
+<g>
+  <!-- One narrow, tapered worm body with a small probing head. -->
+  <path d="M8 48C13 46 14 39 20 36C25 34 28 37 31 40C34 43 36 43 40 40C45 36 40 30 41 26C42 21 46 18 50 18C53 18 55 16 57 12C55 20 53 23 50 23C46 23 45 26 45 29C45 34 49 38 45 42C41 47 35 48 30 45C27 43 24 40 21 41C17 42 16 48 8 51Z" fill="#3B200C"/>
+  <path d="M10 47C15 44 16 39 21 37C25 36 28 39 31 41C34 44 37 44 41 40C44 36 42 31 42 27C43 23 46 20 50 20" stroke="#8A5226" stroke-width="2.8"/>
+  <path d="M14 44C17 41 18 39 21 38C25 37 28 40 31 42" stroke="#D49A65" stroke-width="0.9" opacity="0.9"/>
+  <path d="M46 21C48 19 50 18 52 16" stroke="#D49A65" stroke-width="0.9" opacity="0.9"/>
+  <circle cx="51.2" cy="19.1" r="0.9" fill="#3B200C"/>
+</g>
 </svg>

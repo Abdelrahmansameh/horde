@@ -128,6 +128,8 @@ const char* placement_result_name(PlacementResult r) {
         case PlacementResult::OutsidePlacementZone: return "outside placement zone";
         case PlacementResult::TowerNotAllowed: return "tower type not allowed on this level";
         case PlacementResult::TowerLocked: return "tower type not unlocked (Strengthen Immunity)";
+        case PlacementResult::NoBuildSite: return "no valid scar site nearby";
+        case PlacementResult::AtCapacity: return "cell capacity reached";
     }
     return "unknown";
 }
@@ -322,9 +324,8 @@ const std::vector<GymCommandInfo>& command_table() {
          "Every family out of every spawn point at once. The stress button."},
         {"kill", "[family|all]",
          "Flag chaff for removal, with real kill accounting."},
-        {"tower", "<type|all|list> [at <x,y|cursor>] [tier <1-3>]",
+        {"tower", "<type|all|list> [at <x,y|cursor>]",
          "Place a tower for free. 'all' spreads one of each across the level."},
-        {"upgrade", "[all]", "Upgrade the last-placed tower, or every tower, one tier."},
         {"sell", "[all]", "Sell the last-placed tower, or every tower."},
         {"fire", "", "Clear every placed tower's cooldown so it releases a volley next tick."},
         {"cast", "<complement|histamine|fever|clot> [at <x,y|cursor>]", "Cast a player ability."},
@@ -698,8 +699,8 @@ GymResult cmd_tower(GymContext& ctx, const std::vector<std::string>& tok) {
         std::string out = "tower types:";
         for (u32 t = 0; t < kTowerTypeCount; ++t) {
             const TowerType type = static_cast<TowerType>(t);
-            const TowerStats& st = ctx.towers->stats(type, 1);
-            const game::TowerMechanics& m = game::tower_mechanics(type, 1);
+            const TowerStats& st = ctx.towers->stats(type);
+            const game::TowerMechanics& m = game::tower_mechanics(type);
             out += fmt("\n  %-11s %-12s aggro=%.1f volley=%.2fs x%u cost=%u", tower_type_name(type),
                        game::tower_kind_name(game::tower_kind(type)), m.swarm.search_radius,
                        st.fire_interval, m.swarm.release_per_shot, st.build_cost);
@@ -719,16 +720,7 @@ GymResult cmd_tower(GymContext& ctx, const std::vector<std::string>& tok) {
     std::string error;
     if (!parse_at_clause(ctx, tok, i, at, error)) return fail(error);
 
-    i64 tier = 1;
-    if (i < tok.size() && lower(tok[i]) == "tier") {
-        ++i;
-        if (i >= tok.size() || !parse_i64(tok[i], tier)) return fail("'tier' needs 1-3");
-        ++i;
-        tier = math::clamp<i64>(tier, 1, 3);
-    }
-    const auto upgrade_to_tier = [&](EntityId e) {
-        for (i64 t = 1; t < tier; ++t) ctx.towers->upgrade(*ctx.world, e);
-    };
+    if (i != tok.size()) return fail("unexpected argument after tower position");
 
     if (every_type) {
         // Spread across the level the same way --screenshot --towers does, so a
@@ -741,15 +733,11 @@ GymResult cmd_tower(GymContext& ctx, const std::vector<std::string>& tok) {
             PlacementResult why_not = PlacementResult::Ok;
             const EntityId e = place_near(ctx, static_cast<TowerType>(t),
                                           Vec2{b.min.x + b.size().x * frac, at.y}, got, why_not);
-            if (e.valid()) {
-                upgrade_to_tier(e);
-                ++placed;
-            }
+            if (e.valid()) ++placed;
         }
         return placed == 0
                    ? fail("placed nothing — no valid spot on that row (try 'tower all at <x,y>')")
-                   : okay(fmt("placed %u/%u tower types at tier %lld", placed, kTowerTypeCount,
-                              static_cast<long long>(tier)));
+                   : okay(fmt("placed %u/%u tower types", placed, kTowerTypeCount));
     }
 
     Vec2 got{};
@@ -759,28 +747,7 @@ GymResult cmd_tower(GymContext& ctx, const std::vector<std::string>& tok) {
         return fail(fmt("cannot place %s near (%.1f, %.1f): %s", tower_type_name(type), at.x, at.y,
                         placement_result_name(why_not)));
     }
-    upgrade_to_tier(e);
-    return okay(fmt("placed %s at (%.1f, %.1f) tier %lld (free)", tower_type_name(type), got.x,
-                    got.y, static_cast<long long>(tier)));
-}
-
-GymResult cmd_upgrade(GymContext& ctx, const std::vector<std::string>& tok) {
-    if (ctx.world == nullptr || ctx.towers == nullptr) {
-        return fail("no tower system in this context");
-    }
-    const std::vector<EntityId>& placed = ctx.towers->placed_towers();
-    if (placed.empty()) return fail("no towers placed");
-
-    if (tok.size() > 1 && lower(tok[1]) == "all") {
-        u32 n = 0;
-        for (const EntityId e : placed) {
-            if (ctx.towers->upgrade(*ctx.world, e) != 0) ++n;
-        }
-        return okay(fmt("upgraded %u/%zu tower(s)", n, placed.size()));
-    }
-    const u8 tier = ctx.towers->upgrade(*ctx.world, placed.back());
-    return tier == 0 ? fail("that tower is already at max tier")
-                     : okay(fmt("upgraded the last tower to tier %u", static_cast<unsigned>(tier)));
+    return okay(fmt("placed %s at (%.1f, %.1f) (free)", tower_type_name(type), got.x, got.y));
 }
 
 GymResult cmd_sell(GymContext& ctx, const std::vector<std::string>& tok) {
@@ -1654,7 +1621,6 @@ GymResult gym_execute(GymContext& ctx, std::string_view line) {
     if (cmd == "flood") return cmd_flood(ctx, tok);
     if (cmd == "kill") return cmd_kill(ctx, tok);
     if (cmd == "tower") return cmd_tower(ctx, tok);
-    if (cmd == "upgrade") return cmd_upgrade(ctx, tok);
     if (cmd == "sell") return cmd_sell(ctx, tok);
     if (cmd == "fire") return cmd_fire(ctx);
     if (cmd == "cast") return cmd_cast(ctx, tok);

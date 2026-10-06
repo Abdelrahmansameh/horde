@@ -269,8 +269,8 @@ void SimWorld::tick(Profiler* profiler) {
     chaff_.expire_slows(kFixedDt);
 
     // 4c''. The horde fights back (sim/hostile/HostileAttacks.h): viruses
-    // latch onto towers and swarmers and feed, bacteria burn whatever stands
-    // in their aura. After the swarmer update so passengers are planted on
+    // latch onto towers and swarmers and feed, bacteria fire toxin pellets.
+    // After the swarmer update so passengers are planted on
     // this tick's positions and a unit killed here has had its last say;
     // before compaction so a virus that died while latched retires in the
     // same pass as everything else. Tower damage lands on the ECS straight
@@ -448,6 +448,9 @@ u64 SimWorld::state_hash() const {
         mix(chaff_.burrow_timer.data(), n * sizeof(f32));
         mix(chaff_.burrow_target_x.data(), n * sizeof(f32));
         mix(chaff_.burrow_target_y.data(), n * sizeof(f32));
+        mix(chaff_.toxin_rounds.data(), n * sizeof(u8));
+        mix(chaff_.toxin_cooldown.data(), n * sizeof(f32));
+        mix(chaff_.toxin_reload.data(), n * sizeof(f32));
     }
     // Swarmers steer, choose and kill, so where they are and what they hold
     // is gameplay state; positions plus targets are enough to catch a
@@ -497,6 +500,21 @@ u64 SimWorld::state_hash() const {
     if (fn > 0) {
         mix(fluid_.pos_x.data(), fn * sizeof(f32));
         mix(fluid_.pos_y.data(), fn * sizeof(f32));
+    }
+    // In-flight bacterial toxin pellets decide later friendly damage.
+    const usize toxin_count = hostile_.toxin_shots().size();
+    mix(&toxin_count, sizeof(toxin_count));
+    for (const ToxinShot& shot : hostile_.toxin_shots()) {
+        mix(&shot.position.x, sizeof(f32));
+        mix(&shot.position.y, sizeof(f32));
+        mix(&shot.velocity.x, sizeof(f32));
+        mix(&shot.velocity.y, sizeof(f32));
+        mix(&shot.damage, sizeof(f32));
+        mix(&shot.life, sizeof(f32));
+        mix(&shot.radius, sizeof(f32));
+        mix(&shot.target_index, sizeof(u32));
+        mix(&shot.target_generation, sizeof(u32));
+        mix(&shot.target_tower, sizeof(bool));
     }
     // Squad anchors steer agents, so a determinism assertion that ignored them
     // would not be checking the squad layer at all. state_hash() is folded in
@@ -551,7 +569,7 @@ void SimWorld::build_friendly_towers() {
         t.position = view.get<const comp::Transform>(e).position;
         const comp::Tower& tw = view.get<const comp::Tower>(e);
         t.type = tw.type;
-        t.visual_id = tw.tier;
+        t.visual_id = 1;
         // Body radius from the sprite, which is the footprint drawn at
         // diameter 2 * footprint_radius (game/towers): half its size.
         if (const auto* sp = registry.try_get<comp::Sprite>(e)) t.radius = math::max(sp->size * 0.5f, 0.0f);
@@ -754,7 +772,8 @@ void SimWorld::apply_swarmer_effects() {
 void SimWorld::set_immunity(const ImmunityTuning& t) {
     immunity_ = t;
     chaff_.set_slowed_damage_multiplier(immunity_.slowed_damage_mult);
-    swarmer_system_.set_inflamed_zones(&inflamed_zones_, immunity_.inflammation_damage_mult);
+    swarmer_system_.set_inflamed_zones(&inflamed_zones_, immunity_.inflammation_damage_mult,
+                                       immunity_.inflammation_reload_mult);
     projectile_system_.set_max_impact_log(
         immunity_.incendiary_radius > 0.0f ? immunity_.max_incendiary_per_tick : 0u);
 }

@@ -12,6 +12,7 @@
 #include "sim/flowfield/FlowField.h"
 #include "sim/flowfield/LaneConnectivity.h"
 #include "sim/flowfield/RuntimeBlock.h"
+#include "sim/swarm/Swarmers.h"
 
 #include <cmath>
 #include <utility>
@@ -66,6 +67,12 @@ void system_fever_linger(sim::SystemContext& ctx) {
         if (f.remaining <= 0.0f) expired.push_back(e);
     }
     if (relief > 0.0f) {
+        sim::SwarmerBuffers& swarm = ctx.world.swarmers();
+        for (usize i = 0; i < swarm.count(); ++i) {
+            if ((swarm.flags[i] & sim::swarmer_flags::kPendingKill) != 0) continue;
+            const f32 max_health = swarm.profile_of(i).max_health;
+            swarm.health[i] = math::min(max_health, swarm.health[i] + max_health * relief * 0.1f);
+        }
         auto towers = ctx.registry.view<sim::comp::Tower>();
         for (auto e : towers) {
             sim::comp::Tower& t = towers.get<sim::comp::Tower>(e);
@@ -185,6 +192,15 @@ bool ActiveAbilitySystem::cast(sim::SimWorld& world, AbilityId id, Vec2 target_p
             break;
         }
         case AbilityId::FeverResponse: {
+            // Directly deployed cells recover a share of their own maximum
+            // health. The old cooldown path below remains for legacy scenes.
+            sim::SwarmerBuffers& swarm = world.swarmers();
+            for (usize cell = 0; cell < swarm.count(); ++cell) {
+                if ((swarm.flags[cell] & sim::swarmer_flags::kPendingKill) != 0) continue;
+                const f32 max_health = swarm.profile_of(cell).max_health;
+                swarm.health[cell] = math::min(max_health, swarm.health[cell] +
+                    max_health * d.fever_cooldown_relief * 0.1f);
+            }
             // No damage-field equivalent exists for "buff every tower" -- this
             // is the one ability that reaches into the ECS directly. An
             // instant cooldown-relief burst (read/write the already-public

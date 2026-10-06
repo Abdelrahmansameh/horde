@@ -35,6 +35,9 @@ u32 utf8_next(std::string_view s, usize& i) {
 
 namespace {
 
+/// Logical px a line may overrun its wrap width by and still stay one line.
+constexpr f32 kWrapSlack = 0.01f;
+
 u32 upper(u32 cp) {
     if (cp >= 'a' && cp <= 'z') return cp - 32;
     // Latin-1 lowercase letters (except ß and ÿ, which have no Latin-1 capital).
@@ -106,7 +109,10 @@ TextLayout TextRenderer::layout(std::string_view text, const TextStyle& style, f
                     usize j = e;
                     const u32 cp = utf8_next(text, j);
                     const f32 nw = line_width(text, b, j, style);
-                    if (nw > max_width && e > b) {
+                    // A label is usually drawn in a box exactly as wide as it
+                    // measured, and that width comes back from max - min of
+                    // its rect a rounding error short: never wrap for that.
+                    if (nw > max_width + kWrapSlack && e > b) {
                         if (last_break != std::string_view::npos) e = last_break;
                         break;
                     }

@@ -8,6 +8,7 @@
 #include "game/towers/TowerSystem.h"
 #include "game/wave/WaveDirector.h"
 #include "sim/SimWorld.h"
+#include "sim/swarm/Swarmers.h"
 
 #include <nlohmann/json.hpp>
 
@@ -125,7 +126,6 @@ void RunTelemetry::on_tower_placed(EntityId id, TowerType type, Vec2 position, u
     rec.type = type;
     rec.position = position;
     rec.built_tick = tick;
-    rec.tier_tick[0] = tick;
     rec.invested_atp = cost;
     if (lanes_ != nullptr) {
         const i32 lane = lanes_->lane_at(position);
@@ -134,15 +134,6 @@ void RunTelemetry::on_tower_placed(EntityId id, TowerType type, Vec2 position, u
         }
     }
     towers_.push_back(std::move(rec));
-}
-
-void RunTelemetry::on_tower_upgraded(EntityId id, u8 new_tier, u32 cost, u64 tick) {
-    TowerTelemetry* rec = find(id);
-    if (rec == nullptr) return;
-    rec->tier = new_tier;
-    rec->peak_tier = std::max(rec->peak_tier, new_tier);
-    rec->invested_atp += cost;
-    if (new_tier >= 1 && new_tier <= 3) rec->tier_tick[new_tier - 1] = tick;
 }
 
 void RunTelemetry::on_tower_sold(EntityId id, u32 refund, u64 tick) {
@@ -181,7 +172,19 @@ void RunTelemetry::sample(const sim::SimWorld& world, const WaveDirector& waves,
         rec->active_ticks = e.active_ticks;
     }
     u32 live_towers = 0;
+    const sim::SwarmerBuffers& cells = world.swarmers();
     for (TowerTelemetry& t : towers_) {
+        if ((t.id.value & 0x80000000u) != 0 && t.removed_tick == 0) {
+            bool alive = false;
+            for (usize i = 0; i < cells.count(); ++i) {
+                if (cells.owner[i] == t.id &&
+                    (cells.flags[i] & sim::swarmer_flags::kPendingKill) == 0) {
+                    alive = true;
+                    break;
+                }
+            }
+            if (!alive) t.removed_tick = snap.tick;
+        }
         if (t.removed_tick == 0) {
             ++t.alive_ticks;
             ++live_towers;
@@ -302,13 +305,10 @@ std::string RunTelemetry::to_json(const ReportHeader& header, int indent) const 
         json j;
         j["id"] = t.id.value;
         j["type"] = tower_type_name(t.type);
-        j["tier"] = t.tier;
-        j["peak_tier"] = t.peak_tier;
         j["position"] = {t.position.x, t.position.y};
         j["lane"] = t.lane;
         j["built_tick"] = t.built_tick;
         j["removed_tick"] = t.removed_tick;
-        j["tier_ticks"] = {t.tier_tick[0], t.tier_tick[1], t.tier_tick[2]};
         j["invested_atp"] = t.invested_atp;
         j["refunded_atp"] = t.refunded_atp;
         j["density_removed"] = family_array(t.density_removed);
@@ -335,7 +335,8 @@ std::string RunTelemetry::to_json(const ReportHeader& header, int indent) const 
             ++type_count[ti];
         }
     }
-    doc["towers"] = std::move(towers);
+    doc["cells"] = towers;
+    doc["towers"] = std::move(towers); // legacy report consumers
 
     // --- Per tower TYPE: the ranking table. A type with no instances is
     // emitted with zeros rather than omitted, because "the bot never once
@@ -354,7 +355,8 @@ std::string RunTelemetry::to_json(const ReportHeader& header, int indent) const 
         j["uptime"] = ratio(static_cast<f64>(type_active[ti]), static_cast<f64>(type_alive[ti]));
         by_type.push_back(std::move(j));
     }
-    doc["towers_by_type"] = std::move(by_type);
+    doc["cells_by_type"] = by_type;
+    doc["towers_by_type"] = std::move(by_type); // legacy report consumers
 
     // --- Per wave.
     json waves = json::array();
@@ -377,6 +379,8 @@ std::string RunTelemetry::to_json(const ReportHeader& header, int indent) const 
         j["atp_spent"] = w.atp_spent;
         j["towers_at_start"] = w.towers_at_start;
         j["towers_at_end"] = w.towers_at_end;
+        j["cells_at_start"] = w.towers_at_start;
+        j["cells_at_end"] = w.towers_at_end;
         j["spawned"] = family_counts(w.spawned);
         j["killed"] = family_counts(w.killed);
         j["leaked"] = family_counts(w.leaked);
@@ -408,7 +412,8 @@ std::string RunTelemetry::to_json(const ReportHeader& header, int indent) const 
                                 {"chaff", s.chaff_count},
                                 {"density", s.total_density},
                                 {"integrity", s.integrity},
-                                {"towers", s.towers}});
+                                {"towers", s.towers},
+                                {"cells", s.towers}});
     }
     doc["timeline"] = std::move(timeline);
 

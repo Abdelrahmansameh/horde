@@ -219,12 +219,17 @@ struct ChaffFamilyParams {
     /// ChaffSystem.cpp.
     f32 crowd_relief = 0.7f;
 
-    /// Whether this family takes part in crowd physics at all. False makes it
-    /// a ghost to the horde: it is skipped as everyone else's neighbour (no
-    /// contact, separation, alignment or relief from it) and gathers no
-    /// neighbours itself, so it neither shoves nor is shoved. Walls, the flow
-    /// field, squads and every damage/targeting path are unaffected.
+    /// Whether this family takes part in crowd physics with OTHER families.
+    /// False makes it a ghost to the rest of the horde: it is skipped as their
+    /// neighbour and ignores them, so it neither shoves nor is shoved. It
+    /// still spaces itself out from its own kind (same-family neighbours only),
+    /// so a ghost family does not clump. Walls and obstacles, the flow field,
+    /// squads and every damage/targeting path are unaffected.
     bool collides = true;
+
+    /// Clearance kept from walls and obstacles. 0 = `radius`. For a family
+    /// whose drawn body is much larger than its collision disc (the worm).
+    f32 wall_radius = 0.0f;
 };
 
 struct ChaffTuning {

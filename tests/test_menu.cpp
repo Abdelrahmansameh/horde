@@ -8,6 +8,7 @@
 // (front_*.png in the working directory) and checks it drew.
 #include "app/UiBridge.h"
 #include "core/Clock.h"
+#include "core/Math.h"
 #include "game/config/GameConfig.h"
 #include "game/level/Level.h"
 #include "game/meta/MetaProgression.h"
@@ -24,8 +25,11 @@
 
 #include <glad/glad.h>
 
+#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <memory>
 #include <string>
@@ -64,10 +68,28 @@ struct Harness {
         front->finish_transitions();
         frame(s, m);
     }
+    /// One frame with the pointer at `pos`, the left button `down`, and
+    /// `wheel` notches turned.
+    void pointer(FrontScreen s, const FrontModel& m, Vec2 pos, bool down, f32 wheel = 0.0f) {
+        front->show(s, m);
+        gui::PointerInput p;
+        p.pos = pos;
+        p.down[0] = down;
+        p.pressed[0] = down && !was_down;
+        p.released[0] = !down && was_down;
+        p.wheel = wheel;
+        was_down = down;
+        gui.frame(p, 1.0f / 60.0f);
+    }
+    bool was_down = false;
     MenuResult click(const std::string& path) {
         INFO(path);
         REQUIRE(gui.click(path));
         return front->take_result();
+    }
+    std::string label(const std::string& path) {
+        auto* l = dynamic_cast<gui::Label*>(gui.find(path));
+        return l != nullptr ? l->text() : std::string("<no label at ") + path + ">";
     }
     bool shown(const std::string& path) {
         gui::Widget* x = gui.find(path);
@@ -345,31 +367,29 @@ TEST_CASE("the front-end screens render (PNGs for review)", "[ui][menu][gl]") {
     results.run.valid = true;
     results.run.memory_cells = 203;
     results.run.antibodies = 1;
-    FrontModel tree;
-    {
-        const game::MetaConfig cfg;
-        game::MetaProgression meta;
-        meta.reset_to_new_game();
-        meta.credit(900, 3);
-        for (game::TreeNode n : {game::TreeNode::NeutrophilRoundDamage, game::TreeNode::NeutrophilRoundDamage,
-                                 game::TreeNode::NeutrophilVolleyCadence, game::TreeNode::CytotoxicRoot,
-                                 game::TreeNode::BoneMarrowReserve}) {
-            meta.purchase(n, cfg);
-        }
-        tree.tree = app::make_tree_model(meta, cfg);
-    }
+    FrontModel tree, tree_new, tree_full;
+    tree.tree = app::make_screenshot_tree_model(app::ScreenshotTree::Sample);
+    tree_new.tree = app::make_screenshot_tree_model(app::ScreenshotTree::New);
+    tree_full.tree = app::make_screenshot_tree_model(app::ScreenshotTree::Full);
     struct Shot { FrontScreen screen; FrontModel model; const char* file; };
     const Shot shots[] = {
         {FrontScreen::MainMenu, FrontModel{}, "front_menu.png"},
         {FrontScreen::Tree, tree, "front_tree.png"},
         {FrontScreen::LevelSelect, campaign(3), "front_levels.png"},
+        {FrontScreen::Tree, tree_new, "front_tree_new.png"},
         {FrontScreen::Victory, results, "front_victory.png"},
+        {FrontScreen::Tree, tree_full, "front_tree_full.png"},
         {FrontScreen::Defeat, results, "front_defeat.png"},
         {FrontScreen::Pause, results, "front_pause.png"},
     };
     for (const Shot& s : shots) {
         CAPTURE(s.file);
         h.open(s.screen, s.model);
+        if (TreeScreen* t = h.front->tree()) {
+            // Each tree shot frames its own progress, not the last visit's view.
+            t->recenter();
+            t->finish_animation();
+        }
         for (int i = 0; i < 10; ++i) h.frame(s.screen, s.model);
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
         glViewport(0, 0, 1920, 1080);
@@ -396,7 +416,7 @@ TEST_CASE("the front-end screens render (PNGs for review)", "[ui][menu][gl]") {
 
 // ---- Strengthen Immunity --------------------------------------------------------------
 
-TEST_CASE("tree layout: every node of the game's tree has its place from the canvas", "[ui][menu][meta]") {
+TEST_CASE("tree layout: every node of the game's tree has its place in the figure", "[ui][menu][meta]") {
     TreeLayout layout;
     std::string err;
     REQUIRE(load_tree_layout(platform::asset_path("ui/tree_layout.json"), layout, &err));
@@ -405,21 +425,64 @@ TEST_CASE("tree layout: every node of the game's tree has its place from the can
     for (u32 i = 0; i < game::kTreeNodeCount; ++i) {
         const char* key = game::tree_node(static_cast<game::TreeNode>(i)).key;
         CAPTURE(key);
-        CHECK(layout.nodes.count(key) == 1);
-    }
-    // Every vessel but the two that loop out to the abilities belongs to a node.
-    usize owned = 0;
-    for (const TreeLayout::Vessel& v : layout.vessels) {
-        if (!v.node.empty()) {
-            ++owned;
-            CHECK(layout.nodes.count(v.node) == 1);
+        const auto it = layout.nodes.find(key);
+        REQUIRE(it != layout.nodes.end());
+        CHECK_FALSE(it->second.icon.empty());
+        // No two nodes touch: the figure is drawn by the nodes alone.
+        for (const auto& [other, n] : layout.nodes) {
+            if (other == key) continue;
+            CAPTURE(other);
+            CHECK(math::length(n.at - it->second.at) > (n.size + it->second.size) * 0.5f + 10.0f);
         }
     }
-    CHECK(owned == game::kTreeNodeCount);
-    CHECK(layout.labels.size() == 14);
+    // A figure standing up: the heart in the middle of the chest, the head
+    // above the shoulders, the hands out to the sides, the feet below.
+    auto at = [&](const char* key) { return layout.nodes.at(key).at; };
+    CHECK(math::length(at("neutrophil.unlock")) < 120.0f);
+    CHECK(at("ability.fever.cooldown").y < at("goblet.unlock").y - 200.0f);
+    CHECK(at("cytotoxic.capstone").x < -900.0f);
+    CHECK(at("goblet.capstone").x > 900.0f);
+    CHECK(at("macrophage.capstone").y > 1200.0f);
+    CHECK(at("fibroblast.capstone").y > 1200.0f);
+    // Left and right mirror each other.
+    CHECK(at("cytotoxic.capstone").x == Catch::Approx(-at("goblet.capstone").x));
+    CHECK(at("ability.histamine.unlock").x == Catch::Approx(-at("ability.fever.unlock").x));
 }
 
-TEST_CASE("tree: select a node, Grow buys it, Play goes to the campaign", "[ui][menu][meta]") {
+TEST_CASE("tree model: the tree uncovers as it grows", "[ui][menu][meta]") {
+    const game::MetaConfig cfg;
+    game::MetaProgression meta;
+    meta.reset_to_new_game();
+    TreeModel t = app::make_tree_model(meta, cfg);
+    // A new campaign sees the heart and the two nodes it feeds.
+    std::vector<std::string> shown;
+    for (const TreeNodeView& n : t.nodes) {
+        if (t.revealed(n.key)) shown.push_back(n.key);
+    }
+    std::sort(shown.begin(), shown.end());
+    CHECK(shown == std::vector<std::string>{"hub.bone_marrow_reserve", "neutrophil.round_damage", "neutrophil.unlock"});
+    // One purchase shows that node's children, and nothing past them.
+    meta.credit(1000);
+    REQUIRE(meta.purchase(game::TreeNode::BoneMarrowReserve, cfg) == game::MetaProgression::PurchaseResult::Ok);
+    t = app::make_tree_model(meta, cfg);
+    CHECK(t.revealed("hub.elite_response"));
+    CHECK(t.revealed("cytotoxic.unlock"));
+    CHECK(t.revealed("goblet.unlock"));
+    CHECK_FALSE(t.revealed("hub.homeostasis"));
+    CHECK_FALSE(t.revealed("ability.fever.unlock"));
+    CHECK_FALSE(t.revealed("hub.rapid_metabolism"));
+    // A node owned under older rules still shows, with the way to it and
+    // the next thing on offer past it.
+    for (TreeNodeView& n : t.nodes) {
+        if (n.key == "cytotoxic.search") n.level = 1;
+    }
+    CHECK(t.revealed("cytotoxic.search"));
+    CHECK(t.revealed("cytotoxic.attach_speed"));
+    CHECK(t.revealed("cytotoxic.drain"));
+    CHECK(t.revealed("cytotoxic.stamina"));
+}
+
+TEST_CASE("tree: hidden until revealed, a card on hover, a click buys", "[ui][menu][meta]") {
     Harness h;
     const game::MetaConfig cfg;
     game::MetaProgression meta;
@@ -430,46 +493,139 @@ TEST_CASE("tree: select a node, Grow buys it, Play goes to the campaign", "[ui][
     h.open(FrontScreen::Tree, m);
     TreeScreen* tree = h.front->tree();
     REQUIRE(tree != nullptr);
-    CHECK(h.shown("tree/info/grow"));
-    // The Neutrophil comes owned; the first thing on offer is selected.
-    const TreeNodeView* sel = m.tree.find(tree->selected());
-    REQUIRE(sel != nullptr);
-    CHECK(sel->state == TreeNodeState::Available);
+    // No top bar: a node's details are its card.
+    CHECK(h.gui.find("tree/info") == nullptr);
+    CHECK(h.shown("tree/neutrophil.unlock"));
+    CHECK(h.shown("tree/hub.bone_marrow_reserve"));
+    CHECK(h.shown("tree/neutrophil.round_damage"));
+    CHECK_FALSE(h.shown("tree/hub.elite_response"));
+    CHECK_FALSE(h.shown("tree/cytotoxic.unlock"));
+    CHECK_FALSE(h.shown("tree/card"));
+    // Hidden nodes cannot be clicked.
+    CHECK_FALSE(h.gui.click("tree/cytotoxic.unlock"));
 
-    // A locked node (a capstone before its threshold) selects, says why,
-    // and Grow refuses.
-    CHECK(h.click("tree/neutrophil.capstone").action == MenuAction::None);
-    CHECK(tree->selected() == "neutrophil.capstone");
-    auto* req = dynamic_cast<gui::Label*>(h.gui.find("tree/info/words/req"));
-    REQUIRE(req != nullptr);
-    CHECK(req->visible);
-    CHECK(req->text().find("6 points") != std::string::npos);
-    CHECK(h.click("tree/info/grow").action == MenuAction::None);
+    // Hovering a node opens its card beside it.
+    REQUIRE(h.gui.hover("tree/hub.bone_marrow_reserve"));
+    h.frame(FrontScreen::Tree, m);
+    CHECK(tree->hovered() == "hub.bone_marrow_reserve");
+    CHECK(h.shown("tree/card"));
+    CHECK(h.label("tree/card/head/title/name") == "Bone Marrow Reserve");
+    CHECK(h.label("tree/card/head/title/level") == "0/5");
+    CHECK(h.label("tree/card/desc") == "+40 starting ATP");
+    CHECK(h.label("tree/card/foot/cost_mc/value") == "20");
+    CHECK(h.label("tree/card/foot/hint") == "Click to grow");
+    CHECK_FALSE(h.shown("tree/card/req"));
+    const Rect node = h.gui.find("tree/hub.bone_marrow_reserve")->rect();
+    const Rect card = h.gui.find("tree/card")->rect();
+    CHECK((card.min.x >= node.max.x || card.max.x <= node.min.x));
 
-    // Round Damage is buyable: Grow reports the purchase of that node.
-    CHECK(h.click("tree/neutrophil.round_damage").action == MenuAction::None);
-    auto* name = dynamic_cast<gui::Label*>(h.gui.find("tree/info/words/name"));
-    REQUIRE(name != nullptr);
-    CHECK(name->text() == "Round Damage");
-    const MenuResult grow = h.click("tree/info/grow");
-    CHECK(grow.action == MenuAction::PurchaseNode);
-    CHECK(grow.node == static_cast<u32>(game::TreeNode::NeutrophilRoundDamage));
+    // A click on a node that can be bought buys it ...
+    const MenuResult buy = h.click("tree/hub.bone_marrow_reserve");
+    CHECK(buy.action == MenuAction::PurchaseNode);
+    CHECK(buy.node == static_cast<u32>(game::TreeNode::BoneMarrowReserve));
+    // ... and on one that cannot (the root is owned) it only shakes.
+    CHECK(h.click("tree/neutrophil.unlock").action == MenuAction::None);
 
-    // app/ buys it; the next model shows level 1 without losing the selection.
-    REQUIRE(meta.purchase(game::TreeNode::NeutrophilRoundDamage, cfg) == game::MetaProgression::PurchaseResult::Ok);
+    // app/ buys it; the screen updates in place and its children bud in.
+    REQUIRE(meta.purchase(game::TreeNode::BoneMarrowReserve, cfg) == game::MetaProgression::PurchaseResult::Ok);
     m.tree = app::make_tree_model(meta, cfg);
     h.frame(FrontScreen::Tree, m);
     CHECK(tree == h.front->tree());
-    CHECK(tree->selected() == "neutrophil.round_damage");
-    auto* level = dynamic_cast<gui::Label*>(h.gui.find("tree/info/words/level"));
-    REQUIRE(level != nullptr);
-    CHECK(level->text() == "1/5");
+    CHECK(h.shown("tree/hub.elite_response"));
+    CHECK_FALSE(h.shown("tree/hub.homeostasis"));
+    CHECK(h.shown("tree/cytotoxic.unlock"));
+    CHECK(h.shown("tree/goblet.unlock"));
+    CHECK(h.label("tree/card/head/title/level") == "1/5");
+    CHECK(h.label("tree/card/foot/cost_mc/value") == "35");
+
+    // A capstone shows once the node it grows from is owned, and says what
+    // it still needs.
+    for (game::TreeNode n : {game::TreeNode::NeutrophilRoundDamage, game::TreeNode::NeutrophilTriggerRate,
+                             game::TreeNode::NeutrophilSquadSize}) {
+        REQUIRE(meta.purchase(n, cfg) == game::MetaProgression::PurchaseResult::Ok);
+    }
+    m.tree = app::make_tree_model(meta, cfg);
+    h.frame(FrontScreen::Tree, m);
+    REQUIRE(h.gui.hover("tree/neutrophil.capstone"));
+    h.frame(FrontScreen::Tree, m);
+    CHECK(h.shown("tree/card/req"));
+    CHECK(h.label("tree/card/req") == "Needs 6 points in Neutrophil (3/6)");
+    CHECK(h.click("tree/neutrophil.capstone").action == MenuAction::None);
 
     CHECK(h.click("tree/play").action == MenuAction::OpenLevelSelect);
     CHECK(h.click("tree/back").action == MenuAction::Back);
-    // Nothing refundable yet beyond one level, but respec is on offer once
-    // something was bought and the fee is affordable.
     CHECK(h.click("tree/wallet/respec").action == MenuAction::Respec);
+}
+
+TEST_CASE("tree: drag pans, the wheel zooms about the pointer, the buttons zoom and recenter", "[ui][menu][meta]") {
+    Harness h;
+    FrontModel m;
+    m.tree = app::make_screenshot_tree_model(app::ScreenshotTree::New);
+    h.open(FrontScreen::Tree, m);
+    TreeScreen* tree = h.front->tree();
+    REQUIRE(tree != nullptr);
+    // A new campaign opens zoomed in on the heart.
+    const TreeScreen::View start = tree->view();
+    CHECK(start.zoom == Catch::Approx(TreeScreen::kFrameZoom));
+    CHECK(std::fabs(start.center.x) < 1.0f);
+
+    // Drag the empty tissue: the body follows the pointer.
+    const Vec2 from{300.0f, 700.0f}, to{420.0f, 640.0f};
+    h.pointer(FrontScreen::Tree, m, from, true);
+    h.pointer(FrontScreen::Tree, m, to, true);
+    h.pointer(FrontScreen::Tree, m, to, false);
+    const TreeScreen::View panned = tree->view();
+    CHECK(panned.zoom == Catch::Approx(start.zoom));
+    CHECK(panned.center.x == Catch::Approx(start.center.x - (to.x - from.x) / start.zoom).margin(0.01));
+    CHECK(panned.center.y == Catch::Approx(start.center.y - (to.y - from.y) / start.zoom).margin(0.01));
+    // Dragging is not clicking.
+    CHECK(h.front->take_result().action == MenuAction::None);
+
+    // A drag that starts on a node pans too, and does not buy it.
+    tree->finish_animation();
+    h.frame(FrontScreen::Tree, m);
+    const Vec2 node = h.gui.find("tree/hub.bone_marrow_reserve")->center();
+    h.pointer(FrontScreen::Tree, m, node, true);
+    h.pointer(FrontScreen::Tree, m, node + Vec2{0.0f, 90.0f}, true);
+    h.pointer(FrontScreen::Tree, m, node + Vec2{0.0f, 90.0f}, false);
+    CHECK(tree->view().center.y == Catch::Approx(panned.center.y - 90.0f / panned.zoom).margin(0.01));
+    CHECK(h.front->take_result().action == MenuAction::None);
+
+    // The wheel zooms, keeping the tree point under the pointer still.
+    tree->set_view(TreeScreen::View{Vec2{0.0f, 0.0f}, 1.0f});
+    h.frame(FrontScreen::Tree, m);
+    const Vec2 at{700.0f, 400.0f};
+    const Vec2 middle{960.0f, 540.0f};
+    const Vec2 under = tree->view().center + (at - middle) / tree->view().zoom;
+    h.pointer(FrontScreen::Tree, m, at, false, 1.0f);
+    const TreeScreen::View zoomed = tree->view();
+    CHECK(zoomed.zoom == Catch::Approx(1.2f));
+    const Vec2 still = zoomed.center + (at - middle) / zoomed.zoom;
+    CHECK(still.x == Catch::Approx(under.x).margin(0.01));
+    CHECK(still.y == Catch::Approx(under.y).margin(0.01));
+
+    // Zooming in stops at the closest zoom; zooming out at the whole body.
+    for (int i = 0; i < 8; ++i) h.click("tree/view/zoom_in");
+    CHECK(tree->view().zoom == Catch::Approx(TreeScreen::kMaxZoom));
+    for (int i = 0; i < 12; ++i) h.click("tree/view/zoom_out");
+    const f32 widest = tree->view().zoom;
+    CHECK(widest < 0.6f);
+    h.click("tree/view/zoom_out");
+    CHECK(tree->view().zoom == Catch::Approx(widest));
+
+    // Recenter frames what has grown: back on the heart.
+    h.click("tree/view/recenter");
+    CHECK(tree->view().zoom == Catch::Approx(start.zoom));
+    CHECK(tree->view().center.x == Catch::Approx(start.center.x).margin(0.01));
+    CHECK(tree->view().center.y == Catch::Approx(start.center.y).margin(0.01));
+
+    // The view survives leaving the screen and coming back.
+    tree->set_view(TreeScreen::View{Vec2{100.0f, 200.0f}, 0.8f});
+    h.open(FrontScreen::MainMenu, FrontModel{});
+    h.open(FrontScreen::Tree, m);
+    REQUIRE(h.front->tree() != nullptr);
+    CHECK(h.front->tree()->view().zoom == Catch::Approx(0.8f));
+    CHECK(h.front->tree()->view().center.x == Catch::Approx(100.0f));
 }
 
 TEST_CASE("tree model: the game's rules, as the screen shows them", "[ui][menu][meta]") {
@@ -481,12 +637,15 @@ TEST_CASE("tree model: the game's rules, as the screen shows them", "[ui][menu][
     const TreeNodeView* neutrophil = t.find("neutrophil.unlock");
     REQUIRE(neutrophil != nullptr);
     CHECK(neutrophil->state == TreeNodeState::Maxed);
+    CHECK(neutrophil->parent.empty());
     const TreeNodeView* drain = t.find("cytotoxic.drain");
     REQUIRE(drain != nullptr);
     CHECK(drain->state == TreeNodeState::Locked);
+    CHECK(drain->parent == "cytotoxic.unlock");
     CHECK(drain->requirement == "Needs Cytotoxic T");
     const TreeNodeView* marrow = t.find("hub.bone_marrow_reserve");
     REQUIRE(marrow != nullptr);
+    CHECK(marrow->parent == "neutrophil.unlock");
     CHECK(marrow->state == TreeNodeState::Short);  // a new save has no Memory Cells
     CHECK(marrow->cost_memory > 0);
     CHECK(t.branch_points[0] == 0);
@@ -499,24 +658,31 @@ TEST_CASE("front-end screens: CPU cost per frame", "[ui][menu][perf]") {
     // the bound here is looser because the tests may run unoptimized and
     // alongside other work.
     Harness h;
+    // The tree at its busiest: every node on the body.
     FrontModel tree;
-    {
-        const game::MetaConfig cfg;
-        game::MetaProgression meta;
-        meta.reset_to_new_game();
-        tree.tree = app::make_tree_model(meta, cfg);
-    }
+    tree.tree = app::make_screenshot_tree_model(app::ScreenshotTree::Full);
     FrontModel results = campaign(1);
     results.run.valid = true;
     results.campaign_slot = 0;
-    struct Case { FrontScreen screen; const FrontModel* model; };
+    struct Case { FrontScreen screen; const FrontModel* model; f32 zoom = 0.0f; const char* name = nullptr; };
     const FrontModel levels = campaign(3);
     const FrontModel none;
-    const Case cases[] = {{FrontScreen::MainMenu, &none}, {FrontScreen::Tree, &tree},
-                          {FrontScreen::LevelSelect, &levels}, {FrontScreen::Victory, &results}};
+    // The tree twice: the whole body on screen, then zoomed in on the chest,
+    // where the plasma flows and the nodes are big.
+    const Case cases[] = {{FrontScreen::MainMenu, &none},
+                          {FrontScreen::Tree, &tree},
+                          {FrontScreen::Tree, &tree, 1.0f, "tree@1x"},
+                          {FrontScreen::LevelSelect, &levels},
+                          {FrontScreen::Victory, &results}};
     for (const Case& c : cases) {
-        CAPTURE(front_screen_name(c.screen));
+        const char* name = c.name != nullptr ? c.name : front_screen_name(c.screen);
+        CAPTURE(name);
         h.open(c.screen, *c.model);
+        if (TreeScreen* t = h.front->tree()) {
+            if (c.zoom > 0.0f) t->set_view(TreeScreen::View{Vec2{0.0f, -150.0f}, c.zoom});
+            else t->recenter();
+            t->finish_animation();
+        }
         gui::DrawList dl;
         // Warm up: glyphs and icons bake on first use, once.
         for (int i = 0; i < 10; ++i) {
@@ -536,8 +702,8 @@ TEST_CASE("front-end screens: CPU cost per frame", "[ui][menu][perf]") {
             draw_ms += b.elapsed_ms();
         }
         const f64 ms = (frame_ms + draw_ms) / kFrames;
-        std::fprintf(stderr, "[ui perf] %-8s %.3f ms/frame (update %.3f, draw %.3f; %zu vertices)\n",
-                     front_screen_name(c.screen), ms, frame_ms / kFrames, draw_ms / kFrames, dl.vertices().size());
+        std::fprintf(stderr, "[ui perf] %-8s %.3f ms/frame (update %.3f, draw %.3f; %zu vertices)\n", name, ms,
+                     frame_ms / kFrames, draw_ms / kFrames, dl.vertices().size());
         CHECK(ms < 4.0);
     }
 }

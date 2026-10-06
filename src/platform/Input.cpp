@@ -90,6 +90,7 @@ void InputState::poll(Window& window) {
     }
 
     const Uint8* keys = SDL_GetKeyboardState(nullptr);
+    shift_down_ = keys[SDL_SCANCODE_LSHIFT] != 0 || keys[SDL_SCANCODE_RSHIFT] != 0;
     for (u32 i = 0; i < kActionCount; ++i) {
         const i32 sc = scancode_[i];
         down_[i] = (sc != SDL_SCANCODE_UNKNOWN) && keys[sc] != 0;

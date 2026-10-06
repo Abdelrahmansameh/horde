@@ -1,0 +1,137 @@
+{
+  "v": 3,
+  "attachments": {},
+  "boards": {
+    "Critical.dc.html": {
+      "h": 1080,
+      "title": "5 \u00b7 Organ critical, aiming a response",
+      "w": 1920,
+      "x": 2000,
+      "y": 1500
+    },
+    "Defeat.dc.html": {
+      "h": 1080,
+      "is_interactive": true,
+      "title": "E \u00b7 Results: organ lost",
+      "w": 1920,
+      "x": 8000,
+      "y": -1500
+    },
+    "Inspect.dc.html": {
+      "h": 1080,
+      "title": "3 \u00b7 Tower selected",
+      "w": 1920,
+      "x": 4000,
+      "y": 0
+    },
+    "Kit.dc.html": {
+      "h": 1240,
+      "title": "HUD kit",
+      "w": 1920,
+      "x": 4000,
+      "y": 1500
+    },
+    "Levels.dc.html": {
+      "h": 1080,
+      "is_interactive": true,
+      "title": "C \u00b7 Level select (click levels)",
+      "w": 1920,
+      "x": 4000,
+      "y": -1500
+    },
+    "Main.dc.html": {
+      "h": 1080,
+      "title": "1 \u00b7 Wave in progress",
+      "w": 1920,
+      "x": 0,
+      "y": 0
+    },
+    "Menu.dc.html": {
+      "h": 1080,
+      "is_interactive": true,
+      "title": "A \u00b7 Main menu",
+      "w": 1920,
+      "x": 0,
+      "y": -1500
+    },
+    "Placing.dc.html": {
+      "h": 1080,
+      "title": "2 \u00b7 Placing a tower",
+      "w": 1920,
+      "x": 2000,
+      "y": 0
+    },
+    "Prep.dc.html": {
+      "h": 1080,
+      "title": "4 \u00b7 Prep between waves",
+      "w": 1920,
+      "x": 0,
+      "y": 1500
+    },
+    "Tree.dc.html": {
+      "h": 1080,
+      "is_interactive": true,
+      "title": "B \u00b7 Strengthen Immunity (drag to pan, scroll or +/\u2212 to zoom, click nodes)",
+      "w": 1920,
+      "x": 2000,
+      "y": -1500
+    },
+    "Victory.dc.html": {
+      "h": 1080,
+      "is_interactive": true,
+      "title": "D \u00b7 Results: level cleared",
+      "w": 1920,
+      "x": 6000,
+      "y": -1500
+    }
+  },
+  "createdOnFiles": {
+    "at": "2026-09-28T16:01:49Z",
+    "v": 1
+  },
+  "designSystems": [],
+  "launch": {
+    "view": "canvas"
+  },
+  "notes": {
+    "row0": {
+      "kind": "title1",
+      "maxW": 8000,
+      "text": "Out of the match \u2014 menu \u2192 tree \u2192 levels \u2192 match \u2192 results",
+      "w": 240,
+      "x": 0,
+      "y": -1800
+    },
+    "row1": {
+      "kind": "title1",
+      "maxW": 5920,
+      "text": "In the match \u2014 combat, placing, inspecting",
+      "w": 240,
+      "x": 0,
+      "y": -300
+    },
+    "row2": {
+      "kind": "title1",
+      "maxW": 5920,
+      "text": "Between waves, under pressure, and the kit",
+      "w": 240,
+      "x": 0,
+      "y": 1200
+    }
+  },
+  "order": [
+    "Menu.dc.html",
+    "Tree.dc.html",
+    "Levels.dc.html",
+    "Victory.dc.html",
+    "Defeat.dc.html",
+    "Main.dc.html",
+    "Placing.dc.html",
+    "Inspect.dc.html",
+    "Prep.dc.html",
+    "Critical.dc.html",
+    "Kit.dc.html"
+  ],
+  "pages": [],
+  "title": "IMMUNE In-Match HUD"
+}

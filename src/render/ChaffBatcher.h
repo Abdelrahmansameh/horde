@@ -322,6 +322,7 @@ inline ChaffBatchResult build_chaff_batches(const sim::ChaffBuffers& chaff,
     const f32* burrow_anim = chaff.burrow_anim.data();
     const f32* body_heading = chaff.body_heading.data();
     const f32* slither_phase = chaff.slither_phase.data();
+    const f32* toxin_spit_pulse = chaff.toxin_spit_pulse.data();
 
     // Per-family cursors into the fixed-stride destination regions.
     u32 cursor[kFamilyCount];
@@ -477,8 +478,10 @@ inline ChaffBatchResult build_chaff_batches(const sim::ChaffBuffers& chaff,
         // A passenger faces its host (local +x points into the cell) rather
         // than its velocity, which is the host's and says nothing about it.
         const bool worm = fam_worm[f] && !latched;
+        const bool bacteria = f == static_cast<u32>(PathogenFamily::Bacteria);
         inst.rotation = latched         ? latch_heading[i]
                         : worm           ? body_heading[i]
+                        : bacteria && toxin_spit_pulse[i] > 0.0f ? body_heading[i]
                         : split_oriented ? std::atan2(split_delta.y, split_delta.x)
                                          : std::atan2(vy[i], vx[i]);
         Vec4 tint = fam_color[f];
@@ -578,10 +581,12 @@ inline ChaffBatchResult build_chaff_batches(const sim::ChaffBuffers& chaff,
         // fragment stage has no way to separate the two rates once summed.
         // A worm's pad is its burrow phase: 2 * burrow_state + progress, the
         // progress held under 1 so the state survives the floor() that
-        // chaff.frag decodes it with (worm_burrow_mode()).
+        // chaff.frag decodes it with (worm_burrow_mode()). Bacteria use the
+        // same pad for a brief recoil pulse when a toxin shot leaves.
         inst.pad = latched ? offset + params.time * throb_params.rate * math::kTwoPi
                    : worm  ? 2.0f * static_cast<f32>(burrow_state[i]) +
                                  math::clamp(burrow_anim[i], 0.0f, 0.999f)
+                   : bacteria ? toxin_spit_pulse[i]
                            : vis.wobble;
     }
 

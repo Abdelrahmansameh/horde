@@ -6,7 +6,8 @@
 // sdf_neutrophil entity.frag draws the tower with, at a fraction of the size),
 // the Macrophage's are little macrophages (sdf_arbor_macrophage, branching
 // pseudopods facing the heading), the Cytotoxic T's are little killer T cells
-// (sdf_cytotoxic_unit, the tower's polarised dart with receptors on its face), and
+// (sdf_cytotoxic_unit, the HUD icon's round cell with a fan of receptors on
+// its face), and
 // the Goblet Cell's are the neutrophil body again in its own jade — so a
 // cloud reads as "which tower" by colour and "what kind" by silhouette,
 // exactly as the tower bodies do. The Fibroblast's builders are
@@ -462,28 +463,33 @@ float sdf_fibroblast_unit(vec2 p, float phase, out float nucleus_d) {
 }
 
 // ---------------------------------------------------------------------------
-// LATCHER — a small Cytotoxic T (entity.frag: sdf_cytotoxic). The same
-// polarised dart as the tower: a flat synapse face on local +x with its two
-// corners curled forward, a compact soma, a reniform nucleus and a swaying
-// uropod. The tower's docked lytic granules are left out — at unit size they
-// were three white dots on the face and read as eyes — and in their place the
-// face carries a row of small T-cell receptors, stalk-and-knob studs the
-// way the chaff draw theirs, so the unit still has a feature of its own.
+// LATCHER — a small Cytotoxic T, drawn to the silhouette of its HUD icon
+// (assets/ui/icons/tower_cytotoxic_t.svg): a round cell with a gently
+// scalloped membrane, a big round nucleus set back from the face, and a fan
+// of five short receptors standing off the front (local +x, the heading).
+// The icon's red lytic granules are left out — at unit size dots on the face
+// read as eyes — so the receptors stay the unit's one feature of its own.
+// Colours are the unit's own violet ramp, not the icon's.
 // ---------------------------------------------------------------------------
-const vec2  kCtlCleftC = vec2(0.720, 0.0);
-const float kCtlCleftR = 0.530;
+const float kCtlRadius   = 0.335;
+const vec2  kCtlNucleusC = vec2(-0.060, -0.030);
+const float kCtlNucleusR = 0.190;
 
-float ctl_cleft(vec2 p, float phase) {
-    float ripple = 0.008 * sin(p.y * 34.0 + phase * 1.3);
-    return length(p - kCtlCleftC) - (kCtlCleftR + ripple);
+// Receptors: rooted just inside the membrane at fixed angles off the heading
+// (the icon's 0, +-32 and +-63 degrees), each a round-capped stalk.
+const int   kCtlReceptors    = 5;
+const float kCtlReceptorStep = 0.550;  // radians between neighbouring roots
+const float kCtlReceptorLen  = 0.070;  // root to tip
+const float kCtlReceptorW    = 0.030;  // stalk half-width
+
+// The bare membrane (no receptors): a circle scalloped six times like the
+// icon's outline, the scallops drifting slowly round the cell.
+float ctl_membrane(vec2 wp, float phase) {
+    float ang = atan(wp.y, wp.x);
+    float wobble = 0.012 * sin(6.0 * ang + phase * 0.35)
+                 + 0.005 * sin(11.0 * ang - phase * 0.50 + 1.3);
+    return length(wp) - (kCtlRadius + wobble);
 }
-
-// Receptors, all on the head: a row across the synapse face, rooted on the
-// carve circle and fanned slightly outward (the face's own normals converge,
-// and knobs that lean together merge into one blob at unit size).
-const int   kCtlReceptors = 5;
-const float kCtlReceptorSpan = 0.20;   // outermost root's |y| on the face
-const float kCtlReceptorFan  = 1.20;   // lean in radians per unit of y
 
 float sdf_cytotoxic_unit(vec2 p, float phase, out float nucleus_d,
                          out float receptor_d, out float knob,
@@ -491,61 +497,38 @@ float sdf_cytotoxic_unit(vec2 p, float phase, out float nucleus_d,
                          out float speckle) {
     float wx = fbm(p * 5.2 + vec2(phase * 0.10, 0.0)) - 0.5;
     float wy = fbm(p * 5.2 + vec2(4.4, -phase * 0.09)) - 0.5;
-    vec2 wp = p + vec2(wx, wy) * 0.030;
+    vec2 wp = p + vec2(wx, wy) * 0.016;
 
-    float body = length(wp - vec2(-0.030, 0.0)) - 0.225;
-    body = smin(body, length((wp - vec2(0.105, 0.0)) * vec2(2.60, 0.86)) - 0.300, 0.115);
-    for (int k = 0; k < 2; ++k) {
-        float side = (k == 0) ? 1.0 : -1.0;
-        float y = side * (0.278 + 0.012 * sin(phase * 0.5 + side));
-        body = smin(body, length(wp - vec2(0.150, y)) - 0.072, 0.090);
-    }
-
-    float sway = 0.045 * sin(phase * 0.55);
-    vec2 t0 = vec2(-0.150, 0.0);
-    vec2 t1 = vec2(-0.295, 0.020 + sway);
-    vec2 t2 = vec2(-0.475, 0.060 + sway * 2.0);
-    vec2 pa = wp - t0, ba = t1 - t0;
-    float tail = length(pa - ba * clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0)) - 0.092;
-    pa = wp - t1; ba = t2 - t1;
-    tail = smin(tail, length(pa - ba * clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0)) - 0.038, 0.055);
-    tail = smin(tail, length(wp - mix(t1, t2, 0.45) - vec2(0.0, -0.055)) - 0.030, 0.040);
-    tail = smin(tail, length(wp - mix(t1, t2, 0.85) - vec2(0.010, 0.048)) - 0.024, 0.035);
-    body = smin(body, tail, 0.075);
-
-    body = smax(body, -ctl_cleft(p, phase), 0.035);
+    float cell = ctl_membrane(wp, phase);
 
     // Receptors, in the warped frame so they ride the membrane. Each one nods
-    // and reaches on its own beat so the ring never reads as a stamp.
+    // and reaches on its own beat so the fan never reads as a stamp.
     receptor_d = kFar;
     knob = 0.0;
     for (int k = 0; k < kCtlReceptors; ++k) {
         float fk = float(k);
-        float y = mix(-kCtlReceptorSpan, kCtlReceptorSpan, fk / float(kCtlReceptors - 1));
-        vec2 root = vec2(kCtlCleftC.x - sqrt(kCtlCleftR * kCtlCleftR - y * y), y);
-        float ang = y * kCtlReceptorFan + 0.18 * sin(phase * 0.9 + fk * 2.3);
+        float ang = (fk - 2.0) * kCtlReceptorStep + 0.06 * sin(phase * 0.9 + fk * 2.3);
         vec2 n = vec2(cos(ang), sin(ang));
-        vec2 tip = root + n * (0.080 + 0.014 * sin(phase * 1.3 + fk * 1.9));
-        vec2 sa = wp - (root - n * 0.030), sb = tip - (root - n * 0.030);
-        float stalk = length(sa - sb * clamp(dot(sa, sb) / dot(sb, sb), 0.0, 1.0)) - 0.015;
-        float kd = length(wp - tip) - 0.034;
-        receptor_d = min(receptor_d, min(stalk, kd));
-        knob = max(knob, 1.0 - smoothstep(-0.006, 0.006, kd));
+        vec2 root = n * (kCtlRadius - 0.020);
+        vec2 tip = root + n * (kCtlReceptorLen + 0.012 * sin(phase * 1.3 + fk * 1.9));
+        vec2 sa = wp - root, sb = tip - root;
+        float stalk = length(sa - sb * clamp(dot(sa, sb) / dot(sb, sb), 0.0, 1.0)) - kCtlReceptorW;
+        receptor_d = min(receptor_d, stalk);
+        knob = max(knob, 1.0 - smoothstep(-0.006, 0.006, length(wp - tip) - kCtlReceptorW));
     }
-    body = smin(body, receptor_d, 0.020);
+    float body = smin(cell, receptor_d, 0.020);
 
-    vec2 nc = vec2(-0.088, -0.006);
-    nucleus_d = length((p - nc) * vec2(1.12, 0.94)) - 0.152;
-    nucleus_d = smax(nucleus_d, -(length(p - nc - vec2(0.150, 0.0)) - 0.108), 0.048);
+    nucleus_d = length(p - kCtlNucleusC) - kCtlNucleusR;
 
-    float cleft = ctl_cleft(p, phase);
-    float across = 1.0 - smoothstep(0.100, 0.255, abs(p.y));
-    float band = (1.0 - smoothstep(0.0, 0.038, abs(cleft))) * across;
+    // The synapse: a bright band just inside the front of the membrane, and
+    // while latched, strands reaching off it into the target.
+    float across = (1.0 - smoothstep(0.100, 0.255, abs(p.y))) * smoothstep(0.050, 0.200, p.x);
+    float band = (1.0 - smoothstep(0.0, 0.038, abs(cell))) * across;
     float fil = 0.55 + 0.45 * pow(abs(sin(p.y * 16.0 + phase * 2.4 + fbm(p * 7.0) * 5.0)), 6.0);
     synapse_glow = band * fil * (0.84 + 0.16 * sin(phase * 1.7))
-                 * (1.0 - smoothstep(-0.034, -0.002, body));
+                 * (1.0 - smoothstep(-0.034, -0.002, cell));
 
-    float reach = smoothstep(0.0, 0.020, cleft) * (1.0 - smoothstep(0.020, 0.135, cleft));
+    float reach = smoothstep(0.0, 0.020, cell) * (1.0 - smoothstep(0.020, 0.135, cell));
     float strand = pow(abs(sin(p.y * 21.0 + phase * 3.1)), 8.0);
     lance = reach * across * strand * smoothstep(-0.004, 0.020, body);
 
@@ -698,12 +681,10 @@ void main() {
     }
 
     if (kind == 0u) {
-        // LATCHER: a small Cytotoxic T, face along the heading. The dart is
-        // authored in the tower's frame, where it runs from the tail tip at
-        // -0.51 to the face at +0.22; shift it so the cell sits centred on the
-        // unit, and grow it slightly so its footprint matches the other units'.
-        const float kScale = 0.85;
-        vec2 q = p * kScale + vec2(-0.145, 0.0);
+        // LATCHER: a small Cytotoxic T, receptors along the heading. Authored
+        // centred in the unit frame; the receptor tips reach ~0.44, the same
+        // footprint as the other units.
+        vec2 q = p;
         float nucleus_d, receptor_d, knob, synapse_glow, lance, speckle;
         float body_d = sdf_cytotoxic_unit(q, phase, nucleus_d, receptor_d, knob,
                                           synapse_glow, lance, speckle);
@@ -711,7 +692,7 @@ void main() {
         lance *= attached ? 1.0 : 0.0;
 
         float a = 1.0 - smoothstep(-0.020, 0.008, body_d);
-        float sh = entity_shadow(q + vec2(0.060, 0.0), 0.29);
+        float sh = entity_shadow(q, 0.35);
         if (a <= 0.0 && sh <= 0.0 && lance <= 0.005) discard;
         a = max(a, lance * 0.80);
 

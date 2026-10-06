@@ -1,7 +1,7 @@
 // config/Registry.h — path-addressable view over the live config structs.
 //
 // RATIONALE
-//  - `config set towers.macrophage.2.stats.damage 200` from the gym console has
+//  - `config set towers.macrophage.stats.max_health 800` from the gym console has
 //    to reach the exact same bytes the JSON loader wrote. Rather than give each
 //    system its own setter, each system BINDS its structs here once after load,
 //    and the registry resolves a dotted path to (Schema, instance, field).
@@ -21,7 +21,7 @@ namespace immune::config {
 
 /// One config struct instance, reachable at `path`.
 struct Binding {
-    std::string path;      ///< e.g. "towers.macrophage.2.stats"
+    std::string path;      ///< e.g. "towers.macrophage.stats"
     const Schema* schema = nullptr;
     void* base = nullptr;
 };
@@ -33,7 +33,7 @@ public:
     void bind(std::string path, const Schema& schema, void* base);
     void clear();
 
-    /// Full paths of every addressable field ("towers.macrophage.2.stats.damage"),
+    /// Full paths of every addressable field ("towers.macrophage.stats.max_health"),
     /// in binding order. Used by `config list` and by did-you-mean suggestions.
     std::vector<std::string> field_paths() const;
 

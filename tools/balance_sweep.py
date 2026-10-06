@@ -48,7 +48,7 @@ DEFAULT_EXE = (Path(os.environ.get("LOCALAPPDATA", "")) / "horde-build" / "windo
                "bin" / "immune.exe")
 
 TOWERS = ["neutrophil", "macrophage", "cytotoxic_t", "goblet_cell"]
-CORE_PROFILES = ["greedy-cheapest", "spread-coverage", "save-for-tier3"]
+CORE_PROFILES = ["greedy-cheapest", "spread-coverage"]
 SINGLE_PROFILES = [f"single-type:{t}" for t in TOWERS]
 ALL_PROFILES = CORE_PROFILES + SINGLE_PROFILES
 

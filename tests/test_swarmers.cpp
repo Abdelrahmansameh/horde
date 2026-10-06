@@ -1218,6 +1218,50 @@ TEST_CASE("two overlapping swarmers push apart, half the overlap each", "[swarm]
     REQUIRE(f.system.last_stats().friendly_contacts == 0);
 }
 
+TEST_CASE("cells placed at identical coordinates push equally in opposite directions", "[swarm][sim][bodies]") {
+    Fixture f;
+    f.add_swarmer(Vec2{40.0f, 40.0f}, Vec2{0.0f, 0.0f}, kShooter);
+    f.add_swarmer(Vec2{40.0f, 40.0f}, Vec2{0.0f, 0.0f}, kShooter);
+    f.step(1);
+    const Vec2 a{f.swarm.pos_x[0], f.swarm.pos_y[0]};
+    const Vec2 b{f.swarm.pos_x[1], f.swarm.pos_y[1]};
+    REQUIRE(math::length(a - b) == Catch::Approx(0.8f).margin(1e-4f));
+    REQUIRE((a.x + b.x) * 0.5f == Catch::Approx(40.0f));
+    REQUIRE((a.y + b.y) * 0.5f == Catch::Approx(40.0f));
+    REQUIRE(f.system.last_stats().friendly_contacts == 2);
+}
+
+TEST_CASE("directly deployed Cytotoxic T cells push apart while free", "[swarm][sim][bodies][latch]") {
+    Fixture f;
+    SwarmerProfile latch = f.swarm.profile_at(kLatch);
+    latch.speed = 0.0f;
+    f.swarm.set_profile(kLatch, latch);
+    f.add_swarmer(Vec2{40.0f, 40.0f}, Vec2{0.0f, 0.0f}, kLatch);
+    f.add_swarmer(Vec2{40.0f, 40.0f}, Vec2{0.0f, 0.0f}, kLatch);
+    f.swarm.flags[0] |= swarmer_flags::kPersistent;
+    f.swarm.flags[1] |= swarmer_flags::kPersistent;
+    f.step(1);
+    const Vec2 a{f.swarm.pos_x[0], f.swarm.pos_y[0]};
+    const Vec2 b{f.swarm.pos_x[1], f.swarm.pos_y[1]};
+    REQUIRE(math::length(a - b) == Catch::Approx(0.8f).margin(1e-4f));
+    REQUIRE(f.system.last_stats().friendly_contacts == 2);
+}
+
+TEST_CASE("a stack of directly placed cells fans out", "[swarm][sim][bodies]") {
+    Fixture f;
+    for (int i = 0; i < 8; ++i)
+        f.add_swarmer(Vec2{40.0f, 40.0f}, Vec2{0.0f, 0.0f}, kShooter);
+    f.step(20);
+    for (usize i = 0; i < f.swarm.count(); ++i) {
+        const Vec2 a{f.swarm.pos_x[i], f.swarm.pos_y[i]};
+        REQUIRE(math::length(a - Vec2{40.0f, 40.0f}) > 0.05f);
+        for (usize j = i + 1; j < f.swarm.count(); ++j) {
+            const Vec2 b{f.swarm.pos_x[j], f.swarm.pos_y[j]};
+            REQUIRE(math::length(a - b) > 0.1f);
+        }
+    }
+}
+
 TEST_CASE("the master switch reproduces the pre-collision swarm", "[swarm][sim][bodies]") {
     Fixture f;
     SwarmerCollisionTuning off;

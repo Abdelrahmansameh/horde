@@ -334,6 +334,84 @@ TEST_CASE("a bacterium burns a swarmer inside its aura and nothing outside it", 
     REQUIRE(f.swarm.health[inside] == Catch::Approx(before - 2.0f * 12.0f * kDt));
 }
 
+TEST_CASE("bacterial toxin pellets fly to nearby swarmers without aura damage", "[sim][hostile][toxin]") {
+    Fixture f;
+    HostileFamilyParams& bacteria = f.tuning.family[static_cast<u32>(PathogenFamily::Bacteria)];
+    bacteria.aura_dps = 0.0f;
+    bacteria.aura_radius = 0.0f;
+    bacteria.toxin_damage = 2.4f;
+    bacteria.toxin_range = 16.0f;
+    bacteria.toxin_speed = 24.0f;
+    bacteria.toxin_interval = 1.2f;
+    bacteria.toxin_hit_radius = 0.8f;
+    bacteria.toxin_reload_seconds = 4.0f;
+    f.hostile.set_tuning(f.tuning);
+    const usize near = f.add_swarmer(Vec2{20.0f, 20.0f});
+    const usize far = f.add_swarmer(Vec2{42.0f, 20.0f});
+    f.add_chaff(Vec2{8.0f, 20.0f}, PathogenFamily::Bacteria);
+
+    REQUIRE(f.step().aura_hits == 0);
+    REQUIRE(f.swarm.health[near] == Catch::Approx(10.0f));
+    u32 fired = 0;
+    u32 hits = 0;
+    for (int tick = 0; tick < 120; ++tick) {
+        const HostileStats s = f.step();
+        fired += s.toxin_fired;
+        hits += s.toxin_hits;
+    }
+    REQUIRE(fired == 1);
+    REQUIRE(hits == 1);
+    REQUIRE(f.swarm.health[near] == Catch::Approx(7.6f));
+    REQUIRE(f.swarm.health[far] == Catch::Approx(10.0f));
+}
+
+TEST_CASE("bacteria empty a toxin magazine and refill it before firing again",
+          "[sim][hostile][toxin]") {
+    Fixture f;
+    HostileFamilyParams& bacteria = f.tuning.family[static_cast<u32>(PathogenFamily::Bacteria)];
+    bacteria.aura_dps = 0.0f;
+    bacteria.toxin_damage = 9.0f;
+    bacteria.toxin_range = 16.0f;
+    bacteria.toxin_speed = 32.0f;
+    bacteria.toxin_interval = 0.14f;
+    bacteria.toxin_hit_radius = 1.35f;
+    bacteria.toxin_magazine_size = 8;
+    bacteria.toxin_reload_seconds = 0.55f;
+    f.hostile.set_tuning(f.tuning);
+    f.add_tower(11u, Vec2{20.0f, 20.0f});
+    const usize pathogen = f.add_chaff(Vec2{8.0f, 20.0f}, PathogenFamily::Bacteria);
+
+    u32 fired = 0;
+    for (int tick = 0; tick < 90 && fired < 8; ++tick) {
+        const HostileStats s = f.step();
+        fired += s.toxin_fired;
+        REQUIRE(s.toxin_fired <= 1);
+    }
+    REQUIRE(fired == 8);
+    REQUIRE(f.chaff.toxin_rounds[pathogen] == 0);
+    REQUIRE(f.chaff.toxin_reload[pathogen] == Catch::Approx(0.0f));
+    REQUIRE(f.chaff.toxin_spit_pulse[pathogen] == Catch::Approx(1.0f));
+
+    const HostileStats reloading = f.step();
+    REQUIRE(reloading.toxin_fired == 0);
+    REQUIRE(f.chaff.toxin_reload[pathogen] > 0.0f);
+    REQUIRE(f.chaff.toxin_spit_pulse[pathogen] < 1.0f);
+    u32 next_burst = 0;
+    for (int tick = 0; tick < 45; ++tick) next_burst += f.step().toxin_fired;
+    REQUIRE(next_burst > 0);
+}
+
+TEST_CASE("a virus can latch before touching a swarmer", "[sim][hostile][latch]") {
+    Fixture f;
+    HostileFamilyParams& virus = f.tuning.family[static_cast<u32>(PathogenFamily::Virus)];
+    virus.latch_reach = 5.0f;
+    f.hostile.set_tuning(f.tuning);
+    f.add_swarmer(Vec2{20.0f, 20.0f});
+    const usize pathogen = f.add_chaff(Vec2{20.0f + kSwarmerBody + kVirusRadius + 3.0f, 20.0f});
+    REQUIRE(f.step().latches_new == 1);
+    REQUIRE(f.latched(pathogen));
+}
+
 TEST_CASE("a bacterium never latches and a virus has no aura", "[sim][hostile]") {
     Fixture f;
     const usize host = f.add_swarmer(Vec2{20.0f, 20.0f});
@@ -529,22 +607,16 @@ struct WorldFixture {
 
 } // namespace
 
-TEST_CASE("a tower is placed with its integrity and an upgrade restores it", "[game][towers][hostile]") {
+TEST_CASE("a tower is placed with its baseline integrity", "[game][towers][hostile]") {
     WorldFixture w(1);
-    const game::TowerStats& t1 = w.towers.stats(TowerType::Macrophage, 1);
-    REQUIRE(w.health().max == Catch::Approx(t1.max_health));
-    REQUIRE(w.health().current == Catch::Approx(t1.max_health));
-    w.health().current = 10.0f;
-    REQUIRE(w.towers.upgrade(w.world, w.tower) == 2);
-    const game::TowerStats& t2 = w.towers.stats(TowerType::Macrophage, 2);
-    REQUIRE(w.health().max == Catch::Approx(t2.max_health));
-    REQUIRE(w.health().current == Catch::Approx(t2.max_health));
-    REQUIRE(t2.max_health > t1.max_health);
+    const game::TowerStats& baseline = w.towers.stats(TowerType::Macrophage);
+    REQUIRE(w.health().max == Catch::Approx(baseline.max_health));
+    REQUIRE(w.health().current == Catch::Approx(baseline.max_health));
 }
 
 TEST_CASE("viruses on a tower's footprint latch on, hold still, and eat it down", "[game][towers][hostile]") {
     WorldFixture w(7);
-    const f32 footprint = w.towers.stats(TowerType::Macrophage, 1).footprint_radius;
+    const f32 footprint = w.towers.stats(TowerType::Macrophage).footprint_radius;
     w.spawn_ring(PathogenFamily::Virus, 8, footprint);
 
     w.world.tick();
@@ -563,7 +635,7 @@ TEST_CASE("viruses on a tower's footprint latch on, hold still, and eat it down"
         REQUIRE(d == Catch::Approx(footprint + kVirusRadius * 0.35f).margin(1e-2f));
     }
     // 8 passengers x 20 hp/s x 61 ticks, minus the grab tick (no bite yet).
-    const f32 expected = w.towers.stats(TowerType::Macrophage, 1).max_health - 8.0f * 20.0f * kFixedDt * 60.0f;
+    const f32 expected = w.towers.stats(TowerType::Macrophage).max_health - 8.0f * 20.0f * kFixedDt * 60.0f;
     REQUIRE(w.health().current == Catch::Approx(expected).margin(0.5f));
     REQUIRE(w.world.snapshot().towers_lost_total == 0);
 }
@@ -571,7 +643,7 @@ TEST_CASE("viruses on a tower's footprint latch on, hold still, and eat it down"
 TEST_CASE("a tower the horde empties is torn down, leaves the placed list and announces itself",
           "[game][towers][hostile]") {
     WorldFixture w(11);
-    const f32 footprint = w.towers.stats(TowerType::Macrophage, 1).footprint_radius;
+    const f32 footprint = w.towers.stats(TowerType::Macrophage).footprint_radius;
     w.spawn_ring(PathogenFamily::Virus, 12, footprint);
     w.health().current = 12.0f * 20.0f * kFixedDt * 3.5f;   // dead on the fourth bite
 
@@ -596,7 +668,7 @@ TEST_CASE("a tower the horde empties is torn down, leaves the placed list and an
 
 TEST_CASE("bacteria burn a tower from inside their aura without touching it", "[game][towers][hostile]") {
     WorldFixture w(3);
-    const f32 footprint = w.towers.stats(TowerType::Macrophage, 1).footprint_radius;
+    const f32 footprint = w.towers.stats(TowerType::Macrophage).footprint_radius;
     // Just inside the aura's reach to the membrane, and well outside it.
     w.spawn_ring(PathogenFamily::Bacteria, 4, footprint + 4.0f - 0.3f);
     w.spawn_ring(PathogenFamily::Bacteria, 4, footprint + 4.0f + 3.0f);
@@ -611,8 +683,8 @@ TEST_CASE("a released swarmer that the horde kills is compacted and never fires 
     WorldFixture w(5);
     // Drop one shooter by hand on top of a bacterial cluster; releasing is off
     // so this is the only unit in the world.
-    const u16 slot = swarmer_profile_slot(TowerType::Neutrophil, 1);
-    SwarmerProfile pr = game::swarmer_profile(TowerType::Neutrophil, 1);
+    const u16 slot = swarmer_profile_slot(TowerType::Neutrophil);
+    SwarmerProfile pr = game::swarmer_profile(TowerType::Neutrophil);
     pr.max_health = 30.0f * kFixedDt * 2.5f;   // three bacteria: dead on the first tick
     w.world.swarmers().set_profile(slot, pr);
     SwarmerSpawnParams sp;
@@ -641,7 +713,7 @@ TEST_CASE("a released swarmer that the horde kills is compacted and never fires 
 TEST_CASE("the hostile pass is deterministic and is part of the state hash", "[sim][hostile][determinism]") {
     WorldFixture a(21), b(21), off(21, /*hostile_on=*/false);
     for (WorldFixture* w : {&a, &b, &off}) {
-        const f32 footprint = w->towers.stats(TowerType::Macrophage, 1).footprint_radius;
+        const f32 footprint = w->towers.stats(TowerType::Macrophage).footprint_radius;
         w->spawn_ring(PathogenFamily::Virus, 6, footprint);
         w->spawn_ring(PathogenFamily::Bacteria, 6, footprint + 2.0f);
     }

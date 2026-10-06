@@ -113,7 +113,7 @@ public:
     enum class PurchaseResult : u8 {
         Ok = 0,
         Maxed,              ///< Already at max level (a root/capstone: already owned).
-        Locked,             ///< Needs the branch's tower root or the ability's root first.
+        Locked,             ///< Its parent in the tree is not owned yet.
         BelowThreshold,     ///< A capstone before enough stat levels in its branch.
         NeedMemoryCells,
         NeedAntibodies,

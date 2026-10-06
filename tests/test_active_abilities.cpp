@@ -6,6 +6,7 @@
 #include "sim/ecs/Components.h"
 #include "sim/ecs/EcsWorld.h"
 #include "sim/flowfield/FlowField.h"
+#include "sim/swarm/Swarmers.h"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -93,9 +94,9 @@ TEST_CASE("Fever Response relieves every placed tower's current cooldown, and on
 
     auto& registry = world.ecs().registry();
     const auto e1 = registry.create();
-    registry.emplace<comp::Tower>(e1, comp::Tower{TowerType::Macrophage, 1, 8.0f, 5.0f, 1.0f});
+    registry.emplace<comp::Tower>(e1, comp::Tower{TowerType::Macrophage, 8.0f, 5.0f, 1.0f});
     const auto e2 = registry.create();
-    registry.emplace<comp::Tower>(e2, comp::Tower{TowerType::GobletCell, 1, 8.0f, 1.0f, 1.0f});
+    registry.emplace<comp::Tower>(e2, comp::Tower{TowerType::GobletCell, 8.0f, 1.0f, 1.0f});
 
     REQUIRE(world.damage().fields().empty());
     REQUIRE(abilities.cast(world, AbilityId::FeverResponse, Vec2{0.0f, 0.0f}));
@@ -104,6 +105,24 @@ TEST_CASE("Fever Response relieves every placed tower's current cooldown, and on
     REQUIRE(registry.get<comp::Tower>(e1).cooldown == 5.0f - relief);
     REQUIRE(registry.get<comp::Tower>(e2).cooldown == 0.0f); // clamped, was already below relief
     REQUIRE(world.damage().fields().empty()); // no field submitted for this ability
+}
+
+TEST_CASE("Fever Response heals directly deployed cells", "[abilities][deployment]") {
+    SimWorld world = make_world();
+    ActiveAbilitySystem abilities;
+    abilities.load_defaults();
+    SwarmerProfile profile;
+    profile.max_health = 20.0f;
+    world.swarmers().set_profile(0, profile);
+    SwarmerSpawnParams cell;
+    cell.profile = 0;
+    cell.position = Vec2{50.0f, 50.0f};
+    cell.persistent = true;
+    REQUIRE(world.swarmers().spawn(cell));
+    world.swarmers().health[0] = 5.0f;
+    REQUIRE(abilities.cast(world, AbilityId::FeverResponse, Vec2{}));
+    REQUIRE(world.swarmers().health[0] > 5.0f);
+    REQUIRE(world.swarmers().health[0] <= profile.max_health);
 }
 
 TEST_CASE("ability_name returns a real string for every id", "[abilities]") {

@@ -5,6 +5,12 @@
 //  - One connected tree bought between runs with two currencies: Memory Cells
 //    (every run pays some) fund every leveled node; Antibodies (a level's first
 //    clear) fund the milestones -- tower unlocks, ability unlocks, capstones.
+//  - It is a real tree (PROGRESSION.md §4): the Neutrophil, owned from the
+//    start, is the root, every other node hangs off exactly one parent, no
+//    node has more than three children, and a node can be bought once its
+//    parent is owned. The path to every tower and ability unlock runs through
+//    Memory Cell nodes only, so the order milestones are unlocked in is still
+//    the player's.
 //  - The tree is a fixed CATALOG compiled in here, not data. Its shape and
 //    content are the design (PROGRESSION.md §5/§6 name every line); only the
 //    pacing -- what a level costs, what a run pays -- is a balance knob, and
@@ -15,9 +21,8 @@
 //    copy exactly as it would be from the file. No system learns that a tree
 //    exists, which is what keeps tests, benches and headless modes -- none of
 //    which apply the tree -- running the untouched baseline.
-//  - Towers no longer have in-run tiers (PROGRESSION.md §7). The copy's tier-1
-//    row IS the tower, and it is written over tiers 2 and 3 with upgrade_cost
-//    0, so nothing in a tree-applied run can buy or reach a tier.
+//  - Towers have one baseline per type (PROGRESSION.md §7). The tree edits
+//    that baseline directly; in-run ATP buys placement only.
 //
 // This header is pure: no I/O, no globals, no sim. MetaProgression owns the
 // purchased levels and the currencies; this owns what they mean.
@@ -46,17 +51,20 @@ enum class TreeBranch : u8 {
 };
 inline constexpr u32 kTreeBranchCount = static_cast<u32>(TreeBranch::Count);
 
+/// What a node is and what it costs. Every node but the root also needs its
+/// parent owned (TreeNodeDef::parent).
 enum class TreeNodeKind : u8 {
-    TowerRoot = 0,   ///< Unlocks a tower. Antibodies. No prerequisite.
-    Stat,            ///< A tower's leveled line. Memory Cells. Needs the root.
-    Capstone,        ///< A branch's unique effect. Both currencies. Needs root + threshold.
-    Economy,         ///< A hub line. Memory Cells. No prerequisite.
-    AbilityRoot,     ///< Unlocks an active ability. Antibodies. No prerequisite.
-    AbilityStat,     ///< An ability's leveled line. Memory Cells. Needs the ability root.
+    TowerRoot = 0,   ///< Unlocks a tower. Antibodies.
+    Stat,            ///< A tower's leveled line. Memory Cells.
+    Capstone,        ///< A branch's unique effect. Both currencies, and a branch-point threshold.
+    Economy,         ///< A hub line. Memory Cells.
+    AbilityRoot,     ///< Unlocks an active ability. Antibodies.
+    AbilityStat,     ///< An ability's leveled line. Memory Cells.
 };
 
-/// Every node, in catalog order. The order is the UI's order within a branch
-/// and nothing else: saves key nodes by TreeNodeDef::key, never by index.
+/// Every node, in catalog order. The order means nothing to the game: the
+/// tree's shape is TreeNodeDef::parent, and saves key nodes by
+/// TreeNodeDef::key, never by index.
 enum class TreeNode : u16 {
     // ---- Hub: economy lines (§6) ----
     BoneMarrowReserve = 0,
@@ -64,46 +72,36 @@ enum class TreeNode : u16 {
     EfficientClearance,
     FieldRequisition,
     SystemicPotency,
-    CellularResilience,
-    RapidDeployment,
     EliteResponse,
     Homeostasis,
     MembraneResilience,
     // ---- Hub: abilities (§6) ----
     ComplementUnlock,
     ComplementCooldown,
-    ComplementPotency,
     ComplementChain,
     HistamineUnlock,
     HistamineCooldown,
     HistamineRadius,
-    HistaminePotency,
     FeverUnlock,
     FeverCooldown,
     FeverMagnitude,
-    FeverDuration,
     ClotUnlock,
     ClotCooldown,
     ClotDuration,
-    ClotWidth,
     // ---- Neutrophil (§5.1) ----
     NeutrophilRoot,
     NeutrophilRoundDamage,
-    NeutrophilVolleyCadence,
     NeutrophilTriggerRate,
     NeutrophilAggroRange,
     NeutrophilSquadSize,
     NeutrophilAccuracy,
     NeutrophilVitality,
-    NeutrophilHealth,
     NeutrophilCapstone,
     // ---- Cytotoxic T (§5.2) ----
     CytotoxicRoot,
     CytotoxicDrain,
     CytotoxicAttachSpeed,
-    CytotoxicCadence,
     CytotoxicSearch,
-    CytotoxicSquadSize,
     CytotoxicStamina,
     CytotoxicHealth,
     CytotoxicCapstone,
@@ -112,10 +110,7 @@ enum class TreeNode : u16 {
     MacrophageArms,
     MacrophageGrabSpeed,
     MacrophageCaptives,
-    MacrophageCadence,
     MacrophageSearch,
-    MacrophageBodyCount,
-    MacrophageBodyMass,
     MacrophageHealth,
     MacrophageWall,
     MacrophageCapstone,
@@ -123,26 +118,27 @@ enum class TreeNode : u16 {
     GobletRoot,
     GobletSlowStrength,
     GobletSplashRadius,
-    GobletDroplets,
     GobletSlowDuration,
     GobletWeakness,
-    GobletCadence,
     GobletHealth,
     GobletCapstone,
     // ---- Fibroblast (§5.5) ----
     FibroblastRoot,
     FibroblastScarHealth,
     FibroblastReinforce,
-    FibroblastMaxScars,
     FibroblastScarSize,
     FibroblastBuildRadius,
     FibroblastInflammation,
-    FibroblastCadence,
     FibroblastHealth,
     FibroblastCapstone,
     Count,
 };
 inline constexpr u32 kTreeNodeCount = static_cast<u32>(TreeNode::Count);
+
+/// The tree's root: owned from the start, the one node with no parent.
+inline constexpr TreeNode kTreeRoot = TreeNode::NeutrophilRoot;
+/// No node has more children than this.
+inline constexpr u32 kTreeMaxChildren = 3;
 
 struct TreeNodeDef {
     /// Stable identifier: save files, the console, and tests speak this, so
@@ -158,6 +154,9 @@ struct TreeNodeDef {
     u8 max_level = 1;
     /// Percent of the standard Memory Cell curve this line costs.
     u16 cost_weight = 100;
+    /// The node that must be owned (any level) before this one can be bought;
+    /// TreeNode::Count for the root.
+    TreeNode parent = TreeNode::Count;
 };
 
 const TreeNodeDef& tree_node(TreeNode node);

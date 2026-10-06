@@ -1,5 +1,11 @@
 # IMMUNE — the balance harness
 
+**Direct deployment update:** The automatic player now buys individual cells.
+Reports expose `cells` and `cells_by_type`; the old `towers` keys remain as
+compatibility aliases. Each cell's damage is attributed to its own deployment
+handle. Older tower examples below are historical and should not be used to
+judge the current cell economy.
+
 Balancing this game used to mean playing a level and forming an impression.
 This is the alternative: a bot plays levels headlessly at full CPU speed, and
 every run emits an exhaustive JSON record of what each tower earned, what each
@@ -55,8 +61,7 @@ cadence, and which thing it buys is the strategy:
 | `--profile` | Behaviour | What it is for |
 |---|---|---|
 | `greedy-cheapest` *(default)* | Always the cheapest affordable item in the plan | The baseline "average player" |
-| `spread-coverage` | Fill every planned site before upgrading anything | Tests breadth |
-| `save-for-tier3` | Deepen existing towers before adding new ones | Exposes an underpriced tier 3 |
+| `spread-coverage` | Fill planned sites in coverage order | Tests breadth |
 | `single-type:<tower>` | Build one tower type and nothing else | Ranks the six towers with everything else held constant |
 
 The **spread between profiles on one level** is the most informative single
@@ -88,7 +93,7 @@ already knows about itself:
 | Lane coverage — how many lanes are in range | 0.5 / extra lane | `LaneOwnershipMap` |
 | Author's hint | 0.8 × priority (doubled if `concentrated`) | `PlacementZoneTag` |
 
-Sites are then accepted greedily with a spacing rule (0.7 × tier-1 range) so
+Sites are then accepted greedily with a spacing rule (0.7 × baseline range) so
 the plan spreads rather than stacking towers on the single best cell, and each
 site draws the tower type whose `family_mask` best covers the level's own wave
 table, with diminishing returns per type so one strong tower does not take
@@ -125,8 +130,8 @@ The one to read first.
 
 ### `towers` — per instance
 
-Every placement, retained after a sell. Position, lane, build tick, tier
-timeline, ATP invested, damage split by family, kills, active vs. alive ticks.
+Every placement, retained after a sell. Position, lane, build tick,
+ATP invested, damage split by family, kills, active vs. alive ticks.
 Use it when the type-level number looks wrong and you need to know whether it
 was one bad site dragging the average.
 
@@ -188,7 +193,7 @@ tower count. The shape a plot wants.
 Tuning lives in `assets/config/*.json` and is reachable from the console:
 
 ```
-config set towers.macrophage.2.damage 200
+config set towers.macrophage.stats.max_health 800
 config dump
 ```
 

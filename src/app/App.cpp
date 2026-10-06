@@ -20,6 +20,8 @@ namespace immune::app {
 
 bool App::init(const Options& options) {
     options_ = options;
+    // Rounds wait for the player unless they turn the HUD's auto-start on.
+    waves_.set_auto_start(false);
 
     if (options.threads == 1) jobs_ = std::make_unique<JobSystem>(0u);
     else if (options.threads > 1) jobs_ = std::make_unique<JobSystem>(static_cast<u32>(options.threads - 1));
@@ -318,7 +320,7 @@ void App::apply_tuning_config() {
     //
     // Strengthen Immunity (game/meta/ImmunityTree.h): the systems are fed a
     // COPY of the loaded config with the player's purchases folded in --
-    // tiers collapsed to the tree-boosted baseline, the economy and ability
+    // the tree-boosted tower baselines, the economy and ability
     // lines applied -- and the rest of the tree (unlocks, capstones with no
     // config home) goes on alongside. Re-folded from the file's values every
     // time, so a hot reload or a purchase can never compound.
@@ -337,7 +339,7 @@ void App::apply_tuning_config() {
     abilities_.set_unlocked(sandbox ? game::ActiveAbilitySystem::kAllAbilitiesMask
                                     : tree.ability_mask);
     // The hostile pass reads its tuning off the world, not off a SimDesc, so
-    // a reload of a family's latch or aura reaches the running level too.
+    // a reload of a family's latch, toxin shot, or aura reaches the running level too.
     sim::HostileTuning hostile = game::hostile_tuning(config_.sim.hostile);
     hostile.damage_taken_mult = tree.hostile_damage_taken_mult;
     sim_.hostile().set_tuning(hostile);
@@ -932,24 +934,13 @@ void App::apply_intents(const std::vector<ui::Intent>& intents) {
     for (const auto& in : intents) {
         switch (in.kind) {
             case ui::IntentKind::PlaceTower: {
-                const auto q = towers_.validate(sim_, in.tower_type, in.world_position,
-                                                economy_.atp());
-                if (q.valid()) {
-                    const EntityId e = towers_.place(sim_, in.tower_type, q.snapped_position);
-                    if (e.valid()) {
-                        economy_.spend(towers_.stats(in.tower_type, 1).build_cost);
-                        audio_.post(audio::AudioEvent{audio::SoundId::TowerPlace, q.snapped_position});
-                    }
-                } else {
-                    audio_.post(audio::AudioEvent{audio::SoundId::UiInvalid, in.world_position});
-                }
+                const u32 count = game::deploy_cells(towers_, sim_, economy_, in.tower_type,
+                                                     in.world_position, in.quantity);
+                audio_.post(audio::AudioEvent{count > 0 ? audio::SoundId::TowerPlace
+                                                       : audio::SoundId::UiInvalid,
+                                               in.world_position});
                 break;
             }
-            // IntentKind::UpgradeTower is retired: towers have no in-run tiers
-            // (PROGRESSION.md §7), so it falls through to the default below.
-            case ui::IntentKind::SellTower:
-                economy_.credit_bounty(towers_.sell(sim_, in.entity));
-                break;
             case ui::IntentKind::CastAbility: {
                 if (!abilities_.cast(sim_, in.ability_id, in.world_position)) {
                     audio_.post(audio::AudioEvent{audio::SoundId::UiInvalid, in.world_position});
@@ -958,6 +949,7 @@ void App::apply_intents(const std::vector<ui::Intent>& intents) {
             }
             case ui::IntentKind::SetTimeScale: clock_.set_time_scale(in.value); break;
             case ui::IntentKind::StartWaveEarly: waves_.request_early_start(); break;
+            case ui::IntentKind::ToggleAutoStart: waves_.set_auto_start(!waves_.auto_start()); break;
             case ui::IntentKind::QuitToMenu: state_.request(GameStateId::MainMenu); break;
             case ui::IntentKind::OpenMenu:
                 if (editor_playtest_) editor_stop();
@@ -1119,7 +1111,7 @@ game::GymContext App::make_gym_context() {
         game::AutoPlayConfig cfg;
         if (!game::parse_autoplay_profile(profile, cfg.profile, cfg.single_type)) {
             err = "unknown profile '" + profile +
-                  "' (greedy-cheapest | spread-coverage | save-for-tier3 | single-type:<tower>)";
+                  "' (greedy-cheapest | spread-coverage | single-type:<tower>)";
             return false;
         }
         bot_.configure(cfg);
@@ -1277,6 +1269,7 @@ void App::render_frame() {
     renderer_.submit_fields(sim_.damage().rendered_fields().data(),
                             sim_.damage().rendered_fields().size());
     renderer_.submit_projectiles(sim_.projectiles());
+    renderer_.submit_toxin_shots(sim_.hostile().toxin_shots());
     renderer_.submit_swarmers(sim_.swarmers());
     // After the other matter passes and before the additive particle layer.
     // The fluid is opaque-ish stuff that has to occlude the agents it has

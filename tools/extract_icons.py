@@ -18,7 +18,9 @@ padding.
 
 Hand-authored icons live beside the extracted ones and are left alone:
 glyph_arrow.svg (the canvas's "->" came from a browser fallback font; the
-game's fonts have no arrows).
+game's fonts have no arrows), and glyph_plus.svg, glyph_minus.svg and
+glyph_recenter.svg (the skill tree's zoom buttons, which the canvas's
+fixed-size Tree artboard never had).
 
 Usage:  python tools/extract_icons.py [--check]
   --check  fail (exit 1) if the committed icons differ from a fresh extraction

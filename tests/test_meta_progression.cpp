@@ -114,16 +114,40 @@ TEST_CASE("Antibodies are paid on a level's first clear only", "[meta]") {
 
 // ---- Purchases ----------------------------------------------------------------
 
-TEST_CASE("a tower root costs an Antibody and has no prerequisite", "[meta]") {
+TEST_CASE("a tower root costs an Antibody once the node it grows from is owned", "[meta]") {
     const MetaConfig cfg;
     MetaProgression m = fresh();
-    REQUIRE(m.check_purchase(TreeNode::FibroblastRoot, cfg) ==
-            MetaProgression::PurchaseResult::NeedAntibodies);
     m.credit(0, 1);
-    REQUIRE(m.purchase(TreeNode::FibroblastRoot, cfg) == MetaProgression::PurchaseResult::Ok);
-    REQUIRE(m.tower_unlocked(TowerType::Fibroblast));
+    // The Goblet Cell grows from Bone Marrow Reserve, at the shoulder.
+    REQUIRE(m.check_purchase(TreeNode::GobletRoot, cfg) == MetaProgression::PurchaseResult::Locked);
+    buy_levels(m, TreeNode::BoneMarrowReserve, 1, cfg);
+    REQUIRE(m.purchase(TreeNode::GobletRoot, cfg) == MetaProgression::PurchaseResult::Ok);
+    REQUIRE(m.tower_unlocked(TowerType::GobletCell));
     REQUIRE(m.antibodies() == 0);
-    REQUIRE(m.purchase(TreeNode::FibroblastRoot, cfg) == MetaProgression::PurchaseResult::Maxed);
+    REQUIRE(m.purchase(TreeNode::GobletRoot, cfg) == MetaProgression::PurchaseResult::Maxed);
+    REQUIRE(m.check_purchase(TreeNode::CytotoxicRoot, cfg) == MetaProgression::PurchaseResult::NeedAntibodies);
+}
+
+TEST_CASE("a node opens when its parent is owned, at any level", "[meta]") {
+    const MetaConfig cfg;
+    MetaProgression m = fresh();
+    m.credit(100000, 5);
+    // The heart's two children are open from the start; the rest is not.
+    REQUIRE(m.check_purchase(TreeNode::BoneMarrowReserve, cfg) == MetaProgression::PurchaseResult::Ok);
+    REQUIRE(m.check_purchase(TreeNode::NeutrophilRoundDamage, cfg) == MetaProgression::PurchaseResult::Ok);
+    REQUIRE(m.check_purchase(TreeNode::RapidMetabolism, cfg) == MetaProgression::PurchaseResult::Locked);
+    REQUIRE(m.check_purchase(TreeNode::FibroblastRoot, cfg) == MetaProgression::PurchaseResult::Locked);
+    // One level of Round Damage opens its three children.
+    buy_levels(m, TreeNode::NeutrophilRoundDamage, 1, cfg);
+    REQUIRE(m.check_purchase(TreeNode::RapidMetabolism, cfg) == MetaProgression::PurchaseResult::Ok);
+    REQUIRE(m.check_purchase(TreeNode::NeutrophilTriggerRate, cfg) == MetaProgression::PurchaseResult::Ok);
+    REQUIRE(m.check_purchase(TreeNode::NeutrophilAccuracy, cfg) == MetaProgression::PurchaseResult::Ok);
+    // The legs are a walk down the belly: Metabolism, Clearance, Membrane.
+    for (TreeNode n : {TreeNode::RapidMetabolism, TreeNode::EfficientClearance, TreeNode::MembraneResilience}) {
+        REQUIRE(m.check_purchase(TreeNode::FibroblastRoot, cfg) == MetaProgression::PurchaseResult::Locked);
+        buy_levels(m, n, 1, cfg);
+    }
+    REQUIRE(m.purchase(TreeNode::FibroblastRoot, cfg) == MetaProgression::PurchaseResult::Ok);
 }
 
 TEST_CASE("a stat line needs its tower's root and costs more each level", "[meta]") {
@@ -154,6 +178,7 @@ TEST_CASE("a refused purchase changes nothing", "[meta]") {
 TEST_CASE("a stat line stops at its max level", "[meta]") {
     const MetaConfig cfg;
     MetaProgression m = fresh();
+    buy_levels(m, TreeNode::NeutrophilRoundDamage, 1, cfg);
     const u8 max = tree_node(TreeNode::NeutrophilAccuracy).max_level;
     buy_levels(m, TreeNode::NeutrophilAccuracy, max, cfg);
     m.credit(100000);
@@ -166,11 +191,16 @@ TEST_CASE("a capstone needs points in its branch and both currencies", "[meta]")
     cfg.capstone_threshold = 4;
     MetaProgression m = fresh();
     m.credit(100000, 5);
+    REQUIRE(m.check_purchase(TreeNode::NeutrophilCapstone, cfg) == MetaProgression::PurchaseResult::Locked);
+    // The capstone grows from Granule Capacity, and every line in the
+    // branch counts toward the threshold, on its path or not.
+    buy_levels(m, TreeNode::NeutrophilRoundDamage, 1, cfg);
+    buy_levels(m, TreeNode::NeutrophilTriggerRate, 1, cfg);
+    REQUIRE(m.check_purchase(TreeNode::NeutrophilCapstone, cfg) == MetaProgression::PurchaseResult::Locked);
+    buy_levels(m, TreeNode::NeutrophilSquadSize, 1, cfg);
     REQUIRE(m.check_purchase(TreeNode::NeutrophilCapstone, cfg) ==
             MetaProgression::PurchaseResult::BelowThreshold);
-    // Any lines count toward the threshold -- it is a total, not a chain.
-    buy_levels(m, TreeNode::NeutrophilRoundDamage, 2, cfg);
-    buy_levels(m, TreeNode::NeutrophilAccuracy, 2, cfg);
+    buy_levels(m, TreeNode::NeutrophilAccuracy, 1, cfg);
     REQUIRE(m.branch_points(TreeBranch::Neutrophil) == 4);
     const u64 mc = m.memory_cells();
     REQUIRE(m.purchase(TreeNode::NeutrophilCapstone, cfg) == MetaProgression::PurchaseResult::Ok);
@@ -183,7 +213,14 @@ TEST_CASE("an ability line needs the ability's root", "[meta]") {
     MetaProgression m = fresh();
     m.credit(10000, 1);
     REQUIRE(m.check_purchase(TreeNode::HistamineRadius, cfg) == MetaProgression::PurchaseResult::Locked);
+    // Histamine Flare is in the head: up the sternum and the neck.
+    buy_levels(m, TreeNode::BoneMarrowReserve, 1, cfg);
+    buy_levels(m, TreeNode::EliteResponse, 1, cfg);
+    buy_levels(m, TreeNode::Homeostasis, 1, cfg);
     REQUIRE(m.purchase(TreeNode::HistamineUnlock, cfg) == MetaProgression::PurchaseResult::Ok);
+    // Its second line grows from its Cooldown Reduction.
+    REQUIRE(m.check_purchase(TreeNode::HistamineRadius, cfg) == MetaProgression::PurchaseResult::Locked);
+    buy_levels(m, TreeNode::HistamineCooldown, 1, cfg);
     REQUIRE(m.ability_unlocked(AbilityId::HistamineFlare));
     REQUIRE(m.purchase(TreeNode::HistamineRadius, cfg) == MetaProgression::PurchaseResult::Ok);
 }
@@ -194,15 +231,15 @@ TEST_CASE("respec refunds everything spent minus the fee and keeps the Neutrophi
     MetaProgression m = fresh();
     REQUIRE_FALSE(m.can_respec(cfg)); // nothing bought yet
     m.credit(1000, 2);
-    REQUIRE(m.purchase(TreeNode::MacrophageRoot, cfg) == MetaProgression::PurchaseResult::Ok);
-    REQUIRE(m.purchase(TreeNode::MacrophageHealth, cfg) == MetaProgression::PurchaseResult::Ok);
     REQUIRE(m.purchase(TreeNode::BoneMarrowReserve, cfg) == MetaProgression::PurchaseResult::Ok);
+    REQUIRE(m.purchase(TreeNode::CytotoxicRoot, cfg) == MetaProgression::PurchaseResult::Ok);
+    REQUIRE(m.purchase(TreeNode::CytotoxicDrain, cfg) == MetaProgression::PurchaseResult::Ok);
 
     REQUIRE(m.respec(cfg));
     REQUIRE(m.memory_cells() == 1000 - 25);
     REQUIRE(m.antibodies() == 2);
     REQUIRE(m.tower_unlocked(TowerType::Neutrophil));
-    REQUIRE_FALSE(m.tower_unlocked(TowerType::Macrophage));
+    REQUIRE_FALSE(m.tower_unlocked(TowerType::CytotoxicT));
     REQUIRE(m.level(TreeNode::BoneMarrowReserve) == 0);
     REQUIRE_FALSE(m.can_respec(cfg));
 }
@@ -214,11 +251,12 @@ TEST_CASE("save/load round-trips currencies, the tree and progress", "[meta]") {
     cfg.capstone_threshold = 1;
     MetaProgression m = fresh();
     m.credit(5000, 3);
-    REQUIRE(m.purchase(TreeNode::GobletRoot, cfg) == MetaProgression::PurchaseResult::Ok);
-    REQUIRE(m.purchase(TreeNode::GobletSlowDuration, cfg) == MetaProgression::PurchaseResult::Ok);
-    REQUIRE(m.purchase(TreeNode::GobletSlowDuration, cfg) == MetaProgression::PurchaseResult::Ok);
-    REQUIRE(m.purchase(TreeNode::GobletCapstone, cfg) == MetaProgression::PurchaseResult::Ok);
-    REQUIRE(m.purchase(TreeNode::FeverUnlock, cfg) == MetaProgression::PurchaseResult::Ok);
+    for (TreeNode n : {TreeNode::BoneMarrowReserve, TreeNode::GobletRoot, TreeNode::GobletSlowStrength,
+                       TreeNode::GobletSlowDuration, TreeNode::GobletSlowDuration, TreeNode::GobletSplashRadius,
+                       TreeNode::GobletWeakness, TreeNode::GobletCapstone, TreeNode::EliteResponse,
+                       TreeNode::Homeostasis, TreeNode::FeverUnlock}) {
+        REQUIRE(m.purchase(n, cfg) == MetaProgression::PurchaseResult::Ok);
+    }
     m.record_level_complete("capillary_1");
 
     const std::string path = scratch_path("immune_meta_roundtrip.json");

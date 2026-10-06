@@ -7,7 +7,7 @@ The chosen design lives in a Design canvas: https://claude.ai/artifact/BmwSmwUEE
 | Artboard | Screen |
 |---|---|
 | `Menu` | Main menu: Play Game, Quit |
-| `Tree` | Strengthen Immunity tree: 75 nodes from `ImmunityTree.cpp`, top bar shows the selected node's cost and effect |
+| `Tree` | Strengthen Immunity tree: 75 nodes from `ImmunityTree.cpp`, top bar shows the selected node's cost and effect. Superseded in the game (2026-10) by a body-shaped tree that pans, zooms and uncovers as it grows, with a hover card instead of the top bar (`docs/UI_FRAMEWORK.md`) |
 | `Levels` | Level select: 10 campaign levels on a vessel; Play appears once a level is selected |
 | `Main` | Wave in progress |
 | `Placing` | Placing a tower on the lane floor |

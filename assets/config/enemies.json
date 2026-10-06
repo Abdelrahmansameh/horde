@@ -11,8 +11,8 @@
   "families": {
     "bacteria": {
       "attack": {
-        "aura_dps": 3.0,
-        "aura_radius": 4.0,
+        "aura_dps": 0.0,
+        "aura_radius": 0.0,
         "latch_cap_scar": 0,
         "latch_cap_swarmer": 0,
         "latch_cap_tower": 0,
@@ -20,7 +20,14 @@
         "latch_ease_distance": 0.0,
         "latch_ease_power": 0.0,
         "latch_reach": 0.0,
-        "latch_speed": 0.0
+        "latch_speed": 0.0,
+          "toxin_damage": 9.0,
+        "toxin_range": 16.0,
+          "toxin_speed": 32.0,
+          "toxin_interval": 0.14,
+          "toxin_hit_radius": 1.35,
+          "toxin_magazine_size": 8,
+          "toxin_reload_seconds": 0.55
       },
       "behavior": {
         "base_density": 0.9,
@@ -198,8 +205,15 @@
         "latch_dps": 2.0,
         "latch_ease_distance": 1.2,
         "latch_ease_power": 3.0,
-        "latch_reach": 0.4,
-        "latch_speed": 20.0
+        "latch_reach": 5.0,
+        "latch_speed": 30.0,
+        "toxin_damage": 0.0,
+        "toxin_range": 0.0,
+        "toxin_speed": 20.0,
+        "toxin_interval": 1.2,
+        "toxin_hit_radius": 0.6,
+        "toxin_magazine_size": 1,
+        "toxin_reload_seconds": 1.2
       },
       "behavior": {
         "base_density": 0.6,
@@ -378,7 +392,14 @@
         "latch_ease_distance": 0.0,
         "latch_ease_power": 0.0,
         "latch_reach": 0.0,
-        "latch_speed": 0.0
+        "latch_speed": 0.0,
+        "toxin_damage": 0.0,
+        "toxin_range": 0.0,
+        "toxin_speed": 20.0,
+        "toxin_interval": 1.2,
+        "toxin_hit_radius": 0.6,
+        "toxin_magazine_size": 1,
+        "toxin_reload_seconds": 1.2
       },
       "behavior": {
         "base_density": 1.6,
@@ -387,7 +408,7 @@
       "chaff": {
         "alignment_radius": 7.0,
         "alignment_strength": 4.0,
-        "contact_spacing": 2.0,
+        "contact_spacing": 4.5,
         "contact_stiffness": 1.0,
         "crowd_relief": 0.7,
         "drift_bias": 0.0,
@@ -396,7 +417,7 @@
         "pressure_threshold": 4.0,
         "radius_from_silhouette": 0.16,
         "replication_rate": 0.0,
-        "separation_radius_mul": 2.4,
+        "separation_radius_mul": 5.0,
         "separation_strength": 6.0,
         "wall_restitution": 0.15,
         "wall_splash": 0.75,

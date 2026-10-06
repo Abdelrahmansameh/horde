@@ -269,12 +269,14 @@ struct TowerGlobals {
     f32 refund_fraction = 0.7f;
     /// Base of the tower shape-id space, kept clear of overlay ids.
     u32 shape_base = 16;
+    /// Seconds between placements while the world button is held.
+    f32 placement_interval = 0.18f;
 };
 
 struct TowerConfig {
     TowerGlobals globals{};
-    TowerStats stats[kTowerTypeCount][3]{};
-    TowerMechanics mechanics[kTowerTypeCount][3]{};
+    TowerStats stats[kTowerTypeCount]{};
+    TowerMechanics mechanics[kTowerTypeCount]{};
 };
 
 // ---------------------------------------------------------------------------

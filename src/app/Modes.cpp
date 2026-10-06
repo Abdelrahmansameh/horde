@@ -631,7 +631,7 @@ int run_sim_test(const Options& opt) {
                     world.chaff(), fam,
                     Vec2{pos.size() > 0 ? pos[0] : 0.0f, pos.size() > 1 ? pos[1] : 0.0f},
                     radius, count, world.rng());
-            } else if (type == "place_tower") {
+            } else if (type == "place_swarm" || type == "place_tower") {
                 const std::string tname = a.value("tower", std::string{});
                 TowerType ttype{};
                 if (!game::parse_tower_type(tname, ttype)) {
@@ -640,9 +640,8 @@ int run_sim_test(const Options& opt) {
                     const auto pos = a.value("pos", std::vector<f32>{0.0f, 0.0f});
                     const Vec2 world_pos{pos.size() > 0 ? pos[0] : 0.0f,
                                          pos.size() > 1 ? pos[1] : 0.0f};
-                    const EntityId placed = towers.place(world, ttype, world_pos);
-                    if (!placed.valid()) {
-                        IMMUNE_LOG_WARN("sim-test: place_tower '%s' at (%.1f,%.1f) failed validation",
+                    if (!towers.deploy(world, ttype, world_pos)) {
+                        IMMUNE_LOG_WARN("sim-test: place_swarm '%s' at (%.1f,%.1f) failed validation",
                                         tname.c_str(), world_pos.x, world_pos.y);
                     }
                 }
@@ -786,14 +785,14 @@ int run_screenshot(const Options& opt) {
             const f32 x = b.min.x + b.size().x * frac;
             for (const f32 dy : {0.0f, 4.0f, -4.0f, 8.0f, -8.0f, 12.0f, -12.0f}) {
                 const Vec2 p{x, mid_y + dy};
-                if (towers.validate(world, type, p, 1'000'000u).valid() &&
-                    towers.place(world, type, p).valid()) {
+                if (towers.validate_deploy(world, type, p, 1'000'000u).valid() &&
+                    towers.deploy(world, type, p)) {
                     ++placed;
                     break;
                 }
             }
         }
-        IMMUNE_LOG_INFO("screenshot: placed %u/%u towers", placed, kTowerTypeCount);
+        IMMUNE_LOG_INFO("screenshot: placed %u/%u cells", placed, kTowerTypeCount);
     }
 
     // Gym commands, before any ticking: --exec is how a console session becomes
@@ -891,6 +890,7 @@ int run_screenshot(const Options& opt) {
                 d.pointer = &ui_pointer;
                 d.front = ui_front.get();
                 d.screen = &ui_screen;
+                d.front_model = &ui_front_model;
                 d.ui_scale = &ui_scale;
                 const game::GymResult r = run_ui_command(d, tokens);
                 const ui::MenuResult clicked = ui_front->take_result();

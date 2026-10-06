@@ -138,6 +138,7 @@ ui dump | click <path> | hover <path> | pointer <x> <y> | select <n> | cancel
 ui level <n>                                   (level select: pick campaign level n)
 ui scale <0.75..1.5>                           (UI size; also --ui-scale at launch)
 ui screen none|menu|tree|levels|pause|victory|defeat   (--screenshot --ui only)
+ui tree new|sample|full                        (the tree's progress; --screenshot --ui only)
                                                (the rest: interactive and --screenshot --ui)
 ```
 
@@ -164,12 +165,16 @@ stderr prints `--ui: N draw calls, N shapes, N vertices`; the whole HUD is one
 draw call unless a stencil clip or a layer is in use.
 
 The out-of-match screens (src/ui/front) show over the same capture with
-`ui screen <name>`. The results use a sample first-clear payout; the tree
-shows the canvas's sample progress (486 Memory Cells, 1 Antibody, a few
-levels bought); the level map treats every campaign level before `$L` as
-cleared, so pick `$L` to set how far along the campaign looks. Their widget
-paths: `menu/play`, `menu/quit`, `tree/<node key>` (e.g.
-`tree/neutrophil.capstone`, selects it), `tree/info/grow`, `tree/play`,
+`ui screen <name>`. The results use a sample first-clear payout; the level
+map treats every campaign level before `$L` as cleared, so pick `$L` to set
+how far along the campaign looks. The tree (a human body that uncovers as it
+grows) shows a few runs' progress (486 Memory Cells, 1 Antibody, the heart's
+lines, an arm and the head opened); `ui tree new|full` swaps in a new
+campaign or everything bought, and must come BEFORE `ui screen tree` so the
+view frames it. Their widget paths: `menu/play`, `menu/quit`,
+`tree/<node key>` (e.g. `tree/neutrophil.capstone`; only revealed nodes
+exist on screen, `ui hover` opens its card, `ui click` buys it if it can be
+bought), `tree/view/<zoom_in|zoom_out|recenter>`, `tree/play`,
 `levels/cell<n>`, `levels/play`, `levels/back`,
 `<victory|defeat>/panel/buttons/<tree|next|replay|retry|levels>`,
 `pause/panel/buttons/<resume|restart|menu>`.
@@ -178,7 +183,8 @@ paths: `menu/play`, `menu/quit`, `tree/<node key>` (e.g.
 L=assets/levels/campaign_04_twin_channels.json
 S="$E --screenshot $L --ui --width 1920 --height 1080"
 $S --tick 10  --exec "ui screen menu" --out "$SCRATCH/menu.png"
-$S --tick 10  --exec "ui screen tree; ui click tree/neutrophil.capstone" --out "$SCRATCH/tree.png"
+$S --tick 10  --exec "ui screen tree; ui hover tree/ability.fever.unlock" --out "$SCRATCH/tree.png"
+$S --tick 10  --exec "ui tree full; ui screen tree" --out "$SCRATCH/tree_full.png"   # the whole body
 $S --tick 10  --exec "ui screen levels" --out "$SCRATCH/levels.png"      # 1-3 cleared, 4 next
 $S --tick 900 --exec "ui screen victory" --out "$SCRATCH/victory.png"    # over the level
 $S --tick 900 --exec "ui screen defeat" --out "$SCRATCH/defeat.png"

@@ -110,8 +110,6 @@ void play(Harness& h, u64 ticks, RunTelemetry* telemetry = nullptr) {
         if (telemetry != nullptr) {
             if (action.kind == AutoPlayAction::Kind::Placed) {
                 telemetry->on_tower_placed(action.tower, action.type, action.position, action.cost, t);
-            } else if (action.kind == AutoPlayAction::Kind::Upgraded) {
-                telemetry->on_tower_upgraded(action.tower, action.tier, action.cost, t);
             }
         }
         const SessionOutcome outcome = step_level(systems, nullptr);
@@ -142,7 +140,7 @@ TEST_CASE("the planner finds buildable sites on every shipped level", "[autoplay
 
         // Every planned site must be somewhere a player could also build.
         for (const PlannedSite& s : h.bot.sites()) {
-            const PlacementQuery q = h.towers.validate(h.world, s.type, s.position, 1'000'000u);
+            const PlacementQuery q = h.towers.validate_deploy(h.world, s.type, s.position, 1'000'000u);
             INFO("site (" << s.position.x << ", " << s.position.y << ") -> result "
                           << static_cast<int>(q.result));
             CHECK(q.valid());
@@ -182,7 +180,7 @@ TEST_CASE("single-type profiles plan only their own tower", "[autoplay]") {
 }
 
 TEST_CASE("profile names round-trip", "[autoplay]") {
-    const char* names[] = {"greedy-cheapest", "spread-coverage", "save-for-tier3",
+    const char* names[] = {"greedy-cheapest", "spread-coverage",
                            "single-type:neutrophil", "single-type:goblet_cell"};
     for (const char* name : names) {
         AutoPlayProfile profile{};
@@ -223,27 +221,6 @@ TEST_CASE("the bot never spends ATP it does not have", "[autoplay]") {
     }
     // A bot that bought nothing at all would pass every check above vacuously.
     CHECK(purchases > 0);
-}
-
-TEST_CASE("upgrade_cost prices the current tier and stops at tier 3", "[autoplay][towers]") {
-    Harness h;
-    REQUIRE(build(h, platform::asset_path("levels/skin_1_breach.json")));
-    h.bot.plan(h.level, h.lanes, h.world, h.towers, h.waves);
-    REQUIRE_FALSE(h.bot.sites().empty());
-
-    const PlannedSite& site = h.bot.sites()[0];
-    const EntityId tower = h.towers.place(h.world, site.type, site.position);
-    REQUIRE(tower.valid());
-
-    for (u8 tier = 1; tier <= 2; ++tier) {
-        const u32 quoted = h.towers.upgrade_cost(h.world, tower);
-        CHECK(quoted == h.towers.stats(site.type, tier).upgrade_cost);
-        CHECK(h.towers.upgrade(h.world, tower) == tier + 1);
-    }
-    // Tier 3 is the end of the line, and a price of 0 is how a caller knows.
-    CHECK(h.towers.upgrade_cost(h.world, tower) == 0);
-    CHECK(h.towers.upgrade(h.world, tower) == 0);
-    CHECK(h.towers.upgrade_cost(h.world, EntityId{}) == 0);
 }
 
 // ---------------------------------------------------------------------------

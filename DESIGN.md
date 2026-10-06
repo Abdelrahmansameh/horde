@@ -1,5 +1,24 @@
 # IMMUNE — Game Design Document
 
+## Current deployment rule
+
+The player deploys immune cells directly. Selecting one of the five cell types
+and clicking valid tissue places exactly one cell; holding the button places
+one every `placement_interval` seconds from `assets/config/towers.json` (0.18
+seconds by default). A cell costs ATP on placement and has no timed lifetime.
+It remains until killed, leaves the world, or completes a consuming action such
+as a Goblet Cell splash or Fibroblast scar build. There are no placed spawner
+towers, tower selling, or in-run tower upgrades in normal play. Placement zones
+and permanent Strengthen Immunity bonuses still apply. Older sections below
+that describe tower factories and their volleys are historical design context.
+
+The starting cell prices are 8 ATP for Neutrophil, 12 for Cytotoxic T, 20 for
+Macrophage, 24 for Goblet Cell, and 30 for Fibroblast. They are deliberately
+well below the former spawner prices of 70, 130, 180, 160, and 120 ATP. The
+former steady populations were roughly 20, 32, 16, 4, and 3 cells per tower;
+the new prices account for the persistent cells and the consuming actions of
+Goblet Cells and Fibroblasts.
+
 **Working title:** IMMUNE
 **Genre:** Tower Defense / Mass-Horde Spectacle
 **Engine/Language:** Custom C++ (see §12 Technical Architecture)
@@ -185,7 +204,7 @@ Every tower is classified along two independent axes so the roster reads as a co
 > as one LANE WALL: a body-to-body rank across the flow that shoves the horde
 > back instead of yielding to it. Cadence, reach,
 > drain, movement speed, and the shared swarmer chassis are tuned per tower
-> and tier in `assets/config/towers.json`.
+> in `assets/config/towers.json`.
 >
 > | Cell | Swarmer kind | On contact |
 > |---|---|---|
@@ -253,8 +272,8 @@ These four exist for the same reason *Orc Problem*'s do: they give the player a 
 
 Towers and swarmers were originally untouchable: a tower sat in the lane forever, and a swarmer only ever died of old age (its lifetime expiring). That's no longer true. Each pathogen family can carry its own way of hurting the player's own cells, authored as per-family data exactly like `replicates` (§6.2) — a family with nothing set is exactly the old harmless horde:
 
-- **Virus — Latch.** A virus that touches a tower or a swarmer grabs on, stops walking its lane, and rides the host, feeding at a steady rate until either the host or the virus dies. A single host can only carry so many latchers at once (a per-family cap); the rest of the crowd walks past. A **Fibroblast's collagen scar counts as a host too** — measured as a bar rather than a disc, so a wall thrown across a lane gets eaten specifically from the face the horde is pressing against, not evenly all over.
-- **Bacteria — Aura.** A bacterium continuously burns every friendly body within a radius of its own center — no target, no state, nothing to grab, just proximity damage. A lane thick with bacteria is a lane a swarmer cannot safely loiter in, independent of anything latching onto it.
+- **Virus — Latch.** A virus grabs a tower or swarmer from several world units beyond body contact, lunges to its membrane, and rides the host, feeding at a steady rate until either the host or the virus dies. A single host can only carry so many latchers at once (a per-family cap); the rest of the crowd walks past. A **Fibroblast's collagen scar counts as a host too** — measured as a bar rather than a disc, so a wall thrown across a lane gets eaten specifically from the face the horde is pressing against, not evenly all over.
+- **Bacteria — Toxin shots.** A bacterium fires a visible toxin pellet at one nearby friendly cell, using the Neutrophil's ranged shot as its visual model. The pellet travels before dealing damage on contact. Bacteria have no continuous damage aura in the shipped tuning.
 - **Parasite — none yet.** Consistent with §6.2: the family burrows and repositions, but doesn't yet threaten a tower or swarmer directly.
 
 **Design implication:** this makes §4.2's pile-up mechanic a two-sided blade (see §5.5's third bullet) and gives standoff distance real teeth — a tower or a cluster of swarmers parked directly against a lane that's already piled up is now taking sustained damage from the crowd it's trying to kill, not just enjoying a longer engagement window. A shooter that kites (§5.1's role table) is partly a response to this already; a tower that stands its ground (the Macrophage's rank, §5.2) is trading that safety for its wall-forming upside on purpose.
@@ -348,7 +367,7 @@ The HUD exists to make every decision in §3's core loop legible without the pla
 - **Per-lane readability** (multi-lane levels specifically): per §9.2, the primary channel is the lane's own color/thickness in the world, not a separate abstracted icon — but a small supplementary per-lane indicator (dominant family + rough severity) in a level overview strip is a legitimate addition once in-world readability is solid, especially useful in wide organ-chamber levels where not every lane is on screen at once.
 - **Pause/speed controls** (pause, 1×, 2×, menu; Space pauses, except during the prep window where it sends the next wave now, as the prep banner's "Send now" says) and a **results screen** (the currencies earned and any level unlocked, then Strengthen Immunity plus a direct "next level" / "replay" choice after a clear, or "retry" / "levels" after a loss, per §7.4) round out the loop.
 
-**Visual language ("Living Membrane"):** panels are cell-shaped with soft membrane edges and plum outlines; player-owned elements (towers, abilities) use lavender, host elements (organ, waves) use flesh tones, and pathogens keep their in-game family colors. Tower icons are the actual cell types. Minimum text size is 13 px (Fredoka for numbers and titles, Nunito for labels). The same language covers the main menu, the Strengthen Immunity tree (laid out as a lymphatic system: towers as columns, core upgrades at the hub, abilities in the corners), level select (the campaign as a winding vessel), the in-match HUD and the results screens. Reference mockups: `docs/ui-concepts/canvas/`.
+**Visual language ("Living Membrane"):** panels are cell-shaped with soft membrane edges and plum outlines; player-owned elements (towers, abilities) use lavender, host elements (organ, waves) use flesh tones, and pathogens keep their in-game family colors. Tower icons are the actual cell types. Minimum text size is 13 px (Fredoka for numbers and titles, Nunito for labels). The same language covers the main menu, the Strengthen Immunity tree (its nodes alone draw a human figure, uncovered as it grows: the Neutrophil at the heart, core upgrades up the sternum and neck and down the belly, abilities round the head and down the waist, a tower down each limb; it pans and zooms, and a hovered node's card shows its effect and price), level select (the campaign as a winding vessel), the in-match HUD and the results screens. Reference mockups: `docs/ui-concepts/canvas/`.
 
 **Front-end flow:** the title's Play Game leads to the Strengthen Immunity tree, whose Play leads to the campaign map, and a level from there; Escape walks the same chain back. The campaign is ten levels in a fixed order along the vessel, each unlocking when the one before it is cleared; the map opens on the next level to play.
 

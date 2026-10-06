@@ -35,7 +35,7 @@ field / vfx / camera control in every tab uses it.
 | Tab | Holds |
 |---|---|
 | **Horde** | family + count spawn, spawn-every-family, flood every spawn point, kill by family or all, elite dropdown and spawn-every-elite, plus a live per-family census |
-| **Defense** | tower type + tier place, place-one-of-each, upgrade/sell/fire, ability buttons that grey out on cooldown and show the seconds left, ATP set/add |
+| **Defense** | tower placement, place-one-of-each, sell/fire, ability buttons that grey out on cooldown and show the seconds left, ATP set/add |
 | **Waves** | director status, start-now, next, and the whole wave table with agent counts and modifier tags — click *Jump* on any row to run that wave immediately |
 | **World** | time scale and step, **infinite objective integrity** (on by default here), camera, overlay toggles, a raw damage field with radius/rate/duration sliders, combat-event firing, and stats/spawn_points/restart |
 
@@ -139,8 +139,8 @@ at objective     at center
 | `elite <name\|id\|all\|list> [at …]` | Spawn a named elite. |
 | `flood [count-per-spawn-point]` | Every family out of every spawn point. The stress button. |
 | `kill [family\|all]` | Flag chaff for removal, with real kill accounting. |
-| `tower <type\|all\|list> [at …] [tier 1-3]` | Place towers for free; `all` spreads one of each. |
-| `upgrade [all]` / `sell [all]` | Tier up, or refund. |
+| `tower <type\|all\|list> [at …]` | Place towers for free; `all` spreads one of each. |
+| `sell [all]` | Refund a placed tower. |
 | `fire` | Trigger every placed tower's active ability. |
 | `cast <complement\|histamine\|fever\|clot> [at …]` | Cast a player ability. The clot refuses a point off the tissue or one where its bar would seal the lane. |
 | `ready` | Clear every ability cooldown. |
@@ -205,8 +205,8 @@ Every gameplay number lives in `assets/config/*.json` and is addressable by a
 dotted path:
 
 ```
-config get towers.macrophage.3.stats.damage
-config set towers.macrophage.3.stats.damage 200
+config get towers.macrophage.payload.arm_count
+config set towers.macrophage.stats.max_health 800
 config set enemies.families.virus.visual.silhouette 3.0
 config list enemies.families.virus
 config reload            # re-read the files from disk

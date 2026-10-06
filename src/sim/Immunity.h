@@ -76,7 +76,7 @@ struct ImmunityTuning {
 
     /// Inflammation (Fibroblast line). Every standing scar inflames the tissue
     /// out to `inflammation_radius` past its ends: the player's swarmers inside
-    /// deal `inflammation_damage_mult` times their damage, and towers inside
+    /// deal `inflammation_damage_mult` times their damage, and shooters inside
     /// reload `inflammation_reload_mult` times as fast. Radius 0 is off.
     f32 inflammation_radius = 0.0f;
     f32 inflammation_damage_mult = 1.0f;

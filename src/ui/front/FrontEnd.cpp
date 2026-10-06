@@ -244,7 +244,7 @@ void FrontEnd::show(FrontScreen s, const FrontModel& m) {
     current_ = s;
     signature_ = sig;
     if (tree_ != nullptr) {
-        tree_selected_ = tree_->selected();
+        tree_view_ = tree_->view();
         tree_.reset();
     }
 
@@ -377,9 +377,8 @@ void FrontEnd::build_main(Widget& root) {
 // ---- Strengthen Immunity ------------------------------------------------------------
 
 void FrontEnd::build_tree(Widget& root, const FrontModel& m) {
-    tree_ = std::make_unique<TreeScreen>(gui_, root, tree_layout_, [this](MenuResult r) { emit(r); });
-    if (!tree_selected_.empty()) tree_->select(tree_selected_);
-    tree_->sync(m.tree);
+    tree_ = std::make_unique<TreeScreen>(gui_, root, tree_layout_, m.tree, [this](MenuResult r) { emit(r); },
+                                         tree_view_ ? &*tree_view_ : nullptr);
 }
 
 // ---- Level select -------------------------------------------------------------------

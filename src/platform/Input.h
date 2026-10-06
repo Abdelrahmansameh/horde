@@ -76,6 +76,9 @@ public:
         return released_latch_[i] || (!mouse_down_[i] && prev_mouse_down_[i]);
     }
 
+    /// True while either Shift key is held in the current input snapshot.
+    bool shift_down() const { return shift_down_; }
+
     /// Cursor position in window pixels, origin top-left.
     Vec2 mouse_pos() const { return mouse_pos_; }
     /// Pixel delta since the previous poll.
@@ -117,6 +120,7 @@ private:
     Vec2 mouse_delta_{0.0f, 0.0f};
     f32 wheel_ = 0.0f;
     bool quit_requested_ = false;
+    bool shift_down_ = false;
     bool ui_capture_mouse_ = false;
     bool ui_capture_keyboard_ = false;
     bool bound_ = false;

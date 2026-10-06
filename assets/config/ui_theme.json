@@ -168,14 +168,14 @@
     },
     "atp_value": {
       "font": "fredoka-600",
-      "size": 46,
-      "line_height": 1.0,
+      "size": 30,
+      "line_height": 1.05,
       "color": "ink",
       "tabular": true
     },
     "atp_rate": {
       "font": "nunito-900",
-      "size": 15,
+      "size": 13,
       "color": "atp_ink"
     },
     "card_cost": {
@@ -421,6 +421,18 @@
       "line_height": 1.0,
       "color": "ink",
       "tabular": true
+    },
+    "tree_cost_short": {
+      "font": "fredoka-600",
+      "size": 21,
+      "line_height": 1.0,
+      "color": "critical",
+      "tabular": true
+    },
+    "tree_hint": {
+      "font": "nunito-900",
+      "size": 14,
+      "color": "lavender_deep"
     },
     "tree_grow": {
       "font": "fredoka-600",
@@ -805,6 +817,11 @@
       "base": "membrane.player",
       "radius": 44,
       "decor_count": 5
+    },
+    "tree.card": {
+      "base": "membrane.player",
+      "radius": 30,
+      "decor_count": 3
     },
     "tree.glyph": {
       "kind": "ellipse",

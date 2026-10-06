@@ -260,6 +260,7 @@ bool SwarmerBuffers::spawn(const SwarmerSpawnParams& p) {
     family_mask[i] = p.family_mask;
     flags[i] = swarmer_flags::kAlive;
     if (p.has_goal) flags[i] |= swarmer_flags::kHasGoal;
+    if (p.persistent) flags[i] |= swarmer_flags::kPersistent;
     goal_x[i] = p.goal.x;
     goal_y[i] = p.goal.y;
     visual_id[i] = p.visual_id;
@@ -713,15 +714,24 @@ SwarmerStats SwarmerSystem::update(SwarmerBuffers& sw,
                                   f32 reach, usize named_idx, f32 dist, f32 target_radius) {
         ShooterMagazine& mag = sw.magazine[i];
         const u32 rounds = math::max(pr.magazine_size, 1u);
+        f32 reload_rate = 1.0f;
+        if (inflamed_zones_ != nullptr && inflamed_reload_mult_ > 1.0f) {
+            const Vec2 pos{sw.pos_x[i], sw.pos_y[i]};
+            for (const InflamedZone& z : *inflamed_zones_) {
+                if (math::length_sq(pos - z.center) > z.radius * z.radius) continue;
+                reload_rate = inflamed_reload_mult_;
+                break;
+            }
+        }
         f32 t = dt;
         // Each pass either consumes all of `t` and returns or ends a phase;
         // four phases, so four passes finish any tick.
         for (int pass = 0; pass < 4; ++pass) {
             switch (mag.phase) {
             case MagazinePhase::Reloading: {
-                const f32 need = pr.reload_seconds - mag.timer;
+                const f32 need = (pr.reload_seconds - mag.timer) / reload_rate;
                 if (t < need) {
-                    mag.timer += t;
+                    mag.timer += t * reload_rate;
                     return;
                 }
                 t -= math::max(need, 0.0f);
@@ -799,7 +809,7 @@ SwarmerStats SwarmerSystem::update(SwarmerBuffers& sw,
             continue;
         }
 
-        sw.life[i] -= dt;
+        if ((sw.flags[i] & swarmer_flags::kPersistent) == 0) sw.life[i] -= dt;
 
         const SwarmerProfile& pr = sw.profile_of(i);
         Vec2 p{sw.pos_x[i], sw.pos_y[i]};
@@ -1117,12 +1127,17 @@ SwarmerStats SwarmerSystem::update(SwarmerBuffers& sw,
                             if (named_idx != NamedTargetList::npos) ++stats.hosts_finished;
                             // Phagocytic Sustain: the tower eats what its
                             // pseudopods bring in, one serving per enemy.
-                            if (pr.heal_per_kill > 0.0f && sw.owner[i].valid()) {
+                            if (pr.heal_per_kill > 0.0f) {
                                 const u32 swallowed = named_idx != NamedTargetList::npos
                                                           ? 1u
                                                           : arm.captive.chaff_count;
                                 const f32 amount = pr.heal_per_kill * static_cast<f32>(swallowed);
-                                effects_.heals.push_back(SwarmerHeal{sw.owner[i], amount});
+                                if ((sw.flags[i] & swarmer_flags::kPersistent) == 0 &&
+                                    sw.owner[i].valid()) {
+                                    effects_.heals.push_back(SwarmerHeal{sw.owner[i], amount});
+                                } else {
+                                    sw.health[i] = math::min(pr.max_health, sw.health[i] + amount);
+                                }
                                 stats.healed += amount;
                             }
                             if (events) {
@@ -1778,11 +1793,14 @@ void SwarmerSystem::resolve_bodies(SwarmerBuffers& sw, ChaffBuffers& chaff,
     const f32* py = sw.pos_y.data();
     constexpr f32 kEpsSq = 1e-8f;
 
-    // Which swarmers have a body at all. Latch units never do (file header),
-    // and a unit already retiring this tick is not solid to anyone.
+    // Deployed latchers push other friendly cells while free, but stop doing
+    // so once attached to a host. Legacy volley latchers remain intangible.
+    // A unit already retiring this tick is not solid to anyone.
     const auto solid = [&](usize j) {
         if ((sw.flags[j] & swarmer_flags::kPendingKill) != 0) return false;
-        return sw.profile_of(j).kind != SwarmerKind::Latch;
+        if (sw.profile_of(j).kind != SwarmerKind::Latch) return true;
+        return (sw.flags[j] & swarmer_flags::kPersistent) != 0 &&
+               (sw.flags[j] & swarmer_flags::kAttached) == 0;
     };
     // A pathogen with a body: alive, not already dying, not burrowed -- a
     // burrowed agent is under the tissue, so nothing can stand on it -- and
@@ -1812,8 +1830,8 @@ void SwarmerSystem::resolve_bodies(SwarmerBuffers& sw, ChaffBuffers& chaff,
         // (Swarmers.h, builder_crowd_push); everyone else takes all of it --
         // less the part a body-blocking unit hands back to the pathogen
         // (SwarmerProfile::body_block, BODIES in the file header).
-        const f32 block = math::saturate(pr.body_block);
-        const f32 enemy_share =
+        const f32 block = pr.kind == SwarmerKind::Latch ? 0.0f : math::saturate(pr.body_block);
+        const f32 enemy_share = pr.kind == SwarmerKind::Latch ? 0.0f :
             (pr.kind == SwarmerKind::Builder ? math::saturate(pr.builder_crowd_push) : 1.0f) *
             (1.0f - block);
 
@@ -1838,7 +1856,25 @@ void SwarmerSystem::resolve_bodies(SwarmerBuffers& sw, ChaffBuffers& chaff,
             const f32 d2 = dx * dx + dy * dy;
             const f32 contact =
                 (size + sw.profile_of(j).size * kWallContactFraction) * ct.friendly_spacing_mult;
-            if (d2 >= contact * contact || d2 < kEpsSq) return;
+            if (d2 >= contact * contact) return;
+            if (d2 < kEpsSq) {
+                // Identical spawn coordinates have no geometric normal. Use
+                // a stable pair direction, opposite for the two cells, so
+                // both move and their shared center stays put.
+                static constexpr Vec2 kDirections[8] = {
+                    {1.0f, 0.0f}, {0.70710678f, 0.70710678f},
+                    {0.0f, 1.0f}, {-0.70710678f, 0.70710678f},
+                    {-1.0f, 0.0f}, {-0.70710678f, -0.70710678f},
+                    {0.0f, -1.0f}, {0.70710678f, -0.70710678f},
+                };
+                const u32 a = static_cast<u32>(math::min(i, static_cast<usize>(j)));
+                const u32 b = static_cast<u32>(math::max(i, static_cast<usize>(j)));
+                const u32 direction = ((a * 73856093u) ^ (b * 19349663u)) & 7u;
+                const f32 side = i < j ? -1.0f : 1.0f;
+                correction += kDirections[direction] * (side * contact * 0.5f * ct.friendly_stiffness);
+                ++contacts;
+                return;
+            }
             const f32 d = std::sqrt(d2);
             const f32 c = (contact - d) * 0.5f * ct.friendly_stiffness / d;
             correction.x += dx * c;

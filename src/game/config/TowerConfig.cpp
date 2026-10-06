@@ -1,10 +1,9 @@
 // game/config/TowerConfig.cpp — towers.json.
 //
-// The file is keyed by tower name and indexed by tier, mirroring
-// TowerSystem::stats(type, tier). Each tier row carries a `stats` object (the
+// The file is keyed by tower name. Each tower carries a `stats` object (the
 // TowerStats fields), a `swarm` object (the swarmer chassis every tower
-// shares: volley size, lifetime, speed, aggro and contact radii) and a
-// `payload` object whose shape is chosen by the tower's KIND — a bomber row
+// shares: speed, aggro and contact radii) and a
+// `payload` object whose shape is chosen by the tower's KIND — a bomber
 // cannot carry a stale dps, because the parser demands exactly the keys that
 // kind uses and rejects the rest.
 #include "game/config/Schemas.h"
@@ -51,15 +50,13 @@ constexpr Field kStatsFields[] = {
     IMMUNE_CONFIG_FIELD(TowerStats, fire_interval, FieldKind::F32, "Seconds between volleys; volleys never pause inside a round"),
     IMMUNE_CONFIG_FIELD(TowerStats, footprint_radius, FieldKind::F32, "Body radius: tower spacing and sprite size; not an obstacle"),
     IMMUNE_CONFIG_FIELD(TowerStats, build_cost, FieldKind::U32, "ATP to place"),
-    IMMUNE_CONFIG_FIELD(TowerStats, upgrade_cost, FieldKind::U32, "ATP to reach the next tier; 0 at max tier"),
     IMMUNE_CONFIG_FIELD(TowerStats, family_mask, FieldKind::U8, "Bitmask of affectable pathogen families; 255 = all"),
-    IMMUNE_CONFIG_FIELD(TowerStats, max_health, FieldKind::F32, "Integrity the horde has to chew through (viruses latch, bacteria burn); restored in full by an upgrade"),
+    IMMUNE_CONFIG_FIELD(TowerStats, max_health, FieldKind::F32, "Integrity the horde has to chew through (viruses latch, bacteria burn)"),
 };
 constexpr Schema kStatsSchema{"tower_stats", kStatsFields};
 
 constexpr Field kSwarmFields[] = {
     IMMUNE_CONFIG_FIELD(SwarmParams, release_per_shot, FieldKind::U32, "Swarmers released per volley"),
-    IMMUNE_CONFIG_FIELD(SwarmParams, lifetime, FieldKind::F32, "Seconds before a swarmer retires (bombers detonate in place)"),
     IMMUNE_CONFIG_FIELD(SwarmParams, speed, FieldKind::F32, "Swarmer travel speed"),
     IMMUNE_CONFIG_FIELD(SwarmParams, search_radius, FieldKind::F32, "Aggro radius: how far a loose swarmer looks for a target; also how far the tower looks to face its volley"),
     IMMUNE_CONFIG_FIELD(SwarmParams, attach_radius, FieldKind::F32, "Contact radius; a shooter's standoff"),
@@ -160,11 +157,12 @@ constexpr Schema kBuilderSchema{"builder", kBuilderFields};
 constexpr Field kGlobalsFields[] = {
     IMMUNE_CONFIG_FIELD(TowerGlobals, refund_fraction, FieldKind::F32, "Filled from economy.json; kept here for addressing"),
     IMMUNE_CONFIG_FIELD(TowerGlobals, shape_base, FieldKind::U32, "Base of the tower shape-id space"),
+    IMMUNE_CONFIG_FIELD(TowerGlobals, placement_interval, FieldKind::F32, "Seconds between cells placed while holding the mouse button"),
 };
 constexpr Schema kGlobalsSchema{"tower_globals", kGlobalsFields};
 
 /// The payload schema and the sub-struct offset for one kind. Selecting both
-/// from the kind is what keeps a tier row's payload object exactly the shape
+/// from the kind is what keeps a tower's payload object exactly the shape
 /// its tower actually reads.
 struct KindBinding {
     const Schema* schema;
@@ -192,8 +190,7 @@ const void* payload_arm(const TowerMechanics& m, sim::SwarmerKind kind) {
     return reinterpret_cast<const u8*>(&m) + kind_binding(kind).offset;
 }
 
-constexpr std::string_view kTierRowKeys[] = {"stats", "swarm", "payload"};
-constexpr std::string_view kTowerEntryKeys[] = {"kind", "tiers"};
+constexpr std::string_view kTowerEntryKeys[] = {"kind", "stats", "swarm", "payload"};
 
 } // namespace
 
@@ -237,30 +234,20 @@ void parse_towers(const Json& doc, TowerConfig& out, config::Ctx& ctx) {
                          tower_kind_name(kind) + " (kind is fixed by the tower type)");
             }
 
-            const Json& tiers = config::require_array(entry, "tiers", ctx);
-            if (tiers.size() != 3) ctx.fail("'tiers' must have exactly 3 entries");
-
-            for (u32 tier = 0; tier < 3; ++tier) {
-                config::Ctx::Scope tier_scope(ctx, static_cast<usize>(tier));
-                const Json& row = tiers.at(tier);
-                if (!row.is_object()) ctx.fail("tier entry must be an object");
-                config::reject_unknown_keys(row, kTierRowKeys, ctx);
-                {
-                    config::Ctx::Scope s(ctx, "stats");
-                    config::parse_struct(config::require_object(row, "stats", ctx), kStatsSchema,
-                                         &out.stats[t][tier], ctx);
-                }
-                {
-                    config::Ctx::Scope s(ctx, "swarm");
-                    config::parse_struct(config::require_object(row, "swarm", ctx), kSwarmSchema,
-                                         &out.mechanics[t][tier].swarm, ctx);
-                }
-                {
-                    config::Ctx::Scope s(ctx, "payload");
-                    config::parse_struct(config::require_object(row, "payload", ctx),
-                                         *binding.schema,
-                                         payload_arm(out.mechanics[t][tier], kind), ctx);
-                }
+            {
+                config::Ctx::Scope s(ctx, "stats");
+                config::parse_struct(config::require_object(entry, "stats", ctx), kStatsSchema,
+                                     &out.stats[t], ctx);
+            }
+            {
+                config::Ctx::Scope s(ctx, "swarm");
+                config::parse_struct(config::require_object(entry, "swarm", ctx), kSwarmSchema,
+                                     &out.mechanics[t].swarm, ctx);
+            }
+            {
+                config::Ctx::Scope s(ctx, "payload");
+                config::parse_struct(config::require_object(entry, "payload", ctx),
+                                     *binding.schema, payload_arm(out.mechanics[t], kind), ctx);
             }
         }
     }
@@ -280,26 +267,18 @@ Json dump_towers(const TowerConfig& cfg) {
         const sim::SwarmerKind kind = tower_kind(type);
         const KindBinding binding = kind_binding(kind);
 
-        Json tiers = Json::array();
-        for (u32 tier = 0; tier < 3; ++tier) {
-            Json stats = Json::object();
-            config::dump_struct(stats, kStatsSchema, &cfg.stats[t][tier]);
-            Json swarm = Json::object();
-            config::dump_struct(swarm, kSwarmSchema, &cfg.mechanics[t][tier].swarm);
-            Json payload = Json::object();
-            config::dump_struct(payload, *binding.schema,
-                                payload_arm(cfg.mechanics[t][tier], kind));
-
-            Json row = Json::object();
-            row["stats"] = std::move(stats);
-            row["swarm"] = std::move(swarm);
-            row["payload"] = std::move(payload);
-            tiers.push_back(std::move(row));
-        }
+        Json stats = Json::object();
+        config::dump_struct(stats, kStatsSchema, &cfg.stats[t]);
+        Json swarm = Json::object();
+        config::dump_struct(swarm, kSwarmSchema, &cfg.mechanics[t].swarm);
+        Json payload = Json::object();
+        config::dump_struct(payload, *binding.schema, payload_arm(cfg.mechanics[t], kind));
 
         Json entry = Json::object();
         entry["kind"] = tower_kind_name(kind);
-        entry["tiers"] = std::move(tiers);
+        entry["stats"] = std::move(stats);
+        entry["swarm"] = std::move(swarm);
+        entry["payload"] = std::move(payload);
         towers[tower_type_name(type)] = std::move(entry);
     }
     doc["towers"] = std::move(towers);
@@ -315,15 +294,9 @@ void bind_towers(config::Registry& registry, TowerConfig& cfg) {
         const sim::SwarmerKind kind = tower_kind(type);
         const KindBinding binding = kind_binding(kind);
         const std::string base = std::string("towers.") + tower_type_name(type) + ".";
-        for (u32 tier = 0; tier < 3; ++tier) {
-            // Tier is spelled 1..3 in a path, matching what the player and the
-            // gym command see, not the 0-based array index.
-            const std::string row = base + std::to_string(tier + 1) + ".";
-            registry.bind(row + "stats", kStatsSchema, &cfg.stats[t][tier]);
-            registry.bind(row + "swarm", kSwarmSchema, &cfg.mechanics[t][tier].swarm);
-            registry.bind(row + "payload", *binding.schema,
-                          payload_arm(cfg.mechanics[t][tier], kind));
-        }
+        registry.bind(base + "stats", kStatsSchema, &cfg.stats[t]);
+        registry.bind(base + "swarm", kSwarmSchema, &cfg.mechanics[t].swarm);
+        registry.bind(base + "payload", *binding.schema, payload_arm(cfg.mechanics[t], kind));
     }
 }
 

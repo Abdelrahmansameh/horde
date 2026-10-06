@@ -228,77 +228,40 @@ EntityId spawn_named(SimWorld& world, Vec2 pos, f32 health_scale = 1.0f) {
 // Stats table
 // ---------------------------------------------------------------------------
 
-TEST_CASE("default stats table covers every type/tier with real, distinguishing numbers",
-          "[towers][stats]") {
+TEST_CASE("default baseline covers every tower with valid mechanics", "[towers][stats]") {
     TowerSystem ts;
-    for (u32 t = 0; t < kTowerTypeCount; ++t) {
-        const auto type = static_cast<TowerType>(t);
-        const TowerStats& s1 = ts.stats(type, 1);
-        const TowerStats& s2 = ts.stats(type, 2);
-        const TowerStats& s3 = ts.stats(type, 3);
-        INFO("tower type " << tower_type_name(type));
-        REQUIRE(s1.build_cost > 0);
-        REQUIRE(s1.footprint_radius > 0.0f);
-        REQUIRE(s1.fire_interval > 0.0f);
-        // Rate goes UP with tier for every tower (fire_interval goes down).
-        REQUIRE(s3.fire_interval <= s1.fire_interval);
-        // And the swarmer table behind it is populated for every tier, with
-        // the aggro radius (the tower's only reach) growing with tier.
-        for (u8 tier = 1; tier <= 3; ++tier) {
-            const TowerMechanics& m = tower_mechanics(type, tier);
-            REQUIRE(m.swarm.release_per_shot > 0);
-            if (type == TowerType::Macrophage) {
-                REQUIRE(m.arbor_grabber.arm_count > 0u);
-                REQUIRE(m.arbor_grabber.arm_count <= kArborMaxArms);
-                REQUIRE(m.arbor_grabber.max_captives > 0u);
-                REQUIRE(m.arbor_grabber.max_captives <= kArborMaxCaptives);
-                REQUIRE(m.arbor_grabber.cluster_radius > 0.0f);
-                REQUIRE(m.arbor_grabber.extend_seconds > 0.0f);
-                REQUIRE(m.arbor_grabber.latch_seconds > 0.0f);
-                REQUIRE(m.arbor_grabber.pull_seconds > 0.0f);
-                REQUIRE(m.arbor_grabber.recover_seconds > 0.0f);
-            }
-            REQUIRE(m.swarm.lifetime > 0.0f);
-            REQUIRE(m.swarm.speed > 0.0f);
-            REQUIRE(m.swarm.search_radius > 0.0f);
-            REQUIRE(m.swarm.attach_radius > 0.0f);
-            REQUIRE(m.swarm.size > 0.0f);
-            if (tier > 1) {
-                REQUIRE(m.swarm.search_radius >= tower_mechanics(type, tier - 1).swarm.search_radius);
-            }
-            // Towers spawn continuously inside a round, so the standing cloud
-            // per tower is bounded by this and must stay modest.
-            const f32 standing = static_cast<f32>(m.swarm.release_per_shot) * m.swarm.lifetime /
-                                 ts.stats(type, tier).fire_interval;
-            INFO("standing swarmers at tier " << static_cast<int>(tier) << ": " << standing);
-            REQUIRE(standing < 200.0f);
-        }
-    }
-}
-
-TEST_CASE("every tower type maps to its own swarmer kind, and the profile says so",
-          "[towers][stats][kind]") {
-    // The kind IS the tower. Five towers, five kinds, no two the same -- a
-    // tuning pass that made two towers release the same thing would collapse
-    // the roster into fewer towers than the build menu shows.
     bool seen[static_cast<u32>(SwarmerKind::Count)] = {};
     for (u32 t = 0; t < kTowerTypeCount; ++t) {
         const auto type = static_cast<TowerType>(t);
+        const TowerStats& st = ts.stats(type);
+        const TowerMechanics& m = tower_mechanics(type);
+        INFO("tower type " << tower_type_name(type));
+        REQUIRE(st.build_cost > 0);
+        REQUIRE(st.footprint_radius > 0.0f);
+        REQUIRE(st.fire_interval > 0.0f);
+        REQUIRE(m.swarm.release_per_shot > 0);
+        REQUIRE(m.swarm.lifetime > 0.0f);
+        REQUIRE(m.swarm.speed > 0.0f);
+        REQUIRE(m.swarm.search_radius > 0.0f);
+        REQUIRE(m.swarm.attach_radius > 0.0f);
+        REQUIRE(m.swarm.size > 0.0f);
+        REQUIRE(static_cast<f32>(m.swarm.release_per_shot) * m.swarm.lifetime /
+                st.fire_interval < 200.0f);
+        if (type == TowerType::Macrophage) {
+            REQUIRE(m.arbor_grabber.arm_count > 0u);
+            REQUIRE(m.arbor_grabber.arm_count <= kArborMaxArms);
+            REQUIRE(m.arbor_grabber.max_captives > 0u);
+            REQUIRE(m.arbor_grabber.max_captives <= kArborMaxCaptives);
+            REQUIRE(m.arbor_grabber.cluster_radius > 0.0f);
+        }
         const SwarmerKind kind = tower_kind(type);
-        REQUIRE(static_cast<u32>(kind) < static_cast<u32>(SwarmerKind::Count));
         REQUIRE_FALSE(seen[static_cast<u32>(kind)]);
         seen[static_cast<u32>(kind)] = true;
-        for (u8 tier = 1; tier <= 3; ++tier) {
-            const SwarmerProfile p = swarmer_profile(type, tier);
-            REQUIRE(p.kind == kind);
-            REQUIRE(p.source == type);
-            REQUIRE(p.lifetime == tower_mechanics(type, tier).swarm.lifetime);
-        }
+        const SwarmerProfile profile = swarmer_profile(type);
+        REQUIRE(profile.kind == kind);
+        REQUIRE(profile.source == type);
+        REQUIRE(profile.lifetime == m.swarm.lifetime);
     }
-    REQUIRE(tower_kind(TowerType::CytotoxicT) == SwarmerKind::Latch);
-    REQUIRE(tower_kind(TowerType::Neutrophil) == SwarmerKind::Shooter);
-    REQUIRE(tower_kind(TowerType::Macrophage) == SwarmerKind::ArborGrabber);
-    REQUIRE(tower_kind(TowerType::GobletCell) == SwarmerKind::MucusBomber);
 }
 
 TEST_CASE("the five towers occupy genuinely different niches in the table", "[towers][stats]") {
@@ -307,19 +270,19 @@ TEST_CASE("the five towers occupy genuinely different niches in the table", "[to
     // future tuning pass that accidentally flattens the roster fails here
     // rather than silently making five towers feel like one.
     TowerSystem ts;
-    const TowerStats shooter = ts.stats(TowerType::Neutrophil, 1);
-    const TowerStats grabber = ts.stats(TowerType::Macrophage, 1);
-    const TowerStats latch   = ts.stats(TowerType::CytotoxicT, 1);
-    const TowerStats mucus   = ts.stats(TowerType::GobletCell, 1);
+    const TowerStats shooter = ts.stats(TowerType::Neutrophil);
+    const TowerStats grabber = ts.stats(TowerType::Macrophage);
+    const TowerStats latch   = ts.stats(TowerType::CytotoxicT);
+    const TowerStats mucus   = ts.stats(TowerType::GobletCell);
 
-    const SwarmParams& shooter_sw = tower_mechanics(TowerType::Neutrophil, 1).swarm;
-    const SwarmParams& latch_sw   = tower_mechanics(TowerType::CytotoxicT, 1).swarm;
+    const SwarmParams& shooter_sw = tower_mechanics(TowerType::Neutrophil).swarm;
+    const SwarmParams& latch_sw   = tower_mechanics(TowerType::CytotoxicT).swarm;
 
     // LATCH is the cloud: the biggest standing population in the roster by a
     // wide margin, on the fastest cadence.
     const auto standing = [&](TowerType t) {
-        const SwarmParams& sw = tower_mechanics(t, 1).swarm;
-        return static_cast<f32>(sw.release_per_shot) * sw.lifetime / ts.stats(t, 1).fire_interval;
+        const SwarmParams& sw = tower_mechanics(t).swarm;
+        return static_cast<f32>(sw.release_per_shot) * sw.lifetime / ts.stats(t).fire_interval;
     };
     REQUIRE(standing(TowerType::CytotoxicT) > 2.0f * standing(TowerType::Neutrophil));
     REQUIRE(standing(TowerType::CytotoxicT) > 4.0f * standing(TowerType::Macrophage));
@@ -331,17 +294,17 @@ TEST_CASE("the five towers occupy genuinely different niches in the table", "[to
     // ARBOR GRABBER is a slow, far-reaching tank. Its value is several
     // branching pseudopods, reach that keeps its body out of the horde's
     // bite, and the amount of punishment its large body can take.
-    const ArborGrabberParams& grab = tower_mechanics(TowerType::Macrophage, 1).arbor_grabber;
+    const ArborGrabberParams& grab = tower_mechanics(TowerType::Macrophage).arbor_grabber;
     REQUIRE(grabber.fire_interval > shooter.fire_interval);
     REQUIRE(grabber.fire_interval > latch.fire_interval);
-    const SwarmParams& grab_sw = tower_mechanics(TowerType::Macrophage, 1).swarm;
+    const SwarmParams& grab_sw = tower_mechanics(TowerType::Macrophage).swarm;
     REQUIRE(grab.arm_count >= 2u);
     REQUIRE(grab.max_captives >= 2u);
     REQUIRE(grab.cluster_radius > 0.0f);
     REQUIRE(grab_sw.attach_radius > 2.0f * grab_sw.size);
     REQUIRE(grab_sw.size > shooter_sw.size);
-    REQUIRE(swarmer_profile(TowerType::Macrophage, 1).max_health >
-            swarmer_profile(TowerType::Neutrophil, 1).max_health);
+    REQUIRE(swarmer_profile(TowerType::Macrophage).max_health >
+            swarmer_profile(TowerType::Neutrophil).max_health);
     REQUIRE(grabber.max_health > shooter.max_health);
     REQUIRE(grabber.footprint_radius > shooter.footprint_radius);
     REQUIRE(mucus.fire_interval > shooter.fire_interval);
@@ -349,7 +312,7 @@ TEST_CASE("the five towers occupy genuinely different niches in the table", "[to
     // Cost ordering: the cheap workhorse, then the specialists, then the
     // widest/tankiest one in the roster.
     REQUIRE(shooter.build_cost < latch.build_cost);
-    REQUIRE(grabber.build_cost > mucus.build_cost);
+    REQUIRE(grabber.build_cost < mucus.build_cost);
 }
 
 TEST_CASE("tower_type_name/parse_tower_type round-trip for every roster type", "[towers][naming]") {
@@ -364,100 +327,85 @@ TEST_CASE("tower_type_name/parse_tower_type round-trip for every roster type", "
     REQUIRE_FALSE(parse_tower_type("nk_cell", unused));   // retired with the swarmer roster
 }
 
-// ---------------------------------------------------------------------------
-// Upgrade-over-expand cost curve (DESIGN.md §5.3/§7.1).
-//
-// tower_output() mirrors what each kind actually does with each activation:
-//
-//   LATCH         standing granules x dps        release/interval x life x dps
-//   SHOOTER       standing shooters x round dps  release/interval x life x dmg x rounds/sec
-//   BOMBER        bursts per second x damage     release/interval x burst_damage
-//   ARBOR GRABBER arm count x catch area          arms x r^2 / cycle
-//   SLOW BOMBER   circle-area-seconds of slow    release/interval x r^2 x dur x (1-factor)
-//   MUCUS BOMBER  slow coverage                   release/interval x droplets x life x slow strength
-//   BUILDER       wall laid per second           release/interval x scar_health x length
-// ---------------------------------------------------------------------------
-
-namespace {
-
-f32 tower_output(TowerType type, u8 tier, const TowerStats& s) {
-    const f32 rate = s.fire_interval > 0.0f ? 1.0f / s.fire_interval : 0.0f;
-    const TowerMechanics& m = tower_mechanics(type, tier);
-    const f32 per_sec = static_cast<f32>(m.swarm.release_per_shot) * rate;
-    switch (tower_kind(type)) {
-    case SwarmerKind::Latch:
-        return per_sec * m.swarm.lifetime * m.latch.dps;
-    case SwarmerKind::Shooter:
-        return per_sec * m.swarm.lifetime * m.shooter.round_damage *
-               shooter_rounds_per_second(m.shooter);
-    case SwarmerKind::Bomber:
-        return per_sec * m.bomber.burst_damage;
-    case SwarmerKind::ArborGrabber:
-        return per_sec * m.swarm.lifetime * static_cast<f32>(m.arbor_grabber.arm_count) /
-               math::max(m.arbor_grabber.extend_seconds + m.arbor_grabber.latch_seconds +
-                             m.arbor_grabber.pull_seconds + m.arbor_grabber.recover_seconds,
-                         0.001f);
-    case SwarmerKind::MucusBomber:
-        return per_sec * static_cast<f32>(m.mucus_bomber.droplets) *
-               m.mucus_bomber.droplet_lifetime * (1.0f - m.mucus_bomber.slow_factor);
-    case SwarmerKind::Builder:
-        // Integrity of wall laid per second: hit points the horde has to chew
-        // through, times how much lane each wall closes.
-        return per_sec * m.builder.scar_health * m.builder.scar_half_length * 2.0f;
-    case SwarmerKind::Count:
-        break;
-    }
-    return 0.0f;
-}
-
-} // namespace
-
-TEST_CASE("upgrading is a better ATP-per-output deal than a fresh tower, for every tower type",
+// Direct cell placement economics.
+TEST_CASE("each directly deployed cell costs far less than its former spawner",
           "[towers][economy][cost_curve]") {
     TowerSystem ts;
-    for (u32 t = 0; t < kTowerTypeCount; ++t) {
-        const auto type = static_cast<TowerType>(t);
-        INFO("tower type " << tower_type_name(type));
-        const TowerStats& s1 = ts.stats(type, 1);
-        const TowerStats& s2 = ts.stats(type, 2);
-        const TowerStats& s3 = ts.stats(type, 3);
-
-        // Structural cost-curve shape (DESIGN.md §5.3): each upgrade step
-        // costs noticeably less than a fresh tier-1 build, and the curve
-        // decelerates further up the tree.
-        REQUIRE(s1.upgrade_cost < s1.build_cost);
-        REQUIRE(s2.upgrade_cost < s1.upgrade_cost);
-        REQUIRE(s2.upgrade_cost > 0);
-
-        const f32 o1 = tower_output(type, 1, s1);
-        const f32 o2 = tower_output(type, 2, s2);
-        const f32 o3 = tower_output(type, 3, s3);
-        REQUIRE(o1 > 0.0f);
-
-        // Accelerating value: tier 2 pushes output well above 2x tier 1's,
-        // and tier 3 pulls further ahead still (the absolute gap grows).
-        REQUIRE(o2 > 2.0f * o1);
-        REQUIRE((o3 - o2) > (o2 - o1));
-
-        // The actual economic claim: ATP spent all the way up the upgrade
-        // tree buys strictly more output-per-ATP than stopping at tier 1 (and
-        // therefore than spending the same total ATP on N fresh tier-1
-        // towers, which nets exactly tier 1's own output-per-ATP -- spreading
-        // thin is a visible tax, not the efficient move).
-        const f32 cost_to_t1 = static_cast<f32>(s1.build_cost);
-        const f32 cost_to_t2 = cost_to_t1 + static_cast<f32>(s1.upgrade_cost);
-        const f32 cost_to_t3 = cost_to_t2 + static_cast<f32>(s2.upgrade_cost);
-        const f32 eff1 = o1 / cost_to_t1;
-        const f32 eff2 = o2 / cost_to_t2;
-        const f32 eff3 = o3 / cost_to_t3;
-        REQUIRE(eff2 > eff1);
-        REQUIRE(eff3 > eff2);
-    }
+    REQUIRE(ts.stats(TowerType::Neutrophil).build_cost == 8);
+    REQUIRE(ts.stats(TowerType::CytotoxicT).build_cost == 12);
+    REQUIRE(ts.stats(TowerType::Macrophage).build_cost == 20);
+    REQUIRE(ts.stats(TowerType::GobletCell).build_cost == 24);
+    REQUIRE(ts.stats(TowerType::Fibroblast).build_cost == 30);
 }
 
 // ---------------------------------------------------------------------------
 // validate()/place()/upgrade()/sell()
 // ---------------------------------------------------------------------------
+
+TEST_CASE("direct deployment makes one persistent cell and no tower", "[deployment]") {
+    SimWorld world = make_world();
+    TowerSystem system;
+    system.register_systems(world);
+    const Vec2 at{12.0f, 10.0f};
+    const u32 price = system.stats(TowerType::Neutrophil).build_cost;
+    REQUIRE(system.validate_deploy(world, TowerType::Neutrophil, at, price).valid());
+    REQUIRE(system.validate_deploy(world, TowerType::Neutrophil, at, price - 1).result ==
+            PlacementResult::CannotAfford);
+    REQUIRE(system.deploy(world, TowerType::Neutrophil, at));
+    REQUIRE(world.swarmers().count() == 1);
+    REQUIRE(system.placed_towers().empty());
+    REQUIRE(system.validate_deploy(world, TowerType::Neutrophil, at, price).valid());
+    REQUIRE(system.validate_deploy(world, TowerType::CytotoxicT, at, 0xFFFFFFFFu).valid());
+    REQUIRE(system.deploy(world, TowerType::Neutrophil, at));
+    REQUIRE(world.swarmers().count() == 2);
+    REQUIRE((world.swarmers().flags[0] & swarmer_flags::kPersistent) != 0);
+    for (int tick = 0; tick < 660; ++tick) world.tick();
+    REQUIRE(world.swarmers().count() == 2);
+}
+
+TEST_CASE("batch deployment places up to ten cells and stops when ATP runs out", "[deployment]") {
+    SimWorld world = make_world();
+    TowerSystem towers;
+    towers.register_systems(world);
+    const u32 cost = towers.stats(TowerType::Neutrophil).build_cost;
+    Economy economy;
+    EconomyConfig config;
+    config.starting_atp = 15 * cost + cost / 2;
+    economy.configure(config);
+    const Vec2 at{12.0f, 10.0f};
+
+    REQUIRE(deploy_cells(towers, world, economy, TowerType::Neutrophil,
+                         Vec2{0.0f, 0.0f}, 10) == 0);
+    REQUIRE(economy.atp() == config.starting_atp);
+    REQUIRE(deploy_cells(towers, world, economy, TowerType::Neutrophil, at, 1) == 1);
+    REQUIRE(world.swarmers().count() == 1);
+    REQUIRE(deploy_cells(towers, world, economy, TowerType::Neutrophil, at, 10) == 10);
+    REQUIRE(world.swarmers().count() == 11);
+    REQUIRE(deploy_cells(towers, world, economy, TowerType::Neutrophil, at, 10) == 4);
+    REQUIRE(world.swarmers().count() == 15);
+    REQUIRE(economy.atp() == cost / 2);
+    REQUIRE(economy.snapshot().total_spent == 15 * cost);
+    REQUIRE(deploy_cells(towers, world, economy, TowerType::Neutrophil, at, 10) == 0);
+    REQUIRE(deploy_cells(towers, world, economy, TowerType::Neutrophil, Vec2{0.0f, 0.0f}, 10) == 0);
+    REQUIRE(economy.atp() == cost / 2);
+}
+
+TEST_CASE("batch deployment stops at cell capacity without charging for failures", "[deployment]") {
+    SimWorld world = make_world();
+    world.swarmers().reserve(3);
+    TowerSystem towers;
+    towers.register_systems(world);
+    Economy economy;
+    EconomyConfig config;
+    config.starting_atp = 1000;
+    economy.configure(config);
+    const u32 cost = towers.stats(TowerType::Neutrophil).build_cost;
+
+    REQUIRE(deploy_cells(towers, world, economy, TowerType::Neutrophil,
+                         Vec2{12.0f, 10.0f}, 10) == 3);
+    REQUIRE(world.swarmers().count() == 3);
+    REQUIRE(economy.atp() == 1000 - 3 * cost);
+}
 
 TEST_CASE("validate() rejects off-tissue and unaffordable placements, accepts an open interior spot",
           "[towers][placement]") {
@@ -479,10 +427,10 @@ TEST_CASE("validate() rejects insufficient clearance near a wall", "[towers][pla
     TowerSystem ts;
     // The Cytotoxic T has the roster's largest tier-1 footprint_radius; 0.5
     // units from the left room's wall (x=0 boundary) leaves far less than that.
-    REQUIRE(ts.stats(TowerType::CytotoxicT, 1).footprint_radius > 0.5f);
+    REQUIRE(ts.stats(TowerType::CytotoxicT).footprint_radius > 0.5f);
     const auto q = ts.validate(world, TowerType::CytotoxicT, Vec2{0.5f, 10.0f}, 100000);
     REQUIRE(q.result == PlacementResult::InsufficientClearance);
-    REQUIRE(q.clearance < ts.stats(TowerType::CytotoxicT, 1).footprint_radius);
+    REQUIRE(q.clearance < ts.stats(TowerType::CytotoxicT).footprint_radius);
     // The light snap should nudge back toward more clearance (away from x=0).
     REQUIRE(q.snapped_position.x > 0.5f);
 }
@@ -512,7 +460,7 @@ TEST_CASE("validate() allows a tower that spans the only corridor: towers are no
     // build_scene), so this is the placement that used to be refused for
     // sealing the lane.
     REQUIRE(world.flow().reachable(kRoomCenterLeft));
-    REQUIRE(ts.stats(TowerType::CytotoxicT, 1).footprint_radius * 2.0f >= 3.0f);
+    REQUIRE(ts.stats(TowerType::CytotoxicT).footprint_radius * 2.0f >= 3.0f);
 
     const auto mid = ts.validate(world, TowerType::CytotoxicT, kCorridorCenter, 100000);
     REQUIRE(mid.result == PlacementResult::Ok);
@@ -579,7 +527,7 @@ TEST_CASE("a freshly placed tower spins up rather than discharging on the placem
     const EntityId tower = ts.place(world, TowerType::Macrophage, kRoomCenterLeft);
     REQUIRE(tower.valid());
     const comp::Tower& tw = world.ecs().registry().get<comp::Tower>(world.ecs().from_id(tower));
-    REQUIRE(tw.cooldown == ts.stats(TowerType::Macrophage, 1).fire_interval);
+    REQUIRE(tw.cooldown == ts.stats(TowerType::Macrophage).fire_interval);
 
     spawn_chaff_cluster(world, kRoomCenterLeft + Vec2{6.0f, 0.0f}, 20, 1.0f);
     const f32 before = world.chaff().total_density();
@@ -588,52 +536,20 @@ TEST_CASE("a freshly placed tower spins up rather than discharging on the placem
     REQUIRE(world.combat_events().size() == 0);
 }
 
-TEST_CASE("upgrade() advances tier and stats, caps at 3; sell() refunds ATP",
-          "[towers][economy]") {
+TEST_CASE("selling a placed tower refunds its baseline build cost", "[towers][economy]") {
     SimWorld world = make_world();
     TowerSystem ts;
     const EntityId id = ts.place(world, TowerType::Macrophage, kRoomCenterLeft);
     REQUIRE(id.valid());
-
     const entt::entity e = world.ecs().from_id(id);
-    REQUIRE(world.ecs().registry().get<comp::Tower>(e).tier == 1);
-    // comp::Tower::range is the swarmers' aggro radius (the tower has none).
     REQUIRE(world.ecs().registry().get<comp::Tower>(e).range ==
-            tower_mechanics(TowerType::Macrophage, 1).swarm.search_radius);
-
-    REQUIRE(ts.upgrade(world, id) == 2);
-    REQUIRE(world.ecs().registry().get<comp::Tower>(e).tier == 2);
-    REQUIRE(world.ecs().registry().get<comp::Tower>(e).range ==
-            tower_mechanics(TowerType::Macrophage, 2).swarm.search_radius);
-
-    REQUIRE(ts.upgrade(world, id) == 3);
-    REQUIRE(world.ecs().registry().get<comp::Tower>(e).tier == 3);
-    REQUIRE(ts.upgrade(world, id) == 0); // already maxed
-
-    // invested = tier1 build_cost (180) + upgrade to tier2 (115) + upgrade to
-    // tier3 (95) = 390; refund at the documented 0.7 fraction = 273 (truncated).
+            tower_mechanics(TowerType::Macrophage).swarm.search_radius);
     const u32 expected = static_cast<u32>(
-        (static_cast<f32>(ts.stats(TowerType::Macrophage, 1).build_cost) +
-         static_cast<f32>(ts.stats(TowerType::Macrophage, 1).upgrade_cost) +
-         static_cast<f32>(ts.stats(TowerType::Macrophage, 2).upgrade_cost)) * 0.7f);
-    const u32 refund = ts.sell(world, id);
-    REQUIRE(refund == expected);
-    REQUIRE(refund == 273);
-
+        static_cast<f32>(ts.stats(TowerType::Macrophage).build_cost) * 0.7f);
+    REQUIRE(ts.sell(world, id) == expected);
     REQUIRE_FALSE(world.ecs().registry().valid(e));
-
-    bool still_listed = false;
-    for (EntityId t : ts.placed_towers())
-        if (t == id) still_listed = true;
-    REQUIRE_FALSE(still_listed);
+    REQUIRE(ts.placed_towers().empty());
 }
-
-// ---------------------------------------------------------------------------
-// find_target()
-// ---------------------------------------------------------------------------
-// ---------------------------------------------------------------------------
-// find_target()
-// ---------------------------------------------------------------------------
 
 TEST_CASE("find_target respects range and family_mask, and never returns a Burrowed agent",
           "[towers][targeting]") {
@@ -726,7 +642,7 @@ TEST_CASE("every swarmer tower releases a volley of its own kind and publishes n
 
         // A volley, not a shot: exactly the configured count, all of this
         // tower's kind, all owned by it.
-        const u32 expected = tower_mechanics(type, 1).swarm.release_per_shot;
+        const u32 expected = tower_mechanics(type).swarm.release_per_shot;
         REQUIRE(world.swarmers().count() == expected);
         for (usize k = 0; k < world.swarmers().count(); ++k) {
             REQUIRE(world.swarmers().profile_of(k).kind == tower_kind(type));
@@ -759,8 +675,8 @@ TEST_CASE("a tower spawns continuously with nothing in sight, and holds only bet
 
     // In a round (the default): volleys keep coming on the cadence with no
     // target at all -- and go out all round, not down a cone.
-    const TowerStats& st = ts.stats(TowerType::CytotoxicT, 1);
-    const u32 per_volley = tower_mechanics(TowerType::CytotoxicT, 1).swarm.release_per_shot;
+    const TowerStats& st = ts.stats(TowerType::CytotoxicT);
+    const u32 per_volley = tower_mechanics(TowerType::CytotoxicT).swarm.release_per_shot;
     const int ticks = static_cast<int>(2.5f * st.fire_interval / kFixedDt);
     for (int i = 0; i < ticks; ++i) step_combat(world);
     REQUIRE(count_events(world, CombatEventType::MuzzleFlash, TowerType::CytotoxicT) == 3);
@@ -802,7 +718,7 @@ TEST_CASE("the Macrophage tower only releases macrophage units and never attacks
     const f32 before = world.chaff().total_density();
     step_combat(world);
     REQUIRE(world.swarmers().count() ==
-            tower_mechanics(TowerType::Macrophage, 1).swarm.release_per_shot);
+            tower_mechanics(TowerType::Macrophage).swarm.release_per_shot);
     REQUIRE(world.swarmers().profile_of(0).kind == SwarmerKind::ArborGrabber);
     REQUIRE(world.chaff().total_density() == before);
 }
@@ -838,7 +754,7 @@ TEST_CASE("LATCH granules fly to a pathogen, latch on, and drain it",
     // Latching is not yet feeding: the granule spends attach_seconds
     // entering its host first (Swarmers.h, SwarmerProfile::attach_seconds).
     REQUIRE(world.chaff().density[0] == before);
-    const f32 entry = tower_mechanics(TowerType::CytotoxicT, 1).latch.attach_seconds;
+    const f32 entry = tower_mechanics(TowerType::CytotoxicT).latch.attach_seconds;
     for (int i = 0; i < static_cast<int>(std::ceil(entry / kFixedDt)) + 1; ++i) step_combat(world);
     REQUIRE(world.chaff().density[0] < before);
     // Latching is announced, by the SWARMER.
@@ -935,7 +851,7 @@ TEST_CASE("SHOOTER swarmers hold a standoff and put real rounds into world.proje
 
     // Engaged shooters sit at their standoff, not on the target: every one
     // that is firing is well clear of the cluster.
-    const f32 standoff = tower_mechanics(TowerType::Neutrophil, 1).swarm.attach_radius;
+    const f32 standoff = tower_mechanics(TowerType::Neutrophil).swarm.attach_radius;
     usize checked = 0;
     for (usize k = 0; k < world.swarmers().count(); ++k) {
         if ((world.swarmers().flags[k] & swarmer_flags::kAttached) == 0) continue;
@@ -1054,15 +970,15 @@ TEST_CASE("a bomber whose lifetime runs out detonates where it stands", "[towers
         TowerSystem ts;
         ts.register_systems(world);
 
-        const u16 slot = swarmer_profile_slot(type, 1);
-        world.swarmers().set_profile(slot, swarmer_profile(type, 1));
+        const u16 slot = swarmer_profile_slot(type);
+        world.swarmers().set_profile(slot, swarmer_profile(type));
         SwarmerSpawnParams p;
         p.position = kRoomCenterLeft;
         p.profile = slot;
         p.seed = 77u;
         REQUIRE(world.swarmers().spawn(p));
 
-        const f32 lifetime = swarmer_profile(type, 1).lifetime;
+        const f32 lifetime = swarmer_profile(type).lifetime;
         const int ticks = static_cast<int>(lifetime / kFixedDt) + 5;
         for (int i = 0; i < ticks; ++i) step_combat(world);
         REQUIRE(world.swarmers().count() == 0);
@@ -1138,7 +1054,7 @@ TEST_CASE("MUCUS BOMBER swarmers splash into real fluid that strongly slows with
     REQUIRE(slowed_count(world) > 0);
     REQUIRE(marked_count(world) == 0);
     REQUIRE(world.chaff().density[0] == original_density);
-    const auto& mucus = tower_mechanics(TowerType::GobletCell, 1).mucus_bomber;
+    const auto& mucus = tower_mechanics(TowerType::GobletCell).mucus_bomber;
     for (usize i = 0; i < world.chaff().count(); ++i) {
         if ((world.chaff().flags[i] & chaff_flags::kSlowed) == 0) continue;
         REQUIRE(world.chaff().slow_factor[i] == Catch::Approx(mucus.slow_factor));
@@ -1148,7 +1064,7 @@ TEST_CASE("MUCUS BOMBER swarmers splash into real fluid that strongly slows with
     // And it is a moment, not terrain: with the supply cut it evaporates.
     ts.sell(world, tower);
     world.swarmers().clear();
-    const f32 life = tower_mechanics(TowerType::GobletCell, 1).mucus_bomber.droplet_lifetime;
+    const f32 life = tower_mechanics(TowerType::GobletCell).mucus_bomber.droplet_lifetime;
     for (int i = 0; i < static_cast<int>(life / kFixedDt) + 30; ++i) step_combat(world);
     REQUIRE(world.fluid().count() == 0);
     for (int i = 0; i < static_cast<int>(mucus.slow_duration / kFixedDt) + 30; ++i) step_combat(world);
@@ -1201,16 +1117,14 @@ TEST_CASE("swarmers hunt named agents: a latch drains one, a shooter shoots one,
         ts.register_systems(world);
         const EntityId tower = ts.place(world, c.type, kRoomCenterLeft);
         REQUIRE(tower.valid());
-        // Tier 3: the placeholder elite carries 2 armor, which a tier-1 round
-        // (1.9) cannot get through -- the same flat-reduction rule the old
-        // per-shot strike had, and not what this test is about.
-        REQUIRE(ts.upgrade(world, tower) == 2);
-        REQUIRE(ts.upgrade(world, tower) == 3);
         ready_now(world, tower);
 
         // No chaff anywhere: the named agent is the only thing to go at.
         const EntityId boss = spawn_named(world, kRoomCenterLeft + Vec2{c.offset, 0.0f});
         REQUIRE(boss.valid());
+        // This checks target acquisition; baseline shooter rounds are weaker
+        // than the placeholder elite's armor until tree damage is purchased.
+        world.ecs().registry().get<comp::Health>(world.ecs().from_id(boss)).armor = 0.0f;
         const f32 before = named_health(world, boss);
 
         for (int i = 0; i < 300; ++i) step_combat(world);
@@ -1258,8 +1172,8 @@ TEST_CASE("burrowed targets are invisible to every tower and every swarmer",
 
     // Nothing its volleys released, or a volley spawned by hand right next to
     // the two, can pick either up over a whole lifetime.
-    const u16 slot = swarmer_profile_slot(TowerType::CytotoxicT, 1);
-    world.swarmers().set_profile(slot, swarmer_profile(TowerType::CytotoxicT, 1));
+    const u16 slot = swarmer_profile_slot(TowerType::CytotoxicT);
+    world.swarmers().set_profile(slot, swarmer_profile(TowerType::CytotoxicT));
     for (u32 k = 0; k < 12; ++k) {
         SwarmerSpawnParams p;
         p.position = kRoomCenterLeft + Vec2{3.0f, 1.0f};
@@ -1283,9 +1197,9 @@ TEST_CASE("swarmers respect the vessel: a volley fired at a wall stays on the ti
     ts.register_systems(world);
     // No chaff anywhere: these units drift on their launch velocity, which is
     // aimed straight at the left room's bottom wall (y = 4).
-    const u16 slot = swarmer_profile_slot(TowerType::CytotoxicT, 1);
-    world.swarmers().set_profile(slot, swarmer_profile(TowerType::CytotoxicT, 1));
-    const f32 contact = swarmer_profile(TowerType::CytotoxicT, 1).size * kWallContactFraction;
+    const u16 slot = swarmer_profile_slot(TowerType::CytotoxicT);
+    world.swarmers().set_profile(slot, swarmer_profile(TowerType::CytotoxicT));
+    const f32 contact = swarmer_profile(TowerType::CytotoxicT).size * kWallContactFraction;
     for (u32 k = 0; k < 12; ++k) {
         SwarmerSpawnParams p;
         p.position = kRoomCenterLeft + Vec2{static_cast<f32>(k) * 0.4f - 2.4f, 0.0f};
@@ -1312,44 +1226,31 @@ TEST_CASE("swarmers respect the vessel: a volley fired at a wall stays on the ti
 // Cross-cutting: events, determinism, budget.
 // ---------------------------------------------------------------------------
 
-TEST_CASE("every tower stamps its own TowerType and tier onto the events it raises",
-          "[towers][combat][events]") {
-    // vfx/Particles.cpp keys the ENTIRE per-tower look on (type, source,
-    // visual_id). A tower that raises events with source == Count renders as
-    // the generic grey fallback, which is indistinguishable from "broken".
+TEST_CASE("every tower stamps its type and baseline visual on events", "[towers][combat][events]") {
     for (u32 t = 0; t < kTowerTypeCount; ++t) {
         const auto type = static_cast<TowerType>(t);
-        for (u8 tier = 1; tier <= 3; ++tier) {
-            INFO("tower " << tower_type_name(type) << " tier " << static_cast<int>(tier));
-            SimWorld world = make_world();
-            TowerSystem ts;
-            ts.register_systems(world);
-            const EntityId tower = ts.place(world, type, kRoomCenterLeft);
-            REQUIRE(tower.valid());
-            for (u8 k = 1; k < tier; ++k) REQUIRE(ts.upgrade(world, tower) == k + 1);
-            ready_now(world, tower);
-            spawn_chaff_cluster(world, kRoomCenterLeft + Vec2{5.0f, 0.0f}, 30, 20.0f, 0.3f);
-
-            // Every tower stamps the tier on both its release event and units.
-            u16 swarmer_visual = 0;
-            bool saw_swarmer = false;
-            for (int i = 0; i < 5; ++i) {
-                step_combat(world);
-                if (!saw_swarmer && world.swarmers().count() > 0) {
-                    saw_swarmer = true;
-                    swarmer_visual = world.swarmers().visual_id[0];
-                }
+        SimWorld world = make_world();
+        TowerSystem ts;
+        ts.register_systems(world);
+        const EntityId tower = ts.place(world, type, kRoomCenterLeft);
+        REQUIRE(tower.valid());
+        ready_now(world, tower);
+        spawn_chaff_cluster(world, kRoomCenterLeft + Vec2{5.0f, 0.0f}, 30, 20.0f, 0.3f);
+        u16 swarmer_visual = 0;
+        bool saw_swarmer = false;
+        for (int i = 0; i < 5; ++i) {
+            step_combat(world);
+            if (!saw_swarmer && world.swarmers().count() > 0) {
+                saw_swarmer = true;
+                swarmer_visual = world.swarmers().visual_id[0];
             }
-
-            const CombatEvent* e = first_event(world, CombatEventType::MuzzleFlash, type);
-            REQUIRE(e != nullptr);
-            REQUIRE(e->source == type);
-            // 3 data tiers spread across the VFX layer's 1..5 escalation axis.
-            const u16 expected_visual = tier >= 3 ? 5 : (tier == 2 ? 3 : 1);
-            REQUIRE(e->visual_id == expected_visual);
-            REQUIRE(saw_swarmer);
-            REQUIRE(swarmer_visual == expected_visual);
         }
+        const CombatEvent* event = first_event(world, CombatEventType::MuzzleFlash, type);
+        REQUIRE(event != nullptr);
+        REQUIRE(event->source == type);
+        REQUIRE(event->visual_id == 1);
+        REQUIRE(saw_swarmer);
+        REQUIRE(swarmer_visual == 1);
     }
 }
 
@@ -1582,9 +1483,6 @@ TEST_CASE("VISUAL: all five towers release at once, with live swarmers and parti
         const EntityId id = ts.place(world, s.type, s.tower);
         INFO("placing " << tower_type_name(s.type));
         REQUIRE(id.valid());
-        // Tier 3 everywhere: this is the escalated look.
-        REQUIRE(ts.upgrade(world, id) == 2);
-        REQUIRE(ts.upgrade(world, id) == 3);
         towers.push_back(id);
     }
 
@@ -1684,8 +1582,6 @@ TEST_CASE("VISUAL: a Fibroblast walls the lane and the horde chews on the collag
     const Vec2 at{54.0f, 50.0f};
     const EntityId id = ts.place(world, TowerType::Fibroblast, at);
     REQUIRE(id.valid());
-    REQUIRE(ts.upgrade(world, id) == 2);
-    REQUIRE(ts.upgrade(world, id) == 3);
 
     vfx::ParticleSystem particles;
     particles.init(vfx::ParticleSystem::kDefaultCapacity, 0xC0FFEEull);

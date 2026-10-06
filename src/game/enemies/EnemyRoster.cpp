@@ -178,6 +178,14 @@ void EnemyRoster::apply_to_tuning(sim::ChaffTuning& tuning) const {
         p.drift_bias = fc.drift_bias;
         p.replication_rate = fc.replication_rate;
         p.collides = fc.collides;
+
+        // A worm's disc is a sliver of its drawn body, so walls kept only the
+        // disc clear and the long body clipped into the lining and obstacles.
+        // Keep a fraction of the body's reach clear of walls instead.
+        constexpr f32 kBodyWallFraction = 0.6f;
+        const sim::SlitherParams& sl = cfg.families[i].slither;
+        p.wall_radius = sl.enabled ? math::max(p.radius, kBodyWallFraction * 0.5f * sl.body_length * silhouette)
+                                   : 0.0f;
     }
 
     // NOTE: ambient_drift is deliberately NOT set here any more. This function
@@ -260,6 +268,8 @@ EnemyConfig& mutable_enemy_config() {
                 seed.families[static_cast<u32>(PathogenFamily::Parasite)].chaff;
             parasite = FamilyChaffParams{};
             parasite.radius_from_silhouette = 0.16f;
+            parasite.contact_spacing = 4.5f;
+            parasite.separation_radius_mul = 5.0f;
             parasite.separation_strength = 6.0f;
             parasite.alignment_radius = 7.0f;
             parasite.alignment_strength = 4.0f;
@@ -282,21 +292,17 @@ EnemyConfig& mutable_enemy_config() {
         }
 
         // How each family fights back (sim/hostile). The virus is the
-        // grappler: cheap, replicating, and every one that touches a cell
-        // hangs on and feeds -- weak alone, lethal by the dozen, which is what
-        // a replicating family should be. The bacterium is the big slow one,
-        // and it burns: nothing has to touch it, standing near it is enough,
-        // so a lane full of them is a lane the player's units cannot
-        // loiter in. Neither is meant to erase a tower on its own; both are
-        // meant to make "in the lane" a bet.
+        // grappler: cheap, replicating, and able to lunge onto a nearby cell.
+        // The larger bacterium fires toxin pellets at individual friendlies.
+        // Neither is meant to erase a tower on its own.
         {
             sim::HostileFamilyParams& virus = seed.families[static_cast<u32>(PathogenFamily::Virus)].attack;
             virus.latch_dps = 2.0f;
-            virus.latch_reach = 0.4f;
+            virus.latch_reach = 5.0f;
             virus.latch_cap_swarmer = 3u;
             virus.latch_cap_tower = 16u;
             virus.latch_cap_scar = 40u;
-            virus.latch_speed = 20.0f;
+            virus.latch_speed = 30.0f;
             virus.latch_ease_distance = 1.2f;
             virus.latch_ease_power = 3.0f;
             virus.aura_dps = 0.0f;
@@ -310,8 +316,15 @@ EnemyConfig& mutable_enemy_config() {
             bacteria.latch_speed = 0.0f;
             bacteria.latch_ease_distance = 0.0f;
             bacteria.latch_ease_power = 0.0f;
-            bacteria.aura_dps = 3.0f;
-            bacteria.aura_radius = 4.0f;
+            bacteria.aura_dps = 0.0f;
+            bacteria.aura_radius = 0.0f;
+            bacteria.toxin_damage = 9.0f;
+            bacteria.toxin_range = 16.0f;
+            bacteria.toxin_speed = 32.0f;
+            bacteria.toxin_interval = 0.14f;
+            bacteria.toxin_hit_radius = 1.35f;
+            bacteria.toxin_magazine_size = 8;
+            bacteria.toxin_reload_seconds = 0.55f;
             // The parasite does not attack (yet): every field zero.
             sim::HostileFamilyParams& parasite = seed.families[static_cast<u32>(PathogenFamily::Parasite)].attack;
             parasite.latch_dps = 0.0f;

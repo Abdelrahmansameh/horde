@@ -1,4 +1,4 @@
-// game/towers/TowerSystem.h — placement, targeting, upgrades.
+// game/towers/TowerSystem.h — placement and targeting.
 // Owner: Wave 2B; reshaped by the swarmer-roster redesign.
 //
 // RATIONALE (DESIGN.md §4, §5, §8.4)
@@ -25,7 +25,9 @@ namespace immune::sim { class SimWorld; struct SystemContext; }
 
 namespace immune::game {
 
-/// Static per-type, per-tier data. Loaded from assets/config/towers.json.
+class Economy;
+
+/// Static per-type baseline data. Loaded from assets/config/towers.json.
 ///
 /// Deliberately carries NO damage number: a tower's output is entirely its
 /// swarmers' (game/config/GameConfig.h's TowerMechanics), so a `damage` here
@@ -35,14 +37,11 @@ struct TowerStats {
     f32 fire_interval = 1.0f;    ///< Seconds between volleys.
     f32 footprint_radius = 1.0f; ///< Body radius: tower spacing and sprite size. Not an obstacle.
     u32 build_cost = 100;
-    u32 upgrade_cost = 150;
     u8 family_mask = 0xFF;       ///< Which pathogen families it can affect.
     /// Integrity the tower is placed with (comp::Health::max). The horde
     /// spends it -- viruses latch on and feed, bacteria burn it from inside
     /// their aura (sim/hostile/HostileAttacks.h) -- and at zero the tower is
-    /// torn down (TowerSystem's death system) with no refund. An upgrade
-    /// restores it in full: the tier is a rebuild. Additive to this frozen
-    /// header; every other field keeps its meaning.
+    /// torn down (TowerSystem's death system) with no refund.
     f32 max_health = 300.0f;
 };
 
@@ -50,7 +49,7 @@ enum class PlacementResult : u8 {
     Ok = 0,
     NotOnTissue,        ///< Outside the walkable/placeable mask.
     InsufficientClearance,
-    Overlapping,        ///< Too close to an existing tower.
+    Overlapping,        ///< Too close to a solid obstacle; friendly cells do not count.
     CannotAfford,
     OutsidePlacementZone,
     /// The level's schema-2 `allowed_towers` list does not include this type.
@@ -60,6 +59,8 @@ enum class PlacementResult : u8 {
     /// (game/meta/ImmunityTree.h). Distinct from TowerNotAllowed: that one is
     /// the level's rule, this one is the player's progress.
     TowerLocked,
+    NoBuildSite,          ///< A builder cannot lay or reinforce a scar nearby.
+    AtCapacity,           ///< No free swarmer slot remains.
 };
 
 /// Result of a validation query. The build cursor UI renders from this every
@@ -68,6 +69,8 @@ struct PlacementQuery {
     PlacementResult result = PlacementResult::Ok;
     Vec2 snapped_position{0.0f, 0.0f};  ///< Light snap to the tissue surface.
     f32 clearance = 0.0f;
+    Vec2 build_goal{0.0f, 0.0f};
+    bool has_build_goal = false;
     bool valid() const { return result == PlacementResult::Ok; }
 };
 
@@ -83,8 +86,8 @@ public:
     /// do not count.
     u32 towers_destroyed() const { return destroyed_; }
 
-    const TowerStats& stats(TowerType type, u8 tier) const;
-    void set_stats(TowerType type, u8 tier, const TowerStats& stats);
+    const TowerStats& stats(TowerType type) const;
+    void set_stats(TowerType type, const TowerStats& stats);
 
     /// Restricts which tower types may be built, as a bitmask over TowerType.
     /// 0 means "no restriction", which is what every level without a schema-2
@@ -116,25 +119,19 @@ public:
     PlacementQuery validate(const sim::SimWorld& world, TowerType type,
                             Vec2 world_pos, u32 available_atp) const;
 
+    /// Checks a direct cell deployment using the cell's own body size.
+    PlacementQuery validate_deploy(const sim::SimWorld& world, TowerType type,
+                                   Vec2 world_pos, u32 available_atp) const;
+
+    /// Deploys exactly one persistent cell; no tower entity is created.
+    bool deploy(sim::SimWorld& world, TowerType type, Vec2 world_pos);
+    /// Stable attribution handle for the most recently deployed cell.
+    EntityId last_deployment_id() const { return last_deployment_id_; }
+
     /// Places a tower. On success: creates the ECS entity, stamps the tissue
     /// mask, and marks the flow field dirty over the footprint.
     /// Returns an invalid EntityId if validation fails.
     EntityId place(sim::SimWorld& world, TowerType type, Vec2 world_pos);
-
-    /// Upgrades in place. Returns the new tier, or 0 if not upgradeable.
-    ///
-    /// Charges nothing: this header gives the system no Economy, so paying is
-    /// the caller's job -- price the move with upgrade_cost() and spend before
-    /// or after, but do spend. (It went unpaid in app/ from Wave 3A until the
-    /// balance harness noticed every upgrade_cost in towers.json was inert.)
-    u8 upgrade(sim::SimWorld& world, EntityId tower);
-
-    /// ATP the next tier costs for `tower`: 0 if it is already tier 3, not a
-    /// tower, or gone. Additive to this frozen header because three callers now
-    /// need the same tier arithmetic -- the build HUD (to grey the button), the
-    /// intent handler (to charge), and the balance bot (to plan a purchase) --
-    /// and three copies of it is three chances to disagree.
-    u32 upgrade_cost(const sim::SimWorld& world, EntityId tower) const;
 
     /// Sells a tower: removes the entity, restores the tissue mask, and marks
     /// the flow field dirty again. Returns the ATP refunded.
@@ -157,15 +154,22 @@ public:
     bool releasing() const { return releasing_; }
 
 private:
-    TowerStats stats_[kTowerTypeCount][3]{};
+    TowerStats stats_[kTowerTypeCount]{};
     std::vector<EntityId> towers_;
     u32 destroyed_ = 0;
+    u32 next_deployment_id_ = 1;
+    EntityId last_deployment_id_{};
     bool releasing_ = true;
     /// Bitmask over TowerType; 0 = unrestricted. See set_allowed_towers().
     u32 allowed_mask_ = 0;
     /// Literal bitmask over TowerType. See set_unlocked_towers().
     u32 unlocked_mask_ = kAllTowersMask;
 };
+
+/// Deploys up to `quantity` cells at one point, charging ATP for each success.
+/// Stops when the next cell cannot be afforded or placed.
+u32 deploy_cells(TowerSystem& towers, sim::SimWorld& world, Economy& economy,
+                 TowerType type, Vec2 world_pos, u32 quantity);
 
 /// Human-readable name, for UI and for --sim-test script parsing.
 const char* tower_type_name(TowerType type);

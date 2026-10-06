@@ -697,7 +697,7 @@ TEST_CASE("a Fibroblast releases builders that lay scars in its reach, up to its
     const Vec2 at{24.0f, 10.0f};
     const EntityId tower = towers.place(f.world, TowerType::Fibroblast, at);
     REQUIRE(tower.valid());
-    const sim::SwarmerProfile pr = game::swarmer_profile(TowerType::Fibroblast, 1);
+    const sim::SwarmerProfile pr = game::swarmer_profile(TowerType::Fibroblast);
     REQUIRE(pr.kind == SwarmerKind::Builder);
     REQUIRE(pr.max_scars > 0);
 

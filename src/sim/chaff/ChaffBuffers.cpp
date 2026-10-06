@@ -46,6 +46,10 @@ void ChaffBuffers::reserve(usize max_agents) {
     burrow_anim.assign(max_agents, 0.0f);
     body_heading.assign(max_agents, 0.0f);
     slither_phase.assign(max_agents, -1.0f);
+    toxin_rounds.assign(max_agents, 0u);
+    toxin_cooldown.assign(max_agents, -1.0f);
+    toxin_reload.assign(max_agents, -1.0f);
+    toxin_spit_pulse.assign(max_agents, 0.0f);
     next_generation_ = 1u;   // 0 is the reserved "invalid handle" generation.
     clear();
 }
@@ -76,6 +80,10 @@ void ChaffBuffers::clear() {
         burrow_anim[i] = 0.0f;
         body_heading[i] = 0.0f;
         slither_phase[i] = -1.0f;
+        toxin_rounds[i] = 0u;
+        toxin_cooldown[i] = -1.0f;
+        toxin_reload[i] = -1.0f;
+        toxin_spit_pulse[i] = 0.0f;
     }
     // Deliberately NOT resetting next_generation_: handles taken before a clear()
     // must not silently resolve to a freshly spawned agent.
@@ -126,6 +134,10 @@ ChaffHandle ChaffBuffers::spawn(const ChaffSpawnParams& p) {
     burrow_anim[i] = 0.0f;
     body_heading[i] = 0.0f;
     slither_phase[i] = -1.0f;
+    toxin_rounds[i] = 0u;
+    toxin_cooldown[i] = -1.0f;
+    toxin_reload[i] = -1.0f;
+    toxin_spit_pulse[i] = 0.0f;
     if (next_generation_ == 0u) next_generation_ = 1u;   // never hand out 0
     total_density_ += p.density;
     ++family_counts_[static_cast<u32>(p.family)];
@@ -212,6 +224,10 @@ usize ChaffBuffers::compact(u32* removed_by_family) {
             burrow_anim[i] = burrow_anim[last];
             body_heading[i] = body_heading[last];
             slither_phase[i] = slither_phase[last];
+            toxin_rounds[i] = toxin_rounds[last];
+            toxin_cooldown[i] = toxin_cooldown[last];
+            toxin_reload[i] = toxin_reload[last];
+            toxin_spit_pulse[i] = toxin_spit_pulse[last];
         }
         --count_;
         prev_pos_x[count_] = 0.0f;
@@ -235,6 +251,10 @@ usize ChaffBuffers::compact(u32* removed_by_family) {
         burrow_timer[count_] = -1.0f;
         burrow_anim[count_] = 0.0f;
         slither_phase[count_] = -1.0f;
+        toxin_rounds[count_] = 0u;
+        toxin_cooldown[count_] = -1.0f;
+        toxin_reload[count_] = -1.0f;
+        toxin_spit_pulse[count_] = 0.0f;
         // Do not advance i: the swapped-in agent must be tested too.
     }
     if (total_density_ < 0.0f) total_density_ = 0.0f;
@@ -280,6 +300,8 @@ void ChaffBuffers::assert_invariants() const {
     assert(burrow_target_x.size() == capacity_ && burrow_target_y.size() == capacity_);
     assert(burrow_anim.size() == capacity_);
     assert(body_heading.size() == capacity_ && slither_phase.size() == capacity_);
+    assert(toxin_rounds.size() == capacity_ && toxin_cooldown.size() == capacity_);
+    assert(toxin_reload.size() == capacity_ && toxin_spit_pulse.size() == capacity_);
     for (usize i = 0; i < count_; ++i) {
         assert((flags[i] & chaff_flags::kAlive) != 0);               // I1
         assert((flags[i] & chaff_flags::kPendingKill) == 0);         // post-compact

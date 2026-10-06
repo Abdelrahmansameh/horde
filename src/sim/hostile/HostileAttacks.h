@@ -8,7 +8,7 @@
 // ever died of old age. Now the two pathogen families each have a way of
 // killing the player's cells, expressed as data on the family and run here:
 //
-//   Virus     LATCH.  A virus that touches a tower or a swarmer grabs on and
+//   Virus     LATCH.  A virus within reach of a tower or swarmer grabs on and
 //                     rides it, feeding at latch_dps until the host dies (or
 //                     the virus does). It stops walking the lane: the chaff
 //                     kernel freezes a chaff_flags::kLatched agent and this
@@ -16,28 +16,24 @@
 //                     membrane and carrying it wherever the host goes. A
 //                     host can carry only so many (latch_cap_*); the rest of
 //                     the crowd walks on.
-//   Bacteria  AURA.   A bacterium burns every friendly whose body is inside
-//                     aura_radius of its centre, at aura_dps, continuously.
-//                     No state, no target, nothing to grab: it damages by
-//                     being near, and a lane full of them is a lane a
-//                     swarmer cannot loiter in.
+//   Bacteria  TOXIN.  Bacteria launch visible pellets at nearby friendlies.
+//                     Each pellet flies to the aimed position and deals one
+//                     hit on contact. Shots are staggered across the horde.
 //
-// Either family may carry either attack -- they are per-family numbers in
-// HostileFamilyParams, not code paths keyed on the family id -- and a family
-// with both at zero is exactly the old harmless horde. Towers and swarmers
-// are both hosts and both aura victims; "friendly" below means either. A
+// Any family can use these attacks: they are per-family numbers in
+// HostileFamilyParams. Towers and swarmers are both possible targets;
+// "friendly" below means either. A
 // collagen scar (sim/scar) is listed as a tower-shaped host too, with one
 // difference: it is a BAR, not a disc. FriendlyTower::half_extents says so,
 // and a bar host is measured to its nearest face, latched along that face
-// and burned wherever an aura reaches any part of it -- so a wall laid
-// across a lane is eaten from the side the horde presses on.
+// and hit when a shot reaches any part of it.
 //
 // WHY IT IS ITS OWN LAYER, AND WHY IT ITERATES FRIENDLIES
 // Ten thousand pathogens hunting for something to bite would be ten thousand
 // hash queries a tick. There are never more than a few thousand swarmers and
 // a few dozen towers, so the pass runs the other way round: every FRIENDLY
 // queries the chaff hash once around itself, finds the pathogens in reach,
-// and takes the aura damage and the new passengers from what it found. That
+// and receives toxin targets, optional aura damage, and new passengers. That
 // is the same direction the swarmer BODIES pass already walks, at the same
 // cost, and it is independent of total chaff count. Latched passengers are
 // then one serial walk of the chaff store in index order (a flag test per
@@ -89,7 +85,7 @@ struct HostileFamilyParams {
     /// this family never latches.
     f32 latch_dps = 0.0f;
     /// Extra reach past body contact (pathogen radius + host body) at which a
-    /// latch happens. Small: a latch is a touch, not a lunge.
+    /// latch happens. The shipped virus uses this for a visible lunge.
     f32 latch_reach = 0.4f;
     /// Most passengers one swarmer / one tower will carry at once. Beyond
     /// this the rest of the crowd walks on by.
@@ -112,6 +108,16 @@ struct HostileFamilyParams {
     /// `aura_radius` of this agent's centre. 0 means no aura.
     f32 aura_dps = 0.0f;
     f32 aura_radius = 3.0f;
+    /// Ranged toxin shots. Bacteria empty a magazine, then reform its pellets.
+    /// Zero damage disables shooting.
+    f32 toxin_damage = 0.0f;
+    f32 toxin_range = 0.0f;
+    f32 toxin_speed = 20.0f;
+    f32 toxin_interval = 1.2f;
+    f32 toxin_hit_radius = 0.6f;
+    /// Capped at eight to keep bursts bounded.
+    u32 toxin_magazine_size = 1;
+    f32 toxin_reload_seconds = 1.2f;
 };
 
 struct HostileTuning {
@@ -129,6 +135,7 @@ struct HostileTuning {
     u32 max_attackers = 128;
     /// PathogenLatch events raised per tick, out of the shared sink.
     u32 max_latch_events = 64;
+    u32 max_toxin_shots = 4096;
     /// Multiplier on every hit point the pass takes off a tower, scar or
     /// swarmer. Membrane Resilience (game/meta/ImmunityTree.h) lowers it; 1
     /// is the pass exactly as the families configure it.
@@ -180,15 +187,33 @@ struct HostileStats {
     u32 latched = 0;          ///< Passengers riding a host at the end of the tick.
     u32 latches_new = 0;      ///< Of those, grabbed on this tick.
     u32 released = 0;         ///< Passengers whose host went away this tick.
-    u32 aura_hits = 0;        ///< (friendly, bacterium) pairs inside an aura this tick.
+    u32 aura_hits = 0;        ///< (friendly, pathogen) pairs inside an optional aura this tick.
+    u32 toxin_fired = 0;
+    u32 toxin_hits = 0;
     u32 swarmers_killed = 0;
     f32 swarmer_damage = 0.0f;
     f32 tower_damage = 0.0f;  ///< Queued against towers; SimWorld lands it.
 };
 
+/// One visible, simulated bacterial toxin pellet. Its target identity is
+/// stable across swarmer slot reuse and tower deletion.
+struct ToxinShot {
+    Vec2 position{0.0f, 0.0f};
+    Vec2 velocity{0.0f, 0.0f};
+    f32 damage = 0.0f;
+    f32 life = 0.0f;
+    f32 radius = 0.6f;
+    u32 target_index = 0;
+    u32 target_generation = 0;
+    bool target_tower = false;
+};
+
 class HostileSystem {
 public:
-    void set_tuning(const HostileTuning& t) { tuning_ = t; }
+    void set_tuning(const HostileTuning& t) {
+        tuning_ = t;
+        toxin_shots_.reserve(t.max_toxin_shots);
+    }
     const HostileTuning& tuning() const { return tuning_; }
 
     /// Pathogen body radius per family, for the contact distances. Same
@@ -212,6 +237,7 @@ public:
                         CombatEventSink* events);
 
     const HostileStats& last_stats() const { return last_; }
+    const std::vector<ToxinShot>& toxin_shots() const { return toxin_shots_; }
 
 private:
     HostileTuning tuning_{};
@@ -225,6 +251,9 @@ private:
     /// still one attacker. Sized to the chaff store's capacity on first use.
     std::vector<u32> visit_stamp_;
     u32 visit_gen_ = 0;
+    std::vector<ToxinShot> toxin_shots_;
+    std::vector<u32> shot_stamp_;
+    u32 shot_tick_ = 0;
 };
 
 } // namespace immune::sim

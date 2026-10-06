@@ -6,13 +6,11 @@
 #include "gui/style/Theme.h"
 #include "gui/widgets/Builders.h"
 #include "gui/widgets/Widgets.h"
-#include "platform/FileIO.h"
 #include "ui/front/Backdrop.h"
 
 #include <nlohmann/json.hpp>
 
 #include <cmath>
-#include <cstdio>
 #include <fstream>
 #include <sstream>
 
@@ -20,7 +18,61 @@ namespace immune::ui {
 
 using namespace gui;
 
+namespace {
+
+/// Logical px the view keeps clear at the top of the screen (title, wallet,
+/// Play) and round the other edges when it frames something.
+constexpr f32 kTopInset = 120.0f;
+constexpr f32 kEdgeInset = 28.0f;
+/// Tree units of space kept round the revealed nodes when framing them.
+constexpr f32 kFrameMargin = 70.0f;
+/// One wheel notch, and one press of a zoom button.
+constexpr f32 kWheelStep = 1.2f;
+constexpr f32 kButtonStep = 1.45f;
+/// How fast the view eases to its target (per second, exponential).
+constexpr f32 kViewRate = 14.0f;
+/// How long a newly revealed node takes to bud into view.
+constexpr f32 kBudSeconds = 0.45f;
+/// Root labels fade out as the view zooms out past these.
+constexpr f32 kLabelFadeFrom = 0.62f;
+constexpr f32 kLabelFadeTo = 0.5f;
+
+// Tree units.
+constexpr f32 kVesselWall = 14.0f;
+constexpr f32 kVesselLumen = 7.0f;
+/// Plasma flowing out along the lit vessels: dots this far apart, moving
+/// this fast (the canvas's `flow` keyframe), shown only once big enough to see.
+constexpr f32 kFlowDot = 1.9f;
+constexpr f32 kFlowSpacing = 22.0f;
+constexpr f32 kFlowSpeed = 44.0f / 1.8f;
+constexpr f32 kFlowMinZoom = 0.45f;
+
+void fill_parent(Widget& w) {
+    anchor(w, Vec2{0, 0}, Vec2{0, 0});
+    w.layout.width = Size::pct(1.0f);
+    w.layout.height = Size::pct(1.0f);
+}
+
+std::string level_text(const TreeNodeView& n) {
+    return n.max_level > 1 ? std::to_string(n.level) + "/" + std::to_string(n.max_level) : std::string();
+}
+
+} // namespace
+
 // ---- Layout file ---------------------------------------------------------------------
+
+Rect TreeLayout::bounds() const {
+    Rect r{Vec2{1e9f, 1e9f}, Vec2{-1e9f, -1e9f}};
+    auto grow = [&r](Vec2 p, f32 radius) {
+        r.min.x = math::min(r.min.x, p.x - radius);
+        r.min.y = math::min(r.min.y, p.y - radius);
+        r.max.x = math::max(r.max.x, p.x + radius);
+        r.max.y = math::max(r.max.y, p.y + radius);
+    };
+    for (const auto& [key, n] : nodes) grow(n.at, n.size * 0.5f);
+    if (r.min.x > r.max.x) return Rect{Vec2{-1.0f, -1.0f}, Vec2{1.0f, 1.0f}};
+    return r;
+}
 
 bool parse_tree_layout(const std::string& text, TreeLayout& out, std::string* error) {
     const nlohmann::json j = nlohmann::json::parse(text, nullptr, false);
@@ -34,23 +86,6 @@ bool parse_tree_layout(const std::string& text, TreeLayout& out, std::string* er
             l.nodes[key] = TreeLayout::Node{Vec2{n.at("x").get<f32>(), n.at("y").get<f32>()}, n.at("size").get<f32>(),
                                             n.at("icon").get<std::string>()};
         }
-        for (const auto& v : j.at("vessels")) {
-            TreeLayout::Vessel vessel;
-            vessel.d = v.at("d").get<std::string>();
-            vessel.wall = v.value("wall", 10.0f);
-            vessel.lumen = v.value("lumen", 5.0f);
-            vessel.node = v.value("node", std::string());
-            vessel.flow = v.value("flow", 0.0f);
-            l.vessels.push_back(std::move(vessel));
-        }
-        for (const auto& b : j.at("labels")) {
-            l.labels.push_back(TreeLayout::Label{Vec2{b.at("x").get<f32>(), b.at("y").get<f32>()},
-                                                 b.at("text").get<std::string>(), b.value("style", std::string("root")),
-                                                 b.value("branch", std::string())});
-        }
-        const auto& hub = j.at("hub");
-        l.hub = Vec2{hub.at("x").get<f32>(), hub.at("y").get<f32>()};
-        l.hub_scale = hub.value("scale", 0.72f);
     } catch (const nlohmann::json::exception& e) {
         if (error) *error = std::string("tree layout: ") + e.what();
         return false;
@@ -70,84 +105,44 @@ bool load_tree_layout(const std::string& path, TreeLayout& out, std::string* err
     return parse_tree_layout(ss.str(), out, error);
 }
 
-// ---- Widgets -------------------------------------------------------------------------
-
-/// Every vessel of the tree in one widget: walls, lumens lit by what the
-/// player owns, and plasma flowing along the trunks.
-class TreeVessels : public Widget {
-public:
-    struct Entry {
-        Path path;
-        f32 wall, lumen, flow;
-        std::string node;
-        bool lit = true;
-    };
-    std::vector<Entry> entries;
-    /// Set when a vessel's lit state changes: the walls and lumens are
-    /// tessellated once into a mesh and only re-recorded then.
-    bool dirty = true;
-
-    TreeVessels() : Widget("vessels") {}
-
-    void draw_self(DrawList& dl) override {
-        if (dirty || mesh_origin_ != rect().min || mesh_device_px_ != dl.device_px()) record(dl);
-        dl.append_solid(mesh_.vertices, mesh_.indices);
-        // Plasma flowing along the trunks, on top.
-        StrokeStyle s;
-        s.color = with_alpha(kWhite, 0.35f);
-        s.dash_length = 4.0f;
-        s.dash_gap = 18.0f;
-        s.dash_offset = -loop::flow_dash_offset(dl.time());
-        dl.push_transform(Affine2::translate(rect().min));
-        for (const Entry& e : entries) {
-            if (e.flow <= 0.0f) continue;
-            s.width = e.flow;
-            e.path.stroke(dl, s);
-        }
-        dl.pop_transform();
-    }
-
-private:
-    void record(const DrawList& dl) {
-        const Theme& th = gui()->theme();
-        DrawList scratch;
-        scratch.reset(dl.viewport(), dl.device_px(), 0.0f);
-        scratch.push_transform(Affine2::translate(rect().min));
-        for (const Entry& e : entries) {
-            StrokeStyle s;
-            s.width = e.wall;
-            s.color = th.color("plum");
-            e.path.stroke(scratch, s);
-            s.width = e.lumen;
-            s.color = th.color(e.lit ? "lavender" : "vein_off");
-            e.path.stroke(scratch, s);
-        }
-        mesh_.capture(scratch);
-        mesh_origin_ = rect().min;
-        mesh_device_px_ = dl.device_px();
-        dirty = false;
-    }
-
-    SolidMesh mesh_;
-    Vec2 mesh_origin_{-1e9f, -1e9f};
-    f32 mesh_device_px_ = 0.0f;
-};
+// ---- Nodes ---------------------------------------------------------------------------
 
 /// One node: a wobbly cell (a spiky star for a capstone) whose fill and rim
 /// say its state, its glyph, and level pips round its lower rim. Geometry in
-/// the canvas's 100-unit node viewBox.
+/// the canvas's 100-unit node viewBox, so it scales with the view.
 class TreeNodeButton : public Button {
 public:
-    TreeNodeButton(Gui& g, std::string id, f32 size, std::string icon)
-        : Button(std::move(id)), gui_(g), icon_(std::move(icon)) {
-        fixed_size(*this, size, size);
+    TreeNodeButton(Gui& g, std::string id, std::string icon) : Button(std::move(id)), gui_(g), icon_(std::move(icon)) {
         shape.kind = ShapeKind::Ellipse;
         hover_scale = 1.08f;
+        visible = false;
     }
 
     TreeNodeView view;
-    bool selected = false;
+    /// 1 once on the map; eases up from 0 as a newly revealed node buds in.
+    Tween bud{1.0f};
     const std::string& icon_name() const { return icon_; }
+
+    void on_event(Event& e) override {
+        // Every node hovers and springs; clicking one that cannot be bought
+        // right now is the deny shake, not a purchase.
+        if (e.type == EventType::Click && e.button == PointerButton::Left &&
+            view.state != TreeNodeState::Available) {
+            shake();
+            gui_.play(UiSound::Deny);
+            e.handled = true;
+            return;
+        }
+        Button::on_event(e);
+    }
+
+    void update(f32 dt) override {
+        Button::update(dt);
+        bud.update(dt);
+        const f32 b = bud.value();
+        opacity = math::saturate(b * 1.6f);
+        if (b < 1.0f || !bud.done()) anim_transform = anim_transform * Affine2::scale(math::max(b, 0.05f));
+    }
 
     void draw_self(DrawList& dl) override {
         const Theme& th = gui_.theme();
@@ -169,22 +164,10 @@ public:
             halo.stroke_width = 4.0f * u;
             dl.shape(halo);
         }
-        if (selected) {
-            ShapeDesc ring;
-            ring.kind = ShapeKind::Arc;
-            ring.center = c;
-            ring.half_size = Vec2{62.0f, 62.0f} * u;
-            ring.stroke = kWhite;
-            ring.stroke_width = 6.0f * u;
-            ring.dash_length = 14.0f * u;
-            ring.dash_gap = 10.0f * u;
-            ring.dash_offset = -loop::spin_rotation(t) * ring.half_size.x;
-            dl.shape(ring);
-        }
 
         if (locked) dl.push_alpha(0.5f);
-        // Canvas: a ~40-unit cell with a gentle wobble; capstones are an
-        // 8-lobed star between 34 and 44 units.
+        // A ~40-unit cell with a gentle wobble; capstones are an 8-lobed
+        // star between 34 and 44 units.
         ShapeDesc body;
         body.kind = ShapeKind::Ellipse;
         body.center = c;
@@ -229,7 +212,7 @@ public:
                           : view.role == TreeNodeRole::AbilityRoot ? 49.5f
                                                                    : 60.8f;
         const Vec2 gh = Vec2{glyph, glyph} * (0.5f * u);
-        gui_.icons().draw(dl, icon_, Rect{c - gh, c + gh}, kWhite, gui_.scale());
+        gui_.icons().draw_zoomable(dl, icon_, Rect{c - gh, c + gh}, kWhite, gui_.scale());
 
         // Level pips: 23 degrees apart round the bottom, filled from the right.
         if (view.role == TreeNodeRole::Stat) {
@@ -255,35 +238,357 @@ private:
     std::string icon_;
 };
 
+// ---- The view ------------------------------------------------------------------------
+
+/// The nodes and the vessels between them, seen through a camera the player
+/// pans and zooms. Children (nodes and their name pills) are placed here
+/// every layout from their tree positions; the vessels are drawn in
+/// draw_self, tessellated once per zoom and replayed while panning.
+/// Anonymous, so node paths stay "tree/<key>".
+class TreeCanvas : public Widget {
+public:
+    using View = TreeScreen::View;
+
+    explicit TreeCanvas(const TreeLayout& layout) : bounds_(layout.bounds()) {
+        interactive = true;
+    }
+
+    /// Runs after this frame's layout and input (the card follows the nodes).
+    std::function<void(f32)> on_tick;
+
+    TreeNodeButton& add_node(Gui& g, const std::string& key, const TreeLayout::Node& at) {
+        TreeNodeButton& b = emplace<TreeNodeButton>(g, key, at.icon);
+        nodes_.push_back(Slot{&b, at.at, at.size});
+        index_[key] = nodes_.size() - 1;
+        return b;
+    }
+
+    /// A name pill under a node; it shows with the node.
+    void add_label(Panel& pill, const std::string& key) {
+        if (index_.count(key) != 0) pills_.push_back(Pill{&pill, index_[key]});
+    }
+
+    /// The vessel from `parent` to `child`; `grandparent` ("" at the root)
+    /// is where the vessel feeding the parent comes from.
+    void add_edge(const std::string& grandparent, const std::string& parent, const std::string& child) {
+        const auto p = index_.find(parent), c = index_.find(child);
+        if (p == index_.end() || c == index_.end()) return;
+        Edge e;
+        e.parent = p->second;
+        e.child = c->second;
+        // A cubic that leaves the parent partly along the vessel feeding it
+        // and arrives at the child head-on, so branches fork the way vessels do.
+        const Vec2 a = nodes_[e.parent].at, b = nodes_[e.child].at;
+        const f32 len = math::length(b - a);
+        const Vec2 dir = math::normalize_safe(b - a);
+        const auto g = index_.find(grandparent);
+        const Vec2 trunk = g == index_.end() ? dir : math::normalize_safe(a - nodes_[g->second].at);
+        const Vec2 leave = math::normalize_safe(trunk * 0.45f + dir);
+        e.path.move_to(a);
+        e.path.cubic_to(a + leave * (len * 0.38f), b - dir * (len * 0.30f), b);
+        for (const Path::Contour& contour : e.path.contours()) {
+            for (const Vec2& q : contour.points) {
+                e.along.push_back(e.line.empty() ? 0.0f : e.along.back() + math::length(q - e.line.back()));
+                e.line.push_back(q);
+            }
+        }
+        edges_.push_back(std::move(e));
+        strokes_dirty_ = true;
+    }
+
+    // ---- The camera ----------------------------------------------------------------
+
+    View target() const { return target_; }
+    bool dragging() const { return dragging_; }
+
+    void set_view(View v) {
+        // Before the first layout there is no screen to clamp to yet; the
+        // layout clamps it.
+        cam_ = target_ = rect().size().x >= 1.0f ? clamp(v) : v;
+        pin_ = false;
+        frame_pending_ = false;
+    }
+    void finish_animation() {
+        cam_ = target_;
+        pin_ = false;
+    }
+
+    /// Zooms by `factor` keeping the tree point under `screen` where it is.
+    void zoom_at(Vec2 screen, f32 factor) {
+        const Vec2 tree = target_.center + (screen - anchor()) / target_.zoom;
+        View next = target_;
+        next.zoom = clamp_zoom(target_.zoom * factor);
+        next.center = tree - (screen - anchor()) / next.zoom;
+        const View clamped = clamp(next);
+        target_ = clamped;
+        // Hold that point still while the zoom eases, unless the edge of the
+        // tree stopped the view (then it just eases to where it must be).
+        pin_ = math::length_sq(clamped.center - next.center) < 1e-4f;
+        pin_screen_ = screen;
+        pin_tree_ = tree;
+    }
+
+    /// Frames every revealed node (or snaps there before the first layout).
+    void frame_revealed(bool animate) {
+        if (rect().size().x < 1.0f) {
+            frame_pending_ = true;
+            return;
+        }
+        Rect box{Vec2{1e9f, 1e9f}, Vec2{-1e9f, -1e9f}};
+        for (const Slot& s : nodes_) {
+            if (!s.button->visible) continue;
+            const f32 r = s.size * 0.5f + kFrameMargin;
+            box.min = Vec2{math::min(box.min.x, s.at.x - r), math::min(box.min.y, s.at.y - r)};
+            box.max = Vec2{math::max(box.max.x, s.at.x + r), math::max(box.max.y, s.at.y + r)};
+        }
+        if (box.min.x > box.max.x) box = bounds_;
+        const Rect safe = safe_area();
+        View v;
+        v.zoom = math::clamp(math::min(safe.size().x / box.size().x, safe.size().y / box.size().y), min_zoom(),
+                             TreeScreen::kFrameZoom);
+        v.center = box.center() - (safe.center() - anchor()) / v.zoom;
+        target_ = clamp(v);
+        pin_ = false;
+        if (!animate) cam_ = target_;
+    }
+
+    // ---- Widget ----------------------------------------------------------------------
+
+    void on_event(Event& e) override {
+        switch (e.type) {
+            case EventType::DragStart:
+                dragging_ = true;
+                pin_ = false;
+                break;
+            case EventType::Drag:
+                cam_.center = cam_.center - e.delta / cam_.zoom;
+                cam_ = clamp(cam_);
+                target_.center = cam_.center;
+                target_ = clamp(target_);
+                e.handled = true;
+                break;
+            case EventType::DragEnd:
+                dragging_ = false;
+                break;
+            case EventType::Wheel:
+                zoom_at(e.pos, std::pow(kWheelStep, e.wheel));
+                e.handled = true;
+                break;
+            default:
+                break;
+        }
+    }
+
+    void update(f32 dt) override {
+        // Ease the view: zoom geometrically, the centre either pinned to the
+        // point being zoomed about or straight to its target.
+        const f32 a = 1.0f - std::exp(-kViewRate * dt);
+        cam_.zoom = std::exp(math::lerp(std::log(cam_.zoom), std::log(target_.zoom), a));
+        cam_.center = pin_ ? pin_tree_ - (pin_screen_ - anchor()) / cam_.zoom
+                           : math::lerp(cam_.center, target_.center, a);
+        if (std::fabs(cam_.zoom / target_.zoom - 1.0f) < 1e-3f &&
+            math::length(cam_.center - target_.center) * cam_.zoom < 0.25f) {
+            cam_ = target_;
+            pin_ = false;
+        }
+        // A node that finished budding joins the cached vessels; one whose
+        // owned state changed relights its vessel.
+        for (Edge& e : edges_) {
+            const TreeNodeButton& child = *nodes_[e.child].button;
+            const bool settled = child.visible && child.bud.done();
+            const bool lit = child.view.level > 0;
+            if (settled != e.settled || lit != e.lit) strokes_dirty_ = true;
+            e.settled = settled;
+            e.lit = lit;
+        }
+        if (on_tick) on_tick(dt);
+    }
+
+    void draw_self(DrawList& dl) override {
+        const f32 z = drawn_.zoom;
+        const Vec2 origin = anchor() - drawn_.center * z;
+
+        // The settled vessels, tessellated at the zoom they are seen at;
+        // re-tessellated once the view settles at a new zoom.
+        const f32 ratio = z / strokes_zoom_;
+        const bool settled = cam_.zoom == target_.zoom;
+        if (strokes_dirty_ || strokes_device_px_ != dl.device_px() || ratio > 1.3f || ratio < 1.0f / 1.3f ||
+            (settled && std::fabs(ratio - 1.0f) > 0.002f)) {
+            record_strokes(dl, z);
+        }
+        dl.push_transform(Affine2::translate(origin) * Affine2::scale(z / strokes_zoom_));
+        dl.append_solid(strokes_.vertices, strokes_.indices);
+        dl.pop_transform();
+
+        // Vessels still budding in, and plasma flowing out along the lit ones.
+        dl.push_transform(Affine2::translate(origin) * Affine2::scale(z));
+        for (const Edge& e : edges_) {
+            const TreeNodeButton& child = *nodes_[e.child].button;
+            if (!child.visible || e.settled) continue;
+            dl.push_alpha(math::saturate(child.bud.value()));
+            stroke_vessel(dl, e, true);
+            stroke_vessel(dl, e, false);
+            dl.pop_alpha();
+        }
+        if (z >= kFlowMinZoom) {
+            // One SDF dot per drop of plasma: a quad each, where a dashed
+            // stroke would tessellate two round caps per dash every frame.
+            ShapeDesc dot;
+            dot.kind = ShapeKind::Ellipse;
+            dot.half_size = Vec2{kFlowDot, kFlowDot};
+            dot.fill = with_alpha(kWhite, 0.35f);
+            const f32 phase = std::fmod(dl.time() * kFlowSpeed, kFlowSpacing);
+            const Rect screen = rect();
+            for (const Edge& e : edges_) {
+                if (!e.settled || !e.lit || e.line.size() < 2) continue;
+                usize seg = 0;
+                for (f32 at = phase; at < e.along.back(); at += kFlowSpacing) {
+                    while (seg + 2 < e.line.size() && e.along[seg + 1] < at) ++seg;
+                    const f32 span = math::max(e.along[seg + 1] - e.along[seg], 1e-4f);
+                    dot.center = math::lerp(e.line[seg], e.line[seg + 1], math::saturate((at - e.along[seg]) / span));
+                    if (screen.contains(origin + dot.center * z)) dl.shape(dot);
+                }
+            }
+        }
+        dl.pop_transform();
+    }
+
+    /// Only what is on screen records anything: zoomed in, most of the tree
+    /// is off it.
+    void draw(DrawList& dl) override {
+        if (!visible) return;
+        draw_self(dl);
+        const f32 margin = 40.0f;
+        const Rect view{rect().min - Vec2{margin, margin}, rect().max + Vec2{margin, margin}};
+        for (const auto& c : children()) {
+            if (c->visible && c->rect().overlaps(view)) c->draw(dl);
+        }
+    }
+
+protected:
+    void arrange_children(Rect) override {
+        if (frame_pending_ && rect().size().x >= 1.0f) {
+            frame_pending_ = false;
+            frame_revealed(false);
+        }
+        // The viewport may have changed under a settled view.
+        cam_ = clamp(cam_);
+        target_ = clamp(target_);
+        drawn_ = cam_;
+        const f32 z = drawn_.zoom;
+        for (const Slot& s : nodes_) {
+            if (!s.button->visible) continue;
+            const Vec2 c = to_screen(s.at);
+            const Vec2 h{s.size * z * 0.5f, s.size * z * 0.5f};
+            s.button->arrange(Rect{c - h, c + h});
+        }
+        // Name pills hang under their node and shrink with the view, fading
+        // out once they would be too small to read.
+        const f32 fade = math::saturate((z - kLabelFadeTo) / (kLabelFadeFrom - kLabelFadeTo));
+        for (const Pill& l : pills_) {
+            const Slot& s = nodes_[l.node];
+            l.pill->visible = s.button->visible && fade > 0.0f;
+            if (!l.pill->visible) continue;
+            l.pill->opacity = fade * s.button->opacity;
+            const Vec2 size = l.pill->measure(Vec2{kUnbounded, kUnbounded});
+            const Vec2 c = to_screen(s.at) + Vec2{0.0f, (s.size * 0.5f + 10.0f) * z + size.y * 0.5f * z};
+            l.pill->arrange(Rect{c - size * 0.5f, c + size * 0.5f});
+            l.pill->anim_transform = Affine2::scale(z);
+        }
+    }
+
+private:
+    struct Slot {
+        TreeNodeButton* button;
+        Vec2 at;
+        f32 size;
+    };
+    struct Pill {
+        Panel* pill;
+        usize node;
+    };
+    struct Edge {
+        usize parent = 0, child = 0;
+        Path path;
+        /// The path flattened, and the distance along it at each point.
+        std::vector<Vec2> line;
+        std::vector<f32> along;
+        bool settled = false;  ///< In the cached strokes.
+        bool lit = false;
+    };
+
+    Vec2 anchor() const { return rect().center(); }
+    Vec2 to_screen(Vec2 tree) const { return anchor() + (tree - drawn_.center) * drawn_.zoom; }
+
+    /// Where framed things go: the screen minus the top bar and a margin.
+    Rect safe_area() const {
+        const Rect r = rect();
+        Rect s{Vec2{r.min.x + kEdgeInset, r.min.y + kTopInset}, Vec2{r.max.x - kEdgeInset, r.max.y - kEdgeInset}};
+        if (s.max.x <= s.min.x || s.max.y <= s.min.y) s = r;
+        return s;
+    }
+    /// Zoomed all the way out, the whole tree fills the safe area.
+    f32 min_zoom() const {
+        const Rect safe = safe_area();
+        const Vec2 b = bounds_.size() + Vec2{kFrameMargin, kFrameMargin} * 2.0f;
+        if (safe.size().x <= 0.0f || b.x <= 0.0f || b.y <= 0.0f) return TreeScreen::kMaxZoom;
+        return math::min(math::min(safe.size().x / b.x, safe.size().y / b.y), TreeScreen::kMaxZoom);
+    }
+    f32 clamp_zoom(f32 z) const { return math::clamp(z, min_zoom(), TreeScreen::kMaxZoom); }
+    /// Keeps the zoom in range and the middle of the screen over the tree.
+    View clamp(View v) const {
+        v.zoom = clamp_zoom(v.zoom);
+        v.center.x = math::clamp(v.center.x, bounds_.min.x, bounds_.max.x);
+        v.center.y = math::clamp(v.center.y, bounds_.min.y, bounds_.max.y);
+        return v;
+    }
+
+    void stroke_vessel(DrawList& dl, const Edge& e, bool wall) const {
+        const Theme& th = gui()->theme();
+        StrokeStyle s;
+        s.width = wall ? kVesselWall : kVesselLumen;
+        s.color = wall ? th.color("plum") : th.color(nodes_[e.child].button->view.level > 0 ? "lavender" : "vein_off");
+        e.path.stroke(dl, s);
+    }
+
+    void record_strokes(const DrawList& dl, f32 zoom) {
+        DrawList scratch;
+        scratch.reset(dl.viewport(), dl.device_px(), 0.0f);
+        scratch.push_transform(Affine2::scale(zoom));
+        // Every wall, then every lumen, so a fork's lumens join cleanly.
+        for (const bool wall : {true, false}) {
+            for (const Edge& e : edges_) {
+                if (e.settled) stroke_vessel(scratch, e, wall);
+            }
+        }
+        strokes_.capture(scratch);
+        strokes_zoom_ = zoom;
+        strokes_device_px_ = dl.device_px();
+        strokes_dirty_ = false;
+    }
+
+    Rect bounds_;
+    std::vector<Slot> nodes_;
+    std::map<std::string, usize> index_;
+    std::vector<Pill> pills_;
+    std::vector<Edge> edges_;
+
+    View cam_, target_, drawn_;
+    bool frame_pending_ = true;
+    bool dragging_ = false;
+    bool pin_ = false;
+    Vec2 pin_screen_{0.0f, 0.0f}, pin_tree_{0.0f, 0.0f};
+
+    SolidMesh strokes_;
+    f32 strokes_device_px_ = 0.0f;
+    f32 strokes_zoom_ = 1.0f;
+    bool strokes_dirty_ = true;
+};
+
 // ---- Screen ------------------------------------------------------------------------
 
-namespace {
-
-void fill_parent(Widget& w) {
-    anchor(w, Vec2{0, 0}, Vec2{0, 0});
-    w.layout.width = Size::pct(1.0f);
-    w.layout.height = Size::pct(1.0f);
-}
-
-Panel& pill(Widget& parent, Theme& th, std::string id, const char* shape, const std::string& label, const char* style) {
-    Panel& p = parent.emplace<Panel>(std::move(id), th.shape(shape));
-    p.blocks_pointer = false;
-    p.layout.axis = Axis::Stack;
-    p.layout.align = Align::Center;
-    p.layout.padding = Insets{12, 5, 12, 5};
-    text(p, "text", label, th.text(style), TextAlign::Center);
-    return p;
-}
-
-std::string with_dot_points(const std::string& name, u32 points, u32 threshold) {
-    char buf[32];
-    std::snprintf(buf, sizeof(buf), " \xC2\xB7 %u/%u", math::min(points, threshold), threshold);
-    return name + buf;
-}
-
-} // namespace
-
-TreeScreen::TreeScreen(Gui& gui, Widget& root, const TreeLayout& layout, std::function<void(MenuResult)> emit)
+TreeScreen::TreeScreen(Gui& gui, Widget& root, const TreeLayout& layout, const TreeModel& model,
+                       std::function<void(MenuResult)> emit, const View* view)
     : gui_(gui), emit_(std::move(emit)) {
     Theme& th = gui_.theme();
     fill_parent(root.emplace<TissueBackdrop>("backdrop"));
@@ -291,51 +596,39 @@ TreeScreen::TreeScreen(Gui& gui, Widget& root, const TreeLayout& layout, std::fu
     veil.shape.fill = with_alpha(th.color("dim"), 0.5f);
     fill_parent(veil);
 
-    // The tree itself, in canvas pixels, centred across and pinned to the
-    // top, so on a taller-than-16:9 screen its top bar stays level with the
-    // title and the wallet.
-    Widget& stage = root.emplace<Widget>();
-    anchor(stage, Vec2{0.5f, 0.0f}, Vec2{0.5f, 0.0f});
-    fixed_size(stage, 1920.0f, 1080.0f);
-
-    vessels_ = &stage.emplace<TreeVessels>();
-    fill_parent(*vessels_);
-    for (const TreeLayout::Vessel& v : layout.vessels) {
-        TreeVessels::Entry e;
-        e.path.svg(v.d);
-        e.wall = v.wall;
-        e.lumen = v.lumen;
-        e.flow = v.flow;
-        e.node = v.node;
-        vessels_->entries.push_back(std::move(e));
+    // ---- The tree ----
+    canvas_ = &root.emplace<TreeCanvas>(layout);
+    fill_parent(*canvas_);
+    // Name pills first, so the nodes draw (and take the pointer) over them.
+    std::vector<std::pair<Panel*, std::string>> pills;
+    for (const TreeNodeView& n : model.nodes) {
+        if (layout.nodes.count(n.key) == 0) continue;
+        if (n.role != TreeNodeRole::TowerRoot && n.role != TreeNodeRole::AbilityRoot) continue;
+        Panel& p = canvas_->emplace<Panel>(std::string(), th.shape("level.pill"));
+        p.blocks_pointer = false;
+        p.visible = false;
+        p.layout.axis = Axis::Stack;
+        p.layout.align = Align::Center;
+        p.layout.padding = Insets{12, 5, 12, 5};
+        text(p, "text", n.name, th.text(n.role == TreeNodeRole::TowerRoot ? "level_pill" : "tree_pill_small"),
+             TextAlign::Center);
+        pills.emplace_back(&p, n.key);
     }
-    Icon& hub = stage.emplace<Icon>("hub", "tree_hub");
-    const f32 hub_px = 228.0f * layout.hub_scale;
-    fixed_size(hub, hub_px, hub_px);
-    anchor(hub, Vec2{0, 0}, Vec2{0.5f, 0.5f}, layout.hub);
-
-    for (const TreeLayout::Label& l : layout.labels) {
-        const bool cap = l.style == "capstone";
-        Panel& p = pill(stage, th, {}, cap ? "pill.capstone" : "level.pill", l.text,
-                        cap ? "tree_capstone" : l.style == "ability" ? "tree_pill_small" : "level_pill");
-        anchor(p, Vec2{0, 0}, Vec2{0.5f, 0.0f}, l.at);
-        if (cap) {
-            for (usize b = 0; b < kTreeBranchIds.size(); ++b) {
-                if (l.branch == kTreeBranchIds[b]) {
-                    capstone_labels_.push_back({static_cast<Label*>(p.children().front().get()), b});
-                    capstone_names_.push_back(l.text);
-                }
-            }
-        }
-    }
-
-    for (const auto& [key, n] : layout.nodes) {
-        TreeNodeButton& b = stage.emplace<TreeNodeButton>(gui_, key, n.size, n.icon);
-        anchor(b, Vec2{0, 0}, Vec2{0.5f, 0.5f}, n.at);
-        const std::string k = key;
-        b.on_click = [this, k] { select(k); };
+    for (const TreeNodeView& n : model.nodes) {
+        const auto at = layout.nodes.find(n.key);
+        if (at == layout.nodes.end()) continue;
+        TreeNodeButton& b = canvas_->add_node(gui_, n.key, at->second);
+        const std::string key = n.key;
+        b.on_click = [this, key] { buy(key); };
         nodes_[key] = &b;
     }
+    for (const auto& [pill, key] : pills) canvas_->add_label(*pill, key);
+    for (const TreeNodeView& n : model.nodes) {
+        if (n.parent.empty()) continue;
+        const TreeNodeView* parent = model.find(n.parent);
+        canvas_->add_edge(parent != nullptr ? parent->parent : std::string(), n.parent, n.key);
+    }
+    canvas_->on_tick = [this](f32 dt) { tick(dt); };
 
     // ---- Top-left: back and title ----
     Button& back = root.emplace<Button>("back", th.shape("button.back"));
@@ -348,54 +641,6 @@ TreeScreen::TreeScreen(Gui& gui, Widget& root, const TreeLayout& layout, std::fu
     back.on_click = [this] { emit_(MenuResult{MenuAction::Back}); };
     Label& title = text(root, "title", "Strengthen Immunity", th.text("screen_title"));
     anchor(title, Vec2{0, 0}, Vec2{0, 0}, Vec2{110, 30});
-
-    // ---- Top bar: the selected node ----
-    Panel& info = stage.emplace<Panel>("info", th.shape("panel.info"));
-    anchor(info, Vec2{0, 0}, Vec2{0, 0}, Vec2{640, 14});
-    fixed_size(info, 780, 96);
-    info.layout.axis = Axis::Row;
-    info.layout.align = Align::Center;
-    info.layout.gap = 14.0f;
-    info.layout.padding = Insets{18, 0, 22, 0};
-    Panel& disc = info.emplace<Panel>("glyph", th.shape("tree.glyph"));
-    fixed_size(disc, 64, 64);
-    disc.layout.axis = Axis::Stack;
-    disc.layout.align = Align::Center;
-    disc.blocks_pointer = false;
-    info_icon_ = &icon(disc, "icon", "stat_damage", 50.0f);
-    Widget& words = column(info, 2.0f, Align::Start, "words");
-    // Takes what the glyph, price and Grow leave (the description ellipsizes).
-    words.layout.width = Size::fill();
-    Widget& head = row(words, 8.0f, Align::End);
-    info_name_ = &text(head, "name", "", th.text("tree_name"));
-    info_level_ = &text(head, "level", "", th.text("tree_level"));
-    info_desc_ = &text(words, "desc", "", th.text("tree_desc"));
-    info_desc_->ellipsize = true;
-    info_desc_->layout.width = Size::fill();
-    info_req_ = &text(words, "req", "", th.text("tree_req"));
-    info_mem_ = &row(info, 4.0f, Align::Center, "cost_mc");
-    icon(*info_mem_, "icon", "memory_cell", 24.0f);
-    info_mem_value_ = &text(*info_mem_, "value", "", th.text("tree_cost"));
-    info_ab_ = &row(info, 4.0f, Align::Center, "cost_ab");
-    icon(*info_ab_, "icon", "antibody", 24.0f);
-    info_ab_value_ = &text(*info_ab_, "value", "", th.text("tree_cost"));
-    grow_ = &info.emplace<Button>("grow", th.shape("button.grow"));
-    grow_->has_disabled_shape = true;
-    grow_->disabled_shape = th.shape("button.grow.off");
-    grow_->layout.height = Size::px(54.0f);
-    grow_->layout.min_size = Vec2{112.0f, 0.0f};
-    grow_->layout.axis = Axis::Stack;
-    grow_->layout.align = Align::Center;
-    grow_->layout.padding = Insets{18, 0, 18, 0};
-    grow_label_ = &text(*grow_, "label", "Grow", th.text("tree_grow"), TextAlign::Center);
-    grow_->on_click = [this] {
-        const TreeNodeView* n = model_.find(selected_);
-        if (n != nullptr && n->state == TreeNodeState::Available) {
-            MenuResult r{MenuAction::PurchaseNode};
-            r.node = n->node;
-            emit_(r);
-        }
-    };
 
     // ---- Top-right: wallet, respec, Play ----
     Widget& right = row(root, 14.0f, Align::Center);
@@ -437,75 +682,171 @@ TreeScreen::TreeScreen(Gui& gui, Widget& root, const TreeLayout& layout, std::fu
     play.layout.align_self = Align::Start;
     play.tooltip = "Choose a level";
     play.on_click = [this] { emit_(MenuResult{MenuAction::OpenLevelSelect}); };
+
+    // ---- Bottom-right: the view ----
+    Widget& controls = column(root, 12.0f, Align::Center, "view");
+    anchor(controls, Vec2{1, 1}, Vec2{1, 1}, Vec2{-34, -34});
+    auto view_button = [&](const char* id, const char* glyph, const char* tip, std::function<void()> fn) {
+        Button& b = controls.emplace<Button>(id, th.shape("button.back"));
+        fixed_size(b, 56, 56);
+        b.layout.axis = Axis::Stack;
+        b.layout.align = Align::Center;
+        icon(b, "glyph", glyph, 46.0f);
+        b.tooltip = tip;
+        b.on_click = std::move(fn);
+    };
+    view_button("zoom_in", "glyph_plus", "Zoom in (or scroll)", [this] { zoom_by(kButtonStep); });
+    view_button("zoom_out", "glyph_minus", "Zoom out (or scroll); drag to look around",
+                [this] { zoom_by(1.0f / kButtonStep); });
+    view_button("recenter", "glyph_recenter", "Show everything grown so far", [this] { recenter(); });
+
+    // ---- The card of the hovered node, over everything ----
+    card_ = &root.emplace<Panel>("card", th.shape("tree.card"));
+    card_->blocks_pointer = false;
+    card_->accepts_pointer = false;
+    card_->visible = false;
+    anchor(*card_, Vec2{0, 0}, Vec2{0, 0});
+    card_->layout.axis = Axis::Column;
+    card_->layout.gap = 6.0f;
+    card_->layout.padding = Insets{20, 16, 22, 18};
+    card_->layout.max_size = Vec2{420.0f, kUnbounded};
+    Widget& head = row(*card_, 12.0f, Align::Center, "head");
+    Panel& disc = head.emplace<Panel>("glyph", th.shape("tree.glyph"));
+    fixed_size(disc, 56, 56);
+    disc.layout.axis = Axis::Stack;
+    disc.layout.align = Align::Center;
+    disc.blocks_pointer = false;
+    card_icon_ = &icon(disc, "icon", "stat_damage", 44.0f);
+    Widget& title_row = row(head, 8.0f, Align::End, "title");
+    card_name_ = &text(title_row, "name", "", th.text("tree_name"));
+    card_level_ = &text(title_row, "level", "", th.text("tree_level"));
+    card_desc_ = &text(*card_, "desc", "", th.text("tree_desc"));
+    card_desc_->wrap = true;
+    card_req_ = &text(*card_, "req", "", th.text("tree_req"));
+    card_req_->wrap = true;
+    Widget& foot = row(*card_, 14.0f, Align::Center, "foot");
+    card_mem_ = &row(foot, 4.0f, Align::Center, "cost_mc");
+    icon(*card_mem_, "icon", "memory_cell", 24.0f);
+    card_mem_value_ = &text(*card_mem_, "value", "", th.text("tree_cost"));
+    card_ab_ = &row(foot, 4.0f, Align::Center, "cost_ab");
+    icon(*card_ab_, "icon", "antibody", 24.0f);
+    card_ab_value_ = &text(*card_ab_, "value", "", th.text("tree_cost"));
+    card_hint_ = &text(foot, "hint", "", th.text("tree_hint"));
+
+    sync(model);
+    if (view != nullptr) canvas_->set_view(*view);
 }
 
-bool TreeScreen::select(const std::string& key) {
-    if (nodes_.find(key) == nodes_.end()) return false;
-    selected_ = key;
-    for (auto& [k, b] : nodes_) b->selected = k == key;
-    sync_info();
-    return true;
+TreeScreen::~TreeScreen() {
+    // The widgets outlive this object while the screen fades out; they must
+    // not call back into it.
+    canvas_->on_tick = nullptr;
+}
+
+TreeScreen::View TreeScreen::view() const { return canvas_->target(); }
+void TreeScreen::set_view(View v) { canvas_->set_view(v); }
+void TreeScreen::zoom_by(f32 factor) { canvas_->zoom_at(canvas_->rect().center(), factor); }
+void TreeScreen::recenter() { canvas_->frame_revealed(true); }
+void TreeScreen::finish_animation() { canvas_->finish_animation(); }
+
+void TreeScreen::buy(const std::string& key) {
+    const TreeNodeView* n = model_.find(key);
+    if (n == nullptr || n->state != TreeNodeState::Available) return;
+    MenuResult r{MenuAction::PurchaseNode};
+    r.node = n->node;
+    emit_(r);
 }
 
 void TreeScreen::sync(const TreeModel& m) {
+    const bool first = model_.nodes.empty();
     model_ = m;
-    for (const TreeNodeView& n : m.nodes) {
-        const auto it = nodes_.find(n.key);
+    const std::vector<bool> shown = m.revealed();
+    usize revealed = 0;
+    for (usize i = 0; i < m.nodes.size(); ++i) {
+        const auto it = nodes_.find(m.nodes[i].key);
         if (it == nodes_.end()) continue;
-        it->second->view = n;
-        it->second->tooltip = n.name;
+        TreeNodeButton& b = *it->second;
+        if (shown[i] && !b.visible && !first) {
+            // Revealed by a purchase: bud into view.
+            b.bud.snap(0.0f);
+            b.bud.start(1.0f, kBudSeconds, Ease::OutBack);
+        }
+        b.visible = shown[i];
+        b.view = m.nodes[i];
+        revealed += shown[i] ? 1u : 0u;
     }
-    for (TreeVessels::Entry& e : vessels_->entries) {
-        const TreeNodeView* n = e.node.empty() ? nullptr : m.find(e.node);
-        const bool lit = e.node.empty() || (n != nullptr && n->level > 0);
-        if (lit != e.lit) vessels_->dirty = true;
-        e.lit = lit;
-    }
-    for (usize i = 0; i < capstone_labels_.size(); ++i) {
-        capstone_labels_[i].first->set_text(with_dot_points(capstone_names_[i],
-                                                            m.branch_points[capstone_labels_[i].second],
-                                                            m.capstone_threshold));
-    }
+    // A respec took nodes off the map: look at what is left.
+    if (!first && revealed < revealed_count_) canvas_->frame_revealed(true);
+    revealed_count_ = revealed;
+
     memory_value_->set_text(std::to_string(m.memory_cells));
     antibody_value_->set_text(std::to_string(m.antibodies));
     respec_->enabled = m.can_respec;
     respec_->tooltip = "Refund every purchase except the Neutrophil. Costs " + std::to_string(m.respec_cost) +
                        " Memory Cells.";
+    sync_card();
+}
 
-    // First visit: the first thing the player can buy, else the Neutrophil.
-    if (selected_.empty() || m.find(selected_) == nullptr) {
-        std::string pick = nodes_.count("neutrophil.unlock") != 0 ? "neutrophil.unlock" : std::string();
-        for (const TreeNodeView& n : m.nodes) {
-            if (n.state == TreeNodeState::Available && nodes_.count(n.key) != 0) {
-                pick = n.key;
+void TreeScreen::tick(f32) {
+    std::string key;
+    if (!canvas_->dragging()) {
+        for (const auto& [k, b] : nodes_) {
+            if (b->visible && b->hovered()) {
+                key = k;
                 break;
             }
         }
-        if (pick.empty() && !nodes_.empty()) pick = nodes_.begin()->first;
-        select(pick);
-    } else {
-        sync_info();
     }
+    if (key != hovered_) {
+        hovered_ = key;
+        sync_card();
+    }
+    if (hovered_.empty()) return;
+
+    // Beside the node, on whichever side has room, kept on screen.
+    const Rect node = nodes_[hovered_]->rect();
+    const Vec2 vp = gui_.viewport();
+    const Vec2 size = card_->measure(vp);
+    Vec2 pos{node.max.x + 18.0f, node.center().y - size.y * 0.5f};
+    if (pos.x + size.x > vp.x - 12.0f) pos.x = node.min.x - 18.0f - size.x;
+    pos.x = math::clamp(pos.x, 12.0f, math::max(12.0f, vp.x - size.x - 12.0f));
+    pos.y = math::clamp(pos.y, 12.0f, math::max(12.0f, vp.y - size.y - 12.0f));
+    card_->layout.offset = pos;
+    card_->arrange(Rect{pos, pos + size});
 }
 
-void TreeScreen::sync_info() {
-    const TreeNodeView* n = model_.find(selected_);
-    const auto it = nodes_.find(selected_);
-    if (n == nullptr || it == nodes_.end()) return;
-    info_icon_->name = it->second->icon_name();
-    info_name_->set_text(n->name);
-    info_level_->set_text(n->max_level > 1 ? std::to_string(n->level) + "/" + std::to_string(n->max_level) : "");
-    info_desc_->set_text(n->effect);
-    info_req_->set_text(n->requirement);
-    info_req_->visible = !n->requirement.empty();
+void TreeScreen::sync_card() {
+    const TreeNodeView* n = hovered_.empty() ? nullptr : model_.find(hovered_);
+    card_->visible = n != nullptr;
+    if (n == nullptr) return;
+    const Theme& th = gui_.theme();
+    card_icon_->name = nodes_[hovered_]->icon_name();
+    card_name_->set_text(n->name);
+    card_level_->set_text(level_text(*n));
+    card_desc_->set_text(n->effect);
+    card_req_->set_text(n->requirement);
+    card_req_->visible = !n->requirement.empty();
+
     const bool maxed = n->state == TreeNodeState::Maxed;
-    info_mem_->visible = !maxed && n->cost_memory > 0;
-    info_mem_value_->set_text(std::to_string(n->cost_memory));
-    info_ab_->visible = !maxed && n->cost_antibodies > 0;
-    info_ab_value_->set_text(std::to_string(n->cost_antibodies));
-    grow_->enabled = n->state == TreeNodeState::Available;
-    grow_label_->set_text(maxed ? "Maxed" : n->state == TreeNodeState::Locked ? "Locked" : "Grow");
-    grow_label_->style = gui_.theme().text(grow_->enabled ? "tree_grow" : "tree_grow_off");
+    const bool short_mc = n->cost_memory > model_.memory_cells;
+    const bool short_ab = n->cost_antibodies > model_.antibodies;
+    card_mem_->visible = !maxed && n->cost_memory > 0;
+    card_mem_value_->set_text(std::to_string(n->cost_memory));
+    card_mem_value_->style = th.text(short_mc ? "tree_cost_short" : "tree_cost");
+    card_ab_->visible = !maxed && n->cost_antibodies > 0;
+    card_ab_value_->set_text(std::to_string(n->cost_antibodies));
+    card_ab_value_->style = th.text(short_ab ? "tree_cost_short" : "tree_cost");
+
+    std::string hint;
+    switch (n->state) {
+        case TreeNodeState::Available: hint = "Click to grow"; break;
+        case TreeNodeState::Short: hint = short_ab ? "Not enough Antibodies" : "Not enough Memory Cells"; break;
+        case TreeNodeState::Maxed: hint = n->max_level > 1 ? "Fully grown" : "Owned"; break;
+        case TreeNodeState::Locked: break;
+    }
+    card_hint_->set_text(hint);
+    card_hint_->visible = !hint.empty();
+    card_hint_->style = th.text(n->state == TreeNodeState::Short ? "tree_req" : "tree_hint");
 }
 
 } // namespace immune::ui

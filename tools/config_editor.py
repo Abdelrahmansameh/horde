@@ -14,8 +14,7 @@ What the page knows that a generic JSON editor does not:
     dropdowns;
   * integer vs float. The loaders reject `130.0` for a u32 field, so a value
     that was an integer on disk stays an integer on the way back;
-  * arrays of same-shaped objects (a tower's tiers) render as a table, one
-    column per tier, so a curve across tiers can be read at a glance.
+  * arrays of same-shaped objects render as a table for side-by-side tuning.
 
 Written files match ConfigStore::write_file byte for byte where it matters:
 sorted keys, two-space indent, LF, trailing newline. A save therefore diffs

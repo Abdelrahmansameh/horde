@@ -164,8 +164,11 @@ NeighbourSample gather_neighbours(const SpatialHash& hash,
                                   f32 max_contact_radius, f32 contact_stiffness,
                                   u32 max_sampled, const u8* burrow, const bool* collides) {
     NeighbourSample out;
-    // A non-colliding family (ChaffFamilyParams::collides) has no crowd.
-    if (!collides[family[i] < kFamilyCount ? family[i] : 0]) return out;
+    // A non-colliding family (ChaffFamilyParams::collides) sees only its own
+    // kind: ghost to everyone else, but it still spreads out from itself.
+    const u32 my_family = family[i] < kFamilyCount ? family[i] : 0u;
+    const bool ghost = !collides[my_family];
+    if (ghost) max_contact_radius = contact_radii[my_family];
     // Squad membership is deliberately irrelevant to local crowd physics.
     // Making another squad repel harder -- and excluding it from alignment --
     // phase-separated mixed waves into shells and made a surrounded family
@@ -290,7 +293,8 @@ NeighbourSample gather_neighbours(const SpatialHash& hash,
             // steers anyone walking over it (sim/burrow/Burrow.h).
             if (burrow[j] != burrow_state::kSurface) continue;
             // ...and neither does a family with collisions switched off.
-            if (!collides[family[j] < kFamilyCount ? family[j] : 0]) continue;
+            const u32 their_family = family[j] < kFamilyCount ? family[j] : 0u;
+            if (their_family != my_family && (ghost || !collides[their_family])) continue;
             const f32 dx = p.x - px[j];
             const f32 dy = p.y - py[j];
             const f32 d2 = dx * dx + dy * dy;
@@ -1116,7 +1120,8 @@ ChaffUpdateStats ChaffSystem::update(ChaffBuffers& buffers, const FlowField& flo
                 const u32 f = fam[i];
                 const ChaffFamilyParams& fp = tuning.family[f < kFamilyCount ? f : 0];
                 if (has_sdf) {
-                    resolve_wall_contact(sdf, px[i], py[i], vx[i], vy[i], fp.radius,
+                    resolve_wall_contact(sdf, px[i], py[i], vx[i], vy[i],
+                                         fp.wall_radius > 0.0f ? fp.wall_radius : fp.radius,
                                          fp.wall_restitution, fp.wall_splash,
                                          buffers.generation[i]);
                 }

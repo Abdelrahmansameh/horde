@@ -145,11 +145,31 @@ i32 IconLibrary::bake_size(f32 on_screen_px) {
     return (px + step - 1) / step * step;
 }
 
+i32 IconLibrary::zoom_bake_size(f32 on_screen_px) {
+    static constexpr i32 kSteps[] = {8, 11, 16, 23, 32, 45, 64, 91, 128, 181, 256, 362, 512, 724, 1024};
+    for (i32 s : kSteps) {
+        if (static_cast<f32>(s) >= on_screen_px) return s;
+    }
+    return kMaxBakeSize;
+}
+
 void IconLibrary::draw(DrawList& dl, std::string_view name, Rect dst, Color tint, f32 device_scale,
                        bool grayscale) {
     const Vec2 size = dst.size();
     const f32 on_screen = math::max(size.x, size.y) * device_scale * dl.transform().uniform_scale();
-    const IconSprite& sp = sprite(name, bake_size(on_screen));
+    draw_baked(dl, name, dst, bake_size(on_screen), tint, grayscale);
+}
+
+void IconLibrary::draw_zoomable(DrawList& dl, std::string_view name, Rect dst, Color tint, f32 device_scale) {
+    const Vec2 size = dst.size();
+    const f32 on_screen = math::max(size.x, size.y) * device_scale * dl.transform().uniform_scale();
+    draw_baked(dl, name, dst, zoom_bake_size(on_screen), tint, false);
+}
+
+void IconLibrary::draw_baked(DrawList& dl, std::string_view name, Rect dst, i32 bake_px, Color tint,
+                             bool grayscale) {
+    const Vec2 size = dst.size();
+    const IconSprite& sp = sprite(name, bake_px);
     if (!sp.valid) return;
     // Map the viewBox onto dst, then grow by the baked padding.
     const Vec2 k{size.x / sp.view_size.x, size.y / sp.view_size.y};

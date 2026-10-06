@@ -240,12 +240,15 @@ TEST_CASE("HUD: clock controls, menu and Send now", "[ui][hud]") {
     m.prep_total = 20.0f;
     h.frame(m);
     REQUIRE(h.shown("hud/prep"));
-    auto* clock = dynamic_cast<gui::Label*>(h.w("hud/prep/clock/time"));
-    REQUIRE(clock != nullptr);
-    CHECK(clock->text() == "0:18");
+    CHECK(h.w("hud/prep/clock") == nullptr);
     REQUIRE(h.gui.click("hud/prep/send"));
     h.frame(m);
     CHECK(h.count(IntentKind::StartWaveEarly) == 1);
+
+    // The auto-start toggle.
+    REQUIRE(h.gui.click("hud/controls/auto"));
+    h.frame(m);
+    CHECK(h.count(IntentKind::ToggleAutoStart) == 1);
 }
 
 TEST_CASE("HUD: critical integrity, the wave-cleared toast, the next-wave panel", "[ui][hud]") {

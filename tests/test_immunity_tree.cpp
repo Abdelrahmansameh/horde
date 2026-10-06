@@ -2,8 +2,8 @@
 // sim hooks its purchases drive (sim/Immunity.h, SwarmerProfile's capstones,
 // the unlock masks on TowerSystem / ActiveAbilitySystem).
 //
-// Properties, not balance numbers: the catalog is well-formed; applying the
-// tree collapses tiers and only ever changes what was bought; an unbought
+// Properties, not balance numbers: the catalog is well-formed and is one
+// tree; applying the tree only ever changes what was bought; an unbought
 // tree leaves a run's numbers alone; locked towers and abilities cannot be
 // used by any path; and each capstone does its one new thing and nothing
 // when it is off.
@@ -124,7 +124,7 @@ TEST_CASE("each tower branch has one root, one capstone, and its own stat lines"
         }
         REQUIRE(roots == 1);
         REQUIRE(caps == 1);
-        REQUIRE(stats >= 6);
+        REQUIRE(stats >= 5);
         REQUIRE(tree_node(tower_root(type)).kind == TreeNodeKind::TowerRoot);
         REQUIRE(tree_node(tower_root(type)).branch == b);
         REQUIRE(tree_node(branch_capstone(b)).kind == TreeNodeKind::Capstone);
@@ -135,6 +135,69 @@ TEST_CASE("each tower branch has one root, one capstone, and its own stat lines"
         const TreeNodeDef& d = tree_node(ability_root(static_cast<AbilityId>(a)));
         REQUIRE(d.kind == TreeNodeKind::AbilityRoot);
         REQUIRE(d.ability == static_cast<AbilityId>(a));
+    }
+}
+
+TEST_CASE("the catalog is one tree: one root, one parent each, at most three children", "[meta][tree]") {
+    u32 children[kTreeNodeCount] = {};
+    for (u32 i = 0; i < kTreeNodeCount; ++i) {
+        const TreeNode n = static_cast<TreeNode>(i);
+        const TreeNode parent = tree_node(n).parent;
+        CAPTURE(tree_node(n).key);
+        if (n == kTreeRoot) {
+            REQUIRE(parent == TreeNode::Count);
+            continue;
+        }
+        REQUIRE(parent != TreeNode::Count);
+        ++children[static_cast<u32>(parent)];
+        // Every parent chain reaches the root (no cycles, no islands).
+        TreeNode a = n;
+        u32 steps = 0;
+        while (a != kTreeRoot && steps++ <= kTreeNodeCount) a = tree_node(a).parent;
+        REQUIRE(a == kTreeRoot);
+    }
+    for (u32 i = 0; i < kTreeNodeCount; ++i) {
+        CAPTURE(tree_node(static_cast<TreeNode>(i)).key);
+        REQUIRE(children[i] <= kTreeMaxChildren);
+    }
+    // The root is the tower a new campaign owns.
+    REQUIRE(kTreeRoot == tower_root(TowerType::Neutrophil));
+}
+
+TEST_CASE("every unlock is reached through Memory Cell nodes only; capstones end their limb", "[meta][tree]") {
+    // PROGRESSION.md §4.1: the player picks the order towers and abilities
+    // are unlocked in, so no Antibody node may stand in front of another.
+    auto antibody_priced = [](TreeNode n) {
+        const TreeNodeKind k = tree_node(n).kind;
+        return k == TreeNodeKind::TowerRoot || k == TreeNodeKind::AbilityRoot || k == TreeNodeKind::Capstone;
+    };
+    for (u32 i = 0; i < kTreeNodeCount; ++i) {
+        const TreeNode n = static_cast<TreeNode>(i);
+        const TreeNodeKind kind = tree_node(n).kind;
+        CAPTURE(tree_node(n).key);
+        if (n != kTreeRoot && (kind == TreeNodeKind::TowerRoot || kind == TreeNodeKind::AbilityRoot)) {
+            for (TreeNode a = tree_node(n).parent; a != kTreeRoot; a = tree_node(a).parent) {
+                CAPTURE(tree_node(a).key);
+                REQUIRE_FALSE(antibody_priced(a));
+            }
+        }
+        if (kind == TreeNodeKind::Capstone) {
+            for (u32 j = 0; j < kTreeNodeCount; ++j) REQUIRE(tree_node(static_cast<TreeNode>(j)).parent != n);
+        }
+    }
+    // A branch's lines grow from its own unlock (or, for the Neutrophil's,
+    // from the heart it is).
+    for (u32 i = 0; i < kTreeNodeCount; ++i) {
+        const TreeNodeDef& d = tree_node(static_cast<TreeNode>(i));
+        if (d.kind != TreeNodeKind::Stat && d.kind != TreeNodeKind::Capstone && d.kind != TreeNodeKind::AbilityStat) {
+            continue;
+        }
+        CAPTURE(d.key);
+        const TreeNode root = d.kind == TreeNodeKind::AbilityStat ? ability_root(d.ability)
+                                                                   : tower_root(branch_tower(d.branch));
+        TreeNode a = d.parent;
+        while (a != root && a != kTreeRoot) a = tree_node(a).parent;
+        REQUIRE(a == root);
     }
 }
 
@@ -157,25 +220,19 @@ TEST_CASE("milestones cost Antibodies, lines cost Memory Cells that rise per lev
 // Folding the tree into a run's config.
 // ---------------------------------------------------------------------------
 
-TEST_CASE("an unbought tree collapses tiers but leaves the baseline alone", "[meta][tree]") {
+TEST_CASE("an unbought tree leaves the baseline alone", "[meta][tree]") {
     const GameConfig base = default_game_config();
     GameConfig cfg = base;
     const TreeEffects fx = apply_immunity_tree(bought({}), cfg);
 
     for (u32 t = 0; t < kTowerTypeCount; ++t) {
-        const TowerStats& s0 = cfg.towers.stats[t][0];
-        REQUIRE(s0.build_cost == base.towers.stats[t][0].build_cost);
-        REQUIRE(s0.max_health == Catch::Approx(base.towers.stats[t][0].max_health));
-        REQUIRE(s0.fire_interval == Catch::Approx(base.towers.stats[t][0].fire_interval));
-        REQUIRE(cfg.towers.mechanics[t][0].shooter.round_damage ==
-                Catch::Approx(base.towers.mechanics[t][0].shooter.round_damage));
-        for (u32 tier = 0; tier < 3; ++tier) {
-            REQUIRE(cfg.towers.stats[t][tier].upgrade_cost == 0);
-            REQUIRE(cfg.towers.stats[t][tier].fire_interval == Catch::Approx(s0.fire_interval));
-            REQUIRE(cfg.towers.mechanics[t][tier].swarm.search_radius ==
-                    Catch::Approx(cfg.towers.mechanics[t][0].swarm.search_radius));
-            REQUIRE(cfg.towers.mechanics[t][tier].capstone.heal_per_kill == 0.0f);
-        }
+        const TowerStats& s0 = cfg.towers.stats[t];
+        REQUIRE(s0.build_cost == base.towers.stats[t].build_cost);
+        REQUIRE(s0.max_health == Catch::Approx(base.towers.stats[t].max_health));
+        REQUIRE(s0.fire_interval == Catch::Approx(base.towers.stats[t].fire_interval));
+        REQUIRE(cfg.towers.mechanics[t].shooter.round_damage ==
+                Catch::Approx(base.towers.mechanics[t].shooter.round_damage));
+        REQUIRE(cfg.towers.mechanics[t].capstone.heal_per_kill == 0.0f);
     }
     REQUIRE(cfg.economy.starting_atp == base.economy.starting_atp);
     REQUIRE(cfg.abilities.ability[0].cooldown_seconds ==
@@ -196,13 +253,11 @@ TEST_CASE("stat lines change their tower and nothing else", "[meta][tree]") {
                         cfg);
     const u32 n = static_cast<u32>(TowerType::Neutrophil);
     const u32 c = static_cast<u32>(TowerType::CytotoxicT);
-    REQUIRE(cfg.towers.mechanics[n][0].shooter.round_damage ==
-            Catch::Approx(base.towers.mechanics[n][0].shooter.round_damage * 1.30f));
-    REQUIRE(cfg.towers.mechanics[n][2].shooter.round_damage ==
-            Catch::Approx(cfg.towers.mechanics[n][0].shooter.round_damage));
-    REQUIRE(cfg.towers.mechanics[n][0].swarm.release_per_shot ==
-            base.towers.mechanics[n][0].swarm.release_per_shot + 1);
-    REQUIRE(cfg.towers.mechanics[c][0].latch.dps == Catch::Approx(base.towers.mechanics[c][0].latch.dps));
+    REQUIRE(cfg.towers.mechanics[n].shooter.round_damage ==
+            Catch::Approx(base.towers.mechanics[n].shooter.round_damage * 1.30f));
+    REQUIRE(cfg.towers.mechanics[n].shooter.magazine_size ==
+            base.towers.mechanics[n].shooter.magazine_size + 2);
+    REQUIRE(cfg.towers.mechanics[c].latch.dps == Catch::Approx(base.towers.mechanics[c].latch.dps));
 }
 
 TEST_CASE("hub lines reach the economy, every tower and the sim", "[meta][tree]") {
@@ -210,16 +265,15 @@ TEST_CASE("hub lines reach the economy, every tower and the sim", "[meta][tree]"
     GameConfig cfg = base;
     const TreeEffects fx = apply_immunity_tree(
         bought({{TreeNode::BoneMarrowReserve, 2}, {TreeNode::FieldRequisition, 2},
-                {TreeNode::RapidDeployment, 1}, {TreeNode::EliteResponse, 3},
-                {TreeNode::Homeostasis, 2}, {TreeNode::MembraneResilience, 1},
-                {TreeNode::CellularResilience, 1}}),
+                {TreeNode::SystemicPotency, 1}, {TreeNode::EliteResponse, 3},
+                {TreeNode::Homeostasis, 2}, {TreeNode::MembraneResilience, 1}}),
         cfg);
     REQUIRE(cfg.economy.starting_atp == base.economy.starting_atp + 80);
-    REQUIRE(cfg.economy.refund_fraction == Catch::Approx(base.economy.refund_fraction + 0.05f));
     REQUIRE(cfg.towers.globals.refund_fraction == Catch::Approx(cfg.economy.refund_fraction));
     for (u32 t = 0; t < kTowerTypeCount; ++t) {
-        REQUIRE(cfg.towers.stats[t][0].build_cost < base.towers.stats[t][0].build_cost);
-        REQUIRE(cfg.towers.stats[t][0].max_health > base.towers.stats[t][0].max_health);
+        REQUIRE(cfg.towers.stats[t].build_cost < base.towers.stats[t].build_cost);
+        REQUIRE(cfg.towers.mechanics[t].shooter.round_damage ==
+                Catch::Approx(base.towers.mechanics[t].shooter.round_damage * 1.04f));
     }
     REQUIRE(fx.immunity.named_damage_mult == Catch::Approx(1.3f));
     REQUIRE(fx.immunity.leak_damage == Catch::Approx(base.sim.globals.objective_damage_per_leak * 0.8f));
@@ -235,10 +289,10 @@ TEST_CASE("capstones turn on their mechanics", "[meta][tree]") {
                 {TreeNode::GobletCapstone, 1}, {TreeNode::FibroblastRoot, 1},
                 {TreeNode::FibroblastCapstone, 1}}),
         cfg);
-    const CapstoneParams& cyto = cfg.towers.mechanics[static_cast<u32>(TowerType::CytotoxicT)][0].capstone;
+    const CapstoneParams& cyto = cfg.towers.mechanics[static_cast<u32>(TowerType::CytotoxicT)].capstone;
     REQUIRE(cyto.kill_pulse_radius > 0.0f);
     REQUIRE(cyto.named_damage_mult > 1.0f);
-    REQUIRE(cfg.towers.mechanics[static_cast<u32>(TowerType::Macrophage)][0].capstone.heal_per_kill > 0.0f);
+    REQUIRE(cfg.towers.mechanics[static_cast<u32>(TowerType::Macrophage)].capstone.heal_per_kill > 0.0f);
     REQUIRE(fx.immunity.incendiary_radius > 0.0f);
     REQUIRE(fx.immunity.contagion_radius > 0.0f);
     REQUIRE(fx.immunity.scar_contact_rate > 0.0f);
@@ -249,15 +303,16 @@ TEST_CASE("ability lines reach the ability tuning", "[meta][tree]") {
     const GameConfig base = default_game_config();
     GameConfig cfg = base;
     apply_immunity_tree(bought({{TreeNode::ComplementUnlock, 1}, {TreeNode::ComplementChain, 2},
-                                {TreeNode::FeverUnlock, 1}, {TreeNode::FeverDuration, 1},
+                                {TreeNode::FeverUnlock, 1}, {TreeNode::FeverMagnitude, 1},
                                 {TreeNode::ClotUnlock, 1}, {TreeNode::ClotCooldown, 3}}),
                         cfg);
     const auto& cascade = cfg.abilities.ability[static_cast<u32>(AbilityId::ComplementCascadeBurst)];
     const auto& fever = cfg.abilities.ability[static_cast<u32>(AbilityId::FeverResponse)];
     const auto& clot = cfg.abilities.ability[static_cast<u32>(AbilityId::FibrinClot)];
     REQUIRE(cascade.chain_links == 12u);
-    REQUIRE(fever.fever_linger_seconds > 0.0f);
-    REQUIRE(fever.fever_linger_rate > 0.0f);
+    REQUIRE(fever.fever_cooldown_relief ==
+            Catch::Approx(base.abilities.ability[static_cast<u32>(AbilityId::FeverResponse)].fever_cooldown_relief *
+                          1.25f));
     REQUIRE(clot.cooldown_seconds ==
             Catch::Approx(base.abilities.ability[static_cast<u32>(AbilityId::FibrinClot)].cooldown_seconds * 0.7f));
 }
@@ -304,7 +359,7 @@ TEST_CASE("Fever's Buff Duration keeps every tower reloading faster after the bu
 
     entt::registry& reg = f.world.ecs().registry();
     const entt::entity tower = reg.create();
-    reg.emplace<sim::comp::Tower>(tower, sim::comp::Tower{TowerType::Neutrophil, 1, 8.0f, 10.0f, 1.0f, {}});
+    reg.emplace<sim::comp::Tower>(tower, sim::comp::Tower{TowerType::Neutrophil, 8.0f, 10.0f, 1.0f, {}});
     REQUIRE(abilities.cast(f.world, AbilityId::FeverResponse, Vec2{}));
     REQUIRE(reg.get<sim::comp::Tower>(tower).cooldown == Catch::Approx(9.0f));
     for (int i = 0; i < 90; ++i) f.world.tick();
@@ -549,7 +604,7 @@ TEST_CASE("Inflammation: a unit near a scar drains harder, a tower near one relo
         // only Inflammation moves its cooldown.
         entt::registry& reg = f.world.ecs().registry();
         const entt::entity tower = reg.create();
-        reg.emplace<sim::comp::Tower>(tower, sim::comp::Tower{TowerType::Neutrophil, 1, 8.0f, 10.0f, 1.0f, {}});
+        reg.emplace<sim::comp::Tower>(tower, sim::comp::Tower{TowerType::Neutrophil, 8.0f, 10.0f, 1.0f, {}});
         reg.emplace<sim::comp::Transform>(tower, sim::comp::Transform{Vec2{25.0f, 10.0f}, 0.0f, 1.0f});
 
         sim::SwarmerProfile latch;
@@ -580,4 +635,41 @@ TEST_CASE("Inflammation: a unit near a scar drains harder, a tower near one relo
     REQUIRE(cooldown[0] == Catch::Approx(10.0f));
     // 31 ticks at half a tick's extra relief each.
     REQUIRE(cooldown[1] == Catch::Approx(10.0f - 31.0f * 0.5f / 60.0f).margin(0.01f));
+}
+
+TEST_CASE("Inflammation speeds the reload of a deployed shooter beside a scar", "[meta][tree][sim][scar]") {
+    f32 reload_progress[2] = {};
+    for (const bool on : {false, true}) {
+        Field f;
+        sim::ImmunityTuning im;
+        if (on) {
+            im.inflammation_radius = 8.0f;
+            im.inflammation_reload_mult = 1.5f;
+        }
+        f.world.set_immunity(im);
+        sim::ScarDesc scar;
+        scar.center = Vec2{20.0f, 10.0f};
+        scar.half_extents = Vec2{4.0f, 0.9f};
+        scar.max_health = 500.0f;
+        REQUIRE(f.world.scars().build(f.world, scar, nullptr, nullptr).valid());
+
+        sim::SwarmerProfile shooter;
+        shooter.kind = sim::SwarmerKind::Shooter;
+        shooter.source = TowerType::Neutrophil;
+        shooter.speed = 0.0f;
+        shooter.search_radius = 0.0f;
+        shooter.reload_seconds = 2.0f;
+        f.world.swarmers().set_profile(1, shooter);
+        sim::SwarmerSpawnParams sp;
+        sp.position = Vec2{25.0f, 10.0f};
+        sp.profile = 1;
+        sp.persistent = true;
+        REQUIRE(f.world.swarmers().spawn(sp));
+        f.world.swarmers().magazine[0].phase = sim::MagazinePhase::Reloading;
+
+        for (int i = 0; i < 30; ++i) f.world.tick();
+        reload_progress[on ? 1 : 0] = f.world.swarmers().magazine[0].timer;
+    }
+    REQUIRE(reload_progress[0] == Catch::Approx(0.5f).margin(0.01f));
+    REQUIRE(reload_progress[1] == Catch::Approx(0.75f).margin(0.01f));
 }

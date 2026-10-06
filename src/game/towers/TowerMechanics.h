@@ -23,15 +23,13 @@ namespace immune::game {
 /// Safe to call at any time, including mid-run for a hot reload.
 void apply_tower_config(TowerSystem& towers, const TowerConfig& cfg);
 
-/// Mechanism parameters for one type/tier. `tier` is 1..3; out-of-range tiers
-/// clamp, matching TowerSystem::stats().
-const TowerMechanics& tower_mechanics(TowerType type, u8 tier);
+/// Mechanism parameters for one tower type.
+const TowerMechanics& tower_mechanics(TowerType type);
 
 /// Shape-id base, refund fraction and the placement search window.
 const TowerGlobals& tower_globals();
 
-/// The sim-side profile for one type/tier, built from the table above.
-/// `tier` is 1..3; out-of-range tiers clamp.
-sim::SwarmerProfile swarmer_profile(TowerType type, u8 tier);
+/// The sim-side profile for one type, built from the table above.
+sim::SwarmerProfile swarmer_profile(TowerType type);
 
 } // namespace immune::game

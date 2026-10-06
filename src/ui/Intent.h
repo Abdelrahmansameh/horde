@@ -15,13 +15,11 @@ enum class IntentKind : u8 {
     None = 0,
     PlaceTower,
     SelectTower,
-    /// Retired: towers have no in-run tiers (PROGRESSION.md §7). Kept so the
-    /// enum's numbering is stable; nothing emits it and app/ ignores it.
-    UpgradeTower,
     SellTower,
     CastAbility,     ///< A DESIGN.md §5.6 active ability (game/abilities).
     SetTimeScale,
     StartWaveEarly,
+    ToggleAutoStart, ///< The HUD's auto-start button: rounds begin on their own timer.
     OpenMenu,        ///< The HUD's menu button: the pause menu.
     QuitToMenu,
 };
@@ -29,6 +27,7 @@ enum class IntentKind : u8 {
 struct Intent {
     IntentKind kind = IntentKind::None;
     TowerType tower_type = TowerType::Macrophage;
+    u32 quantity = 1;  ///< Maximum cells requested by PlaceTower.
     Vec2 world_position{0.0f, 0.0f};
     EntityId entity{};
     f32 value = 0.0f;   ///< SetTimeScale payload.

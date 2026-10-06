@@ -33,7 +33,7 @@ const char* purchase_result_text(MetaProgression::PurchaseResult r) {
     switch (r) {
     case R::Ok: return "ok";
     case R::Maxed: return "already maxed";
-    case R::Locked: return "unlock its root first";
+    case R::Locked: return "own the node it grows from first";
     case R::BelowThreshold: return "needs more points in this branch";
     case R::NeedMemoryCells: return "not enough Memory Cells";
     case R::NeedAntibodies: return "not enough Antibodies";
@@ -116,22 +116,10 @@ MetaProgression::PurchaseResult MetaProgression::check_purchase(TreeNode node,
                                                                 const MetaConfig& cfg) const {
     const TreeNodeDef& d = tree_node(node);
     if (levels_[node] >= d.max_level) return PurchaseResult::Maxed;
-
-    switch (d.kind) {
-    case TreeNodeKind::TowerRoot:
-    case TreeNodeKind::AbilityRoot:
-    case TreeNodeKind::Economy:
-        break;   // no prerequisite: every root is buyable in any order (§4.1)
-    case TreeNodeKind::Stat:
-        if (!levels_.owned(tower_root(branch_tower(d.branch)))) return PurchaseResult::Locked;
-        break;
-    case TreeNodeKind::AbilityStat:
-        if (!levels_.owned(ability_root(d.ability))) return PurchaseResult::Locked;
-        break;
-    case TreeNodeKind::Capstone:
-        if (!levels_.owned(tower_root(branch_tower(d.branch)))) return PurchaseResult::Locked;
-        if (branch_points(d.branch) < cfg.capstone_threshold) return PurchaseResult::BelowThreshold;
-        break;
+    // A tree (§4): a node opens once its parent is owned, at any level.
+    if (d.parent != TreeNode::Count && !levels_.owned(d.parent)) return PurchaseResult::Locked;
+    if (d.kind == TreeNodeKind::Capstone && branch_points(d.branch) < cfg.capstone_threshold) {
+        return PurchaseResult::BelowThreshold;
     }
 
     const TreeCost c = next_cost(node, cfg);

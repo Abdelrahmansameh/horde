@@ -39,9 +39,21 @@ public:
     Tag(gui::Gui& g, std::string id, std::string text);
 };
 
+/// A panel the player can move by dragging it (or anything inside it: a drag
+/// that starts on a card moves the panel instead of clicking the card). Moves
+/// its layout offset, and keeps itself on screen.
+class DragPanel : public gui::Panel {
+public:
+    DragPanel(std::string id, const gui::ShapeDesc& shape);
+    void on_event(gui::Event& e) override;
+    void update(f32 dt) override;
+
+private:
+    void clamp_on_screen();
+};
+
 /// A tower card in the build dock: key badge, cost, cell icon, name; greyed
-/// with "N ATP short" and a progress bar when the player cannot afford it;
-/// lifted with a PLACING tag while armed.
+/// when the player cannot afford it; lifted while armed.
 class BuildCard : public gui::Button {
 public:
     BuildCard(gui::Gui& g, TowerType type, u32 slot);
@@ -56,8 +68,6 @@ private:
     gui::Icon* icon_ = nullptr;
     gui::Label* name_ = nullptr;
     gui::Label* short_ = nullptr;
-    gui::Meter* progress_ = nullptr;
-    Tag* tag_ = nullptr;
 };
 
 /// An ability: a fluid cell filling as the cooldown recharges, the ability's

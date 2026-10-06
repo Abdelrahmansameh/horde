@@ -55,10 +55,8 @@ struct AbilityDef {
     /// Histamine only: how long the nova field persists (Complement resolves
     /// as an instant chain, per DamageField.h's Chain shape semantics).
     f32 field_duration = 1.5f;
-    /// Fever only: seconds shaved off every currently-placed tower's *current*
-    /// cooldown on cast -- an instant burst of responsiveness rather than a
-    /// sustained rate multiplier, chosen deliberately to avoid needing to
-    /// track-and-revert a temporary buff across ticks (see .cpp rationale).
+    /// Fever only: 0.1 times this value is the fraction of each deployed
+    /// cell's maximum health restored on cast.
     f32 fever_cooldown_relief = 3.0f;
     /// Clot only: half the bar's length (along the lane's cross-section) and
     /// half its thickness, in world units. `field_duration` doubles as how
@@ -68,11 +66,8 @@ struct AbilityDef {
     /// Complement only: chain hops (sim::DamageField::chain_links; 0 = the
     /// damage system's default). Raised by the Strengthen Immunity tree.
     u32 chain_links = 0;
-    /// Fever only: after the instant relief, every tower's cooldown keeps
-    /// running `fever_linger_rate` extra seconds per second for
-    /// `fever_linger_seconds` -- a sustained fire-rate buff the tree's
-    /// Buff Duration / Buff Magnitude lines grow. 0 seconds is the original
-    /// instant-only Fever.
+    /// Fever only: after the burst, heal cells by 0.1 times this fraction
+    /// of max health per second for `fever_linger_seconds`.
     f32 fever_linger_seconds = 0.0f;
     f32 fever_linger_rate = 0.0f;
 };

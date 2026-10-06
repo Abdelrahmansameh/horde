@@ -60,15 +60,8 @@ enum class PathogenFamily : u8 {
 
 inline constexpr u32 kFamilyCount = static_cast<u32>(PathogenFamily::Count);
 
-/// Immune cell tower types (DESIGN.md §5).
-///
-/// Five archetypes, and every one of them is a SPAWNER. A tower does not shoot
-/// a beam or publish a field; it releases a volley of its own small cells
-/// ("swarmers", sim/swarm/Swarmers.h) that fly out, pick a pathogen, and do
-/// the tower's work on contact. The whole roster reads as a horde answering a
-/// horde. What differs per tower is what a swarmer does when it reaches its
-/// target (sim::SwarmerKind), and every number about it is per type and per
-/// tier in assets/config/towers.json.
+/// Immune cell types. The historical TowerType name persists in save and
+/// configuration interfaces; normal play deploys one cell of the chosen type.
 ///
 /// The cell name is the fiction and stays the code identifier -- DESIGN.md,
 /// level JSON, sim-test scripts, and save files all speak the biological name.

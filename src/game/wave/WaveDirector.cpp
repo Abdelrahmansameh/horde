@@ -92,8 +92,8 @@ void WaveDirector::tick(sim::SimWorld& world, Rng& rng, f32 dt) {
 
     switch (status_.phase) {
         case WavePhase::Prep: {
-            status_.phase_time_remaining -= dt;
-            if (status_.phase_time_remaining <= 0.0f || early_start_requested_) {
+            status_.phase_time_remaining = std::max(status_.phase_time_remaining - dt, 0.0f);
+            if ((auto_start_ && status_.phase_time_remaining <= 0.0f) || early_start_requested_) {
                 early_start_requested_ = false;
                 status_.phase = WavePhase::Spawning;
                 wave_time_ = 0.0f;
