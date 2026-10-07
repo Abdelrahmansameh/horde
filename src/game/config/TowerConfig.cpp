@@ -63,6 +63,7 @@ constexpr Field kSwarmFields[] = {
     IMMUNE_CONFIG_FIELD(SwarmParams, attach_radius, FieldKind::F32, "Contact radius; a shooter's standoff"),
     IMMUNE_CONFIG_FIELD(SwarmParams, launch_spread, FieldKind::F32, "Launch cone half-angle, radians"),
     IMMUNE_CONFIG_FIELD(SwarmParams, size, FieldKind::F32, "Body radius, world units: drawn size and wall clearance"),
+    IMMUNE_CONFIG_FIELD(SwarmParams, size_jitter, FieldKind::F32, "Random spawn size variation, +- this fraction of size (drawn and collision); 0 = uniform"),
     IMMUNE_CONFIG_FIELD(SwarmParams, max_health, FieldKind::F32, "Hit points a swarmer is released with; the horde drains them and the unit dissolves at zero"),
 };
 constexpr Schema kSwarmSchema{"swarm", kSwarmFields};

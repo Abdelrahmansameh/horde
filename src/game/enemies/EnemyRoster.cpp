@@ -159,6 +159,7 @@ void EnemyRoster::apply_to_tuning(sim::ChaffTuning& tuning) const {
         // rather than buried in this function.
         const f32 silhouette = render::family_visual(d.family).silhouette;
         p.radius = silhouette * fc.radius_from_silhouette;
+        p.size_jitter = fc.size_jitter;
         p.separation_radius = p.radius * fc.separation_radius_mul;
         p.separation_strength = fc.separation_strength;
 

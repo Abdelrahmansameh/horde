@@ -1,261 +1,159 @@
-# The Gym — a level and a console for testing everything
+# The gym and developer command console
 
-Two pieces, meant to be used together:
+The gym combines [assets/levels/gym.json](../assets/levels/gym.json), the ImGui [GymPanel](../src/ui/GymPanel.cpp), and the reusable [GymCommands](../src/game/gym/GymCommands.cpp) executor. It is useful for movement, combat, effects, wave, UI, and tuning experiments.
 
-- **`assets/levels/gym.json`** — a sandbox level built to exercise every system
-  at once rather than to be fun.
-- **The gym panel** (`ui/GymPanel.h`) — an ImGui window of controls for making
-  any of it happen right now, instead of waiting for a wave, saving up ATP, or
-  building six towers by hand. It opens by itself on the gym level.
-- **The command language underneath it** (`game/gym/GymCommands.h`) — every
-  button in the panel builds a command string and runs it, and the log at the
-  bottom echoes the line it ran, so the panel is a typist for the language
-  rather than a second API that can drift from it.
-
-The panel opens automatically on the gym level. Toggle it anywhere with
-**`` ` ``** (backtick) or **F2**; Escape closes it. (F1 stays with the debug
-overlay.)
-
-## The window
-
-```
-TARGET  (o) cursor  ( ) spawn point [p_lymph v]  ( ) objective  ( ) point [x][y]
-[ Horde ][ Defense ][ Waves ][ World ]
-   ...controls for the selected tab...
-------------------------------------------------------------------
-> spawn all 300 at cursor
-spawned 1800 agents (300 per family) at (30.0, 75.0) r=10.0
-[ input line ................................ ] [Run] [help] [Clear]
+```powershell
+$immuneExe = "$env:LOCALAPPDATA\horde-build\windows-release\bin\immune.exe"
+& $immuneExe --level assets/levels/gym.json --sandbox
 ```
 
-The **target bar** at the top aims everything below it: pick cursor, a spawn
-point by id, the objective, or a literal point once, and every spawn / cast /
-field / vfx / camera control in every tab uses it.
+The panel opens automatically when the loaded level's `name` is `gym`. Backtick or F2 toggles it on other levels, and Escape closes it before other Escape handling. F1 is the debug overlay. Gym runs are sandboxed and hold objective integrity by default; `invuln off` restores the loss consequence of leaks. Headless modes default invulnerability off.
 
-| Tab | Holds |
-|---|---|
-| **Horde** | family + count spawn, spawn-every-family, flood every spawn point, kill by family or all, elite dropdown and spawn-every-elite, plus a live per-family census |
-| **Defense** | tower placement, place-one-of-each, sell/fire, ability buttons that grey out on cooldown and show the seconds left, ATP set/add |
-| **Waves** | director status, start-now, next, and the whole wave table with agent counts and modifier tags — click *Jump* on any row to run that wave immediately |
-| **World** | time scale and step, **infinite objective integrity** (on by default here), camera, overlay toggles, a raw damage field with radius/rate/duration sliders, combat-event firing, and stats/spawn_points/restart |
+## Panel and level
 
-Hovering any button shows the command it runs. The input line takes the full
-language for anything the widgets do not cover.
+The shared target bar selects cursor, spawn marker, objective, or a literal world point. The Horde tab spawns/kills families and elites; Defense places legacy emitters, sells/fires them, casts abilities, and edits ATP; Waves inspects or jumps the director; World exposes time, stepping, integrity protection, camera, overlays, fields, effects, and statistics. Buttons issue command strings and the log shows results. The input line exposes commands not represented by a button.
 
----
+The current gym has five lanes converging on one objective. Each lane includes a spawn chamber and a trunk sharing its lane id.
 
-## Why this exists
-
-Every subsystem here is already testable headlessly (`--bench`, `--sim-test`,
-`--screenshot`) and reachable from the HUD during play. What was missing was the
-middle: standing inside a running level and saying *"now show me the swarm
-modifier / every elite / the Tesla arc / what 4,000 agents look like in one
-lane."* Waiting out a prep timer to see wave 5 is not testing, it is
-bookkeeping.
-
-The command layer is a pure function of `(GymContext, line)` and owns no UI, so
-the same command string runs from three places:
-
-| Where | How |
-|---|---|
-| The in-game panel | its widgets, or its input line |
-| A `--sim-test` script | `{"tick": 30, "type": "cmd", "cmd": "spawn virus 500"}` |
-| A screenshot / CI | `immune --screenshot <level> --exec "spawn all 300; tower all"` |
-
-Commands go through the same public APIs `app/` uses for player intents — there
-is no back door into `SimWorld`. The one deliberate difference is that build
-costs and placement gates are bypassed (`tower` places for free), because paying
-100 ATP to look at a muzzle flash is bookkeeping too.
-
-Commands run **between ticks**, never inside one, so nothing here weakens the
-determinism contract: a fixed script of commands at fixed ticks replays
-bit-identically.
-
----
-
-## The level
-
-Five lanes, one per `VesselType`, each with its own spawn point and its own
-spawn chamber, all converging on a single organ at the right-hand side.
-
-| Lane | Type | Spawn point | Character |
-|---|---|---|---|
-| `lymph_lane` | lymphatic | `p_lymph` | the wide middle highway — point big spawns here |
-| `artery_lane` | artery | `p_artery` | long diagonal approach from the bottom-left |
-| `vein_lane` | vein | `p_vein` | mirror of the artery, from the top-left |
-| `nerve_lane` | nerve_adjacent | `p_nerve` | the slimmest trunk, for tight-lane clearance work |
-| `mucosa_lane` | mucosal_fold | `p_mucosa` | fat and short, from the bottom |
-
-Each lane is authored as **two vessels sharing one `lane_id`**: a wide spawn
-chamber around the spawn point, then the trunk. The chamber is not decoration —
-`spawn_burst()` sizes its spawn disc to the requested count, so a spawn point
-authored on a normal 12-wide lane loses the outer half of any large burst off
-the lumen. A gym whose `spawn 600` quietly yields 430 is a gym that lies.
-
-Past the chamber, **every trunk holds one width all the way to the organ.** The
-trunks used to keep tapering down as they ran in, which meant any measurement
-taken downstream was really a measurement of a funnel — and funnels are exactly
-the geometry DESIGN.md §4.3 no longer authors. A constant-width trunk makes
-"the same burst, measured at two points along the lane" mean what it says.
-
-The one width change that remains is the chamber opening out around the spawn
-point, which is a spawn bulb, not a kill slot: it sits behind the spawn point, it
-widens *backwards* out of the lane, and it tapers into the trunk over the
-lane's first ~45 units rather than necking down anywhere a tower would go.
-
-The wave table is authored, and each wave isolates one thing:
-
-| # | Name | Shows |
+| Lane id | Vessel type | Spawn marker |
 |---|---|---|
-| 1 | `gym_1_both_families` | both families, one per lane, side by side |
-| 2 | `gym_2_fever_modifier` | the fever curveball |
-| 3 | `gym_3_swarm_modifier` | the swarm curveball |
-| 4 | `gym_4_all_lanes_at_once` | five spawn points firing together (lane threat overlay) |
-| 5 | `gym_5_max_horde` | ~7,200 agents converging (the perf gate) |
+| `lymph_lane` | lymphatic | `p_lymph` |
+| `artery_lane` | artery | `p_artery` |
+| `vein_lane` | vein | `p_vein` |
+| `nerve_lane` | nerve_adjacent | `p_nerve` |
+| `mucosa_lane` | mucosal_fold | `p_mucosa` |
 
-There is no elite wave: the roster ships no elites (DESIGN.md §14).
+Five authored waves provide a mixed arrival, fever modifier, swarm modifier, all-lane arrival, and a larger horde. The first wave's historical name `gym_1_both_families` predates the parasite family; its current entries include all three families. Read the JSON or use `wave status` for current counts and timing. `spawn_points` prints current coordinates rather than relying on old screenshots.
 
-The first prep window is two minutes, on purpose: a gym must not start shooting
-at you while you are still setting up the thing you came to look at. `wave start`
-skips any prep instantly; `wave 4` jumps straight to wave 4.
+## Command syntax
 
----
+Commands tokenize on whitespace; shell-like quoting inside the command string is not supported. Command keywords are generally case-insensitive, but ids and widget paths should use their exact spellings. `help` lists the command table; `help spawn` explains an entry; `?` aliases `help`.
 
-## Commands
+Scripts separate commands with semicolons or newlines. Blank lines and lines whose first token begins with `#` are no-ops. Execution stops at the first failed command, returning all messages up to that point. Commands execute between ticks, through supplied public systems/callbacks. Missing context is a reported failure.
 
-The panel's buttons cover most of these. `help` lists them all and
-`help <name>` explains one. Anywhere a command takes a target, these all work:
+Point-taking commands accept `at x,y`, `at x y`, `at <spawn-id>`, `at cursor`, `at objective`, or `at center`. `organ`/`goal` alias objective and `centre` aliases center. Cursor is available only when the caller supplies it. A default spawn uses the first marker; most other default targets use the cursor if available, otherwise the world center.
 
-```
-at 120,75        at 120 75        at p_lymph        at cursor
-at objective     at center
-```
+### Population and defense
 
-(`p_lymph` and friends above are spawn point ids.)
-
-| Command | What it does |
+| Command | Behavior |
 |---|---|
-| `spawn <family\|all> <count> [at …] [radius <r>]` | Spawn chaff. Oversized counts stream in over the next ticks rather than spilling off the lane. |
-| `elite <name\|id\|all\|list> [at …]` | Spawn a named elite. |
-| `flood [count-per-spawn-point]` | Every family out of every spawn point. The stress button. |
-| `kill [family\|all]` | Flag chaff for removal, with real kill accounting. |
-| `tower <type\|all\|list> [at …]` | Place towers for free; `all` spreads one of each. |
-| `sell [all]` | Refund a placed tower. |
-| `fire` | Trigger every placed tower's active ability. |
-| `cast <complement\|histamine\|fever\|clot> [at …]` | Cast a player ability. The clot refuses a point off the tissue or one where its bar would seal the lane. |
-| `ready` | Clear every ability cooldown. |
-| `atp <amount\|+amount>` | Set or add ATP. |
-| `wave [start\|next\|status\|<index>]` | Skip prep, jump waves, read the director. |
-| `field <radius> <kill_rate> [duration] [at …]` | Submit a raw damage field — aggregate damage in isolation. |
-| `vfx <event\|all\|list> [at …]` | Raise combat events so the particle layer draws them. |
-| `time <scale>` / `step [ticks]` | Time scale (0 pauses); `step` advances while paused. |
-| `cam <x,y\|spawn_point\|objective\|fit> [height]` | Move the camera. |
-| `invuln [on\|off]` | Hold the objective's integrity so a leak cannot end the run. Aliases: `godmode`. |
-| `overlay <debug\|threat> [on\|off]` | Toggle a HUD overlay. |
-| `stats` / `spawn_points` | Print sim/economy/wave state, or the level's spawn points. |
-| `level <name>` / `restart` | Load another level, or reload this one. |
-| `autoplay [on\|off] [profile]` | Hand the level to the balance bot (docs/BALANCE.md). Aliases: `bot`. |
+| `spawn <virus\|bacteria\|parasite\|all> <count> [at target] [radius r]` | Spawn ordinary agents; `all` requests `count` for **each of three families** |
+| `elite <name\|id\|all\|list> [at target]` | List or spawn roster elites |
+| `flood [count]` | Request each family from every spawn marker; count is per family per marker |
+| `kill [family\|all]` | Flag ordinary agents for next-tick removal with accounting; does not kill every named elite |
+| `tower <type\|all\|list> [at target]` | Place stationary legacy emitter(s) for free; type names below |
+| `sell [all]` | Sell last/all legacy emitters; credit refund if an economy is supplied |
+| `fire` | Clear legacy emitter cooldowns so they can release on the next tick |
+| `cast <complement\|histamine\|fever\|clot> [at target]` | Cast a player ability subject to unlocks/cooldown and placement constraints |
+| `ready` | Reload ability defaults, including cleared cooldowns |
+| `atp <amount\|+amount>` | Set or add ATP |
+| `integrity <value>` | Set objective integrity; use values in the intended 0–100 range for HUD review |
 
-Several commands can share a line, separated by `;`. Lines starting with `#` are
-comments, so a session can be pasted in whole.
+Current type names are `neutrophil`, `macrophage`, `cytotoxic_t`, `goblet_cell`, and `fibroblast`. Use `tower list` and `elite list` against the running executable for current statistics/roster. `upgrade` and `tier` arguments are not supported.
 
-### A few sessions worth stealing
+**The gym `tower` command uses the retained stationary `TowerSystem::place()` path.** It creates an ECS emitter and is distinct from the player deck's directly deployed mobile cells. Free placement bypasses ATP payment, but still checks geometry, zones, type allowlists, and unlocks. It searches a few nearby Y offsets when the requested point is invalid. `tower all` spreads types across the world width at the requested row; it can place fewer than all types.
 
-```
-spawn all 200; tower all; time 4          # every family vs every tower, fast-forward
-wave 2; wave start                        # jump straight to the fever wave
-vfx all at cursor                         # one of each combat effect, side by side
-field 25 80 2 at cursor                   # aggregate damage with no tower involved
-flood 1200; overlay threat on             # five-lane pressure, threat readout on
-autoplay on; time 8                       # watch the balance bot play, eight times speed
-```
+Screenshot `--towers`/`--tower` and simulation action `place_swarm`/`place_tower` instead call direct deployment. These cells are not in `placed_towers()`, so gym `sell`/`fire` and `ui select` do not operate on them. Use the appropriate path for the behavior under test.
 
----
+Large gym spawns use tissue-aware burst capacity, place what fits immediately, and queue the rest for deterministic release on later ticks when a spawn queue is supplied. Counts in the result distinguish immediate and queued population. Grouped spawns may use squad paths; explicit targets retain the requested location. A tick-0 capture can show only the first released portion. `radius` is a spawn parameter rather than a guarantee that every requested agent fits in that disc.
 
-## Notes and limits
+Ability aliases include `cascade`/`burst` for complement, `flare` for histamine, and `fibrin`/`barrier` for clot. `ready` also resets definitions to defaults, so it can overwrite a live ability tuning experiment.
 
-- **Oversized spawns stream.** `spawn virus 4000` places what fits on the tissue
-  now and hands the rest to a queue that releases another burst each tick as the
-  previous one flows away — the same thing the wave director does over a wave's
-  duration. `stats` shows what is still queued.
-- **`step` advances the sim, not the session.** It ticks `SimWorld` only; the
-  wave director and the economy do not advance. That is what you want when
-  inspecting one frame of movement, and surprising if you expected `time 1`.
-- **`wave <n>` drops the earlier waves.** The director's index is only movable
-  through `set_waves()`, so jumping re-seats it on the tail of the table.
-- **Infinite integrity is ON for the gym level and off everywhere else.** The
-  gym level enables it at load; other levels get the real loss condition, and
-  every headless path (`--sim-test`, `--screenshot`, unit tests) defaults it off
-  so a script asserting that integrity depletes still observes that. Turn it off
-  with the World tab's checkbox or `invuln off` when the loss path *is* what you
-  are testing.
-- **It holds integrity, it does not stop leaks.** An agent that reaches the
-  organ still despawns and still counts in `chaff_leaked_total` — only the
-  consequence is suspended. Suppressing the despawn instead would pile the horde
-  onto the objective and change the very behaviour under test.
-- **The panel is not a player path.** It bypasses `ui::Intent` deliberately:
-  intents are the auditable record of what the *player* did, and a debug panel
-  masquerading as one would make that record lie.
-- **It opens itself on the gym level only.** Any other level leaves it as you
-  left it, so it never appears uninvited during real play.
+### Session, world, and diagnostics
 
-## Tuning from the console
+| Command | Behavior |
+|---|---|
+| `wave [start\|next\|status\|n]` | Status, skip prep, or jump to a 1-based wave of the director's current table |
+| `field <radius> <kill_rate> [duration] [at target]` | Submit a circular damage field; default duration 2 seconds; nonpositive duration becomes one tick |
+| `vfx <event\|all\|list> [at target]` | Raise diagnostic combat events |
+| `time [scale]` | Inspect/set interactive time scale; 0 pauses |
+| `step [ticks]` | Tick the sim directly 1–100,000 times; default 1; does not advance the wave/economy session loop |
+| `cam <target\|fit> [height]` | Move/fit interactive camera; `camera` alias |
+| `overlay <debug\|threat\|squads> [on\|off]` | Set an interactive overlay; omitted state means on |
+| `squads [on\|off\|list\|paths]` | Toggle squad behavior or inspect live squads/routes; off preserves membership |
+| `invuln [on\|off]` | Hold integrity after normal tick processing; no argument toggles; `invulnerable`/`godmode` aliases |
+| `autoplay [on\|off] [profile]` | Enable/disable the interactive bot; `bot` alias |
+| `stats` | Sim, economy, wave, and pending-spawn summary |
+| `spawn_points` | Marker ids/positions and objective location |
+| `level <name\|path>` | Load discovered level by name/title/stem or a path |
+| `restart` | Reload the current level |
 
-Every gameplay number lives in `assets/config/*.json` and is addressable by a
-dotted path:
+`wave n` replaces the live director table with its tail starting at `n`, so later wave numbers refer to the trimmed table. Restart to recover the original table. Invulnerability restores integrity rather than suppressing arrivals: leak counters still move, which makes reachability experiments useful without ending the run.
 
-```
-config get towers.macrophage.payload.arm_count
-config set towers.macrophage.stats.max_health 800
-config set enemies.families.virus.visual.silhouette 3.0
-config list enemies.families.virus
-config reload            # re-read the files from disk
-config dump              # write the live values back out
+Event names currently are `muzzle`, `impact`, `expired`, `explosion`, `beam`, `chain`, `cone`, `freeze`, `shatter`, `slash`, `splash`, `death`, and `swarmer`. `vfx all` spreads them along a row. These are diagnostic events, including legacy effect types, rather than proof that every effect is used by current gameplay.
+
+### Configuration and editor commands
+
+```text
+config list [filter]
+config get dotted.path
+config set dotted.path value
+config reload
+config dump
 ```
 
-`config set` writes through to the same bytes the JSON loader fills and then
-re-applies every affected system, so a value changed here and a value changed in
-the file behave identically. `config dump` is how an experiment that worked gets
-kept: retune in the console until it feels right, then dump and commit.
+`list` is capped at 40 matches; supply a filter to narrow it. Vector values use comma-separated numbers. Interactive `dump` writes live base config into the loaded config directory; it is different from CLI `--dump-config`, which exports compiled defaults. `--config DIR` pins the directory against automatic hot reload. See [Configuration](CONFIGURATION.md) for fields and initialization-only settings.
 
-Editing a config file while the game runs picks the change up within half a
-second, the same way a shader edit does. A file caught mid-save keeps the last
-good config and logs the parse error rather than taking the game down.
+The `edit` family requires an open `LevelDoc`. Its complete syntax and save/validation behavior are in [Level Editor](LEVEL_EDITOR.md). Ordinary sim-test and screenshot contexts do not supply a document.
 
-`reload` and `dump` are unavailable in `--sim-test`, because re-reading the
-files mid-run would change a determinism input. `get`, `set` and `list` work
-there, and every sim-test report carries a `config_hash` so a run records which
-tuning produced it.
+## Which contexts support which commands
 
-## `edit` — the level editor's document
+| Capability | Interactive play | `--sim-test` | Screenshot | Screenshot `--ui` | `--editor` |
+|---|---|---|---|---|---|
+| Spawn, legacy towers, fields, effects, stats | Yes | Yes | Yes | Yes | Needs a usable live world |
+| Full authored wave/economy ticking | Yes | No | No | Yes | During playtest |
+| Cursor, camera, time scale, overlays | Yes | No | No | No; use framing flags/UI pointer | Camera/editor tools available |
+| `config get/set/list` | Yes | Yes | No | No | Yes |
+| `config reload/dump` | Yes | No | No | No | Yes |
+| `ui` bridge | Yes | No | No | Yes | Game UI only, not ImGui editor widgets |
+| `level`, `restart`, `autoplay` callbacks | Yes | No | No | No | App callbacks exist; prefer editor lifecycle controls |
+| `edit` document commands | No | No | No | No | Yes; also while that document is playtested |
 
-Available only while the level editor is open (`immune --editor`, the main
-menu's Level Editor button, or F4 from a running level). Drives the same
-`game::editor::LevelDoc` the editor panels drive, so the GUI cannot become a
-second API — and so an editor operation is reachable from `--exec`, and
-therefore from `--sim-test` and screenshot regressions.
+A context can provide an empty director without ticking it; successful `wave start` does not imply waves will spawn. Headless setup failures and unsupported commands may be logged while a screenshot/script still completes. Keep diagnostic logs while developing recipes.
 
-```
-edit list                              describe the document
-edit new <template> [name]             straight | fork | switchback | convergent | multi
-edit vessel add <x,y> <x,y> [width]
-edit point add <vessel> at <x,y>
-edit point <vessel> <i> w <width>
-edit obstacle <disc|capsule|box|polygon|ridge> <x,y> [r <size>]
-edit spawn add <x,y>                   edit objective add <x,y>
-edit zone <x,y> <x,y>
-edit undo | edit redo | edit delete
-edit validate                          FAILS when the level has errors
-edit save [path] [force]               edit revert
+## Driving the game UI
+
+`ui dump` lists current visible widget paths. Common subcommands are:
+
+```text
+ui click <path>
+ui hover <path>
+ui select <n>
+ui cancel
+ui level <n>
+ui scale <0.75..1.5>
 ```
 
-`edit validate` returning a failure on errors is deliberate: it makes a one-line
-CI gate out of a level you just generated, instead of something the caller has
-to grep for.
+`ui select` selects the 1-based legacy tower model entry; `ui level` selects an unlocked 1-based campaign slot. Clicking a deck widget arms the player deployment cursor. Paths depend on screen visibility; a nonexistent/hidden widget fails. Examples include `hud/dock/neutrophil`, `hud/abilities/histamine/cell/button`, `hud/prep/send`, `tree/view/zoom_in`, and `levels/play`. Read `ui dump` before scripting paths after a UI change.
 
-```bash
-immune --editor --exec "edit new switchback lvl; edit obstacle ridge 240,130 r 18; edit validate; edit save assets/levels/lvl.json"
+Screenshot-only setup adds:
+
+```text
+ui pointer <x> <y>
+ui screen none|menu|tree|levels|pause|victory|defeat
+ui tree new|sample|full
 ```
 
-Points accept `x,y` or the literal `cursor` (the mouse position), matching how
-every other command that takes a point behaves.
+Pointer coordinates use logical pixels in the 1920 by 1080 design frame and move the placement/aim preview; they are not world coordinates or a world-click command. Front-end screenshots use synthetic progression/result data. Set `ui tree full` before `ui screen tree` so the view frames the chosen state. These commands do not edit the user's save.
+
+## Useful recipes
+
+```powershell
+# Inspect movement/collision in the gym interactively.
+& $immuneExe --level assets/levels/gym.json --sandbox --exec "spawn bacteria 1000 at p_lymph; squads paths; time 4"
+
+# Capture legacy emitter combat at a known gym row.
+& $immuneExe --screenshot assets/levels/gym.json --tick 240 --threads 1 --exec "spawn all 150 at p_lymph; tower all at 500,395" --out "$env:TEMP\immune-gym.png"
+
+# Capture the current direct cell path and HUD.
+& $immuneExe --screenshot assets/levels/campaign_01_first_bend.json --ui --tick 120 --towers --out "$env:TEMP\immune-cells.png"
+
+# Exercise front-end tree presentation with a synthetic full tree.
+& $immuneExe --screenshot assets/levels/campaign_04_twin_channels.json --ui --width 1920 --height 1080 --exec "ui tree full; ui screen tree" --out "$env:TEMP\immune-tree.png"
+```
+
+Inspect stderr, state JSON, and the resulting PNG. See [Testing](TESTING.md) for what each headless mode can prove and for repeatability limits.
+
+## Extending the console
+
+Add a command-table entry and a matching executor branch in `GymCommands.cpp`. Keep nullable-context checks, readable failure messages, between-tick mutations, and system-level APIs. Add command tests in [test_gym_commands.cpp](../tests/test_gym_commands.cpp), and panel coverage when adding a control. A new callback must be wired into each intended context separately; listing a command in `help` does not make it available everywhere.

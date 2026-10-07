@@ -1,205 +1,137 @@
-# IMMUNE — the balance harness
+# Balance runs and performance reports
 
-**Direct deployment update:** The automatic player now buys individual cells.
-Reports expose `cells` and `cells_by_type`; the old `towers` keys remain as
-compatibility aliases. Each cell's damage is attributed to its own deployment
-handle. Older tower examples below are historical and should not be used to
-judge the current cell economy.
+IMMUNE provides a headless automatic player for comparative balance experiments and a separate benchmark harness for subsystem timing. The automatic player deploys individual mobile cells. Report keys named `towers` remain compatibility aliases; they no longer imply a stationary emitter was bought. See [Gameplay](GAMEPLAY.md) for the player model and [Testing](TESTING.md) for verification limits.
 
-Balancing this game used to mean playing a level and forming an impression.
-This is the alternative: a bot plays levels headlessly at full CPU speed, and
-every run emits an exhaustive JSON record of what each tower earned, what each
-pathogen family cost, and where the pressure actually was.
+## One automatic run
 
-The whole thing exists to answer comparative questions. A single run is a
-sample; the harness is built for the differences *between* runs.
+From the repository root:
 
----
-
-## The two commands
-
-Play one level and read the report:
-
-```bash
-immune --autoplay --level assets/levels/skin_1_breach.json --report run.json
+```powershell
+$immuneExe = "$env:LOCALAPPDATA\horde-build\windows-release\bin\immune.exe"
+& $immuneExe --autoplay --level assets/levels/campaign_01_first_bend.json --profile greedy-cheapest --seed 1 --threads 1 --report "$env:TEMP\immune-balance-run.json"
 ```
 
-Sweep the content set and get a digest:
+`--autoplay` requires a real level file and fails on a missing/unloadable level instead of falling back to the test lane. Without `--report`, JSON goes to stdout. `--config DIR` selects alternate tuning. `--max-ticks N` bounds the run; zero uses 108,000 ticks (30 simulated minutes at 60 ticks/second).
 
-```bash
+A completed report has `result: cleared`, `lost`, or `tick_limit`. Each returns process exit 0; a loss is data. Setup/profile/report-writing failure returns 1. Read `result` rather than interpreting the exit status as a win.
+
+To watch the bot in the interactive app:
+
+```powershell
+& $immuneExe --level assets/levels/campaign_01_first_bend.json --sandbox --exec "autoplay on; time 8"
+```
+
+Use a separate save if progression is part of the experiment. `--sandbox` removes progression bonuses/unlocks/payouts from a comparison. The interactive bot and headless bot share `AutoPlayer`, but their surrounding setup currently differs as described below.
+
+## Strategies and placement planning
+
+| Profile | Behavior |
+|---|---|
+| `greedy-cheapest` (default; alias `greedy`) | Cheapest affordable planned direct cell |
+| `spread-coverage` (alias `spread`) | Fill planned sites in coverage order |
+| `single-type:<type>` | Restrict every planned purchase to the named cell type |
+
+The parser accepts current type names `neutrophil`, `macrophage`, `cytotoxic_t`, `goblet_cell`, and `fibroblast`. The bot never casts active abilities or sells. Default decision cadence is 30 ticks (half a second) and the plan has at most 32 sites. It spends through the economy and validates/deploys through the same direct-cell API used by the player.
+
+[AutoPlayer.cpp](../src/game/autoplay/AutoPlayer.cpp) derives its plan from level geometry rather than per-level strategy files:
+
+1. Sample vessel splines and ignore candidates with nonfinite flow cost.
+2. Score narrowness (weight 1), lateness along the flow field (0.6), extra lane coverage (0.5 each), and placement-zone priority (0.8; concentrated zones double the hint).
+3. Sort stably, accept spaced candidates, assign types from their family-mask coverage of the authored waves with diminishing returns per type, and validate direct deployment.
+4. Re-check placement and affordability when buying.
+
+The reference coverage/spacing radius is currently the Macrophage swarmer search radius. This remains a general-purpose planner: a poor result can describe a weak plan, sparse legal sites, or a cell's behavior as well as pricing. A zero-instance type is not proof by itself that no human strategy would use it.
+
+## Sweeping levels, strategies, and seeds
+
+The [sweep helper](../tools/balance_sweep.py) requires Python 3.10+ and only the standard library:
+
+```powershell
 python tools/balance_sweep.py --seeds 3 --profiles all
+python tools/balance_sweep.py --levels assets/levels/campaign_01_first_bend.json assets/levels/campaign_02_island_climb.json --profiles core --jobs 2
+python tools/balance_sweep.py --levels assets/levels/campaign_01_first_bend.json --profiles single-type:fibroblast --seeds 1
 ```
 
-The sweep writes `tools/balance/summary.md` (the digest), `summary.csv` (one
-row per run), and `runs/*.json` (every raw report). All of it is gitignored:
-a report is only meaningful against one `config_hash`, so it is a local
-artifact, regenerated after every tuning change.
+Executable resolution is `--exe`, then the `IMMUNE` environment variable, then `%LOCALAPPDATA%\horde-build\windows-release\bin\immune.exe`. Default output is `tools/balance/`, gitignored. It writes `runs/<level>__<profile>__seed<N>.json`, `summary.csv`, and `summary.md`. Colons in profile names become underscores in filenames.
 
----
+| Option | Current default/meaning |
+|---|---|
+| `--levels [paths...]` | Default: every immediate `assets/levels/*.json` except `gym`, `lane_schema_test`, `capillary_test`, `floodplain_max_horde` |
+| `--profiles core` | Two general strategies |
+| `--profiles single` | Four single-type profiles: Neutrophil, Macrophage, Cytotoxic T, Goblet Cell |
+| `--profiles all` | `core` plus those four single-type profiles |
+| `--profiles a,b` | Explicit comma-separated strategy list; use this to include Fibroblast |
+| `--seeds N` | N seeds per level/profile, starting at 1; default 3 |
+| `--jobs N` | Concurrent processes; default half available CPU count, at least 1 |
+| `--max-ticks N` | Forwarded if nonzero; default harness limit |
+| `--out DIR` | Output directory |
 
-## Watching the bot
+An explicitly supplied directory includes every immediate JSON file and does not apply the default skip set. The default sweep includes legacy content as well as campaign files; pass the intended levels when judging campaign difficulty. Each subprocess uses `--threads 1 --quiet`, runs from the repo root, and has a 900-second wall-clock timeout. The helper has no `--config` option; use single `--autoplay --config` invocations for a separate config directory, or compare deliberate repository tuning revisions.
 
-A bot whose play cannot be inspected cannot be trusted to produce balance
-numbers, so the same bot drives the windowed game:
+The digest compares level/strategy results, aggregates compatibility `towers_by_type`, and flags mean wave integrity cost more than one population standard deviation above that level's mean. The flag is a lead for review, not a design rule. A loss or tick limit does not fail a sweep; failed subprocesses/reports do, and return exit 1.
 
-```bash
-immune --level assets/levels/skin_1_breach.json --exec "autoplay on; time 8"
+## Reading telemetry
+
+[RunTelemetry.cpp](../src/game/telemetry/RunTelemetry.cpp) emits schema 1. The header includes `level`, `level_name`, `profile`, `seed`, `config_hash` (string), `config_dir`, `result`, `ticks`, `seconds`, and `waves_reached`. Keep the raw reports with the executable/source revision when comparing tuning.
+
+| Section | Useful interpretation |
+|---|---|
+| `cells` (`towers` alias) | Each direct deployment's owner id, type, position, lane, build/remove tick, invested/refunded ATP, family damage/kills, named damage, alive/active ticks |
+| `cells_by_type` (`towers_by_type` alias) | Aggregate instances, investment, density removed, kills, throughput, uptime |
+| `waves[]` | Zero-based index/name/modifier, start/end ticks, time spent in prep/spawning/clearing, integrity cost, ATP earned/spent, unit counts, family outcomes, peak horde/density |
+| `families[]` | Spawned, killed by damage, leaked, out-of-bounds retired, still alive, leak rate, attributed density removed |
+| `totals` | Population outcome totals, final integrity/ATP, earned/spent ATP |
+| `economy` | Peak ATP, mean banked ATP, and ATP integrated over time (`idle_atp_seconds`) |
+| `timeline[]` | Samples every 30 ticks: ATP/income, horde/density, integrity, direct-cell count and retained tower alias |
+
+`atp_per_density` is investment divided by removed density; lower can indicate better value for **damage-producing cells**. It is not a complete value measure for protective barriers or mucus control. `uptime` is active ticks divided by alive ticks; low uptime can reflect placement, travel, lack of targets, or support roles. Ratios with a zero denominator are `null`, not zero.
+
+Family accounting reconciles spawned with damage kills, leaks, out-of-bounds retirements, and still-alive population. Viral replication contributes new spawns, so original wave counts are not the final denominator. The historical total `chaff_killed_total` includes multiple removal reasons; use family outcome fields to distinguish them.
+
+Damage attribution uses owner handles carried by simulation damage events through [Attribution.h](../src/sim/Attribution.h), including the reserved high-range ids of direct cells. The collector receives events; the sim does not query it for decisions. [test_autoplay.cpp](../tests/test_autoplay.cpp) includes attribution/session/report coverage. A report's aggregate alone cannot diagnose an unexpected cell path: inspect instance position, lane, lifetime, and the observed run.
+
+## Current harness limits
+
+The headless loop calls the shared `step_level()`, but [AutoplayMode.cpp](../src/app/AutoplayMode.cpp) assembles its own setup. At present:
+
+- It uses base tuning without player progression effects.
+- It does not call interactive `App::apply_level_rules()`, so per-level `economy.starting_atp`, `income_multiplier`, and `allowed_towers` are not installed there. Interactive bot runs do apply them.
+- It passes `win.survive_seconds`, authored waves, placement zones, enemy/tower/ability tuning, and geometry to the session.
+- Horde capacity is fixed at 32,768, rather than the interactive configured capacity.
+- It does not assign the loaded `sim.squads` block to its `SimDesc`, so that layer uses its constructor defaults.
+- Abilities are configured and their cooldowns tick, but the bot does not cast them; this setup does not install the extra ability ECS cleanup system.
+
+Screenshot `--ui` similarly has its own setup and is not a full campaign/progression replay. Keep these scope differences with any balance conclusion about schema-2 maps. Do not use a headless win rate alone to claim the player's exact campaign experience.
+
+Inputs should include revision, level, config, seed, profile, and thread count. The bot itself uses no wall clock or RNG, but the surrounding sim's flow rebake has a wall-clock budget. Repeated runs with geometry-changing behavior can vary; prefer serial runs and repeated baselines rather than promising exact replay from the seed alone.
+
+## Performance benchmarks
+
+```powershell
+& $immuneExe --list-scenarios
+& $immuneExe --bench chaff10k --ticks 600 --threads 1
+python tools/bench_report.py --ticks 1200 --scenario chaff10k --scenario mixed --no-history
 ```
 
-`autoplay on|off [profile]` and `time <scale>` are gym console commands
-(docs/GYM.md), so they also work from the panel mid-run. This is the same
-`AutoPlayer` object the headless run uses, driven from the same place a
-player's clicks are applied — what you watch is what the harness measures.
+Registered scenarios are `empty`, `chaff1k`, `chaff10k`, `chaff10k_towers`, `named200`, and `mixed`. They seed 0/1,000/10,000 ordinary agents, 0/200 named agents, and optionally 16 long-lived damage fields. Despite its name, `chaff10k_towers` adds damage fields rather than purchasing a defense plan. Benchmarks tick the sim and submit rendering; they do not play authored waves or the automatic player.
 
----
+Benchmark JSON contains `scenario`, `ticks`, `seed`, final `agents.chaff/named`, and `timings_ms`. Timing entries contain `avg`, `p50`, `p99`, `min`, `max`, and `samples`. Standard keys are `chaff_update`, `spatial_hash`, `ecs_tick`, `render_submit`, and `frame_total`; additional recorded subsystem keys are retained.
 
-## Strategies
+The [report helper](../tools/bench_report.py) grades averages against strict thresholds:
 
-The bot never uses active abilities and never sells. It buys, on a half-second
-cadence, and which thing it buys is the strategy:
+| Timing | Budget |
+|---|---:|
+| `chaff_update + render_submit` | < 4 ms |
+| `ecs_tick` | < 2 ms |
+| `spatial_hash` | < 1 ms |
+| `frame_total` | < 16.6 ms |
 
-| `--profile` | Behaviour | What it is for |
-|---|---|---|
-| `greedy-cheapest` *(default)* | Always the cheapest affordable item in the plan | The baseline "average player" |
-| `spread-coverage` | Fill planned sites in coverage order | Tests breadth |
-| `single-type:<tower>` | Build one tower type and nothing else | Ranks the six towers with everything else held constant |
+It accepts `--exe`, `--ticks` (default 600), `--seed`, repeatable `--scenario`, `--history`, `--no-history`, and `--json`. Default is every registered scenario. It prints a table, can print graded rows, and appends per-scenario results plus time/commit to the gitignored `tools/bench_history.csv`. Exit 0 means every average budget passed; 1 means a budget or execution failed. The summed p99 shown for chaff/render is a sum of their individual percentiles, not the percentile of combined frame samples.
 
-The **spread between profiles on one level** is the most informative single
-output:
+The benchmark attempts a hidden GL context for real render submission. If context/renderer setup fails, it warns and records render submission as zero while still running sim timings. Run without `--quiet` to confirm rendering is active before interpreting the combined budget. Timings are hardware/workload dependent and reports do not include a config hash; record tuning separately and compare on the same machine with consistent thread settings.
 
-- one profile wins where five lose → a dominant strategy the design did not intend;
-- every profile wins comfortably → the level is not asking anything;
-- every profile loses → the level or the pricing is out of reach.
+## Making a tuning change
 
-The six `single-type` runs are the cleanest tower-vs-tower comparison
-available, because the level, the seed, and the site geometry are identical
-across them.
+Choose a concrete hypothesis, gather a baseline across relevant seeds/profiles, change one controlled input, and repeat. Inspect the report differences alongside an interactive observation. Use `config list/get/set` for live experiments and a copied config directory for isolated CLI trials; see [Configuration](CONFIGURATION.md). `config dump` can persist an interactive experiment, while CLI `--dump-config` writes compiled defaults and would replace that experiment with defaults if aimed at the same directory.
 
----
-
-## Where the bot builds
-
-Entirely derived from the level — there is no per-level plan file to keep in
-step with level edits, by design (a stale plan produces a reading that
-describes the plan rather than the level).
-
-Each vessel spline is sampled, and each sample scored on four things the level
-already knows about itself:
-
-| Term | Weight | Source |
-|---|---|---|
-| Chokepoint — how narrow the lumen is | 1.0 | `VesselPoint::width` |
-| Lateness — how close to the objective along the *actual* path | 0.6 | `FlowField::sample_cost` |
-| Lane coverage — how many lanes are in range | 0.5 / extra lane | `LaneOwnershipMap` |
-| Author's hint | 0.8 × priority (doubled if `concentrated`) | `PlacementZoneTag` |
-
-Sites are then accepted greedily with a spacing rule (0.7 × baseline range) so
-the plan spreads rather than stacking towers on the single best cell, and each
-site draws the tower type whose `family_mask` best covers the level's own wave
-table, with diminishing returns per type so one strong tower does not take
-every site and leave five untested.
-
-Every site is checked through `TowerSystem::validate()` — the same call the
-build cursor makes. The bot has no path into the sim a player lacks.
-
-The trade this makes: a decent generalist rather than an expert on any one map.
-That is the right trade for a comparative measurement, and it is why the
-harness reports across seeds and strategies rather than trusting one run.
-
----
-
-## Reading a report
-
-Per-run JSON, schema 1. The header pins provenance — `level`, `seed`,
-`profile`, `config_hash`, `config_dir` — because a number without those four is
-a number without a claim attached.
-
-### `towers_by_type` — the ranking table
-
-The one to read first.
-
-- **`atp_per_density`** — ATP invested per unit of chaff density removed. Lower
-  is better value, and it is the only figure that compares a Neutrophil to a
-  Macrophage without first asking how many of each got built. If two towers
-  differ by more than about 2×, one of them is mispriced.
-- **`uptime`** — the fraction of its life the tower removed anything at all. A
-  strong tower with low uptime is not strong, it is badly placed or badly
-  ranged; a *price* set from its damage alone will be wrong.
-- **`instances: 0`** — no strategy on any level ever thought this tower was
-  worth buying. That is a pricing or power finding on its own.
-
-### `towers` — per instance
-
-Every placement, retained after a sell. Position, lane, build tick,
-ATP invested, damage split by family, kills, active vs. alive ticks.
-Use it when the type-level number looks wrong and you need to know whether it
-was one bad site dragging the average.
-
-### `families` — what the level threw and what became of it
-
-`spawned` / `killed` / `leaked` / `despawned_out_of_bounds` reconcile exactly
-against each other (a test asserts it). `leak_rate` next to `density_removed`
-distinguishes a family surviving because it out-tanks the towers from one
-surviving because nothing ever reached it.
-
-### `waves` — where the difficulty is
-
-`integrity_cost` is the wave's real price. `leak_rate`, `peak_chaff`, and
-`peak_density` say whether it was volume or durability. `atp_earned` vs.
-`atp_spent` says whether the player could respond to it at all.
-
-The sweep's digest flags any wave costing more than one standard deviation
-above its own level's mean — that is a difficulty cliff, and it is the wave's
-fault rather than the player's.
-
-### `economy` — is price even a constraint?
-
-`mean_banked_atp` and `idle_atp_seconds` measure ATP that sat unspent. A large
-number on a **won** run means the economy is not a constraint and every price
-in `towers.json` is decorative. A large number on a **lost** run means the bot
-could not convert money into defence fast enough — usually a placement or
-pacing problem, not a pricing one.
-
-### `timeline`
-
-Sampled every 30 ticks (0.5 s): ATP, income, horde size, density, integrity,
-tower count. The shape a plot wants.
-
----
-
-## What makes the numbers trustworthy
-
-- **Attribution is real, not inferred.** Damage in this game is an aggregate
-  density field, so "which tower killed that" is not recoverable after the
-  fact. `sim/Attribution.h` books every hit against the `owner` the damage
-  field or projectile already carried, at the moment it lands, across all three
-  damage paths (fields, projectiles, named-agent strikes).
-- **Measuring does not change the run.** The sink is null in normal play and
-  nothing in the sim ever reads it. `tests/test_autoplay.cpp` asserts that a
-  run with the collector attached has a bit-identical `state_hash` to one
-  without.
-- **Runs are reproducible.** `(level, seed, profile, config_hash)` determines
-  the run exactly. The bot uses no RNG and no wall clock.
-- **The bot plays the real game.** `game/session/LevelSession.h` holds the one
-  authoritative tick order; both `App` and the harness call it. There is no
-  second copy to drift.
-- **The bot cannot cheat.** Every purchase goes through `Economy::spend` after
-  `can_afford`, and every placement through `TowerSystem::validate`.
-
----
-
-## Turning a finding into a change
-
-Tuning lives in `assets/config/*.json` and is reachable from the console:
-
-```
-config set towers.macrophage.stats.max_health 800
-config dump
-```
-
-The loop is: sweep → read `summary.md` → change one thing → sweep again →
-diff. Change one thing at a time; the harness is precise enough that a single
-edit is legible in the next digest, and a batch of edits is not.
-
-Note that `config_hash` changes with the tuning, so reports from before and
-after an edit are explicitly labelled as describing different games.
+Update documented values when keeping a tuning change, and retain the evidence needed to identify which level/config/revision generated the reports.

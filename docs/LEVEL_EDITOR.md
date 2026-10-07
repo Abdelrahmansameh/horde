@@ -1,317 +1,141 @@
-# IMMUNE — In-Game Level Editor
+# In-game level editor
 
-**Status: built.** Single authoritative document; supersedes the two earlier
-proposals, both deleted.
+The editor works on a `LevelDef`, renders the shared geometry bake, and can play unsaved content through the real level-session loop. Launch it from the repository root:
 
-```bash
-immune --editor                              # new level from a template
-immune --editor assets/levels/plaque_field.json
+```powershell
+$immuneExe = "$env:LOCALAPPDATA\horde-build\windows-release\bin\immune.exe"
+& $immuneExe --editor
+& $immuneExe --editor assets/levels/plaque_field.json
 ```
 
-Also: main menu → **Level Editor**, or **F4** from inside a running level to
-edit the level you are playing.
+F4 opens a new/template editor document from the title screen or the currently played level from a live run. The current player title menu has no editor button. `--editor` without a file starts a straight-lane template; use **File → New** to choose another template.
 
----
+See [Levels](LEVELS.md) for the schema, catalog, geometry pipeline, validator, and formatting command; [Building](BUILDING.md) covers launch/build requirements.
 
-## 1. Why in-game
+## A typical authoring session
 
-A level is not the JSON file. It is what the JSON file *bakes into*:
-`vessels[]` → `TissueMask` → carve `obstacles[]` → `DistanceField` → wall-cost
-stamp → `FlowField` → `LaneOwnershipMap`. Almost every authoring mistake is
-invisible in the text and obvious in the bake — a spawn point three units off
-the lumen, a switchback that pinches shut at the current `cell_size`, a ridge
-two units wider than intended sealing a lane.
+1. Open an existing level or choose **File → New**. Starter shapes are Straight lane, Fork, Switchback, Convergent chamber, and Multi-lane trunk.
+2. Set the name, region, world dimensions, cell size, lane width, and initial wave count. Template parameters generate real geometry, markers, zones, objective, and waves for further editing.
+3. Use the canvas and outliner to arrange geometry; the inspector edits the selected element's data.
+4. Inspect the Validation panel and viewport halos. Clicking an issue selects its element and moves the view to it.
+5. Use **Play → Play** or **Play from selected wave** to test the in-memory document. Return with Escape or the playtest's **Back to Editor** action.
+6. Save through **File → Save As** for a new file, then run `--level-check` and `--level-fmt --check` against the saved file.
 
-So the editor renders the bake, live, through the real `render::Renderer`. What
-you see is the game, and Play is an `instantiate()` rather than a
-save-relaunch-navigate cycle.
+Templates and the wave ramp generator materialize ordinary authored data. The game does not re-run those generators when loading the file.
 
----
+## Canvas tools and navigation
 
-## 2. The four decisions everything follows from
-
-1. **The document is a `LevelDef` and nothing else.** Anything the editor wants
-   to configure that `LevelDef` cannot hold went *into* `LevelDef` first (that
-   is schema v2, §7) — never into private editor state the game cannot read.
-2. **The editor bakes into its own buffers.** `instantiate()` needs a whole
-   `SimWorld` and `SimWorld::init()` is destructive.
-   `LevelLoader::bake_geometry()` gives the editor a private mask/SDF/flow that
-   `Renderer::submit_tissue()` accepts directly — **zero renderer changes**, and
-   editing never destroys a run.
-3. **Headless model, ImGui front end.** `game/editor` has no ImGui and no GL, so
-   the document, its operations and the validator unit-test with no screen and
-   run in CI. `ui/editor` is a typist for them, and so is the `edit` gym command
-   family — the GUI cannot become a second API.
-4. **Gizmos draw into `ImGui::GetBackgroundDrawList()`.** The renderer has one
-   world-space line facility and it is lines only. Projection goes through
-   `Camera::world_to_screen()`, which is exact because the tilt is fixed. **A
-   world circle is a screen ellipse**, so every ring is an N-gon.
-
----
-
-## 3. Module map
-
-```
-src/game/level/
-  LevelWriter.{h,cpp}      LevelDef -> canonical JSON; level_equal()   [immune_game]
-src/game/editor/           headless: no ImGui, no GL                   [immune_game]
-  LevelDoc.{h,cpp}         document + selection + undo + ops + id hygiene
-  LevelValidate.{h,cpp}    Issue list with severity, ElementRef, anchor
-  LevelTemplates.{h,cpp}   5 starter geometries + wave ramp + budget
-src/ui/editor/                                                          [immune_ui]
-  EditorGizmos.{h,cpp}     projection helpers: rings, ribbons, handles
-  EditorCanvas.{h,cpp}     camera, tools, hit-test, drag, snap, gizmos
-  EditorPanels.{h,cpp}     dockspace, outliner, inspector, waves, validation
-src/app/
-  EditorMode.{h,cpp}       file lifecycle, live bake, validation state
-  LevelTools.{h,cpp}       --level-check / --level-fmt
-```
-
----
-
-## 4. The rasterizer fix, and why it mattered
-
-Both earlier plans assumed the **flow field** was the expensive bake stage and
-designed the whole live-edit cadence around deferring it. Measured, that was
-wrong: `rasterize_vessels` was **50–90%** of every bake and the flow solve only
-6–15%.
-
-`rasterize_vessel` picked its sample count from arc length and cell size alone —
-four samples per cell — while `stamp_disc` writes the disc's whole bounding box.
-Cost was therefore `steps × (width / cell_size)²`, *independent of how much new
-area each stamp covered*. Lanes are ~68 wide since they were widened to hold two
-squads abreast (`ARCHITECTURE.md` §4.7), which put radius-34 stamps a quarter
-unit apart. On `capillary_switchback`: **151 M cell-writes into a 421 k-cell
-mask — every cell written ~360 times.** A single-constant model of exactly that
-quantity predicted measured time across all 14 levels within 5% mean error.
-
-The rate is now **scallop-limited**: discs of radius `r` placed `d` apart bulge
-inward by about `d²/8r`, so holding that under a quarter cell gives
-`d = sqrt(2·r·cs)`, which grows with radius as the old rule failed to. Sub-cell
-lumens fall back to the old rate, where the overlapping *chain* is what does the
-covering.
-
-| Level | before | after |
-|---|--:|--:|
-| capillary_switchback | 617 ms | **77 ms** |
-| gym | 387 ms | 91 ms |
-| plaque_field | 323 ms | 57 ms |
-| elbow_turn | 35 ms | 21 ms |
-
-Every level now bakes under 100 ms, which is what makes **re-bake on gesture
-release** feel immediate instead of needing an explicit Apply button.
-`tests/test_tissue_raster.cpp` asserts the properties the old rate got by brute
-force: no interior gaps, no edge scalloping, thin lanes still contiguous,
-hairpins watertight.
-
----
-
-## 5. Interface
-
-```
-┌ File  Edit  View  Level  Play ─────────── IMMUNE editor - plaque_field* ┐
-├──────────────┬──────────────────────────────────────────┬───────────────┤
-│ OUTLINER     │ [V][P][W][B▾][S][O][Z][Q] grid 1.0 snap✓ │ INSPECTOR     │
-│ ▾ Lanes      │                                          │ Level settings│
-│   ▾ main     │      real tissue, real flow field,        │               │
-│ ▾ Obstacles  │      real lane hues, gizmos on top        │               │
-│ ▾ Spawn pts  │                                          │               │
-│ ▾ Objectives │                                          │               │
-│ ▾ Zones      │                                          │               │
-│ ▾ Squad paths│                                          │               │
-├──────────────┴──────────────────────────────────────────┼───────────────┤
-│ WAVES │ VALIDATION                                      │               │
-│ 1 2 3 4 5  + Ramp…  □table                              │               │
-│ 140 agents over 4.0s, peak 35/s (cap 20000)             │               │
-│ ▐virus 140 ████████████▏                                │               │
-├─────────────────────────────────────────────────────────────────────────┤
-│ x 156.5 y 44.4 | grid 1.00 | Select | 1 selected | bake 51.6 ms | ⚠2    │
-└─────────────────────────────────────────────────────────────────────────┘
-```
-
-Panels dock (`imgui[docking-experimental]`, opt-in via
-`ImGuiConfigFlags_DockingEnable`) around an **empty central node**, so the world
-shows through and stays clickable; `imgui.ini` persists any rearrangement.
-Frame-to-fit compensates for the panels, so "frame all" centres the level in the
-part you can actually see rather than behind the outliner.
-
-### Tools
-
-| Key | Tool | Behaviour |
+| Key | Tool | Current behavior |
 |---|---|---|
-| `V` | Select | Click, Shift+click add, marquee, drag to move, Alt+drag duplicate, drag the rotation grip to turn an objective or box obstacle (15 deg steps while snap is on; Alt suspends) |
-| `P` | Pen | Click to append control points; click an endpoint to extend it; Enter/right-click finishes |
-| `W` | Width | Drag off a point sets its width; Shift smooths neighbours, Ctrl sets the whole vessel |
-| `B` | Obstacle | `1`–`5` pick the shape. Disc/box/capsule drag to size; polygon and ridge click vertices then Enter |
-| `S` | Spawn point | Click; snaps to the nearest lane centerline (Alt suspends) |
-| `O` | Objective | Click; snaps to the centerline. The footprint is an oriented rectangle -- `half extents` + `rotation` in the inspector, or the canvas grip |
-| `Z` | Zone | Drag a rect; 8 corner handles |
-| `Q` | Squad path | Polyline; Enter finishes |
+| V | Select | Click, Shift+click toggle selection, marquee, drag to move; Alt+drag duplicates the hit element |
+| P | Pen | Click to add vessel points; click a vessel's final endpoint to extend it; Enter/right-click finishes |
+| W | Width | Drag from a control point to its desired edge; Shift blends neighboring widths, Ctrl sets the whole vessel |
+| B | Obstacle | Keys 1–5 select disc, capsule, box, polygon, ridge; drag the first three, click points and Enter/right-click for polygon/ridge |
+| S | Spawn | Click to add a marker, snapping to a nearby centerline unless Alt is held |
+| O | Objective | Click to add an oriented rectangular objective; edit half-extents/rotation in inspector |
+| Z | Placement zone | Drag a rectangular buildable zone |
+| Q | Squad path | Click polyline points; Enter/right-click finishes |
 
-Global: **Ctrl+Z / Ctrl+Shift+Z** undo/redo · **Ctrl+D** duplicate · **Del**
-delete · **F** frame selection · **Home** frame all · **Alt+1..8** view toggles ·
-**Esc** cancel the in-progress gesture · **middle-drag** or **Space+drag** pan ·
-**wheel** zoom to cursor · **Alt** suspends snapping · **F5** play,
-**Shift+F5** stop.
+Middle-drag or Space+drag pans. The wheel zooms around the cursor. Grid/snap controls sit in the toolbar; Alt temporarily suspends snapping. Selected box obstacles/objectives have a rotation grip; angular snapping uses 15-degree increments, with Alt to suspend it. Handles are picked in screen pixels so they remain usable at different zoom levels.
 
-### The details that decide whether it feels right
+Implemented keyboard shortcuts:
 
-- **Vessels draw as their real Catmull-Rom**, sampled through the rasterizer's
-  own `eval_spline`, so the curve you see is the curve that bakes. Midpoint
-  diamonds subdivide; per-point rings show width.
-- **Handles are sized in pixels**, so picking feels identical framed on the
-  whole level or on one control point.
-- **Points beat bodies** in hit-testing, so a control point on top of a filled
-  shape stays grabbable. Obstacles beat the vessel under them.
-- **A gesture is one undo entry.** A drag opens the gesture only once it
-  actually moves, so a click that merely selects leaves nothing on the stack.
-- **The inspector is shape-aware**: `ObstacleDef` shares three geometry fields
-  across five shapes, so it shows only the ones this shape reads — and box
-  rotation is shown in **degrees**, as the file stores it.
-- **Validation is ambient**: pulsing halos in the viewport; clicking a row
-  selects the element and eases the camera to it.
+| Shortcut | Action |
+|---|---|
+| Ctrl+Z | Undo |
+| Ctrl+Shift+Z or Ctrl+Y | Redo |
+| Ctrl+D | Duplicate primary selection |
+| Delete | Delete selection |
+| F | Frame selection |
+| Home | Frame play bounds |
+| Alt+1 through Alt+8 | Toggle grid, world bounds, vessels, obstacles, spawn points, objectives, zones, squad paths |
+| Escape | Cancel an in-progress canvas operation; remain in the editor |
 
----
+Canvas shortcuts are disabled while a text input has focus. File and Play menu entries display shortcut labels such as Ctrl+S and F5, but the current code does not wire those labels to keyboard handlers. Use the menu actions for New/Open/Save and Play/Stop.
 
-## 6. What the validator catches
+## Panels, camera, and wave editing
 
-`game/editor/LevelValidate` returns a *list* of issues, each with a severity, an
-`ElementRef` to select and a world anchor to fly to. Strictly a superset of
-`LevelLoader::validate()`. New rules worth naming:
+The dockspace leaves the central area empty for the world; `imgui.ini` stores the local panel layout. Camera framing compensates for panels covering the outer part of the framebuffer. **Capture current framing** in level settings stores the uncovered viewport as the game's starting camera, rather than copying a raw camera center hidden behind panels.
 
-- **Spawn point / objective not on tissue.** `Level.h` promised this since the
-  schema was written; the implementation never had it.
-- **Spawn point cannot reach any objective.** Existed only inside
-  `instantiate()`, gated on `!obstacles.empty()` so it could not reject existing
-  content. Here it runs whenever a bake is supplied — the pinched-switchback
-  catcher.
-- **Duplicate ids** in any collection. Unchecked anywhere before, and a
-  duplicate `spawn_point_id` silently binds waves to whichever one
-  `resolve_spawn_point()` finds first.
-- Dangling `children`, unknown lane references, out-of-bounds geometry,
-  non-positive sizes.
-- Warnings: zone over solid ground, lane with no spawn point, vessel narrower
-  than two cells, grid over ~500 k cells, backwards ATP/prep ramp, and a lane
-  authoring exactly one squad path (which silently disables the derived spread
-  for the whole lane — the **Bake derived squad paths** menu item is the fix).
+The outliner groups lanes/vessels, obstacles, spawn points, objectives, zones, and authored squad paths. Point handles take precedence over filled bodies in picking, and obstacle picking takes precedence over underlying vessel bodies. The inspector is shape-aware and shows JSON rotations in degrees.
 
-All 14 shipped levels: **0 errors, 5 warnings.**
+The Waves panel supports wave selection, ordering/duplication, spawn-entry editing, a timeline/table view, modifier selection, markers, elite ids, squad sizes, and path filters. Timeline bars can move spawn-entry start times. The ramp generator controls first/last family counts, appearance waves, prep, reward, duration, and curve, then writes real entries into the document. Budget readouts summarize total agents, release span, and peak release rate; they do not model every replication descendant or prove the runtime capacity is sufficient.
 
----
+Use **Level → Bake derived squad paths to authored** before editing a generated path spread. A lane with even one authored path no longer gets automatic derivation for that lane. The command copies the loader's resolved paths into document data; review the authored route set afterward.
 
-## 7. Schema v2
+## Playtest behavior
 
-The loader accepts 1 **and** 2. Every v2 field is optional with the pre-v2
-behaviour as its default, and `LevelWriter` stamps whichever version the content
-actually needs — so a level using no v2 field stays a v1 file.
+Playtesting calls `App::load_level_def()` on the in-memory document, then the normal `step_level()` session. It is sandboxed: all types/abilities are unlocked, progression bonuses are off, and no campaign payout is saved. Level economy and placement rules still apply through the interactive app.
 
-| Field | What it does | Read by |
-|---|---|---|
-| `display_name`, `description`, `author`, `difficulty`, `tags[]` | Level select showed a filename-derived name | `ui::LevelEntry` |
-| `camera.center` / `view_height` / `min` / `max_view_height` | Framing was "the whole level", wrong for a long capillary | `App::load_level_def` |
-| `economy.starting_atp`, `income_multiplier` | Was global in `economy.json`; a tutorial and a floodplain cannot want the same bankroll | `App::apply_level_rules` |
-| `allowed_towers[]` | A level that is *about* one tower | `TowerSystem::validate` |
-| `win.survive_seconds` | Alternative to clearing the table; measured off the sim tick counter so it replays identically | `game::step_level` |
-| `SpawnEntry.squad_size` | 900 as 15×60 vs 6×150 are different arrivals; this was a global | `WaveDirector::tick` |
-| `SpawnEntry.squad_paths[]` | Commit an entry to the outer paths only — a flank | `SquadRegistry::next_path_for_lane_filtered` |
-| Empty `SpawnEntry.spawn_point_id` | Cycle each squad through every authored spawn point, in marker order; squads are born at the marker itself, then follow their path. Select an id to pin an entry to one marker | `WaveDirector::tick` |
-| `editor` block | The parser drops unknown keys, so no annotation survived a Save | editor only |
+**Play from selected wave** trims only the live director's table. Editing data remains intact. Playtest Restart replays the same document and starting wave; it does not reload the file, which lets an unsaved document be tested repeatedly. Escape returns from live play/results to editing; if the gym panel is open it consumes Escape first.
 
-**`allowed_towers` is enforced in `TowerSystem::validate()`, not by hiding HUD
-buttons**, so the gym console and the balance bot obey it too; the HUD greys the
-button so you can *see* the restriction.
+Editing and live simulation use separate geometry buffers. The editor document is not a mutable reference handed to the sim. Returning to editing re-frames and re-bakes the document.
 
-### `placement_zones` is now enforced
+## Validation and saving
 
-`TowerSystem.cpp` used to state outright that
-`PlacementResult::OutsidePlacementZone` was never returned, because
-`LevelDef::placement_zones` was never threaded onto `SimWorld` — the field was
-authorable, validated, drawn, read by the balance bot, and enforced by nothing.
-It is threaded now, next to `SpawnPointRuntime`, and the whole tower **footprint**
-must lie inside a zone.
+Validation collects errors and warnings with an `ElementRef` and optional world anchor. Errors block ordinary Save; warnings remain advisory. **Save anyway (has errors)** is an explicit work-in-progress override. It does not bypass the loader/writer's serialization requirements or guarantee an invalid file will load later.
 
-**This changes gameplay.** Empty means "anywhere", so a level authoring no zones
-is unaffected; measured against all 14 shipped levels the only difference is
-`elbow_turn`, where the bot places 30 towers instead of 32.
+[EditorMode.cpp](../src/app/EditorMode.cpp) owns file lifecycle:
 
----
+- Failed Open leaves the existing document intact; startup failure can fall back to a straight template with an error message.
+- New/Open replaces the document and clears selection/undo history. Save needed edits before switching documents.
+- Revert reloads the current source file and discards edits. An unsaved document has no file to revert to.
+- Overwriting an existing file attempts a `<path>.bak` backup before writing. A backup failure warns but does not stop Save.
+- Save uses the canonical writer, reloads the written file, and compares `level_equal()` before marking the document saved.
+- The title's `*` means the document differs from its saved snapshot within the writer/equality tolerance.
 
-## 8. Playtest
+CLI `--level-fmt` also round-trip checks before overwriting, but does not create the editor backup. Unknown JSON fields are discarded on loading and cannot be recovered by the writer. Persist new authoring data in the schema rather than relying on unrecognized keys.
 
-**F5** plays the in-memory document — unsaved edits included — through the real
-`step_level()` loop with the real HUD. `App::load_level(path)` split into
-`load_level(path)` + `load_level_def(def, source_path)` to make that possible.
-**Play from wave N** trims the live director's table without touching the
-document. **Shift+F5** or **Esc** returns to editing with the document untouched;
-the sim never gets a mutable reference to it.
+The shared bake is synchronous when invalidated and normally deferred until a canvas gesture completes. Cost depends on geometry, cell size, simulation bounds, and hardware. The status bar reports measured bake time; `--level-check` reports cell count and stage timings. Historical fixed millisecond claims are not a current performance guarantee.
 
-A playtest that runs to an end — cleared, or objective destroyed — gets its own
-results screen: **Restart** replays the same document from the same wave, and
-**Back to Editor** (also **Esc**) returns to editing. Neither one goes to the
-front end, and Restart deliberately does not re-read the file: for an unsaved
-document there is no path to re-read, which used to drop the editor into the
-built-in test level.
+## Editor console commands
 
----
+The gym `edit` family reaches the same document operations. It is available while editing (and when the editor document is being playtested). Ordinary `--sim-test` and `--screenshot` contexts do not supply a document and reject `edit`.
 
-## 9. Headless parity
-
-```bash
-immune --level-check <file|dir>          # validate; JSON report; exit 0/1
-immune --level-fmt   <file|dir> [--check]# canonical rewrite / CI gate
-immune --editor [file] --exec "edit ..."  # drive the editor from a command line
+```text
+edit new [straight|fork|switchback|convergent|multi-lane] [name]
+edit list
+edit vessel add <x,y> <x,y> [width]
+edit point add <vessel-index> at <x,y>
+edit point <vessel-index> <point-index> w <width>
+edit obstacle <disc|capsule|box|polygon|ridge> at <x,y> [r|size <value>]
+edit spawn [add] at <x,y>
+edit objective [add] at <x,y>
+edit zone <x,y> <x,y>
+edit delete
+edit undo
+edit redo
+edit validate
+edit save [path] [force]
+edit revert
 ```
 
-`--level-fmt` re-parses its own canonical output and compares before
-overwriting, so a writer bug is caught on the file it is about to replace.
-Normalising the shipped content took it from **5621 lines to 1837** with an
-identical validator report.
+Indices are zero-based. `edit delete`/`erase` acts on the current selection. Template selection is a case-insensitive prefix of its display label. Console tokens cannot contain whitespace, so use the UI for paths/names requiring spaces.
 
-The `edit` gym family (`edit new|list|vessel|point|obstacle|spawn|objective|
-zone|undo|redo|validate|save|revert`) makes editor operations reachable from
-`--exec`, and therefore from `--sim-test` and screenshot regressions. `edit
-validate` *fails* on errors, so it gates a script without grepping:
+`edit validate` runs JSON-only validation without baked geometry. It returns a failed command result on structural errors, but is not the full reachability check. Use `--level-check` on the saved file for a complete CLI gate. `edit save PATH force` requests the save override; `edit save` uses the existing source path.
 
-```bash
-immune --editor --exec "edit new switchback lvl; edit obstacle ridge 240,130 r 18; edit validate; edit save assets/levels/lvl.json"
+A startup recipe can create and save a template:
+
+```powershell
+& $immuneExe --editor --exec "edit new fork my_level; edit list; edit save assets/levels/my_level.json"
 ```
 
----
+This launches a windowed editor and remains running. `--exec` failure is logged rather than converted into a process-level gate, so inspect the result before assuming the save happened. For automation of the document model, use the headless Catch2 tests or call its C++ APIs in a test fixture.
 
-## 10. Tests
+## Implementation map and extension rules
 
-| File | Covers |
+| Source | Responsibility |
 |---|---|
-| `test_level_writer` | Round-trip + idempotence over every shipped level; the four serialization traps; omit-defaults and its identity exception |
-| `test_level_validate` | One fixture per rule, clean and failing; sealed lane; off-lumen spawn |
-| `test_level_edit` | `undo(op(x)) == x` for every op; gesture coalescing; reference rewriting; refusals; hit-test precedence |
-| `test_level_templates` | Every template validates clean (**no warnings either**), bakes, is reachable, and round-trips; ramp monotonicity; budget peak |
-| `test_tissue_raster` | Watertightness and scallop bounds at every width |
-| `test_gym_edit` | Every `edit` subcommand, headless |
-| `test_editor_panel` | ImGui smoke over every tool, inspector branch and template, on a headless GL context; save/reload; save refusal |
+| [LevelDoc.h](../src/game/editor/LevelDoc.h), [LevelDoc.cpp](../src/game/editor/LevelDoc.cpp) | Document, selection, hit tests, id/reference hygiene, operations, whole-document undo snapshots |
+| [LevelValidate.cpp](../src/game/editor/LevelValidate.cpp) | Error/warning rules and bake-dependent reachability |
+| [LevelTemplates.cpp](../src/game/editor/LevelTemplates.cpp) | Starter levels, wave ramp, release budgets |
+| [LevelWriter.cpp](../src/game/level/LevelWriter.cpp) | Canonical output/equality |
+| [EditorCanvas.cpp](../src/ui/editor/EditorCanvas.cpp), [EditorGizmos.cpp](../src/ui/editor/EditorGizmos.cpp) | Navigation, input, gestures, projection, overlays |
+| [EditorPanels.cpp](../src/ui/editor/EditorPanels.cpp) | Docked panels, dialogs, inspector, waves |
+| [EditorMode.cpp](../src/app/EditorMode.cpp) | File lifecycle, separate bake, validation state |
+| [LevelTools.cpp](../src/app/LevelTools.cpp) | `--level-check`, `--level-fmt` |
+| [App.cpp](../src/app/App.cpp) | Entry, playtest, stop, app-state transitions |
 
-81 new cases. Run from the repo root; the build needs a developer-prompt
-environment. Three `test_towers`/`test_config` failures are pre-existing
-`towers.json` drift on `master`.
+Undo stores up to 128 complete document snapshots. Bracket a drag/multi-field gesture with `begin_gesture()`/`end_gesture()` instead of pushing one operation per frame. Direct `mutable_def()` writes require that bracket. Renaming through document operations repairs relevant references; deleting the final vessel, spawn, objective, or wave is refused. A new persistent field needs loader/writer/equality coverage as well as inspector controls.
 
----
-
-## 11. Frozen headers touched
-
-| Header | Change |
-|---|---|
-| `Level.h` | `GeometryBakeDesc`, `GeometryBakeStats`, `bake_geometry()`, schema-2 fields |
-| `TissueRaster.h` | width-aware sample rate (§4) |
-| `GameState.h` | `GameStateId::Editor` |
-| `Cli.h` | `Mode::Editor`/`LevelCheck`/`LevelFmt`, `level_path`, `check_only` |
-| `App.h` | `load_level_def()`, editor members |
-| `SimWorld.h` | `placement_zones()` |
-| `TowerSystem.h` | `set_allowed_towers()`, `PlacementResult::TowerNotAllowed` |
-| `Input.h` | `Action::OpenEditor` (F4) |
-| `WaveDirector.h` | `SpawnEntry::squad_size`, `squad_paths` |
-| `Squads.h` | `next_path_for_lane_filtered()` |
-| `Camera.h` | `bounds()` accessor |
-
-All additive except `TissueRaster.h`'s sample rate, which changes the lumen edge
-by sub-cell amounts (obstacle interiors are pixel-identical), and
-`placement_zones` enforcement, which is the one deliberate gameplay change.
+Relevant tests include [test_level_edit.cpp](../tests/test_level_edit.cpp), [test_level_writer.cpp](../tests/test_level_writer.cpp), [test_level_validate.cpp](../tests/test_level_validate.cpp), [test_level_templates.cpp](../tests/test_level_templates.cpp), [test_gym_edit.cpp](../tests/test_gym_edit.cpp), and [test_editor_panel.cpp](../tests/test_editor_panel.cpp). See [Testing](TESTING.md) for execution and GL requirements.

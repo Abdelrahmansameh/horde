@@ -79,6 +79,7 @@
         "release_per_shot": 4,
         "search_radius": 12.0,
         "size": 0.705,
+        "size_jitter": 0.5,
         "speed": 30.0
       }
     },
@@ -165,6 +166,7 @@
         "release_per_shot": 1,
         "search_radius": 14.0,
         "size": 1.6,
+        "size_jitter": 0.5,
         "speed": 12.0
       }
     },
@@ -245,6 +247,7 @@
         "release_per_shot": 1,
         "search_radius": 14.0,
         "size": 1.8,
+        "size_jitter": 0.5,
         "speed": 25.0
       }
     },
@@ -331,6 +334,7 @@
         "release_per_shot": 3,
         "search_radius": 26.0,
         "size": 2.6,
+        "size_jitter": 0.5,
         "speed": 15.0
       }
     },
@@ -426,6 +430,7 @@
         "release_per_shot": 2,
         "search_radius": 28.0,
         "size": 2.0,
+        "size_jitter": 0.5,
         "speed": 22.0
       }
     }

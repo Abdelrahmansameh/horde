@@ -35,6 +35,7 @@
 #include "core/Math.h"
 #include "core/Rng.h"
 #include "sim/CombatEvents.h"
+#include "sim/SizeJitter.h"
 #include "sim/chaff/ChaffBuffers.h"
 #include "sim/flowfield/FlowField.h"
 #include "sim/spatial/SpatialHash.h"
@@ -131,7 +132,7 @@ void raise_swarmer_death(const SwarmerBuffers& sw, usize i, CombatEventSink* eve
     CombatEvent e = make_event(CombatEventType::SwarmerDeath, pr.source,
                                Vec2{sw.pos_x[i], sw.pos_y[i]}, v, sw.visual_id[i]);
     if (e.direction.x == 0.0f && e.direction.y == 0.0f) e.direction = Vec2{1.0f, 0.0f};
-    e.radius = pr.size;
+    e.radius = sw.body_size(i);
     e.magnitude = math::length(v);
     events->push(e);
 }
@@ -236,6 +237,7 @@ void SwarmerBuffers::reserve(usize max_swarmers) {
     generation.assign(max_swarmers, 0u);
     arbor_grabber.assign(max_swarmers, ArborGrabberState{});
     magazine.assign(max_swarmers, ShooterMagazine{});
+    size_scale.assign(max_swarmers, 1.0f);
     next_generation_ = 1u;
     clear();
 }
@@ -287,6 +289,7 @@ bool SwarmerBuffers::spawn(const SwarmerSpawnParams& p) {
     arbor_grabber[i] = ArborGrabberState{};
     // Released loaded: a shooter opens fire the moment it reaches range.
     magazine[i] = ShooterMagazine{};
+    size_scale[i] = spawn_size_scale(generation[i], profile_at(p.profile).size_jitter);
     if (next_generation_ == 0u) next_generation_ = 1u;   // never hand out 0
     return true;
 }
@@ -327,6 +330,7 @@ usize SwarmerBuffers::compact() {
             generation[i] = generation[last];
             arbor_grabber[i] = arbor_grabber[last];
             magazine[i] = magazine[last];
+            size_scale[i] = size_scale[last];
         }
         flags[last] = 0;
         generation[last] = 0u;   // the retired id is never reissued
@@ -677,14 +681,14 @@ SwarmerStats SwarmerSystem::update(SwarmerBuffers& sw,
         const f32 sa = std::sin(angle);
         const Vec2 aim{mag.aim.x * ca - mag.aim.y * sa, mag.aim.x * sa + mag.aim.y * ca};
 
-        const Vec2 muzzle = Vec2{sw.pos_x[i], sw.pos_y[i]} + mag.aim * (pr.size * kShooterMuzzleFraction);
+        const Vec2 muzzle = Vec2{sw.pos_x[i], sw.pos_y[i]} + mag.aim * (sw.body_size(i) * kShooterMuzzleFraction);
         SwarmerShot shot;
         shot.origin = muzzle;
         shot.velocity = aim * pr.round_speed;
         shot.damage = pr.round_damage * inflamed(muzzle);
         shot.hit_radius = pr.round_hit_radius;
-        shot.draw_start_radius = pr.granule_size * pr.size;
-        shot.draw_radius = pr.round_size * pr.size;
+        shot.draw_start_radius = pr.granule_size * sw.body_size(i);
+        shot.draw_radius = pr.round_size * sw.body_size(i);
         shot.draw_grow_seconds = pr.round_grow_seconds;
         // Twice the standoff and a little more. A shooter fires from its kite
         // band at a target that may be out near the standoff edge and still
@@ -902,7 +906,7 @@ SwarmerStats SwarmerSystem::update(SwarmerBuffers& sw,
             if (want.x == 0.0f && want.y == 0.0f) want = goal_dir;
             // Arrive rather than overshoot: ease off inside a few body
             // lengths so the unit settles on the site instead of orbiting it.
-            const f32 arrive = math::min(1.0f, goal_dist / math::max(pr.size * 3.0f, 0.01f));
+            const f32 arrive = math::min(1.0f, goal_dist / math::max(sw.body_size(i) * 3.0f, 0.01f));
             const Vec2 desired = want * (pr.speed * math::max(arrive, 0.35f));
             const f32 turn = math::saturate(9.0f * dt);
             sw.vel_x[i] += (desired.x - sw.vel_x[i]) * turn;
@@ -919,8 +923,8 @@ SwarmerStats SwarmerSystem::update(SwarmerBuffers& sw,
         if (pr.kind == SwarmerKind::ArborGrabber) {
             ArborGrabberState& arbor = sw.arbor_grabber[i];
             const u32 arm_count = math::min<u32>(pr.arbor_arm_count, kArborMaxArms);
-            const f32 max_reach = math::max(pr.attach_radius, pr.size);
-            const f32 body_rim = pr.size * kWallContactFraction;
+            const f32 max_reach = math::max(pr.attach_radius, sw.body_size(i));
+            const f32 body_rim = sw.body_size(i) * kWallContactFraction;
 
             const auto target_is_held = [&](u32 chaff_index, EntityId named_id) {
                 for (u32 a = 0; a < arm_count; ++a) {
@@ -994,7 +998,8 @@ SwarmerStats SwarmerSystem::update(SwarmerBuffers& sw,
                             target = Vec2{chaff.pos_x[host], chaff.pos_y[host]};
                             target_radius = chaff_radius_[chaff.family[host] < kFamilyCount
                                                             ? chaff.family[host]
-                                                            : 0u];
+                                                            : 0u] *
+                                            chaff.size_scale[host];
                         }
                     }
                 }
@@ -1121,7 +1126,8 @@ SwarmerStats SwarmerSystem::update(SwarmerBuffers& sw,
                                     radius = math::max(radius, chaff_radius_[chaff.family[captive] <
                                                                           kFamilyCount
                                                                       ? chaff.family[captive]
-                                                                      : 0u]);
+                                                                      : 0u] *
+                                                                   chaff.size_scale[captive]);
                                 }
                                 chaff.flags[captive] &= static_cast<u8>(~chaff_flags::kHidden);
                                 const f32 before = chaff.density[captive];
@@ -1705,7 +1711,7 @@ SwarmerStats SwarmerSystem::update(SwarmerBuffers& sw,
             if ((sw.flags[i] & swarmer_flags::kPendingKill) != 0) continue;
             const SwarmerProfile& pr = sw.profile_of(i);
             if (pr.kind == SwarmerKind::Latch && (sw.flags[i] & swarmer_flags::kAttached) != 0) continue;
-            const f32 contact = pr.size * kWallContactFraction;
+            const f32 contact = sw.body_size(i) * kWallContactFraction;
             const Vec2 p{sw.pos_x[i], sw.pos_y[i]};
             const f32 clearance = sdf->sample(p);
             if (clearance >= contact) continue;
@@ -1834,7 +1840,7 @@ void SwarmerSystem::resolve_bodies(SwarmerBuffers& sw, ChaffBuffers& chaff,
 
         const SwarmerProfile& pr = sw.profile_of(i);
         const Vec2 p{px[i], py[i]};
-        const f32 size = pr.size * kWallContactFraction;
+        const f32 size = sw.body_size(i) * kWallContactFraction;
         const bool bomber = swarmer_kind_detonates(pr.kind);
         const f32 boom_mult = bomber ? ct.bomber_contact_mult : 0.0f;
         const u8 mask = sw.family_mask[i];
@@ -1867,7 +1873,7 @@ void SwarmerSystem::resolve_bodies(SwarmerBuffers& sw, ChaffBuffers& chaff,
             const f32 dy = p.y - py[j];
             const f32 d2 = dx * dx + dy * dy;
             const f32 contact =
-                (size + sw.profile_of(j).size * kWallContactFraction) * ct.friendly_spacing_mult;
+                (size + sw.body_size(j) * kWallContactFraction) * ct.friendly_spacing_mult;
             if (d2 >= contact * contact) return;
             if (d2 < kEpsSq) {
                 // Identical spawn coordinates have no geometric normal. Use
@@ -1910,7 +1916,8 @@ void SwarmerSystem::resolve_bodies(SwarmerBuffers& sw, ChaffBuffers& chaff,
             const f32 dx = p.x - chaff.pos_x[j];
             const f32 dy = p.y - chaff.pos_y[j];
             const f32 d2 = dx * dx + dy * dy;
-            const f32 body = size + chaff_radius_[chaff.family[j] < kFamilyCount ? chaff.family[j] : 0u];
+            const f32 body = size + chaff_radius_[chaff.family[j] < kFamilyCount ? chaff.family[j] : 0u] *
+                                        chaff.size_scale[j];
             if (bomber && family_matches(mask, chaff.family[j])) {
                 const f32 fuse = body * boom_mult;
                 if (d2 < fuse * fuse) {
@@ -2050,6 +2057,9 @@ Vec2 SwarmerSystem::wall_slot(const SwarmerBuffers& sw, usize i, const SwarmerPr
     const f32 shift = target_along - math::clamp(target_along, -hold, hold);
     centroid += along * shift;
 
+    // NOMINAL size on purpose: every member of the rank solves this same
+    // slot layout independently, so it must not depend on the unit's own
+    // jittered body or the rank's slots would disagree with each other.
     const f32 body = pr.size * kWallContactFraction;
     const f32 wings = static_cast<f32>(squad_size_[i] - 1u);
     f32 spacing = pr.formation_spacing;

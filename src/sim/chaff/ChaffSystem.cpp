@@ -162,13 +162,17 @@ NeighbourSample gather_neighbours(const SpatialHash& hash,
                                   usize i, f32 sep_radius, f32 align_radius,
                                   const u8* family, const f32* contact_radii,
                                   f32 max_contact_radius, f32 contact_stiffness,
-                                  u32 max_sampled, const u8* burrow, const bool* collides) {
+                                  u32 max_sampled, const u8* burrow, const bool* collides,
+                                  const f32* size_scale, f32 max_size_scale) {
     NeighbourSample out;
     // A non-colliding family (ChaffFamilyParams::collides) sees only its own
     // kind: ghost to everyone else, but it still spreads out from itself.
     const u32 my_family = family[i] < kFamilyCount ? family[i] : 0u;
     const bool ghost = !collides[my_family];
-    if (ghost) max_contact_radius = contact_radii[my_family];
+    // `max_contact_radius` arrives already widened by `max_size_scale`, the
+    // largest spawn size any agent can roll; a ghost meets only its own
+    // family, so its scan is its own radius at that same largest size.
+    if (ghost) max_contact_radius = contact_radii[my_family] * max_size_scale;
     // Squad membership is deliberately irrelevant to local crowd physics.
     // Making another squad repel harder -- and excluding it from alignment --
     // phase-separated mixed waves into shells and made a surrounded family
@@ -178,7 +182,9 @@ NeighbourSample gather_neighbours(const SpatialHash& hash,
     (void)my_squad;
     (void)foreign_radius_mult;
     (void)foreign_strength_mult;
-    const f32 contact_radius = contact_radii[family[i] < kFamilyCount ? family[i] : 0];
+    // Contact distances are per BODY, not per family: the family radius times
+    // this agent's spawn size scale (sim/SizeJitter.h).
+    const f32 contact_radius = contact_radii[family[i] < kFamilyCount ? family[i] : 0] * size_scale[i];
     const f32 scan_radius =
         math::max(math::max(sep_radius, align_radius),
                   (contact_radius + max_contact_radius) * 0.5f);
@@ -316,7 +322,8 @@ NeighbourSample gather_neighbours(const SpatialHash& hash,
             // Both bodies must agree on their shared spacing. Using only my
             // diameter made a small virus push less than its large neighbour,
             // so mixed crowds acquired a spurious impulse and stayed overlapped.
-            const f32 their_contact = contact_radii[family[j] < kFamilyCount ? family[j] : 0];
+            const f32 their_contact =
+                contact_radii[family[j] < kFamilyCount ? family[j] : 0] * size_scale[j];
             const f32 pair_contact = (contact_radius + their_contact) * 0.5f;
             const bool in_contact = d2 < pair_contact * pair_contact;
             const bool has_budget = sampled < budget;
@@ -692,6 +699,12 @@ ChaffUpdateStats ChaffSystem::update(ChaffBuffers& buffers, const FlowField& flo
         // Only families that can actually be touched widen everyone's scan.
         if (collides[f]) max_contact_radius = math::max(max_contact_radius, contact_radii[f]);
     }
+    // Every radius above is a family's NOMINAL size; each agent's body is that
+    // times its spawn size scale. The widest scan any agent needs is therefore
+    // the widest family at the largest scale anyone can have rolled.
+    const f32* size_scale = buffers.size_scale.data();
+    const f32 max_size_scale = buffers.max_size_scale();
+    max_contact_radius *= max_size_scale;
 
     // ---- Pass A: accumulate (parallel, gather-heavy, not vectorized) --------
     std::atomic<u32> replication_rolls{0};
@@ -864,12 +877,14 @@ ChaffUpdateStats ChaffSystem::update(ChaffBuffers& buffers, const FlowField& flo
 
             // ONE gather feeds all four local rules: separation, alignment,
             // crowd pressure, and the positional contact correction.
+            const f32 body_scale = size_scale[i];
             const NeighbourSample nb =
                 gather_neighbours(hash, old_px, old_py, old_vx, old_vy, sqid, my_squad,
                                   foreign_radius_mult, foreign_strength_mult, i,
-                                  fp.separation_radius, fp.alignment_radius,
+                                  fp.separation_radius * body_scale, fp.alignment_radius,
                                   fam, contact_radii, max_contact_radius, fp.contact_stiffness,
-                                  tuning.max_neighbors_sampled, burrow, collides);
+                                  tuning.max_neighbors_sampled, burrow, collides,
+                                  size_scale, max_size_scale);
             // Crowd relief: displacement DOWN the local pressure gradient,
             // toward the density `pressure_threshold` describes as comfortable.
             //
@@ -915,7 +930,7 @@ ChaffUpdateStats ChaffSystem::update(ChaffBuffers& buffers, const FlowField& flo
             // spend -- is exactly where the mean stays long.
             Vec2 relief{0.0f, 0.0f};
             const f32 fits = math::max(fp.pressure_threshold, 1.0f);
-            const f32 step = relief_step[f < kFamilyCount ? f : 0];
+            const f32 step = relief_step[f < kFamilyCount ? f : 0] * body_scale;
             if (step > 0.0f && nb.crowd > fits &&
                 nb.crowd_weight > kSeparationEpsSq) {
                 const f32 over =
@@ -947,7 +962,7 @@ ChaffUpdateStats ChaffSystem::update(ChaffBuffers& buffers, const FlowField& flo
             // the cap exists because of how far an agent moves in a tick, and
             // a wall does not care which term paid for the step.
             {
-                const f32 cap = fp.radius;
+                const f32 cap = fp.radius * body_scale;
                 const Vec2 total = nb.contact_push + relief;
                 const f32 mag2 = math::length_sq(total);
                 const Vec2 capped =
@@ -1121,7 +1136,8 @@ ChaffUpdateStats ChaffSystem::update(ChaffBuffers& buffers, const FlowField& flo
                 const ChaffFamilyParams& fp = tuning.family[f < kFamilyCount ? f : 0];
                 if (has_sdf) {
                     resolve_wall_contact(sdf, px[i], py[i], vx[i], vy[i],
-                                         fp.wall_radius > 0.0f ? fp.wall_radius : fp.radius,
+                                         (fp.wall_radius > 0.0f ? fp.wall_radius : fp.radius) *
+                                             buffers.size_scale[i],
                                          fp.wall_restitution, fp.wall_splash,
                                          buffers.generation[i]);
                 }
@@ -1213,7 +1229,9 @@ ChaffUpdateStats ChaffSystem::update(ChaffBuffers& buffers, const FlowField& flo
         const Vec2 split_dir{std::cos(birth_angle), std::sin(birth_angle)};
         const ReplicationSplitParams& split_look =
             family_replication_split(static_cast<PathogenFamily>(f < kFamilyCount ? f : 0u));
-        const f32 split_distance = fp.radius * fp.contact_spacing *
+        // Spaced for the parent's body; the daughter rolls its own size, and
+        // the contact pass settles any difference over the next ticks.
+        const f32 split_distance = fp.radius * buffers.size_scale[i] * fp.contact_spacing *
                                    math::max(0.0f, split_look.separation_distance);
         const Vec2 split_half = split_dir * (split_distance * 0.5f);
         const Vec2 split_center{px[i], py[i]};
@@ -1300,6 +1318,10 @@ u32 ChaffSystem::spawn_burst(ChaffBuffers& buffers, PathogenFamily family, Vec2 
     // optimistic and let small bursts overlap). Inverting that and keeping a
     // little margin gives the 0.75 below; tests/test_chaff_system.cpp measures
     // the worst pair at several burst sizes so this constant cannot rot.
+    // Packed for the NOMINAL body. Spawn size jitter is centred on 1, so the
+    // average spacing is right; the few oversized neighbours are separated by
+    // the contact pass over the next ticks. Packing for the largest possible
+    // body instead would inflate every burst disc by the full jitter.
     const f32 contact_d = fp.radius * fp.contact_spacing;
     const u32 layout_count = math::max(math::max(pattern_count, pattern_offset + count), 1u);
     const f32 needed = contact_d * std::sqrt(static_cast<f32>(layout_count)) * 0.75f;

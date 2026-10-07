@@ -1,204 +1,73 @@
-# IMMUNE — Agent Brief
+# Agent and contributor brief
 
-**Read this first, before touching any file.** It is the standing contract for
-every sub-agent working on this project.
+Start with the [documentation index](README.md), [current design](../DESIGN.md),
+[architecture](ARCHITECTURE.md), and [conventions](CONVENTIONS.md). Read the
+subject reference before changing a system. This file is an entry guide, not
+a duplicate command or schema manual.
 
-Read next, in order: `DESIGN.md` (what the game is), `docs/ARCHITECTURE.md` (the
-frozen contracts and why they are shaped that way), `docs/CONVENTIONS.md` (how to
-write code here).
+## Establish the task and baseline
 
----
+Inspect repository status and any active file ownership before editing. Keep
+unrelated user changes intact. For parallel work, agree on disjoint paths and
+coordinate shared interfaces; historical wave tables do not define current
+ownership. Follow the user's task scope and existing authorization.
 
-## The seven rules
+Check implementation and call sites when docs/headers disagree. Names such as
+`TowerSystem` remain from an earlier model: **normal play deploys cells directly**.
+Five cell types and virus/bacteria/parasite are active; shipped elite/boss content
+is empty. Campaign and sandbox apply different unlock/reward rules.
 
-### 1. Own your directories. Touch nothing else.
-Your assignment names the directories you own. Other agents are editing this same
-working tree at the same time. Editing outside your assignment causes conflicts
-you will not see until someone else's build breaks.
+## Build and verify
 
-If you need a change in a file you do not own, **report it up**. Do not make it.
+The maintained commands are in [Building](BUILDING.md) and [Testing](TESTING.md).
+On the configured Windows development machine, from the repository root:
 
-### 2. Interface headers are frozen.
-Every header listed in `docs/ARCHITECTURE.md` is a contract that parallel agents
-are implementing against right now. You may:
-
-- implement declared functions in your own `.cpp` files,
-- add private members to classes you own,
-- add new files inside directories you own.
-
-You may **not** change a declared signature, remove a member, reorder an enum, or
-alter a documented struct layout — in *any* header, including your own — without
-the orchestrator broadcasting the change to the whole wave.
-
-`PathogenFamily`'s order is the renderer's batch order. `ChaffInstance`'s layout
-is mirrored in a shader. The `--bench` JSON keys are what perf regressions are
-measured against. These look like details and are not.
-
-### 3. Leave the build green.
-Configure, build, and `ctest` must all pass before you report done. A red build
-blocks every sibling agent in your wave. Run the full sequence in §"Commands"
-below — not just the file you were editing.
-
-### 4. Prove it. Don't claim it.
-Finish by **running** `--bench`, `--sim-test`, and/or `--screenshot` and pasting
-the actual output into your report. "The tests should pass" is not a report.
-
-Visual work must include a screenshot you generated, **read back yourself**, and
-described. You can read PNG files; use that.
-
-### 5. Perf budgets are acceptance criteria.
-From DESIGN.md §8.6, measured by `--bench` on this machine (RTX 3070, MSVC
-release):
-
-| Subsystem | Bench key | Budget |
-|---|---|---|
-| Chaff @ 10k: flow + separation + instanced render | `chaff_update` + `render_submit` | **< 4 ms** |
-| ≤200 named agents | `ecs_tick` | **< 2 ms** |
-| Spatial hash rebuild | `spatial_hash` | **< 1 ms** |
-| Whole frame | `frame_total` | **< 16.6 ms** |
-
-If your change pushes a number over budget, that is a **failure to report**, not
-a footnote. Report the actual JSON.
-
-### 6. Data-oriented in the hot path.
-No per-agent virtual calls. No per-enemy heap allocation. No OOP-per-chaff-unit.
-No allocation, exceptions, or logging inside a sim tick. DESIGN.md §8.2 is a hard
-constraint and `docs/CONVENTIONS.md` §2–3 spell out what it means concretely.
-
-### 7. Determinism is not optional.
-Same seed ⇒ same `state_hash()` at every tick, on any machine, at any thread
-count. No `rand()`, no `std::random_device`, no wall-clock reads in sim logic, no
-shared-RNG or shared-float accumulation across threads. Take an `Rng&`; fork per
-range. Breaking determinism breaks every other agent's ability to verify work.
-
----
-
-## Commands
-
-Everything runs from the repo root:
-`C:\Users\Abdel\OneDrive\Documents\horde`
-
-The MSVC environment and `VCPKG_ROOT` are not on the default PATH, so use the
-helper script (or run the raw commands from a Developer Command Prompt).
-
-### Build and test
-
-```bat
-tools\build.bat configure            :: cmake --preset windows-release
-tools\build.bat build                :: cmake --build --preset windows-release
-tools\build.bat test                 :: ctest --preset windows-release
-tools\build.bat all                  :: all three
-tools\build.bat all windows-debug    :: same, debug preset
+```powershell
+.\tools\build.bat all
+$immuneExe = Join-Path $env:LOCALAPPDATA 'horde-build/windows-release/bin/immune.exe'
+& $immuneExe --sim-test tests/scripts/smoke.json --quiet
+& $immuneExe --bench chaff10k --ticks 600 --threads 1 --quiet
 ```
 
-Raw equivalents, inside a Developer Command Prompt with `VCPKG_ROOT` set:
+The helper contains machine-specific setup paths. Use Developer Prompt/raw
+commands or adjust the helper according to Building when those paths differ.
+Keep build output outside OneDrive. If the user has the game open, do not
+terminate their process to relink: use a separate build directory or coordinate
+the build. See the local [run-immune skill](../.agents/skills/run-immune/SKILL.md)
+for execution guidance.
 
-```bat
-cmake --preset windows-release
-cmake --build --preset windows-release
-ctest --preset windows-release
-```
+Select checks for the changed contract. Unit tests, sim scripts, autoplay, and
+screenshots validate different layers. Sim scripts do not run the complete
+campaign session; legacy gym towers do not exercise player deployment.
+Documentation changes need source/link/example checks. Do not claim checks
+you did not run, and do not require unrelated benchmarks for a small prose edit.
 
-Build output: `%LOCALAPPDATA%\horde-build\windows-release\`
-Binaries:     `%LOCALAPPDATA%\horde-build\windows-release\bin\immune.exe`
+Visual changes require an actual screenshot read back by the author. Capture
+into `scratch/` or another output folder. Check shader errors as well as process
+exit status. For timing changes, measure the relevant benchmark on a recorded
+build/machine; old budget tables were targets and are not evidence of current
+performance.
 
-If a build fails with `C1041: cannot open program database ... immune_X.pdb`, a
-stale `mspdbsrv.exe` left over from an earlier (possibly unrelated) build session
-is almost always the cause — it's the helper process `/FS` relies on to
-serialize concurrent PDB writes, and an orphaned one can't coordinate new
-compiles. Kill it and retry:
-```bat
-taskkill /IM mspdbsrv.exe /F
-```
+## Important contracts
 
-For convenience:
+- Simulation uses fixed 60 Hz time and seeded RNG; visual/audio randomness
+  stays separate. See [Simulation](SIMULATION.md) for thread/rebake caveats and
+  the limited coverage of `state_hash`.
+- Preserve GPU struct/shader layouts, enum order, save keys, and machine-readable
+  report meanings. Update all consumers when changing one.
+- Keep crowd-scale storage data-oriented and capacity-bounded. Profile hot-path
+  changes; avoid per-pathogen allocations or polymorphic dispatch.
+- Full gameplay tick order belongs to `game/session/LevelSession`. Avoid creating
+  a second gameplay sequence in a tool or test.
+- Tuning is strict JSON with schema-derived access. Live, construction-time,
+  level override, and tree-only values have different application paths.
+- Screens emit intents/menu results; App applies gameplay mutations. GUI capture
+  must prevent world actions from leaking through controls.
 
-```bat
-set IMMUNE=%LOCALAPPDATA%\horde-build\windows-release\bin\immune.exe
-```
+## Report the result
 
-### Verify
-
-```bat
-:: Perf. --quiet keeps stdout pure JSON.
-%IMMUNE% --bench chaff10k --ticks 600 --quiet
-%IMMUNE% --bench mixed    --ticks 600 --quiet
-%IMMUNE% --list-scenarios
-
-:: Behaviour. Exit code 0 = pass, 1 = fail.
-%IMMUNE% --sim-test tests\scripts\smoke.json --quiet
-echo exit=%ERRORLEVEL%
-
-:: Visual. Then READ the PNG back and describe it.
-%IMMUNE% --screenshot assets\levels\capillary.json --tick 300 --out shot.png
-
-:: Determinism spot-check: identical seeds must give identical hashes.
-%IMMUNE% --sim-test tests\scripts\smoke.json --quiet
-```
-
-Useful global flags: `--seed N`, `--level PATH`, `--width/--height N`,
-`--threads 1` (fully serial — use it to prove a result is scheduling-independent),
-`--verbose`, `--quiet`, `--help`.
-
-### Run the game
-
-```bat
-%IMMUNE%
-```
-F1 debug overlay · TAB threat overlay · SPACE pause · `,`/`.` speed · F12 screenshot.
-
----
-
-## Adding verification for your own work
-
-**A bench scenario** — add an entry to `bench_scenarios()` in `src/app/Modes.cpp`
-(orchestrator-approved; it is a shared file).
-
-**A sim-test** — add `tests/scripts/<name>.json`. Schema v1:
-
-```json
-{
-  "schema": 1,
-  "name": "macrophage_thins_a_horde",
-  "seed": 42,
-  "ticks": 600,
-  "max_chaff": 20000,
-  "actions": [
-    { "tick": 0,  "type": "spawn_chaff", "family": "virus", "count": 2000,
-      "pos": [16, 72], "radius": 4 },
-    { "tick": 30, "type": "place_tower", "tower": "macrophage", "pos": [100, 72] }
-  ],
-  "assertions": [
-    { "tick": 600, "metric": "chaff_count",   "op": "<",  "value": 500 },
-    { "tick": 600, "metric": "objective_integrity", "op": ">", "value": 50 }
-  ]
-}
-```
-
-Metrics: `chaff_count`, `named_count`, `total_density`, `objective_integrity`,
-`chaff_killed_total`, `chaff_leaked_total`, `active_squads`, `chaff_latched`,
-`swarmers_killed_total`, `towers_lost_total`, `tick`, `state_hash`, plus the
-per-family forms `chaff_{spawned,killed,leaked,despawned}.<family>`.
-Operators: `==` `!=` `<` `<=` `>` `>=`.
-Families: `virus` `bacteria`.
-
-**A unit test** — add `tests/test_<subject>.cpp` and list it in
-`tests/CMakeLists.txt`. Test names must not start with `-` (CTest passes the name
-to the binary and Catch2 would read it as a flag).
-
----
-
-## Reporting
-
-When you finish, report:
-
-1. **What you implemented**, by file.
-2. **Build status** — the actual `ctest` summary line.
-3. **Perf** — the actual `--bench` JSON, with the relevant budget lines called out.
-4. **Behaviour** — `--sim-test` output and exit codes.
-5. **Visuals** — the screenshot you read back, described in your own words.
-6. **Anything you could not do**, plainly. A known gap reported honestly is worth
-   far more to the orchestrator than a success that turns out not to be one.
-
-If something in a frozen header genuinely blocks you, say so explicitly and
-propose the exact signature change. Do not work around it silently.
+State what changed and why, relevant checks with actual outcomes, and any
+material limitations or pre-existing failures. Link useful source/doc/output
+files. Include screenshot evidence for visual work and measured reports for
+performance work. Update affected references in the same change and add new
+topics to [the index](README.md).

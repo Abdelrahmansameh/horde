@@ -148,6 +148,10 @@ struct CombatEvent {
     /// Lets one event type render at wildly different intensities without the
     /// VFX layer having to re-derive anything from sim state.
     f32 magnitude = 1.0f;
+    /// ChaffDeath: the dying agent's spawn size scale (sim/SizeJitter.h), so
+    /// a corpse is drawn at the size the agent was. `radius` already includes
+    /// it. 1 everywhere else.
+    f32 size_scale = 1.0f;
 };
 
 /// Fixed-capacity, append-only-per-tick event buffer. The sim pushes; the VFX

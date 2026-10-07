@@ -323,6 +323,7 @@ inline ChaffBatchResult build_chaff_batches(const sim::ChaffBuffers& chaff,
     const f32* body_heading = chaff.body_heading.data();
     const f32* slither_phase = chaff.slither_phase.data();
     const f32* toxin_spit_pulse = chaff.toxin_spit_pulse.data();
+    const f32* size_scale = chaff.size_scale.data();
 
     // Per-family cursors into the fixed-stride destination regions.
     u32 cursor[kFamilyCount];
@@ -474,7 +475,10 @@ inline ChaffBatchResult build_chaff_batches(const sim::ChaffBuffers& chaff,
                                (split_delta.x == 0.0f && split_delta.y < 0.0f))) {
             split_delta = split_delta * -1.0f;
         }
-        inst.scale = vis.silhouette * (1.0f + flash_params.scale_punch * flash_k);
+        // size_scale is the agent's spawn size jitter (sim/SizeJitter.h). The
+        // sim scales its collision radius by the same factor, so the drawn
+        // and the colliding body stay one size.
+        inst.scale = vis.silhouette * size_scale[i] * (1.0f + flash_params.scale_punch * flash_k);
         // A passenger faces its host (local +x points into the cell) rather
         // than its velocity, which is the host's and says nothing about it.
         const bool worm = fam_worm[f] && !latched;

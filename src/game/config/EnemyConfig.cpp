@@ -53,6 +53,7 @@ constexpr Schema kBehaviorSchema{"family_behavior", kBehaviorFields};
 
 constexpr Field kChaffFields[] = {
     IMMUNE_CONFIG_FIELD(FamilyChaffParams, radius_from_silhouette, FieldKind::F32, "Collision radius = silhouette * this"),
+    IMMUNE_CONFIG_FIELD(FamilyChaffParams, size_jitter, FieldKind::F32, "Random spawn size variation, +- this fraction of radius (drawn and collision); 0 = uniform"),
     IMMUNE_CONFIG_FIELD(FamilyChaffParams, separation_radius_mul, FieldKind::F32, "Separation radius = radius * this"),
     IMMUNE_CONFIG_FIELD(FamilyChaffParams, separation_strength, FieldKind::F32, "How hard neighbours push apart"),
     IMMUNE_CONFIG_FIELD(FamilyChaffParams, alignment_radius, FieldKind::F32, "Radius over which headings are averaged"),

@@ -47,7 +47,8 @@ void raise_chaff_deaths(const ChaffBuffers& chaff, const ChaffTuning& tuning, us
         e.magnitude = speed;
         // The agent's own body radius, so the burst is sized by what died
         // rather than by a constant the art has to keep matched to silhouettes.
-        e.radius = f < kFamilyCount ? tuning.family[f].radius : 0.5f;
+        e.size_scale = chaff.size_scale[i];
+        e.radius = (f < kFamilyCount ? tuning.family[f].radius : 0.5f) * e.size_scale;
         e.target_family =
             f < kFamilyCount ? static_cast<PathogenFamily>(f) : PathogenFamily::Count;
         e.source = TowerType::Count;   // see CombatEventType::ChaffDeath
@@ -92,6 +93,9 @@ void SimWorld::init(const SimDesc& desc, JobSystem* jobs) {
     last_damage_stats_ = DamageStats{};
 
     chaff_.reserve(desc.max_chaff);
+    for (u32 f = 0; f < kFamilyCount; ++f) {
+        chaff_.set_size_jitter(static_cast<PathogenFamily>(f), desc.chaff_tuning.family[f].size_jitter);
+    }
     chaff_system_.set_tuning(desc.chaff_tuning);
     chaff_system_.set_world_bounds(desc_.sim_bounds);
 
@@ -451,6 +455,8 @@ u64 SimWorld::state_hash() const {
         mix(chaff_.toxin_rounds.data(), n * sizeof(u8));
         mix(chaff_.toxin_cooldown.data(), n * sizeof(f32));
         mix(chaff_.toxin_reload.data(), n * sizeof(f32));
+        // Body size moves bodies (contact, walls, swarmer reach).
+        mix(chaff_.size_scale.data(), n * sizeof(f32));
     }
     // Swarmers steer, choose and kill, so where they are and what they hold
     // is gameplay state; positions plus targets are enough to catch a
@@ -466,6 +472,8 @@ u64 SimWorld::state_hash() const {
         // it: two worlds whose units have been bitten differently diverge the
         // tick one of them dies.
         mix(swarmers_.health.data(), sn * sizeof(f32));
+        // A unit's body size moves it and what it touches.
+        mix(swarmers_.size_scale.data(), sn * sizeof(f32));
         // An ArborGrabber's arm cycles and captive handles decide which
         // agents are currently removed from the flow and when they are
         // swallowed. Hash only initialized fields, never struct padding.

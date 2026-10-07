@@ -694,6 +694,7 @@ struct Renderer::Impl {
         Vec2 position{0.0f, 0.0f};
         Vec2 velocity{0.0f, 0.0f};
         f32 born = 0.0f;      ///< Impl::time when the agent died.
+        f32 scale = 1.0f;     ///< The agent's spawn size scale (sim/SizeJitter.h).
         u8 family = 0;
     };
     std::vector<ChaffCorpse> corpses;
@@ -1574,6 +1575,7 @@ void Renderer::submit_chaff_deaths(const sim::CombatEvent* events, usize count,
         // frame the push lands.
         corpse.born = static_cast<f32>(imp.clock.elapsed_seconds()) - age_seconds;
         corpse.family = static_cast<u8>(f);
+        corpse.scale = e.size_scale > 0.0f ? e.size_scale : 1.0f;
         imp.corpses.push_back(corpse);
     }
 }
@@ -1660,7 +1662,7 @@ void Renderer::submit_chaff(const sim::ChaffBuffers& chaff, const sim::SpatialHa
         const Vec2 p = corpse.position + corpse.velocity * age;
         inst.x = p.x;
         inst.y = p.y;
-        inst.scale = vis.silhouette * (1.0f + flash.scale_punch * flash_k);
+        inst.scale = vis.silhouette * corpse.scale * (1.0f + flash.scale_punch * flash_k);
         inst.rotation = std::atan2(corpse.velocity.y, corpse.velocity.x);
         // Alpha carries the dissolve. The body has to LEAVE, not sit there as a
         // white sprite that snaps off -- and fading it is also what keeps a
@@ -2329,7 +2331,7 @@ void Renderer::submit_swarmers(const sim::SwarmerBuffers& swarmers) {
             inst.vx = swarmers.arbor_grabber[i].heading.x;
             inst.vy = swarmers.arbor_grabber[i].heading.y;
         }
-        inst.radius = math::max(pr.size, 0.05f);
+        inst.radius = math::max(swarmers.body_size(i), 0.05f);
 
         // A latcher entering its host shrinks to nothing over the profile's
         // attach_seconds (Swarmers.h, attach stream) and is not drawn once it

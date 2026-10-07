@@ -89,6 +89,12 @@ struct ChaffFamilyParams {
     f32 drift_bias = 0.0f;      ///< How much ambient drift overrides flow.
     f32 replication_rate = 0.0f;///< Viruses: expected replications per agent per second.
     f32 radius = 0.5f;          ///< Visual/collision radius, drives sprite scale.
+    /// Spawn size variation: each agent's radius (drawn AND collision) is
+    /// scaled by a factor rolled uniformly in [1 - size_jitter, 1 + size_jitter]
+    /// when it spawns (ChaffBuffers::size_scale, sim/SizeJitter.h). 0 = every
+    /// agent exactly `radius`. Zero here so a bare sim is exact; the game's
+    /// enemies.json (FamilyChaffParams::size_jitter) supplies the real value.
+    f32 size_jitter = 0.0f;
 
     // ---- Fluid-feel additions (movement overhaul) --------------------------
     // The three classic boid rules minus cohesion (the flow field already

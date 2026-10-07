@@ -21,9 +21,11 @@
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdio>
+#include <string>
 #include <vector>
 
 using namespace immune;
@@ -1702,4 +1704,111 @@ TEST_CASE("a bacterium enclosed by a compressed virus crowd holds still",
                                       << jammed[bact].reversals);
     CHECK(jammed[bact].step < 0.6);
     CHECK(jammed[bact].reversals < 0.3);
+}
+
+TEST_CASE("chaff spawn size jitter: each agent rolls its own size within +-jitter",
+          "[chaff][size]") {
+    ChaffBuffers buffers;
+    buffers.reserve(2000);
+    buffers.set_size_jitter(PathogenFamily::Virus, 0.1f);
+    f32 lo = 2.0f, hi = 0.0f, sum = 0.0f;
+    for (u32 k = 0; k < 2000; ++k) {
+        ChaffSpawnParams p;
+        p.position = Vec2{static_cast<f32>(k), 0.0f};
+        p.family = PathogenFamily::Virus;
+        REQUIRE(buffers.spawn(p).valid());
+        const f32 s = buffers.size_scale[k];
+        REQUIRE(s >= 0.9f);
+        REQUIRE(s <= 1.1f);
+        lo = std::min(lo, s);
+        hi = std::max(hi, s);
+        sum += s;
+    }
+    // Actually spread over the range, centred on 1 -- not a constant.
+    REQUIRE(lo < 0.92f);
+    REQUIRE(hi > 1.08f);
+    REQUIRE(sum / 2000.0f == Catch::Approx(1.0f).margin(0.01f));
+    REQUIRE(buffers.max_size_scale() == Catch::Approx(1.1f));
+
+    // The size is the agent's for life: it follows it through compaction.
+    const u32 gen_last = buffers.generation[1999];
+    const f32 size_last = buffers.size_scale[1999];
+    buffers.kill(0);
+    buffers.compact();
+    REQUIRE(buffers.generation[0] == gen_last);
+    REQUIRE(buffers.size_scale[0] == size_last);
+
+    // Deterministic: a fresh store rolls the identical sequence.
+    ChaffBuffers again;
+    again.reserve(4);
+    again.set_size_jitter(PathogenFamily::Virus, 0.1f);
+    ChaffBuffers first;
+    first.reserve(4);
+    first.set_size_jitter(PathogenFamily::Virus, 0.1f);
+    for (u32 k = 0; k < 4; ++k) {
+        ChaffSpawnParams p;
+        p.family = PathogenFamily::Virus;
+        first.spawn(p);
+        again.spawn(p);
+        REQUIRE(first.size_scale[k] == again.size_scale[k]);
+    }
+
+    // No jitter (the sim default) is exactly 1, and an explicit size pins it.
+    ChaffBuffers flat;
+    flat.reserve(3);
+    ChaffSpawnParams p;
+    p.family = PathogenFamily::Bacteria;
+    flat.spawn(p);
+    REQUIRE(flat.size_scale[0] == 1.0f);
+    p.size_scale = 1.25f;
+    flat.spawn(p);
+    REQUIRE(flat.size_scale[1] == 1.25f);
+}
+
+TEST_CASE("chaff spawn size jitter scales the collision body, not just the sprite",
+          "[chaff][size]") {
+    // Two agents dropped on top of each other settle at the SUM of their own
+    // contact radii, so a bigger pair stands further apart.
+    const auto settled_gap = [](f32 scale) {
+        const Rect bounds{Vec2{0.0f, 0.0f}, Vec2{40.0f, 40.0f}};
+        FlowField flow = make_radial_flow(bounds, Vec2{35.0f, 20.0f});
+        DistanceField sdf;
+        SpatialHash hash = make_hash(bounds);
+        ChaffSystem sys;
+        // No steering at all: the only thing that moves them is contact.
+        ChaffTuning tuning = flat_tuning(0.0f, 6.0f, 1.2f, 0.0f, 0.0f);
+        for (auto& fp : tuning.family) {
+            fp.alignment_strength = 0.0f;
+            fp.crowd_relief = 0.0f;
+        }
+        sys.set_tuning(tuning);
+        ChaffBuffers buffers;
+        buffers.reserve(4);
+        for (u32 k = 0; k < 2; ++k) {
+            ChaffSpawnParams p;
+            p.position = Vec2{k == 0 ? 19.9f : 20.1f, 20.0f};
+            p.family = PathogenFamily::Virus;
+            p.size_scale = scale;
+            REQUIRE(buffers.spawn(p).valid());
+        }
+        Rng rng(7);
+        for (int t = 0; t < 30; ++t) {
+            rebuild(hash, buffers);
+            sys.update(buffers, flow, sdf, TissueMask{}, hash, no_squads(), rng, kFixedDt, nullptr);
+        }
+        return std::fabs(buffers.pos_x[1] - buffers.pos_x[0]);
+    };
+    const f32 small = settled_gap(0.9f);
+    const f32 big = settled_gap(1.1f);
+    INFO("small " << small << " big " << big);
+    REQUIRE(big > small * 1.15f);
+}
+
+TEST_CASE("the shipped config gives pathogens and swarmers 50% size jitter", "[chaff][size][config]") {
+    config::ConfigStore store;
+    game::GameConfig config;
+    std::string error;
+    REQUIRE(game::load_game_config(store, "assets/config", config, error));
+    for (const auto& fam : config.enemies.families) REQUIRE(fam.chaff.size_jitter == Catch::Approx(0.5f));
+    for (const auto& m : config.towers.mechanics) REQUIRE(m.swarm.size_jitter == Catch::Approx(0.5f));
 }

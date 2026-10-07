@@ -1,176 +1,132 @@
-# IMMUNE — Coding Conventions
+# Contributor conventions
 
-Binding for every wave. Where a convention exists to protect a performance or
-determinism property, the reason is stated — follow the reason, not just the
-letter.
+[Documentation index](README.md) · [Architecture](ARCHITECTURE.md) · [Testing](TESTING.md)
 
----
+These are development guidelines for the current repository. Historical
+implementation-wave ownership tables and blanket frozen-header rules have
+been retired. An active assignment can still define file ownership; coordinate
+shared edits and interface changes with whoever is working on them.
 
-## 1. Naming
+## Naming and structure
 
-| Thing | Style | Example |
+| Item | Convention | Example |
 |---|---|---|
-| Namespace | `lower_snake` | `immune::sim`, `immune::render` |
-| Type / struct / enum class | `PascalCase` | `ChaffBuffers`, `PathogenFamily` |
-| Enumerator | `PascalCase` | `PathogenFamily::Bacteria` |
-| Function / method | `lower_snake` | `apply_density_loss()`, `sample_cost()` |
-| Variable / parameter | `lower_snake` | `world_pos`, `kill_rate` |
-| Private data member | trailing underscore | `count_`, `cell_size_` |
-| Public SoA stream | bare `lower_snake` | `pos_x`, `density`, `flags` |
-| Compile-time constant | `kPascalCase` | `kTicksPerSecond`, `kFamilyCount` |
-| Macro | `IMMUNE_SCREAMING` | `IMMUNE_LOG_INFO`, `IMMUNE_PROFILE_SCOPE` |
-| File | matches its primary type | `SpatialHash.h` / `.cpp` |
+| Namespace | Lower snake case under `immune` | `immune::sim` |
+| Type / enum / enumerator | PascalCase | `ChaffBuffers`, `PathogenFamily::Virus` |
+| Function / local / parameter | Lower snake case | `state_hash()`, `world_pos` |
+| Private member | Trailing underscore | `count_` |
+| Public stream | Lower snake case | `pos_x`, `density` |
+| Constant | `kPascalCase` | `kFixedDt` |
+| Macro | `IMMUNE_UPPER_SNAKE` | `IMMUNE_PROFILE_SCOPE` |
+| File | Primary type's name | `SpatialHash.h`, `SpatialHash.cpp` |
 
-Everything lives under `namespace immune`, then a module namespace
-(`sim`, `render`, `game`, `ui`, `audio`, `platform`, `app`). Free functions that
-are implementation detail go in an anonymous namespace in the `.cpp`.
+Use `#pragma once`. Includes are rooted at `src/`, such as
+`#include "sim/chaff/ChaffBuffers.h"`. Group the own header, other project
+headers, third-party headers, and standard headers in that order. Prefer
+forward declarations when they preserve module boundaries. Implementation
+helpers belong in an anonymous namespace in the owning `.cpp`.
 
-Includes use paths rooted at `src/`: `#include "sim/chaff/ChaffBuffers.h"`. Never
-relative (`../`). Order: own header, then project headers, then third-party, then
-standard library, each group separated by a blank line.
+One CMake library target represents each major module. Follow the actual
+dependency graph in [Architecture](ARCHITECTURE.md); simulation must not depend
+on SDL, GUI, JSON loading, or renderer implementation. Generic `config/` owns
+schema machinery, while `game/config/` translates authored gameplay data.
 
----
+## Data and hot paths
 
-## 2. SoA layout rules (hot path)
+Crowd-scale streams use structure-of-arrays storage. Keep the hottest position
+and velocity axes separate; use packed flags and table-driven family behavior.
+Avoid adding a per-pathogen object hierarchy or virtual dispatch.
 
-These are not style preferences. DESIGN.md §8.2 makes them a hard constraint.
+Reserve bounded simulation pools at initialization. Check capacity before
+spawning; define overflow behavior rather than accidentally reallocating at
+horde scale. Some subsystems and diagnostic paths use other containers, so
+this is a rule for new hot-path work, not a claim that every existing tick is
+allocation-free. Measure changes to `SimWorld::tick` and render submission.
 
-1. **Anything that exists in thousands is SoA.** Parallel `std::vector<T>`, one
-   per field. No `struct Agent`, no `std::vector<Agent>`.
-2. **Split vectors per axis** in the hottest streams (`pos_x`/`pos_y`, not
-   `std::vector<Vec2>`). Early-outs test one axis, and SIMD wants scalar streams.
-3. **Reserve once at level load.** A hot-path container must never grow. Hitting
-   capacity is a reported failure, not a reallocation.
-4. **Keep flags packed.** Per-agent state is a `u8` bitset, not a set of bools.
-   Adding a seventh bool to a chaff agent is a design smell — reach for a flag or
-   ask whether it belongs on chaff at all.
-5. **Removal is swap-and-compact, once per tick.** Indices are stable *within* a
-   tick and invalid across one. Nothing may cache a raw index across ticks; use a
-   generational handle if you truly need identity.
-6. **Iterate in index order.** Random access across a 10k array defeats the
-   prefetcher and gives up the entire reason for SoA.
+Chaff compaction changes indices. An index is not persistent identity; follow
+the owning subsystem's handle/remapping protocol for references that survive
+a tick. Preserve serial update/removal ordering where it affects behavior.
+Use `immune::Arena` only when its reset lifetime matches the caller.
 
----
+Do not introduce per-agent heap allocation, formatted logging, exceptions,
+wall-clock gameplay decisions, or unordered behavior into hot loops. Use
+preallocated scratch, explicit statuses, and profiling scopes. Loading,
+screens, tools, and error reporting favor ordinary readable C++.
 
-## 3. The hot path
+## Reproducibility
 
-The "hot path" is anything inside `SimWorld::tick()` and
-`Renderer::submit_*()`. Inside it:
+Pass seeded `Rng` explicitly for gameplay. Do not use `rand()`, random devices,
+global generators, or render time to choose simulation behavior. Partition
+parallel work predictably and use independent RNG streams as the subsystem
+requires. Avoid shared floating-point accumulation dependent on scheduling.
 
-- **No allocation.** No `new`, `malloc`, `std::vector::push_back` that can grow,
-  `std::string`, `std::function` construction, or `shared_ptr`. Use pre-reserved
-  buffers or `core::Arena`.
-- **No exceptions.** No `throw`, and no calls that can throw. Return values or
-  status enums instead. (`/EHsc` stays on for third-party code; our code just
-  doesn't use exceptions here.)
-- **No virtual calls per agent.** Family behaviour is a flag bit and a table
-  lookup, never a subclass.
-- **No logging.** `IMMUNE_LOG_*` formats and locks. Log outside the tick.
-- **No wall-clock reads** other than through `Profiler`/`ScopedTimer`, and never
-  as an input to sim logic.
-- **No `std::unordered_map` iteration** where behaviour depends on order.
+The simulation advances with `Tick`/`kFixedDt`; player actions arrive as
+explicit requests. Cosmetic particle/audio randomness must not perturb gameplay
+RNG or simulation state.
 
-Outside the hot path (loading, UI, tools) normal, readable C++ is expected. Do
-not micro-optimize a level loader.
+Do not promise bit-identical runs on every machine or thread count. Chaff RNG
+partitioning and elapsed-time flow rebake scheduling can affect results.
+`state_hash` covers selected state, not the whole game. Preserve the same
+executable, seed, commands, level, config, thread setting, and relevant tree
+state when comparing runs; record limitations and repeat timing-sensitive
+cases. See [Simulation](SIMULATION.md) and [Configuration](CONFIGURATION.md).
 
----
+## Interfaces and errors
 
-## 4. Determinism
+Headers should explain ownership, units, lifetime, capacity, and why a contract
+has its shape. Changes to public signatures are allowed when the task requires
+them: update callers, tests, and docs together and coordinate concurrent owners.
+Enum values, GPU layouts, save keys, level schemas, and report fields can be
+external contracts; inspect all consumers before changing them.
 
-The rules that make `--sim-test` and `--screenshot` meaningful:
+Use result structs for errors that need explanations and `optional` for absent
+reads. Initialization that can fail generally returns status/error information.
+Keep third-party parsing exceptions at data boundaries. Assert programmer
+invariants; validate authored data and user input at runtime. Explain a retained
+compatibility path as such rather than documenting it as normal gameplay.
 
-1. Every random draw comes from an `Rng&` threaded through explicitly. No
-   `rand()`, no `std::random_device`, no static generator, no thread_local RNG.
-2. Parallel work forks its RNG per range index (`Rng::fork`), never shares one.
-3. No floating-point accumulation into a shared variable from multiple threads —
-   FP addition is not associative, so the result would depend on scheduling.
-4. Sim logic never reads wall-clock time or frame rate. It sees `Tick` and
-   `kFixedDt`.
-5. Sim logic never reads input state. Player actions arrive as explicit commands.
-6. Container iteration that affects sim state must be ordered. Sort before
-   iterating an associative container.
-7. Same seed + same script ⇒ same `SimWorld::state_hash()` at every tick, on any
-   machine, at any thread count. If you break this, you have broken the project's
-   verification substrate.
+## Tests and evidence
 
----
+Catch2 v3 tests use `tests/test_<subject>.cpp`, discovered through the CMake
+`test_*.cpp` glob. Add meaningful subject tags. Names must not begin with `-`
+because CTest forwards names to Catch2. Test observable contracts, invariants,
+boundaries, round trips, and regressions.
 
-## 5. Error handling
+Use the shared [LevelSession](../src/game/session/LevelSession.h) when testing
+full run behavior. Bare sim scripts and gameplay sessions have different scope.
+Visual changes require a generated screenshot inspected by its author and a
+check of shader logs. Performance changes need relevant benchmark evidence;
+record machine/build/context, not just a naked timing.
 
-- **No exceptions across module boundaries.** Constructors do not throw; two-phase
-  init (`create()` / `init()` returning `bool` plus an `error()` accessor) is the
-  house pattern for anything that can fail.
-- **Return `std::optional<T>`** for "might not exist" reads (`read_text_file`).
-- **Return a result struct** (`LevelLoadResult`, `PlacementQuery`) when the caller
-  needs to know *why* it failed, especially when the UI must explain it.
-- **`assert` for invariants you believe cannot be violated**; a runtime check plus
-  a log for anything that depends on data or user input.
-- Third-party code that throws (nlohmann::json parsing) is wrapped in a
-  `try`/`catch` at the boundary and converted to a status.
-- Never swallow an error silently. A stub that returns a default must say so in a
-  comment naming the wave that owns it.
+Run checks appropriate to the change and any checks required by the active task.
+Documentation-only changes need source/example/link checks, not a compulsory
+full rebuild or unrelated performance sweep. Report actual commands and results,
+including pre-existing failures. See [Testing](TESTING.md).
 
----
+## Build and assets
 
-## 6. Headers and contracts
+C++20, MSVC `/W4 /permissive-`, and vcpkg manifest dependencies are the current
+baseline. Build outside OneDrive through the provided presets. Do not suppress
+warnings globally or vendor dependencies without a concrete project reason.
 
-- Every interface header opens with a comment stating **what it is, who owns it,
-  and why it is shaped that way**. The rationale is the point: it's what stops a
-  later agent from "simplifying" a deliberate constraint.
-- Headers listed in `docs/ARCHITECTURE.md` are **frozen**. Need a change? Ask the
-  orchestrator. Never silently edit another agent's header.
-- Prefer forward declarations in headers; include in the `.cpp`. `sim` headers in
-  particular must not pull in `render` or SDL.
-- Public constants that cross modules go in `core/Types.h`.
-- `#pragma once`, never include guards.
+Runtime world art and audio are procedural. Authored JSON, GLSL `.vert/.frag`,
+SVG UI assets, and OFL-licensed UI fonts are committed. Keep the font license
+with distributions. Existing documentation reference images are not runtime
+assets. Captures, generated reports, and experiments belong in ignored scratch
+or external output, not the asset tree. See [Assets](ASSETS.md).
 
----
+## Documentation upkeep
 
-## 7. Tests
+Update affected Markdown in the same change as behavior. Use relative links
+inside repository docs so a clone remains navigable. Describe current defaults
+from JSON separately from level overrides, meta effects, and illustrative test
+fixtures. Label proposals and targets; never report a performance goal as a
+verified measurement.
 
-- Catch2 v3, one `tests/test_<subject>.cpp` per subject, registered in
-  `tests/CMakeLists.txt`, discovered by CTest.
-- **Test names must not begin with `-`.** CTest passes the test name to the
-  binary and Catch2 will parse a leading `--` as a flag. Write
-  `"cli screenshot defaults to tick 0"`, not `"--screenshot defaults to tick 0"`.
-- Tag tests: `[core]`, `[sim]`, `[render]`, `[app]`, plus `[determinism]` and
-  `[bench]` where they apply.
-- Test the **contract**, not the implementation: invariants, boundary conditions,
-  and round-trips (`screen_to_world` inverts `world_to_screen`; same seed gives
-  the same stream; parallel and serial `parallel_for` agree).
-- Every stubbed subsystem gets its invariant tests written *now*, so the wave that
-  implements it has an immediate signal.
-- Behavioural verification that needs a running sim belongs in a
-  `tests/scripts/*.json` sim-test, not in a unit test.
-- The build must stay green. A red build blocks every sibling agent in your wave.
+For a new subsystem, document its purpose, owner, inputs/outputs, lifetime/order,
+configuration, extension points, relevant tests, and limitations. Register the
+reference and source folder in [docs/README.md](README.md). Check commands
+against their parser/handler, not only `--help` or stale header comments.
 
----
-
-## 8. Comments
-
-Explain **why**, not what. `// increment i` is noise; `// Do not advance i: the
-swapped-in agent must be tested too` is the comment that prevents the next bug.
-
-Mark unimplemented work with the owning wave, e.g.
-`// Wave 1B: parallel_for over [0, count) doing flow sample + separation.`
-Bare `TODO` without an owner is not acceptable in this codebase.
-
----
-
-## 9. Build
-
-- C++20, MSVC `/W4 /permissive-`. Warnings are signal; do not suppress them
-  wholesale.
-- One CMake library target per module; dependencies point one way only.
-- All dependencies come from the vcpkg manifest. Do not vendor a library or add a
-  submodule.
-- Build output lives outside the source tree
-  (`$LOCALAPPDATA/horde-build/<preset>`) because the repo sits inside OneDrive
-  and a build directory there causes sync churn and locked-file failures.
-- **No binary assets, with one exception: UI fonts.** No PNGs, WAVs, or meshes
-  in the repo. All visuals are shader-generated; all audio is synthesized at
-  runtime. `assets/` holds `.glsl`, `.json`, `.svg` (UI icons, which are text)
-  and the static UI fonts in `assets/fonts/` (OFL-licensed Fredoka and Nunito,
-  built by `tools/build_fonts.py`; `assets/fonts/OFL.txt` must ship with them).
-  The design needs those exact typefaces, and there is no way to generate a
-  typeface. No other binary file type is allowed.
+Comments explain reasons and invariants. Track unfinished work with a concrete
+description and useful context; do not attach fictional historical wave owners.

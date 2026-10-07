@@ -1624,3 +1624,43 @@ TEST_CASE("the same seed gives the same swarm, every time", "[swarm][sim][determ
     REQUIRE(a.first == b.first);
     REQUIRE(a.second == b.second);
 }
+
+TEST_CASE("swarmer spawn size jitter: each unit rolls its own body within +-jitter",
+          "[swarmers][size]") {
+    SwarmerBuffers sw;
+    sw.reserve(1000);
+    SwarmerProfile jittered;
+    jittered.size = 0.5f;
+    jittered.size_jitter = 0.1f;
+    sw.set_profile(1, jittered);
+    SwarmerProfile exact;
+    exact.size = 0.5f;
+    sw.set_profile(2, exact);   // size_jitter defaults to 0 in the sim
+    f32 lo = 1.0f, hi = 0.0f;
+    for (u32 k = 0; k < 1000; ++k) {
+        SwarmerSpawnParams p;
+        p.profile = (k % 2 == 0) ? 1 : 2;
+        p.seed = k * 7919u;
+        REQUIRE(sw.spawn(p));
+        if (k % 2 == 0) {
+            const f32 b = sw.body_size(k);
+            REQUIRE(b >= 0.45f - 1e-6f);
+            REQUIRE(b <= 0.55f + 1e-6f);
+            lo = std::min(lo, b);
+            hi = std::max(hi, b);
+        } else {
+            REQUIRE(sw.body_size(k) == 0.5f);
+        }
+    }
+    REQUIRE(lo < 0.46f);
+    REQUIRE(hi > 0.54f);
+
+    // Carried through compaction with the unit.
+    const u32 gen = sw.generation[998];
+    const f32 body = sw.body_size(998);
+    sw.kill(0);
+    sw.compact();
+    for (usize i = 0; i < sw.count(); ++i) {
+        if (sw.generation[i] == gen) REQUIRE(sw.body_size(i) == body);
+    }
+}

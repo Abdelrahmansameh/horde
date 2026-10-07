@@ -1,234 +1,190 @@
-# UI framework (`src/gui`) — design and build plan
+# UI framework and screens
 
-The player-facing UI is being rebuilt on a custom C++ framework so it can match
-the "Living Membrane" design: wobbly cell-membrane panels with plum outlines,
-cell icons, a blood-filled organ bar, fluid-filled ability cells, a
-world-anchored tower popup, a radial skill tree that pans, zooms and
-uncovers as it grows, and a vessel level map. The design lives in the canvas
-(https://claude.ai/artifact/BmwSmwUEERL8X7rbVyfvWp; snapshot in
-`docs/ui-concepts/canvas/project/`) and its rules in `DESIGN.md` §8.
+[Documentation index](README.md) · [Assets](ASSETS.md) · [Gameplay](GAMEPLAY.md)
 
-Decisions: a **retained widget tree**; the design's **fonts ship** as static
-TTFs (Fredoka 500/600/700, Nunito 600/700/800/900, OFL) in `assets/fonts/`;
-**ImGui stays for developer tools only** (gym panel, level editor, debug); the
-**in-match HUD is built first**, then menus and results, then the tree.
+Player-facing screens use the custom retained framework in `src/gui`.
+Dear ImGui remains for the gym, debug tools, and level editor. The implemented
+screens and input routing are the reference for behavior; the HTML canvas is
+a visual source snapshot and contains superseded interactions.
 
-## Architecture
+## Boundaries and frame flow
 
-```
-app/ ──fills──▶ ui/models (plain structs) ──sync──▶ ui/screens ──Intent / MenuResult──▶ app/
-                                                        │ built from
-                                                        ▼
-gui/  core     Gui context · Widget tree · layout · layers · input routing · hotkeys
-      anim     AnimatedValue · Tween · Spring · Loop presets
-      style    Theme (assets/config/ui_theme.json, hot-reload)
-      text     FontLibrary (stb_truetype SDF) · TextRenderer
-      icons    IconLibrary (SVG via nanosvg → premultiplied atlas)
-      draw     DrawList · SDF shapes · stroked paths · stencil clips · layers
-      backend  GlBackend (GL 4.5, one program, batched)
+```text
+app / game / sim -> app/UiBridge -> plain UI model -> ui screen -> widgets
+app             <- Intent / MenuResult          <- ui screen
 ```
 
-- `gui/` is game-agnostic: it never includes `game/` or `sim/`. It links
-  `render` only for the GL wrappers (`render/Gl.h`) and `ShaderManager`.
-- `ui/` screens take plain model structs, never `SimWorld`/`TowerSystem`, so
-  every screen can be tested and screenshotted with fake data.
-- The existing contract is kept: the UI never mutates the sim; it emits
-  `ui::Intent` / `ui::MenuResult` and `app/` applies them.
+`gui/` provides reusable layout, drawing, text, icons, and input routing without
+including game or sim headers. `ui/` presents game concepts from model structs;
+it does not directly mutate simulation state. Some models include gameplay
+enums, so this is a state boundary, not a prohibition on all game headers.
 
-### Draw layer (built)
+| Area | Responsibility |
+|---|---|
+| [UiBridge](../src/app/UiBridge.h) | Read state into HUD, campaign thumbnails, tree, and screenshot fixture models |
+| [HudModel](../src/ui/hud/HudModel.h), [HudScreen](../src/ui/hud/HudScreen.h) | Match display, armed cell/ability, hold placement, HUD hotkeys |
+| [FrontModel](../src/ui/front/FrontModel.h), [FrontEnd](../src/ui/front/FrontEnd.h) | Title, campaign selection, pause, results, screen transitions |
+| [TreeModel](../src/ui/front/TreeModel.h), [TreeScreen](../src/ui/front/TreeScreen.h) | Strengthen Immunity presentation and tree camera |
+| [Intent](../src/ui/Intent.h), [MenuResult](../src/ui/Menu.h) | Requests applied by App |
+| [DevUi](../src/ui/DevUi.h), [GymPanel](../src/ui/GymPanel.h), [editor UI](../src/ui/editor/) | ImGui developer controls |
 
-- **Shapes are shader-evaluated SDFs** (`gui/draw/Shape.h`, `gui.frag`). One
-  quad per shape; the single distance value gives the anti-aliased edge, the
-  outline, a soft or hard drop shadow, the membrane band with its cytoplasm
-  fill and rim highlight, organelle dots, dashes, and clipping for fluid inside
-  a cell. Kinds: `Box` (rounded rect / capsule / membrane with `bulge` and live
-  `wobble`), `Ellipse`, `Arc` (rings, cooldown and progress arcs, spinning
-  dashed halos), `Fluid` (blood bar and ability cells: liquid to a level with a
-  sloshing surface and bubbles), `Radial` (glows, the critical vignette).
-- **Hit testing** uses `gui/draw/ShapeSdf.h`, a CPU mirror of the shader's
-  outline (same constants). `test_gui_render.cpp` checks they agree.
-- **Free-form curves** (vessels, lane thumbnails, range rings) are CPU
-  tessellated (`DrawList::stroke_polyline`, `Path` with SVG path parsing):
-  round/miter joins, round/butt caps, an anti-aliasing fringe, dash arrays with
-  SVG `stroke-dashoffset` semantics.
-- **One vertex format, one program**: shapes, curves, SDF text and icons share a
-  24-byte vertex; shape parameters live in an SSBO. Draw calls split only on a
-  scissor change, a stencil clip (`push_clip_shape`, for content inside a
-  membrane such as level thumbnails) or an offscreen layer (`push_layer`, to fade
-  a group without overlap seams). The Kit showcase is 8 draws.
-- **Text**: SDF glyphs baked lazily (one bake serves 13–72 px); CSS-like styles
-  (em size, letter-spacing in em, uppercase, tabular digits, line-height with
-  half-leading); outline = visible width outside the glyph (canvas
-  `-webkit-text-stroke: 9px` + `paint-order: stroke` = 4.5); hard or soft
-  offset shadows; wrapping and ellipsis.
-- **Icons**: the canvas's own SVGs, extracted by `tools/extract_icons.py` into
-  `assets/ui/icons/` (towers, abilities, pathogens, elite marker, ATP, Memory
-  Cell, Antibody, the tree's stat glyphs, control glyphs), rasterized on first
-  use per pixel size into a premultiplied atlas: one quad per icon.
+In the live match render path, App first renders the world, starts the developer
+UI frame, synchronizes HUD/front models, then runs GUI layout/input/animation.
+`HudScreen::handle_input` emits requests and App applies them. The gym panel is
+built, the GUI draws over the world, ImGui draws last, and the window swaps.
+World changes from these requests appear in subsequent world rendering.
+Pause and terminal-result screens replace the interactive HUD over the world.
+The editor has its own canvas/panel path.
 
-## Phases
+## Retained widgets and layout
 
-| # | Phase | Status |
-|---|---|---|
-| 1 | Foundation: fonts, draw layer (SDF shapes, paths, stencil clips, layers), text, icons, GL backend, showcase test | **Done** |
-| 2 | Core: widget tree, flex / anchored / world-anchored layout, `Gui` context and layers, pointer state machine (hover, capture, click/deny, drag, wheel, tooltips), animation (`Tween`, `Spring`, the canvas loops beat/pulse/wobble/throb/halo/spin/flow), theme (`assets/config/ui_theme.json`), base widgets (`Panel`, `Label`, `Icon`, `Button`, `Meter`, `Ring`, `Spacer`) | **Done** |
-| 3 | In-match HUD: `HudModel` + `app/UiBridge`, `HudScreen` (with the selection and armed cursors that were `Hud.cpp`'s statics) for the five canvas states, world overlays, `Gui` in `App`, the ImGui HUD removed (`Hud` became `DevUi`), `--screenshot --ui`, gym `ui` and `integrity` commands | **Done** |
-| 4 | Out-of-match screens: main menu (with the macrophage mascot), level select with campaign gating, pause, victory and defeat, screen transitions | **Done** |
-| 5 | Skill tree: `TreeScreen` over the nodes of `ImmunityTree.cpp`, laid out from the canvas; ImGui `Menu.cpp` removed. Since reworked: a radial tree, each subject in its own wedge, that pans, zooms and uncovers as it grows, with a hover card instead of the top bar | **Done** |
-| 6 | Polish: fit-to-screen scaling and a UI scale option, perf (< 0.5 ms CPU per frame), fixes from the side-by-side pass | **Done** |
+[Widget](../src/gui/core/Widget.h) owns children with `unique_ptr`; screens
+construct trees and update properties rather than rebuild everything each frame.
+The context owns layers in draw order:
+`World`, `Hud`, `Popup`, `Modal`, `Tooltip`, `Toast`. Input searches in reverse.
+Removed widgets are retired until the end of a frame, avoiding destruction
+during event dispatch. Stable IDs form paths; anonymous containers are skipped.
 
-### Core (built)
+[LayoutParams](../src/gui/core/Layout.h) implements row, column, and stack,
+padding/gap, grow, alignment, justification, minimum/maximum sizes, and
+fit/fixed/fill/percent sizing. A child can follow layout flow, anchor to a parent
+point, or anchor to a projected world point. Layout is measured and arranged
+every frame. Animation transforms change appearance without moving layout boxes.
 
-- **Retained tree** (`gui/core/Widget.h`): screens build widgets once and set
-  properties as the game changes. Every widget has an id; `path()` joins them
-  ("hud/dock/neutrophil", anonymous containers skipped) and `Gui::find`,
-  `Gui::click`, `Gui::hover`, `Gui::dump` address widgets that way, for tests
-  and the planned `ui.*` gym commands.
-- **Layout** (`gui/core/Layout.h`) is a small flexbox: row, column or stack;
-  padding, gap, cross-axis align, main-axis justify, grow; sizes fit / px /
-  fill / percent with min and max. Children can instead be anchored to a point
-  of the parent, or to a world point projected through the game camera each
-  frame (`Gui::set_projection`). Layout is recomputed every frame.
-- **Pointer routing** (`gui/core/Gui.h`): layers take the pointer top-down;
-  events go to the nearest interactive widget and bubble to its ancestors;
-  press capture, drags with a 4 px threshold, Click on release over the
-  pressed widget, **Deny** instead of Click on a disabled one (the shake and
-  the "can't afford" sound), right-click, wheel, tooltips after a delay.
-  Panels block the pointer by their drawn outline, not their rect;
-  `wants_pointer()` tells the game to keep that click off the world.
-- The UI needs no raw SDL events (it has no text fields), so `InputState`
-  stays as it is: app/ fills a `PointerInput` from its mouse API.
-- **Theme**: colours (hex, names, `name@alpha`), text styles, shape presets
-  with `base` inheritance, and numbers, from `assets/config/ui_theme.json`. A
-  malformed reload keeps the last good theme. Pathogen family colours are set
-  at runtime from `render::family_color`, never duplicated.
-- **Animation** runs on the render clock: `Tween`, `Spring`, and the canvas's
-  CSS keyframes ported one to one (`gui/anim/Anim.h`).
+Layout units are logical pixels on a 1920×1080 reference frame.
+`Gui::set_viewport` contain-fits that frame to the framebuffer and multiplies
+by UI scale, clamped to 0.75–1.5. Convert framebuffer input using `to_logical`;
+the world projection callback must return logical pixels too. Test narrow,
+wide, and scaled layouts rather than assuming larger UI scale cannot clip.
 
-### In-match HUD (built)
+## Pointer routing and automation
 
-- `ui/hud/HudModel.h` is everything the HUD shows as plain data;
-  `app/UiBridge.cpp` fills it from the live game each frame, and
-  `ui/hud/HudScreen` never includes `SimWorld`, `TowerSystem` or the wave
-  director — which is what lets `tests/test_ui_hud.cpp` drive every state from
-  a fixture.
-- Per frame in `App::render_frame`: `sync_hud` (model → widgets) →
-  `run_gui_frame` (layout, pointer, animation; its pointer capture is OR-ed
-  into `InputState` so a HUD click never reaches the world or the camera) →
-  `HudScreen::handle_input` (world clicks, hotkeys, queued button intents) →
-  `apply_intents` → world passes → `gui_.render` → ImGui (`DevUi`) on top.
-- Layout, sizes and colours follow the canvas artboards (Main, Placing,
-  Inspect, Prep, Critical). The whole HUD is one draw call.
-- Input: 1–5 arm towers in dock order, Q W E R abilities, Space sends the
-  wave during prep, Escape disarms or closes the popup before it opens the
-  pause menu. `InputState` latches button presses and action key-downs from
-  SDL events, so a tap whose press and release fall between two frames still
-  counts.
-- Verification: `--screenshot <level> --ui` with `ui …` gym commands (see the
-  run-immune skill for the five canvas states).
+[Gui](../src/gui/core/Gui.h) accepts per-frame pointer position, button edges,
+held state, wheel, and presence. Events bubble from the nearest interactive
+widget. A press captures its target; a movement threshold starts dragging;
+release over the pressed target produces Click, or Deny for a disabled widget.
+Shaped panels hit-test their CPU SDF outline, not just the bounding rectangle.
+Disabled controls can still hover and show explanations. An outgoing screen
+sets `accepts_pointer=false` while it fades.
 
-### Out-of-match screens (built)
+`wants_pointer()` blocks world actions while over UI or during capture. App
+combines that with ImGui mouse capture. ImGui keyboard capture also prevents
+typing console commands from selecting cells or firing abilities. SDL input
+latches action/button edges so short taps between frames can still be consumed.
 
-- `ui/front/FrontEnd` owns the main menu, the campaign level select, pause and
-  the results (level cleared / failed, with the editor-playtest and sandbox
-  variants), from the Menu, Levels, Victory and Defeat artboards. app/ picks
-  the screen from `GameStateId` (`App::front_screen`) and fills a
-  `ui::FrontModel` (`App::front_model`, `UiBridge`); a click comes back as the
-  same `ui::MenuResult` the ImGui menus reported, applied by
-  `App::apply_menu_result`.
-- Flow, as in the canvas: title → Strengthen Immunity → Campaign → level;
-  results offer Strengthen Immunity, then Next level / Replay or Retry /
-  Levels. Escape walks back the same chain. F4 on the title opens the editor.
-- **Campaign**: the `assets/levels/campaign_NN_*.json` files in name order;
-  a level opens when the one before it is cleared (`ui::campaign_unlocked`).
-  Other level files stay reachable through the gym `level` command and the
-  editor. The map opens on the next level to play (gold halo), draws the
-  opened stretch of vessel in blood colours with plasma flowing, and a second
-  click on a selected cell plays it.
-- **Level thumbnails** are the real level: `UiBridge::make_level_thumb`
-  samples each vessel's Catmull-Rom and turns obstacles into polygons, fitted
-  into the cell; the cell stencil-clips them to its membrane.
-- **Backdrop**: `TissueBackdrop` lays out wobbling SDF tissue cells on a
-  seeded, staggered grid (any aspect ratio); `VesselStroke` strokes a path as
-  layered bands with an optional flowing dash.
-- **Mascot**: the macrophage is cut from the Menu artboard as an illustration
-  icon (`mascot_macrophage.svg`, `data-pad` keeps its bake tight); the
-  bacterium in its grip wobbles on its own.
-- **Transitions**: the outgoing screen fades out and takes no pointer
-  (`Widget::accepts_pointer`); the incoming one buds in from 97% scale. Both
-  fade as a group through an offscreen layer (`Widget::group_opacity`).
+`Gui::find`, `click`, `hover`, and `dump` use widget paths. The gym's `ui`
+command exposes them through [UiBridge::run_ui_command](../src/app/UiBridge.cpp).
 
-### Strengthen Immunity (built)
+```text
+ui dump
+ui click hud/dock/neutrophil
+ui hover hud/dock/neutrophil
+ui cancel
+```
 
-- `ui/front/TreeScreen`, shown by `FrontEnd` for `FrontScreen::Tree`. It no
-  longer follows the canvas's Tree artboard: the tree is a real tree (one
-  parent per node, at most three children, `ImmunityTree.cpp`'s `kEdges`)
-  laid out as a classic radial skill tree: the Neutrophil in the middle,
-  three core economy lines round it, and each subject (the attack towers, the
-  abilities, the systemic lines and control towers) growing outward in its
-  own wedge. `tools/gen_tree_layout.py` computes it from the catalog's
-  parent links and their clockwise order (a depth sets a node's ring; a
-  wedge is split among children by their leaf counts, with a gap between
-  subjects) into `assets/ui/tree_layout.json`, in tree units with the centre
-  at the origin; `--preview` draws the grown tree the way the game does. The
-  vessels between nodes follow the model's parent links, so the drawing
-  cannot disagree with the rules.
-- `ui::TreeModel` (`app/UiBridge::make_tree_model`) carries each node's
-  parent, level, state (`MetaProgression::check_purchase`: locked, short,
-  available, maxed), next price and missing prerequisite, the wallet and
-  branch points. `TreeModel::revealed()` is the fog of war: owned nodes and
-  the nodes they feed show, the rest stay hidden (a purchase buds the next
-  ones in). The screen syncs in place every frame.
-- The view (`TreeCanvas`, anonymous so node paths stay `tree/<key>`) is a
-  camera over the tree: drag anywhere to pan (a press on a node that turns
-  into a drag pans too), the wheel zooms about the pointer, and
-  `tree/view/{zoom_in,zoom_out,recenter}` zoom about the middle or frame the
-  revealed nodes. Zooming out stops at the whole tree; the view eases to its
-  target and is kept across visits (`FrontEnd`). Nodes and their name pills
-  are laid out from tree positions every frame; off-screen children are not
-  drawn.
-- Nodes are SDF cells: fill and rim by state, a white halo when buyable,
-  level pips round the lower rim, and an 8-lobed star with a gold ring for
-  capstones. Their glyphs bake in half-octave steps
-  (`IconLibrary::draw_zoomable`) so zooming reuses a few bakes per icon. A
-  vessel's lumen lights when its node is owned and carries plasma (SDF dots)
-  out from the centre.
-- Hovering a node opens its card beside it (glyph, name, level, effect, what
-  it needs, its price, and "Click to grow" or why not); a click on a node
-  that can be bought reports `MenuAction::PurchaseNode`, anything else is the
-  deny shake. app/ buys through `MetaProgression`, so the screen cannot
-  disagree with the rules. Top bar: the wallet, Respec (not in the canvas;
-  kept from the old screen), Play (to the campaign).
+Paths depend on visibility, unlocks, and the active screen. Use a dump from the
+same context before scripting a path. A successful synthetic click means events
+were delivered to a visible addressable widget; it does not require the widget
+to mark them handled or prove a gameplay action happened. Disabled buttons can
+receive Deny instead of Click.
+See [Gym](GYM.md) for screenshot-only pointer/front-screen fixture commands.
 
-### Scale and performance
+## Current player screens
 
-- **Scale**: the UI lays out on the canvas's 1920x1080 reference frame,
-  scaled to fit the window: by height on 16:9 and wider screens, by width on
-  narrower ones (4:3, 16:10), so nothing designed on the reference frame is
-  cut off; the full-screen art (menu, tree, level map) keeps its composition
-  on a 1920x1080 stage. The player's setting `--ui-scale` (0.75 to 1.5, also
-  `ui scale <f>` in the gym) multiplies that.
-- **Budget**: under 0.5 ms of CPU per frame for the whole gui side (layout,
-  input, animation, recording draws). `tests/test_menu.cpp` prints it per
-  screen; on the dev container (RelWithDebInfo) the tree is about 0.3 ms
-  (0.4 zoomed in), the level map 0.33, the menu 0.14, results 0.01.
-- What keeps it there: static strokes (vessels) are tessellated once into a
-  `SolidMesh` and replayed with `DrawList::append_solid` (the tree's per
-  zoom: replayed scaled while the view eases, re-tessellated once it
-  settles); `Label` caches its
-  measurement; kerning pairs are cached; icon bakes are bucketed (~6% steps
-  above 32 px) so a looping scale does not re-rasterize the SVG every frame;
-  shapes under a plain translate/scale transform skip the sqrt/atan2.
+The HUD shows integrity, ATP/income, current/next wave composition, preparation
+and critical banners, unlocked deployment cards, ability cooldown cells, speed,
+pause, auto-start, and menu controls. Cell cards respect both permanent unlocks
+and a level's allowed types. World overlays include placement range/ghosts,
+target reticles, and preparation spawn composition.
 
-## Building and testing
+Number keys follow **dock order**, not `TowerType` enum order: Neutrophil,
+Cytotoxic T, Macrophage, Goblet Cell, Fibroblast. Q/W/E/R select the four
+abilities; Fever fires immediately because it needs no target. Hold placement
+uses render/UI time and the configured interval, with no accumulated backlog;
+Shift requests up to ten cells per pulse. Escape/right click cancel armed
+cursors. See [Gameplay](GAMEPLAY.md) for the full control reference.
 
-- Unit tests: `tests/test_gui_draw.cpp`, `test_gui_text.cpp`,
-  `test_gui_icons.cpp`, `test_gui_core.cpp`, `test_ui_hud.cpp`, the logic
-  half of `test_menu.cpp` (no GL); `test_gui_render.cpp` and the GL half of
-  `test_menu.cpp` (headless GL) write `gui_showcase.png` and `front_*.png`
-  to the working directory.
-- Regenerate fonts: `python tools/build_fonts.py` (needs fontTools).
-- Refresh icons after the canvas changes: `python tools/extract_icons.py`;
-  `--check` reports icons that are stale. The tree layout, after the tree's
-  catalog or shape changes: `python tools/gen_tree_layout.py [--check]
-  [--preview out.png]`.
+The HUD retains tower-selection/popup/Sell widgets and `SellTower` intent for
+legacy ECS emitter fixtures. `UiBridge` populates board entries from ECS towers,
+while normal deployment creates swarmers. App does not apply a normal-play
+selling intent. These retained widgets and their old unit fixtures do not make
+cell selling a current gameplay feature.
+
+The title's Play action opens Strengthen Immunity, then Campaign. Campaign
+files are discovered by filename and sorted; clearing the previous level opens
+the next. Thumbnails are sampled from actual level vessels/obstacles/spawns,
+normalized with world Y flipped and clipped to the level cell membrane.
+Pause offers resume/restart/menu; results distinguish campaign payouts from
+sandbox and editor playtest. F4 opens the editor from title or live play.
+
+## Strengthen Immunity view
+
+`ImmunityTree.cpp` owns keys, parents, purchasing rules, effects, and costs;
+`UiBridge::make_tree_model` supplies levels, state, prices, requirements, wallet,
+and branch points. `TreeModel::revealed` shows the root, owned nodes, their
+ancestors, and children whose parent is owned. The screen does not invent
+purchase eligibility.
+
+[tree_layout.json](../assets/ui/tree_layout.json) stores coordinates and glyphs.
+[gen_tree_layout.py](../tools/gen_tree_layout.py) derives radial wedges and ring
+depths from catalog parents and child order. Edges use model parent links.
+Run its `--check` after catalog changes. The original canvas Tree artboard is
+not the current radial layout.
+
+Drag pans, wheel zooms around the pointer, and zoom/recenter buttons frame the
+revealed tree. The view eases toward its target and survives revisits. Offscreen
+nodes are culled. Hover cards explain effects and requirements; clicks report
+`PurchaseNode`, and App buys through `MetaProgression`. Hidden nodes cannot be
+addressed on screen. See [Progression](PROGRESSION.md) for rule and save details.
+
+## Drawing, theme, text, and icons
+
+[DrawList](../src/gui/draw/DrawList.h) shares a 24-byte vertex format for solid
+paths, SDF shapes, text, icons, and offscreen layer composites. Parameters live
+in records uploaded as an SSBO. [GlBackend](../src/gui/backend/GlBackend.h) uses
+`gui.vert`/`gui.frag`. Scissor changes, stencil clips, and offscreen groups split
+batches; draw count is scene-dependent, not guaranteed to be one.
+
+- [Shape](../src/gui/draw/Shape.h): boxes/membranes, ellipses, arcs, liquid
+  meters, radial glows; [ShapeSdf](../src/gui/draw/ShapeSdf.h) mirrors hit geometry.
+- Stroked polylines and SVG paths are CPU tessellated with caps, joins, dashes,
+  and antialias fringes. Static strokes can be cached as `SolidMesh`.
+- [Text](../src/gui/text/Text.h): lazy SDF glyphs from shipped Fredoka/Nunito,
+  style measurement, wrapping, ellipsis, outline/shadow, tabular digits.
+- [IconLibrary](../src/gui/icons/IconLibrary.h): NanoSVG rasterization into a
+  premultiplied atlas; zoom buckets reuse bakes as the tree view changes.
+- [Anim](../src/gui/anim/Anim.h): tweens, springs, and looping pulses on render
+  time, separate from gameplay tick time.
+
+[Theme](../src/gui/style/Theme.h) reads color names/hex/`name@alpha`, text styles,
+shape presets with `base` inheritance, and numeric tokens from `ui_theme.json`.
+Family colors are injected from renderer data. Missing tokens have visible
+fallbacks; rejected parses such as invalid JSON syntax retain the previous theme.
+Some wrongly typed theme values can throw outside the current parser's catch;
+the recovery guarantee does not cover every malformed value. App rebuilds HUD and
+front-end widgets after a successful theme reload because styles are copied.
+This may reset local presentation state. `--config` pinning disables automatic
+theme polling along with gameplay polling.
+
+## Extending and checking UI
+
+1. Add the displayed value to a plain model and populate it in UiBridge.
+2. Build/update widgets in the relevant screen; assign stable, meaningful IDs.
+3. Emit an intent or menu action and apply it in App if it changes the game.
+4. Verify capture, disabled state, logical/world coordinates, and transitions.
+5. Add tokens/assets through the maintained generators and update this reference.
+
+Use [test_gui_core](../tests/test_gui_core.cpp),
+[test_gui_draw](../tests/test_gui_draw.cpp), [test_gui_text](../tests/test_gui_text.cpp),
+[test_gui_icons](../tests/test_gui_icons.cpp),
+[test_ui_hud](../tests/test_ui_hud.cpp), and [test_menu](../tests/test_menu.cpp)
+for model/layout/input contracts. GL tests in
+[test_gui_render](../tests/test_gui_render.cpp) and menu tests generate PNGs.
+Some fixtures intentionally contain legacy tower models and arbitrary prices;
+they are not balance data. For visual changes generate and inspect real
+screenshots at representative sizes/states; inspect shader logs too.
+
+The UI CPU budget is a design goal of roughly 0.5 ms/frame, not a universal
+measurement. `test_menu.cpp` reports local timings. Font generation, SVG
+extraction, tree layout checks, and canvas snapshots are documented in
+[Assets](ASSETS.md) and [Tools](TOOLS.md).

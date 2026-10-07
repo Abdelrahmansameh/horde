@@ -155,6 +155,10 @@ struct ChaffSpawnParams {
     /// The parent's position at the instant it divided. Both descendants keep
     /// it while the renderer pulls their visible halves apart from this point.
     Vec2 replication_origin{0.0f, 0.0f};
+    /// Body size multiplier (see `size_scale` below). 0 = roll one from the
+    /// family's size jitter, which is what every gameplay spawner wants; a
+    /// positive value pins it (tests, scripted spawns).
+    f32 size_scale = 0.0f;
 };
 
 /// The chaff store. One instance per sim world.
@@ -302,6 +306,14 @@ public:
     /// Cosmetic recoil; body_heading holds the most recent shot direction.
     std::vector<f32> toxin_spit_pulse;
 
+    /// Per-agent body size multiplier around 1, rolled once at spawn from the
+    /// family's size jitter (sim/SizeJitter.h) and kept for life. Scales the
+    /// family radius EVERYWHERE it is read -- contact, separation, walls,
+    /// swarmer contact and latch reach, the hostile pass, the drawn sprite and
+    /// the death burst -- so what is drawn and what collides stay one size.
+    /// Sim state (it moves bodies), so it is in SimWorld::state_hash().
+    std::vector<f32> size_scale;
+
     /// Reserves every stream to `max_agents`. Call once at level load.
     void reserve(usize max_agents);
 
@@ -341,6 +353,15 @@ public:
     /// 1 (the default, and every world without the tree) changes nothing.
     void set_slowed_damage_multiplier(f32 m) { slowed_damage_mult_ = m > 0.0f ? m : 1.0f; }
     f32 slowed_damage_multiplier() const { return slowed_damage_mult_; }
+
+    /// Spawn size jitter per family: a new agent's size_scale is uniform in
+    /// [1 - j, 1 + j]. SimWorld sets it from ChaffFamilyParams::size_jitter.
+    /// Takes effect for agents spawned after the call; 0 (default) = all 1.
+    void set_size_jitter(PathogenFamily f, f32 jitter);
+    f32 size_jitter(PathogenFamily f) const { return size_jitter_[static_cast<u32>(f)]; }
+    /// Largest size_scale any family can roll. The crowd kernel widens its
+    /// neighbour scan by this so the biggest body in reach is never missed.
+    f32 max_size_scale() const;
 
     /// Counts every kSlowed agent's `slow_remaining` down by `dt` and clears
     /// the bit (resetting its factor) on the ones that ran out. SimWorld::tick
@@ -393,6 +414,7 @@ private:
     void assert_invariants() const;
 
     f32 slowed_damage_mult_ = 1.0f;
+    f32 size_jitter_[kFamilyCount] = {};
     usize count_ = 0;
     usize capacity_ = 0;
     f32 total_density_ = 0.0f;

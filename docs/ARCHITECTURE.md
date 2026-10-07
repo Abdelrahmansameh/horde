@@ -1,1074 +1,186 @@
-# IMMUNE — Architecture
-
-This document is the contract between waves. Every interface header listed here
-is **frozen**: Waves 1–4 implement *against* these headers, in parallel, and an
-agent that needs a signature changed requests it from the orchestrator rather
-than editing another agent's header.
-
-`DESIGN.md` is the authority on *what* the game is. This document is the
-authority on *how the code is shaped*, and every section states the rationale so
-a later agent can tell an intentional constraint from an accident.
-
----
-
-## 0. The three forces that shape everything
-
-1. **10,000 agents at 60 FPS.** DESIGN.md §8.2 makes data-oriented design in the
-   hot path a hard constraint, not a preference. The chaff store is SoA, damage
-   is aggregate, movement is field-sampled, and rendering is instanced. Any
-   design that introduces a per-agent object, a per-agent virtual call, or a
-   per-agent heap allocation is wrong by construction.
-2. **Agents build this game, not humans at a screen.** The executable ships three
-   headless modes from Wave 0 (`--bench`, `--sim-test`, `--screenshot`). They are
-   the only way a sub-agent can prove its work. Their output formats are public
-   API.
-3. **Determinism.** Fixed 60 Hz tick, explicit seeded PRNG, no wall-clock reads
-   inside the sim. Determinism is not a nicety here — it is the precondition for
-   (2). If the sim is not reproducible, `--sim-test` and `--screenshot` are
-   worthless.
-
----
-
-## 1. Module map and ownership
-
-One CMake library target per module. Directory ownership is exclusive.
-
-| Target | Directory | Owner wave | Depends on |
-|---|---|---|---|
-| `immune_core` | `src/core/` | 0 | — |
-| `immune_platform` | `src/platform/` | 0 | core, SDL2, glad |
-| `immune_sim` | `src/sim/` | 1A/1B/1D, 2A | core, EnTT |
-| `immune_render` | `src/render/` | 1C, 3D | core, platform, sim |
-| `immune_game` | `src/game/` | 2B/2C/2D, 3A, 4A/4B | core, sim, render, json |
-| `immune_gui` | `src/gui/` | UI framework | core, platform, render (GL wrappers, shaders), stb, nanosvg |
-| `immune_ui` | `src/ui/` | 3B | core, platform, render, game, gui, imgui |
-| `immune_audio` | `src/audio/` | 3C | core, SDL2 |
-| `immune_app` | `src/app/` | 0 | everything |
-
-Dependencies point one way only: `core → platform → sim → render → game → ui →
-app`, with `gui` beside `game` (`render → gui → ui`). `sim` never includes
-`render`; `render` never mutates `sim`; `gui` never includes `game` or `sim`.
-
----
-
-## 2. `core` — foundations
-
-### `Types.h`
-Scalar aliases, `Vec2/3/4` (glm), `Rect`, `EntityId`, and the two frozen enums
-`PathogenFamily` and `TowerType`. **`PathogenFamily`'s enum order is the
-renderer's draw-batch order** — reordering it silently changes rendering.
-
-`kTicksPerSecond = 60`. Note the deliberate pair:
-- `kFixedDt` (f32) — what sim math uses.
-- `kFixedDtSeconds` (f64) — what the clock accumulator uses.
-
-Accumulating in f32 loses one tick per simulated second to rounding. This bit us
-during Wave 0 and is now covered by a test.
-
-### `Rng.h` — PCG32
-Trivially copyable, 16 bytes of state. `fork(stream_id)` produces an independent
-deterministic sub-stream **without advancing the parent**, which is how parallel
-work stays reproducible: a `parallel_for` body forks by range index rather than
-sharing a generator.
-
-> **Rule:** sim code never calls `rand()`, `std::random_device`, or a global
-> generator. It takes an `Rng&`, sourced from `SimWorld::rng()`.
-
-### `Clock.h`
-`WallClock` / `ScopedTimer` for profiling (non-deterministic, never in sim
-logic). `FixedClock` is the sim/render decoupler:
-
-```
-clock.begin_frame();
-while (clock.consume_tick()) sim.tick();   // fixed 60 Hz
-renderer.draw(clock.alpha());              // variable rate
-```
-
-The accumulator is stored **in tick units, not seconds**, so consuming a tick is
-an exact `-= 1.0`. `max_frame_seconds` (default 0.25 s) caps catch-up so a
-debugger pause cannot trigger a death spiral of ticks.
-
-### `Arena.h`
-Bump allocator. Reset is O(1); it never runs destructors, so `T` must be
-trivially destructible (static_assert enforced). Per-tick scratch memory comes
-from a frame arena so the hot path performs zero `malloc`s. `allocate()` returns
-`nullptr` on overflow rather than growing — a hot-path caller must size the arena
-so this cannot happen. Alignment is applied to the **absolute address**, not the
-offset, because `malloc` only guarantees `max_align_t`.
-
-### `JobSystem.h`
-Deliberately narrow: `parallel_for` over index ranges plus fire-and-forget
-`dispatch` + `wait_idle`. No task graph, no dependencies, no cross-frame stealing
-— every parallel workload in this game is "split N items across K workers".
-
-The calling thread executes range 0, so `thread_count() == worker_count() + 1`.
-`JobSystem(0)` is **explicitly serial**; auto-sizing uses the `kAutoWorkers`
-sentinel. That distinction matters: headless modes pass 0 to get a reproducible
-serial run.
-
-> **Determinism rule for `parallel_for` bodies:** do not accumulate into shared
-> floats (FP addition is not associative), and do not draw from a shared `Rng`.
-> Fork per range index.
-
-### `Profiler.h`
-The `--bench` JSON schema lives here. The five canonical keys — `chaff_update`,
-`spatial_hash`, `ecs_tick`, `render_submit`, `frame_total` — map directly onto
-DESIGN.md §8.6's budget lines. Keys are always emitted, zero-filled if unsampled,
-and in a fixed order, so the document is byte-stable and diffable across commits.
-**Adding a key is a contract change.**
-
----
-
-## 3. `platform`
-
-`Window` (SDL2 + GL 4.5 core + glad), `InputState`, `FileIO`.
-
-- `Window::create` requests a 4.5 core-profile context and loads glad. It never
-  throws; check `ok()` / `error()`.
-- `create_headless_gl()` makes a hidden-window GL context. This is what
-  `--screenshot` uses: real GL, no visible window, no compositor.
-- `InputState` maps SDL scancodes onto an abstract `Action` enum. Game code never
-  mentions physical keys. Input is a **render-rate** concern; the sim never reads
-  it (that would break determinism). Player actions reach the sim as explicit
-  commands, which is also how `--sim-test` scripts drive the game.
-- `FileIO::asset_root()` walks up from the executable looking for `assets/`,
-  overridable via `$IMMUNE_ASSET_ROOT`. No exceptions cross this boundary.
-
----
-
-## 4. `sim` — the deterministic simulation
-
-### 4.1 `SimWorld` — one object, one canonical tick order
-
-Everything a tick touches hangs off `SimWorld`, and the tick order is fixed:
-
-```
-1. spatial hash rebuild        [prof: spatial_hash]
-1b. squad centroids + anchors  [prof: squad_update]
-2. chaff update                [prof: chaff_update]
-3. ECS systems                 [prof: ecs_tick]   (towers release swarmers here)
-4. damage fields apply
-4b. projectiles
-4c. swarmers, then what they asked for (bursts -> fields, splashes ->
-    fluid, rounds -> projectiles, builds -> scars), then slow expiry
-4c''. hostile pass: pathogens vs towers, scars and swarmers (sim/hostile),
-    then tower damage landed on the ECS, then the scar sweep (sim/scar)
-    tears down what the pass emptied      [prof: hostile_update]
-4d. fluid
-5. chaff compact + kill accounting
-6. flow-field incremental rebake pump (budgeted)
-7. tick counter advance
-```
-
-Changing this order is a contract change. `state_hash()` is an FNV-1a over the
-chaff streams (including the slow timers), the swarmer positions, targets and
-health, the fluid positions, plus counters; `--sim-test` asserts on it to catch
-determinism regressions that don't show up in aggregate counts.
-
-`SimSnapshot` also carries per-family lifetime tallies —
-`chaff_{spawned,killed,leaked,despawned}_by_family`. These were added for the
-balance harness (`docs/BALANCE.md`) and are an **additive** change: every
-pre-existing field keeps its meaning, including `chaff_killed_total`, which has
-always counted every retirement rather than only damage kills. The split is made
-where the cause is actually known — `ChaffSystem` knows a leak from an
-out-of-bounds despawn, and `compact()` knows only that something retired — so
-`killed = retired − leaked − out_of_bounds`, per family, per tick.
-
-### 4.2 `sim/chaff` — SoA storage (**the most important contract in the project**)
-
-There is no `ChaffAgent` class and there must never be one. Ten thousand agents
-are parallel flat arrays:
-
-```
-pos_x, pos_y      f32   position, split per axis
-vel_x, vel_y      f32   velocity, split per axis
-family            u8    PathogenFamily; also the render batch key
-density           f32   HP expressed as a density contribution
-flags             u8    chaff_flags bitset
-generation        u32   backs ChaffHandle across compaction
-squad_id          u16   which squad, or kNoSquad (see 4.7)
-```
-
-**Why SoA, in order of weight:**
-
-1. The per-tick movement kernel touches only pos/vel/flags. In SoA those streams
-   are contiguous, so every cache line fetched is 100% useful. An AoS struct
-   would drag family, density, and padding through L1 for nothing — that is the
-   difference between hitting and missing the 4 ms budget.
-2. Contiguous f32 streams auto-vectorize under MSVC, and hand-SIMD later is a
-   drop-in because the layout already matches.
-3. The renderer memcpys spans of these arrays into a mapped GPU instance buffer.
-   No gather, no per-agent transform construction.
-4. The spatial hash and damage fields both want to stream a dense `f32` position
-   array, which is exactly what they get.
-
-Position is split into `pos_x`/`pos_y` rather than a `Vec2` array on purpose:
-separation and damage-field tests early-out on a single axis, and SoA-of-scalars
-is what SIMD wants.
-
-**Identity.** An index is not stable — `compact()` swap-removes dead agents.
-Anything that must name a specific agent across ticks uses `ChaffHandle`
-(index + generation). In practice almost nothing does; chaff is fought as a mass.
-`squad_id` has to be carried across that swap for the same reason `generation`
-is — it is the one other per-agent fact that outlives a slot.
-
-### 4.3 `sim/spatial` — uniform grid
-
-The only spatial queries the game makes are short-range over roughly uniform 2D
-density: separation neighbours, "which chaff overlap this field", and tower
-targeting. A uniform grid beats a tree: O(n) build in two linear passes, O(1)
-arithmetic lookup, two flat integer arrays, no pointers, no per-frame allocation.
-
-Layout is CSR-style counting sort: `cell_start` has `cell_count+1` entries, and
-cell `c` owns `indices[cell_start[c] .. cell_start[c+1])`. Explicitly **not** a
-per-cell `std::vector` — that would allocate thousands of times a frame.
-
-Cell size should be ~2× the separation radius so a 3×3 block covers every
-possible separation partner. Queries are conservative at cell granularity; the
-caller does the exact distance test. `occupancy()` is exposed because the
-renderer's density-LOD pass and the Mast Cell trigger both need it and neither
-should pay for a second counting pass.
-
-The hash stores **indices into the chaff SoA**, so `compact()` invalidates it.
-Rebuild before use; never cache indices across ticks.
-
-### 4.4 `sim/flowfield` — three-stage bake
-
-```
-TissueMask  ──►  DistanceField  ──►  FlowField
-(walkable +      (clearance,          (cost-to-goal sweep,
- per-cell cost)   placement rules)     then negative gradient)
-```
-
-**The rasterizer's sample rate is width-aware, and has to be.** It used to be a
-flat four samples per cell of arc length, chosen for thin vessels where the
-overlapping *chain* of disc stamps is what fills the mask. But `stamp_disc`
-writes each disc's whole bounding box, so a vessel costs
-`steps * (width / cell_size)^2` regardless of how much NEW area a stamp covers —
-and lanes are ~68 wide since 4.7 widened them for squads. Measured on
-`capillary_switchback`: 151M cell-writes into a 421k-cell mask, every cell
-written ~360 times, 556 ms of a 617 ms bake. The rate is now scallop-limited
-(`d = sqrt(2*r*cs)` holds the inter-stamp bulge under a quarter cell) and grows
-with the radius, with the old rate kept as the floor for sub-cell lumens. Same
-geometry to within a sub-cell edge wobble; 617 ms becomes 77 ms, which is what
-lets the level editor re-bake on every gesture.
-
-**The drawn field writes the mask (`game/level/RenderSdf.h`).** Between the
-carve and the `DistanceField` bake, `LevelLoader::bake_geometry()` bakes a
-second distance field straight off the level's geometry: the true distance to
-the swept capsules and carved solids, evaluated per texel rather than stamped
-at cell centres, with concave lumen corners filleted by a bounded morphological
-closing (thin septa and islands are found on the wall's medial axis and left
-alone) and lanes that reach the world edge run off the grid. That field is what
-`tissue.frag` draws from -- it is why a vessel wall is a clean curve and the
-inside of a bend a soft arc -- and its sign is written back into
-`TissueMask::walkable`, so the horde is pressed against exactly the wall the
-player sees. The sim's own `DistanceField` is still an EDT of the mask; only
-the mask's provenance changed. `tests/test_render_sdf.cpp` pins the agreement
-on every shipped level.
-
-10,000 agents cannot each run A*. Baking a vector field once turns an agent's
-entire pathfinding cost into one bilinear sample. Vessels get organic width and
-branching for free because the field comes from a rasterized mask, not a corridor
-graph.
-
-**Incremental rebake is the load-bearing requirement.** Placing a tower must
-reroute the horde visibly and immediately, but a full-level bake is far too slow
-for a frame. `mark_dirty(rect)` records the region; `rebake_pending()` re-solves
-it correctness-first (tests, `--sim-test`); `pump_rebake(budget_ms)` is the
-gameplay path, spending a fixed millisecond budget per frame.
-
-The dirty region is expanded by `rebake_margin_cells` and seeded from the
-*existing* boundary costs. This is correct as long as the true shortest path from
-any changed cell leaves and re-enters the region at most once — the margin is
-what buys that. Agents flowing on a one-or-two-tick stale field read as momentum,
-not as a bug.
-
-`sample()` returns `(0,0)` outside the field or in an unreachable pocket. Callers
-must treat zero as **"no guidance"**, not as "standing still is fine".
-
-**Towers are not obstacles.** `TowerSystem::place`/`sell` never touch the
-`TissueMask` or the `FlowField`. The horde walks straight through a tower's
-footprint; `footprint_radius` only spaces towers apart and sizes the sprite, and
-the renderer emits towers last in the entity pass so they draw over whatever is
-standing in them. The only runtime mask edits are the Fibrin Clot (an active
-ability), the Fibroblast's collagen scars (`sim/scar`, §4.5d) and scripted
-collapses; the first two share one carve/restore helper,
-`sim/flowfield/RuntimeBlock.h`.
-
-**Walls: the mask and the SDF disagree, deliberately.** `resolve_wall_contact`
-does the ordinary wall response off the `DistanceField`, but the SDF is *not*
-re-baked when a clot is dropped — tower placement validation reads it for "is
-there clearance here", so folding runtime blocks into it would make every clot
-unbuildable ground for its lifetime. A runtime block therefore updates only the
-`TissueMask` (and the flow field re-bakes to route around it). The consequence
-is that the SDF-based response cannot see such blocks at all, and a dense
-enough crowd pressed them straight through one — measured, back when towers
-were still obstacles, at 72 of 1,200 agents inside a footprint at once.
-`contain_to_tissue` closes that by testing the **mask**, which is the
-walkability authority and is always current: the previous position was
-walkable, so bisection along the step finds the last walkable point, with no
-normal or penetration depth needed (neither is reliable inside solid ground
-anyway). The same net covers ordinary tissue walls.
-
-### 4.5 `sim/damage` — aggregate damage
-
-Chaff is never hit individually. A tower publishes a `DamageField`: a region plus
-a `kill_rate`. Each tick the field asks the spatial hash which cells it overlaps
-and thins the chaff inside.
-
-This is simultaneously the performance answer (cost scales with fields and the
-cells they cover, not with 10,000 × towers pair tests) and the art direction
-(mass removed at a field boundary *is* the "edge erosion" language of DESIGN.md
-§7). The visual is the mechanic.
-
-DESIGN.md §10 leaves the exact formula open, so both are implemented behind one
-switch and the feel pass picks by playing:
-
-- `DensityThinning` (default) — deterministic; subtracts `kill_rate * dt` from
-  every overlapped agent's density. Smooth, predictable, reads as dissolving.
-- `ProbabilisticRemoval` — each overlapped agent rolls to be removed whole.
-  Grainier, cheaper per agent, order-sensitive, so it draws from a per-field
-  forked stream to stay deterministic.
-
-Field shape supports Circle / Rect / Cone / Chain (the Complement Cascade
-resolves to a sequence of circle links at evaluation time). `family_mask`
-restricts a field to some pathogen families. `friendly_fire` marks fields that
-damage the player's own units/objective. The Macrophage's arbor-grabber arms
-capture and consume their targets directly in the swarmer kernel, so tower
-combat no longer submits its former timed Circle burst. Complement Cascade
-and scripted hazards remain field casters.
-
-Removed density is attributed to the owning tower and to the economy via
-`DamageStats`. **Nothing may infer kills by diffing agent counts** — under
-aggregate damage, only the damage system knows when a density threshold was
-crossed.
-
-**Renderers must read `rendered_fields()`, not `fields()`.** `fields()` is the
-submission buffer, and `clear_transient()` runs at the *end* of `SimWorld::tick`,
-dropping every persistent field on the grounds that its owner re-submits next
-tick. That is right for the sim and wrong for the screen: a persistent field
-(the Complement Cascade's, say) would be seen by anything drawing after the
-tick as permanently absent. `rendered_fields()` is the snapshot taken just
-before that cull.
-
-### 4.5b `sim/swarm` and the Macrophage arbor grabber
-
-Every tower is a **spawner** with no range or attack of its own. On each cooldown,
-for as long as the round is on (`TowerSystem::set_releasing`, driven from the
-wave phase by `game/session/LevelSession.cpp`; off in Prep), it releases a
-volley of swarmers (`sim/swarm/Swarmers.h`) from its face -- toward the
-nearest crowd inside the swarmers' aggro radius, or all round if there is
-none; the swarmers pick a target --
-chaff or named agent, whichever is nearest inside their search radius; Burrowed
-(`kHidden`) is invisible to all of them -- chase it, and do the tower's work on
-contact. What a swarmer does on contact is its `SwarmerKind`, and every number
-about it comes from a `SwarmerProfile` the tower registers per type
-(filled from `towers.json` by `game/towers`):
-
-| Tower | Kind | On contact |
-|---|---|---|
-| Cytotoxic T | Latch | latches on, drains, moves on when the host dies |
-| Neutrophil | Shooter | holds a standoff and fires real rounds into `sim/projectile` |
-| Macrophage | ArborGrabber | up to three independent branching pseudopods extend, latch a target each, and pull them into the body to kill them; the squad's rank forms a wall across the lane |
-| Goblet Cell | MucusBomber | detonates into a splash of real fluid (`sim/fluid`) |
-| Fibroblast | Builder | hunts nothing: walks to the site it was released with and lays a collagen scar there (`sim/scar`) |
-
-The placed Macrophage is only a factory. Each released ArborGrabber in
-`SwarmerBuffers` owns one `ArborGrabberState`: up to `kArborMaxArms` (3)
-independent `ArborArmState` slots, each with its own phase (idle, extending,
-latching, pulling, recovering), reach, grip, and one `GrabberCaptive`. Idle
-slots pick their own nearest still-unclaimed target and grow toward it; on
-reaching full reach the terminal fingers latch, then the captive is pulled
-into the body and killed, and the arm recovers before it can grow again --
-arms cycle independently, so a three-arm unit can be extending one target,
-pulling another, and idle on the third all in the same tick. Every live
-ArborGrabber a tower owns stands as one squad (the LANE WALL): the rank is
-built perpendicular to the flow field at the squad's centroid rather than
-along its approach, spaced by `formation_spacing` (clamped to the lane's SDF
-clearance), and `body_block` gives the unit's body precedence over a
-pathogen's in contact resolution instead of yielding to it. Captured chaff
-are temporarily hidden from targeting, moved inward as an arm pulls, and
-removed only once fully in. An interrupted or destroyed unit releases every
-live captive safely. The renderer receives each arm's reach, relative angle,
-grip, and phase and draws the three independent pseudopod trees. The cycle
-uses fixed storage and performs no allocation per tick.
-
-Bombers whose lifetime runs out detonate where they stand; latchers and
-shooters dissolve. Shooters and bombers **stand their ground**: a target that
-leaves the shooter's standoff / the bomber's aggro radius is swapped for the
-nearest other target in reach, and only followed when there is none.
-Shooters released together are a **squad** (`group` + `slot` streams) and
-march and hold as one rank across their approach. Every unit steering on its
-own is projected back onto the tissue against the distance field, the way
-the fluid is, so a volley cannot clip through a vessel wall. The kernel never
-touches those other stores itself: it
-records `SwarmerEffects`, and `SimWorld::apply_swarmer_effects()` lands them
-(and the hit points queued against named agents) right after the update. That
-keeps the kernel testable with a chaff store and a spatial hash alone.
-
-A slow is **timed**: `chaff_flags::kSlowed` plus the parallel
-`slow_remaining` / `slow_factor` streams on `ChaffBuffers`, refreshed every
-tick an agent stands in the Goblet Cell's mucus and cleared by
-`ChaffBuffers::expire_slows()` (once per tick, before the fluid) when the
-clock runs out. Named agents get the same through `comp::Slowed`.
-
-### 4.5c `sim/hostile` — the horde fights back
-
-Until this layer existed nothing the player placed could be lost: towers sat
-in the lane forever and swarmers only died of old age. `sim/hostile/
-HostileAttacks.h` gives each pathogen family a way of killing the player's
-cells, as **data on the family** (`HostileFamilyParams`, authored in
-`enemies.json` under `attack`), not as code keyed on the family id:
-
-| Attack | Shipped on | What it does |
-|---|---|---|
-| **Latch** (`latch_dps`) | Virus | An agent that touches a tower or a swarmer grabs on, rides it and feeds until the host dies. It stops walking the lane: `chaff_flags::kLatched` makes the chaff kernel freeze it (exactly as `kHidden` does) and the hostile pass owns its position: it lunges to its spot on the host's membrane (`latch_speed`, full speed from the first tick, with a `latch_ease_power` ease-out inside `latch_ease_distance`) and is carried with the host from then on. A host carries at most `latch_cap_*` passengers. |
-| **Aura** (`aura_dps`) | Bacteria | Burns every friendly whose body is inside `aura_radius`, continuously. No state, no target. |
-
-**Cost model.** The pass iterates *friendlies*, not pathogens: every live
-swarmer and every tower queries the chaff hash once around itself (a capped,
-nearest-cell-first walk), which is the same direction the swarmer BODIES pass
-already walks and is independent of total chaff count. Passengers are one
-serial flag-test walk of the chaff store.
-
-**What it touches.** `ChaffBuffers` gains the `kLatched` flag bit (the last
-free one) and three host streams (`host_index`, `host_generation`,
-`host_kind`), read by nothing in the movement kernel. `SwarmerBuffers` gains
-`health` (from `SwarmerProfile::max_health`) and `generation` (a globally
-unique unit id, like chaff's). Towers get `comp::Health` at placement
-(`TowerStats::max_health`); the pass queues damage into a `FriendlyTowerList`
-that `SimWorld` rebuilds from the ECS each tick and lands afterwards, the same
-arrangement the swarmer kernel has with `NamedTargetList`. Tearing a dead tower
-down is the game layer's job (`TowerSystem`'s `tower_death` PreUpdate system,
-which owns the placed list). Nothing in normal play repairs a tower any more:
-the in-run upgrade that used to restore integrity is gone (Strengthen
-Immunity collapsed the tiers); Phagocytic Sustain is the one heal.
-
-Three additive `CombatEventType`s feed the VFX: `SwarmerDeath`,
-`TowerDestroyed`, `PathogenLatch`. `SimSnapshot` gains `chaff_latched`,
-`swarmers_killed_total`, `towers_lost_total`. A bare `SimDesc` ships the pass
-**off** with every family harmless, so a world built without a game config is
-the pre-hostile world; `game::hostile_tuning()` turns it on from `enemies.json`
-plus `sim.json`'s `hostile` block.
-
-**How a passenger is drawn.** A latched virion is not a still sprite parked on
-a cell: it feeds. The pass writes one purely cosmetic stream, `latch_heading`
-(the direction into the host, under the same rules as `hit_flash`: nothing in
-the sim reads it, `state_hash()` omits it), the chaff batcher turns the sprite
-by it and raises a renderer-only bit (`FLAG_LATCHED`, bit 15 of the instance
-word, with the family mask stopping short of it), and `chaff.frag` runs the
-*latch throb* on it: one irregular pump stroke driving a bellows squash toward
-the host, a front-to-back slosh, peristaltic swells rolling round the outline,
-a probe reaching into the cell with cargo beading down it, and a glow on the
-push. The knobs are `render::LatchThrobParams` (`render/LatchThrob.h`), a
-per-family table like `FamilyVisual`, authored as `latch_throb` in
-`enemies.json`; the table lives in `render/` rather than beside `HitFlash`
-because it is the one family look with no sim consumer at all.
-
-### 4.5d `sim/scar` — collagen scars, the Fibroblast's walls
-
-A **scar** is a runtime block: an oriented bar carved out of the `TissueMask`
-and laid *across* the local flow -- square to the arrow the field draws at the
-site (`RuntimeBlock.h::across_flow_rotation`), plus a random tilt of up to
-`scar_tilt` radians hashed off the site and owner (`scar_rotation`, a pure
-function so release and build agree) -- so it stands as a dam the horde has
-to go round -- the flow field is marked dirty
-and reroutes, and the mask containment (`RuntimeBlock.h::contain_to_walkable`,
-run by the chaff kernel and by named-agent movement alike) will not let a
-pathogen step into it. Nothing on the player's side is stopped: swarmers only
-ever read the SDF, which never learns about runtime blocks, and rounds test
-`TissueMask::authored_wall()` -- every carved cell is flagged as a
-`runtime_block`, a second plane beside `walkable`, precisely so a Neutrophil
-can fire over its own team's wall. The clot gets the same treatment for free.
-That asymmetry is load-bearing: a scar is a wall for pathogens and nothing
-else.
-
-Where the clot is on a clock, a scar is on a **Health**: it is an ECS entity
-(`comp::Scar` + `comp::Transform` + `comp::Health` + `comp::Sprite`, shape 6)
-that `SimWorld::build_friendly_towers()` lists to the hostile pass as a
-*bar host* (`FriendlyTower::half_extents`), so viruses latch along its faces
-(their perimeter spot rides in the otherwise-unused `host_generation` word)
-and bacteria burn it from their aura; the bar is walked in segments along
-its length so a wall buried in a crowd is eaten at its ends too.
-`ScarSystem::upkeep()` runs right after the hostile damage lands: at zero
-integrity (or past an optional `scar_lifetime`) the cells go back to the mask,
-the flow is marked dirty again, and `ScarDestroyed` is raised.
-
-A scar comes from a **Builder** swarmer reaching its site: the swarmer kernel
-records a `SwarmerBuild`, `apply_swarmer_effects()` hands it to
-`ScarSystem::build()` with the wall's numbers read off the unit's profile.
-`build()` may refuse -- a bar that would seal the lane (`LaneConnectivity.h`)
-is never laid -- and a request inside `scar_spacing` of a live scar, or from
-an owner at `max_scars`, **reinforces** that scar (adds `scar_reinforce` hit
-points, capped) instead of stacking a second wall. Sites are chosen by the
-game layer at release (`pick_scar_site` in `TowerSystem.cpp`: a random point
-in the annulus around the tower that is on tissue, in a lane, clear of scars
-and towers, and passes the sever check), because everything that decides a
-site is reachable from there and none of it from the kernel; a builder is
-released with `SwarmerSpawnParams::goal` and a tower with nowhere to build
-releases nothing. Builders take only `crowd_push` of the horde's shove in the
-BODIES pass (shipped 0: a fibroblast crawls through the matrix), so they can
-reach a site behind the horde's front; they are still latched and burned on
-the way, which is why their `max_health` is an order of magnitude above the
-other kinds'. Every number comes from the tower baseline in `towers.json` (`builder` payload
-plus the shared `swarm` chassis). `SimSnapshot` gains `scars_live`,
-`scars_built_total`, `scars_lost_total`.
-
-### 4.6 `sim/ecs` — the small half
-
-EnTT registry for named agents (≤200) and towers. Chaff never enters the
-registry; adding a chaff entity violates §8.2.
-
-The wrapper exists for exactly one reason: **explicit, stable system ordering**.
-Systems declare a `SystemPhase` (PreUpdate → AI → Movement → Combat →
-PostUpdate) and a sort key; the scheduler runs them in that order, always, on
-every machine. Registration order never leaks into behaviour. The raw registry
-stays reachable — this is a convenience layer, not an abstraction wall.
-
-Components are plain trivially-copyable structs with no methods and no virtuals
-so EnTT keeps them in dense pools.
-
----
-
-### 4.7 `sim/squad` — squads, for readability
-
-Every agent samples the same level-wide flow field, so the whole horde converges
-on one shortest path and arrives as a single undifferentiated mass. That mass has
-the fluid feel DESIGN.md §4.2 asks for, but at 10k agents there is no structure
-in it to read. `SquadRegistry` partitions the horde into groups of ~60, each
-following its own path across the lane.
-
-Paths are **optional per-level data** (`squad_paths` in the level JSON). A lane
-that authors none gets a spread derived from its vessel centerline at load, so
-the feature required no edits to any shipped level. **How many** paths a lane
-gets follows its narrowest lumen width, not a fixed count: paths are placed
-`kMinPathSpacing` apart across the usable band, so a wide trunk carries three or
-four squad columns and a capillary carries one. A fixed count is wrong at every
-width but one — three paths in a 46-wide lane sit closer together than a squad
-is across, and the horde reads as one mass however well the steering works.
-
-Three forces, and only the third touches the hot neighbour loop:
-
-- **Anchor** — a point sliding along the path, *leashed* to the squad's own
-  centroid: monotonic, rate-limited, and always ~`anchor_lookahead` ahead. A
-  squad jammed behind a tower keeps its anchor close instead of letting it sail
-  off and drag stragglers into a wall. New squads on a path already occupied are
-  pushed forward past it by `spawn_spacing`, so same-path squads form a column
-  rather than spawning inside one another.
-- **Cohesion** — a velocity impulse decomposed against the flow direction.
-  *Across* the flow it steers toward the anchor (which line of the lane this
-  squad rides); *along* the flow it pulls toward the squad's own centre of mass
-  (so the squad does not string out into a ribbon). Splitting the axes is what
-  lets the flow field keep all of its forward authority: the cross-flow term can
-  never push an agent into a wall the field is routing around, and the
-  along-flow term only speeds up stragglers and reins in leaders. Both ramp from
-  **exactly zero** at the squad radius, which is what keeps a packed interior
-  running the identical pre-squad kernel — the fluid feel is not traded for the
-  grouping.
-- **Repulsion** — in `gather_neighbours`, a neighbour from a *different* squad
-  gets a wider separation radius and a stronger push, and is excluded from
-  alignment. One `u16` compare per neighbour, short-circuited away entirely for
-  ungrouped agents.
-
-**Membership is capped twice, for two different reasons.** `target_squad_size`
-(60) closes intake at the spawn point, together with `intake_distance` — that is
-what makes a squad a *cohort* rather than a bucket. `max_squad_size` (90) is the
-hard ceiling, and it exists for replication: a daughter is born on top of its
-parent mid-lane and inherits its squad, so an inheriting-only rule is unbounded
-compounding — every member is a source of more members of the same squad, and
-one cohort of 60 grows until the lane is a single blob again. Past the ceiling
-the daughter is stamped `kNoSquad` and steers on the flow field alone, which
-reads as a full formation shedding loose stragglers. The in-tick tally lives in
-`ChaffSystem::squad_growth_` because `member_count` is a top-of-tick snapshot.
-
-Two numbers are load-bearing and are *derived*, not chosen. `lateral_push` is a
-velocity impulse in the same units as `separation_strength`, because the flow
-term contributes ~0.33/tick while separation contributes up to ~16 — a cohesion
-term expressed as an acceleration is two orders of magnitude quieter than the
-crowd it is steering and simply loses. And `squad_radius_scale` is 0.75 because
-that is exactly the radius `spawn_burst`'s phyllotaxis packs `n` agents into,
-i.e. the radius a squad *physically occupies*; below it the target is smaller
-than the bodies it describes, every member is permanently "outside", and the
-promised free interior never exists.
-
-Determinism: centroids are accumulated in a **serial** pass in index order (float
-addition is not associative, so a parallel reduction would make steering depend
-on thread count), and `SquadRegistry::state_hash()` folds into
-`SimWorld::state_hash()` so `--sim-test` actually covers the layer.
-
-Measured at 10k agents in 167 squads: `chaff_update` 1.4 ms (budget 4 ms),
-`squad_update` 0.09 ms.
-
-**Level geometry.** Squads need room: one is ~16 world units across once the
-crowd relaxes, so a lane must be roughly 50+ wide to hold two side by side.
-Every shipped level was widened to ~68 units of lumen for this, with world
-bounds and control points scaled to keep lanes from merging (and
-`default_test_level()` matched, so the headless modes stay representative).
-Lanes were 5-12 wide before, i.e. narrower than a single squad.
-
-**Damage.** `apply_density_loss()` is the *only* way chaff takes damage. There is
-no per-unit hit path. Density reaching zero sets `kPendingKill`; removal happens
-in the once-per-tick `compact()`, so indices are stable within a tick.
-
-**Capacity.** All streams are reserved once at level load. Spawning past capacity
-fails and is reported; it never reallocates mid-tick.
-
-**Invariants** (asserted in debug, checked by tests):
-- I1 every index in `[0, count)` has `kAlive`
-- I2 all streams have equal size, `>= count`
-- I3 `count <= capacity` always; `spawn()` never grows an array
-- I4 `density[i] > 0` for every live agent after `compact()`
-
-`ChaffSystem` is the movement kernel. Per agent per tick, the entire "AI" is:
-
-```
-v += flow.sample(p) * speed          // one bilinear field fetch
-v += separation(p) * k               // 3x3 spatial-hash cell scan
-v  = clamp_length(v, max_speed)
-p += v * dt
-```
-
-Family behaviour (replication, drift, hiding) is a variation on those
-four lines gated by a flag bit — never a subclass.
-
-## 5. `render`
-
-Two facts drive the entire renderer interface:
-
-**1. One instanced draw call per family.** The CPU never builds per-agent
-geometry or per-agent draw calls. `submit_chaff` walks the chaff SoA once and
-memcpys contiguous spans into a persistently-mapped instance buffer, one range
-per `PathogenFamily`. Six draw calls cover ten thousand agents. This is why the
-`PathogenFamily` enum order is frozen.
-
-`ChaffInstance` is 32 bytes — half a cache line each, 320 KB/frame at 10k. Its
-layout is mirrored exactly in `assets/shaders/chaff.vert`; changing one without
-the other is a contract break.
-
-**2. LOD by density, not distance.** The camera is fixed-ish, so distance LOD is
-meaningless (DESIGN.md §8.5). Instead, where cell occupancy exceeds
-`lod_blob_threshold`, agents are not drawn as instances at all — they accumulate
-into a low-resolution density texture drawn by a shader-driven blob pass. A
-crossfade band up to `lod_blob_full` makes the switch invisible: an agent near the
-boundary draws at partial instance alpha *and* contributes partial blob density,
-conserving apparent mass. Without this a floodplain level would try to draw
-10,000 overlapping sprites into a few hundred pixels.
-
-The pass **ships disabled** (`RendererDesc::lod_blob_enabled = false`). It was
-sized for a horde that could stack: its threshold is 24 agents in a broadphase
-cell, and a 4-unit cell only reaches that if the agents in it are interpenetrating.
-Once the contact pass stopped allowing that, a packed cell holds around eight, so
-the LOD engaged only in wall jams — and where it did engage it cost resolution,
-because the density texture is 320x180 for the entire visible world and
-`blob.frag` has no silhouette to be sharp with. The sprite path carries the full
-horde on its own: 10k instances measure 0.4-0.5 ms of `submit_chaff`
-(`tests/test_render_gl.cpp`). The mechanism stays live and tested; the flag turns
-it back on.
-
-`Camera` is a fixed tilted-topdown (15–25°, no rotation). Because tilt is fixed,
-world↔screen is affine and `screen_to_world` is exact — which is precisely what
-grid-free continuous tower placement needs. World Y is foreshortened by
-`cos(tilt)`; height above the plane is a constant vertical offset plus a drop
-shadow. No 3D geometry anywhere.
-
-`ShaderManager` hot-reloads from `assets/shaders/*.glsl`. Apart from the UI fonts
-(`assets/fonts/`) and the UI's SVG icons (`assets/ui/icons/`), shader source is
-the *only* on-disk art, so hot reload is the entire art iteration loop. A failed recompile logs the GLSL error and **keeps the
-previous working program**, so a typo never blanks the screen.
-
-**Tower art lives in three shaders, and they have to agree.** A tower's *body* is
-a procedural SDF in `entity.frag`, selected by `shape_id = 16 + TowerType` (16
-Neutrophil, 17 Macrophage, 18 Cytotoxic T, 19 Goblet Cell, 20 Fibroblast); its
-  *attack* is normally its swarmers, drawn from sim state by `swarmer.frag`
-  (tinted by the releasing tower, silhouette varied by kind), plus whatever
-  they leave behind. The Macrophage's own body (shape 17) previews its
-  released unit's silhouette: roots that fork into fine branching fingers
-  reaching in every direction, the same `sdf_macrophage` used (at unit scale)
-  by `swarmer.frag`'s `sdf_arbor_macrophage`.
-  The Goblet Cell's mucus goes through the fluid pass (see
-`sim/fluid/Fluid.h`), the Neutrophil's rounds through the projectile pass, the
-Fibroblast's scars through the entity pass as shape 6 (a bar whose `v_tint.a`
-is its remaining integrity, spent on bites and cracks).
-Three rules hold body and attack together:
-
-- **Identity hue is one colour per tower, everywhere.** `palette_for()` in
-  `vfx/Particles.cpp` is the source; the body tints toward it, the particles use
-  it, and `submit_fields` tints the AoE with it. Hue is the only channel that
-  survives a glance at 60 fps (DESIGN.md §9.3), so a tower must never say two
-  different things in two places.
-- **Silhouette is the fallback channel, so no two bodies share one.** Most are
-  amoeboid blobs; the Goblet Cell is the only vessel-shaped one, and the
-  Fibroblast the only spindle.
-  Each also carries a *directional* feature aligned to local +x — the
-  Cytotoxic T's flattened synapse face, the Goblet Cell's open apical mouth —
-  which `entity.vert` has already rotated onto the aim.
-- **Tier is spent on something countable.** `EntityInstance::shape_param` carries
-  the raw tier, and each body turns it into phagosomes /
-  lytic granules / mucin granules, so an upgrade shows in the silhouette
-  rather than only in the stat panel.
-
-Circle fields split by lifetime in `field.frag`: timed includes the Histamine
-nova; persistent is unclaimed since the NK Cell's rotor was retired.
-
-`Screenshot` writes PNGs via `stb_image_write` and handles the GL bottom-up →
-PNG top-down flip. This is the project's primary visual verification channel.
-
----
-
-## 6. `game`
-
-- **`towers/`** — grid-free continuous placement validated against the distance
-  field (clearance) and reachability (a placement that walls off every lane is
-  rejected, not allowed-then-exploited). That reachability test is
-  **differential**: a local window around the footprint is flooded twice, once
-  as the mask stands and once with the footprint blocked, and only anchors the
-  footprint *newly* cut off count. Asking the second flood alone whether
-  everything is still connected blames the tower for walls it did not build —
-  an authored in-lane obstacle inside the window makes every placement near it
-  unbuildable for no reason. A level's `placement_zones` are enforced here too -- the whole
-  footprint must lie inside one, and an empty list means anywhere, which is what
-  every level authoring none has always meant. So is schema 2's
-  `allowed_towers`. Both live in `validate()` rather than in the HUD, so the gym
-  console and the balance bot are bound by them: a rule only the UI knows about
-  is a rule the game does not actually have. A successful placement edits the
-  tissue mask and marks the flow field dirty over the footprint only. Targeting goes
-  through the spatial hash; a tower asks the grid for cells in range and never
-  iterates agents. And a tower never damages anything itself: it releases a
-  volley of swarmers (`sim/swarm`, §4.5b) and the swarmers do the work. The
-  per-type swarmer table (`TowerMechanics`: the shared `swarm` chassis
-  plus a per-kind `payload`) lives behind `TowerMechanics.h` and is filled from
-  `assets/config/towers.json`.
-- **`enemies/`** — the DESIGN.md §6 readability rule (colour = family, silhouette
-  size = threat tier, tempo = speed tier) is enforced *structurally*: those are
-  three separate fields sourced from tables, so no archetype can quietly break the
-  visual language. `render::family_color()` is the single source of truth for
-  pathogen colour, shared by UI, VFX, and instance tints.
-- **`level/`** — levels are **splines with per-point width in JSON**, not painted
-  masks. Agents can author and diff text; nobody can author a mask PNG without a
-  visual editor, and this project ships no binary art. At load, splines
-  rasterize into TissueMask → DistanceField → FlowField. Schema v1 is documented
-  in `Level.h`; a missing `"schema"` is an error, not a default.
-  The optional `obstacles` array is the **subtractive** half of that: five
-  primitives (disc, capsule, oriented box, polygon, width-varying ridge) carved
-  back out of the lumen by `sim/flowfield/ObstacleRaster.h`, so a lane can have
-  islands of solid tissue standing inside it instead of being exactly the union
-  of its splines. The design point is that an obstacle is **not a new kind of
-  thing** — carved after rasterization and *before* the SDF bake, it is
-  indistinguishable downstream from ground no spline ever covered, so it shades
-  as vessel wall, collides as vessel wall, reroutes the flow field, and refuses
-  towers with no code in the renderer, the steering, or `TowerSystem` that knows
-  the concept exists. That ordering is the one rule; carving after the bake
-  leaves a hole only the mask can see. Obstacles are fully static. Two ways to
-  seal a lane by accident are caught: burying a spawn point or objective fails
-  the parse, and a carve that leaves a spawn point unable to reach any objective
-  fails `instantiate()` after the bake.
-  `LevelWriter.h` is the missing other half: `LevelDef` -> **canonical** JSON,
-  with a fixed key order, defaults omitted, three-decimal floats and one line
-  per thing an author drags. Canonical rather than merely valid because a level
-  file is a git artifact before it is a game asset -- without those rules a
-  one-pixel gizmo nudge rewrites the whole file. Round-trip and idempotence are
-  asserted across every shipped level (`tests/test_level_writer.cpp`), and
-  `--level-fmt` re-parses its own output before overwriting anything.
-  `LevelLoader::bake_geometry()` is the geometry half of `instantiate()` against
-  caller-owned buffers, split out so a caller that wants only the walkable shape
-  does not have to construct and destroy a `SimWorld` for it -- `SimWorld::init()`
-  is destructive, and re-running it per edit is exactly what an editor must not
-  do. Keeping it as the ONE rasterizer is the point: a preview-only second bake
-  would be free to drift from what ships.
-- **`editor/`** — the headless half of the in-game level editor
-  (`docs/LEVEL_EDITOR.md`): `LevelDoc` (document, selection, snapshot undo, and
-  the edit operations), `LevelValidate`, and `LevelTemplates`. Same split as
-  `gym/` and for the same reason — every line of ImGui lives in `ui/`, so the
-  validator that draws the editor's red halos is the same one `--level-check`
-  runs in CI with no window, and `ui/editor` and the `edit` gym commands are
-  both typists for one document API rather than two that can drift.
-  `LevelValidate` returns a *list* of issues, each carrying an `ElementRef` to
-  select and a world anchor to fly to, because an author needs every problem at
-  once and a place to look, not one bool. Three of its rules need the baked
-  geometry (spawn/objective on tissue, spawn reaches an objective) and are the
-  reason `bake_geometry()` exists.
-  **Id hygiene is the document's job**: renaming a spawn point rewrites the
-  `spawn_point_id` of every wave entry that named it, and deleting one clears
-  them — an editor that can break its own references produces levels the loader
-  rejects.
-- **`wave/`** — the director is a pure function of (tick, wave table, RNG). No
-  wall-clock, no background spawning, so a wave sequence replays identically. It
-  schedules a table; it never builds one. Tables come from the level file only.
-- **`economy/`** — ATP ledger with fractional carry so income is exact. Kill
-  income is credited from `DamageStats`, never inferred from count deltas.
-- **`meta/`** — the Strengthen Immunity tree (`PROGRESSION.md`) and the
-  versioned JSON save. Loading an older version must migrate; loading a *newer*
-  version must fail loudly rather than silently drop fields (the app then plays
-  a fresh campaign and refuses to write over the file).
-  `ImmunityTree` is a compiled-in node catalog — every line PROGRESSION.md
-  names, keyed by a stable string so saves survive catalog changes, and the
-  tree's shape (each node's parent, checked at compile time to be one tree
-  rooted at the Neutrophil with at most three children per node) — plus
-  `apply_immunity_tree()`, which **folds the purchases into a copy of the
-  loaded config**: the baseline of every tower is boosted by tree purchases,
-  and the economy/ability lines edit their blocks. No
-  system learns that a tree exists; `App::apply_tuning_config()` feeds them
-  `run_config_` instead of `config_` (which stays the file's values because the
-  gym registry is bound to it). What is not a config number rides alongside in
-  `TreeEffects`: the unlock masks (`TowerSystem::set_unlocked_towers`,
-  `ActiveAbilitySystem::set_unlocked`, both literal masks defaulting to "all",
-  enforced in `validate()`/`cast()` so the bot and the gym obey them too), the
-  hostile pass's `damage_taken_mult` (Membrane Resilience), and
-  `sim::ImmunityTuning` (`sim/Immunity.h`): Elite Response, Homeostasis, and the
-  three capstones with no unit to hang them on — Incendiary Rounds (the
-  projectile system logs where `kIncendiary` rounds land and `SimWorld` lays
-  timed fields there), Anaphylactic Shock (slowed agents killed this tick pass
-  their slow on, just before compaction) and Inflammatory Scarring (scars bite
-  chaff inside their bar plus a reach), plus two leveled lines that are rules
-  rather than numbers: Weakening Mucus (`ChaffBuffers::apply_density_loss`,
-  the one path all chaff damage takes, multiplies the loss on a `kSlowed`
-  agent; named agents get the same through `comp::Slowed`) and Inflammation
-  (`SimWorld` rebuilds a disc per live scar each tick after the ECS pass;
-  towers inside run their cooldown faster and the swarmer kernel scales latch
-  drain and round damage for units inside). The two per-unit capstones — Apoptosis
-  Trigger's kill pulse and Phagocytic Sustain's heal — are `CapstoneParams` on
-  `TowerMechanics` (never read from `towers.json`) copied onto the
-  `SwarmerProfile`, and the kernel raises a `SwarmerBurst` / `SwarmerHeal`.
-  Pacing (run payout, node prices, capstone threshold, respec fee) is
-  `meta.json`; per-level magnitudes are the catalog's tables. Headless modes and
-  tests never apply the tree, so they run the untouched baseline; interactive
-  runs are sandboxed (no tree, no payout) in editor playtests, the gym level,
-  and under `--sandbox`. The save lives at `--save PATH` or
-  `platform::user_data_dir()/save.json`.
-- **`session/`** — `step_level()`, the one authoritative order of operations for
-  a level tick (queued spawns → wave director → sim → gym toggles → economy →
-  abilities → win/loss). It used to live inside `App::tick_sim`, which made it
-  unavailable to anything without a window. That order *is* gameplay — move the
-  economy credit before the sim tick and towers pay for kills a frame late — so
-  the balance harness must run it rather than a plausible imitation. `App` calls
-  it and `--autoplay` calls it; there is no second copy to drift. It owns
-  nothing (every pointer in `LevelSystems` belongs to the caller) and reports
-  the outcome rather than acting on it, because `app/GameState.h`'s transitions
-  are an app-layer concern.
-- **`autoplay/`** — the bot that plays a level for balance measurement. Where to
-  build is derived from the level's own geometry (vessel widths, the flow
-  field's cost-to-goal, lane ownership, `PlacementZoneTag`), never from an
-  authored per-level plan: a plan file is one more thing to keep in step with
-  every level edit, and a stale one measures the plan rather than the level.
-  Purchases go through `Economy::spend` and `TowerSystem::validate` — the bot
-  has no path into the sim a player lacks. Deterministic: no RNG, no wall clock.
-- **`telemetry/`** — `RunTelemetry`, which turns a played level into the JSON a
-  balance pass reads (per-tower earnings, per-family outcomes, per-wave
-  pressure, an economy timeline). Rates and ratios are derived at report time
-  from raw tallies, so a new metric never needs a re-run. See `docs/BALANCE.md`.
-- **`gym/`** — the debug/authoring command language (`spawn`, `tower`, `wave`,
-  `cast`, `vfx`, …) behind the gym level's control panel (`ui/GymPanel.h`),
-  `--sim-test`'s `cmd` action, and `--exec`. A pure function of (context, line) with no UI of its own, so the same
-  command string runs interactively, in a script, and in a test. Reaches the sim
-  only through the same public APIs `app/` uses for player intents. See
-  `docs/GYM.md` and `assets/levels/gym.json`.
-
----
-
-## 7. `gui`, `ui` and `audio`
-
-`gui` is the player-facing UI framework: game-agnostic, retained-mode, drawn in
-the design canvas's "Living Membrane" language (docs/ui-concepts). Its design and
-build phases are in `docs/UI_FRAMEWORK.md`. What matters structurally:
-
-- **Every widget shape is a signed distance field evaluated in `gui.frag`**:
-  one quad per shape, and the edge, outline, shadow, cytoplasm inset, rim,
-  organelle dots, dashes and fluid fill all come from that one distance. The
-  wobble animates in the shader from `u_time`. `gui/draw/ShapeSdf.h` mirrors the
-  outline on the CPU for hit testing, and a GL test holds the two to agreement.
-- **One vertex format, one program.** Shapes, stroked curves, SDF text and icons
-  share a 24-byte vertex; shape parameters live in an SSBO. Draws split only on
-  scissor, stencil clip or offscreen layer, so a whole HUD is a handful of draws.
-- **Fonts and icons are baked lazily** into CPU atlases (`gui/Atlas.h`) and
-  uploaded by dirty rectangle: fonts as SDF (`assets/fonts`, stb_truetype),
-  icons from SVG text (`assets/ui/icons`, nanosvg) extracted from the canvas by
-  `tools/extract_icons.py`.
-- The in-match HUD is `ui/hud/HudScreen`, fed plain `ui::HudModel` data by
-  `app/UiBridge.cpp` each frame; it reports `ui::Intent` (`ui/Intent.h`) like
-  the rest of `ui`.
-- The out-of-match screens (main menu, the Strengthen Immunity tree, campaign
-  level select, pause, results) are `ui/front/FrontEnd`, fed a
-  `ui::FrontModel`; they report `ui::MenuResult` and `App::apply_menu_result`
-  drives the state machine.
-- ImGui (`ui/DevUi`) stays for developer tools only (gym panel, level editor).
-
-`ui` emits **intents**, it does not mutate the sim. `app/` translates intents
-into sim commands so every state change goes through one auditable path — which
-is also the path `--sim-test` scripts drive. At 10k agents the player cannot read
-individual units, so the HUD carries the readability load via per-lane threat
-indicators computed from aggregate data (occupancy + family counts), never by
-iterating agents.
-
-`audio` synthesizes everything at runtime (no WAV files). The SDL2 audio callback
-runs on its own thread and must never allocate, lock, or call into the sim;
-gameplay pushes immutable `AudioEvent` values through a lock-free ring buffer.
-Dropping a sound when the queue is full is always preferable to stalling the sim.
-Mass events (`ChaffDissolve`) scale one voice by intensity rather than triggering
-one voice per agent.
-
----
-
-## 8. `app` — the loop and the three modes
-
-```
-clock.begin_frame();
-input.poll();
-while (clock.consume_tick()) sim.tick();   // fixed 60 Hz
-renderer.draw(clock.alpha());              // variable rate
-```
-
-The sim's tick count over a wall-clock span is identical regardless of frame
-rate, so a 144 Hz machine and a 30 Hz machine play the same game.
-
-`GameStateId::Editor` is the level editor. It deliberately does NOT tick the sim
-(`sim_running()` is false for it) while `render_frame()` keeps drawing — but it
-draws from the EDITOR's own baked geometry, not from `sim_`, which is what
-`bake_geometry()` exists for: no world has to exist for the real tissue to be on
-screen, and editing therefore never destroys a run. `load_level_def()` is the
-half of `load_level()` that builds a world from a `LevelDef` already in memory,
-so Play tests the document including unsaved edits.
-
-`GameStateMachine` keeps exactly one state live with explicit transitions applied
-at the top of a frame, so a state never destroys itself mid-update — and so the
-headless modes can construct just `InLevel` without dragging in menus, an audio
-device, or a window.
-
-### `--bench <scenario> --ticks N`
-
-Runs the sim headless and prints the `Profiler` JSON to stdout. Logging goes to
-stderr so stdout stays machine-parsable. Scenarios are registered in
-`app/Modes.cpp`; `--list-scenarios` prints them as JSON.
-
-| Scenario | Content | Purpose |
-|---|---|---|
-| `empty` | nothing | fixed per-tick overhead |
-| `chaff1k` | 1,000 chaff | smoke scale |
-| `chaff10k` | 10,000 chaff | **the Wave 1 gate** (<4 ms) |
-| `chaff10k_towers` | + 16 damage fields | Wave 2 gate |
-| `named200` | 200 named agents | the <2 ms §8.6 budget |
-| `mixed` | 10k + 200 + 16 fields | floodplain-like worst case |
-
-### `--sim-test <script.json>`
-
-Runs a scripted scenario and asserts invariants. Exit 0 pass / 1 fail. Every
-assertion is evaluated (no early exit) so one run reports every failure. Script
-schema v1 is documented at the top of the `--sim-test` section in
-`app/Modes.cpp`; assertable metrics are `chaff_count`, `named_count`,
-`total_density`, `objective_integrity`, `chaff_killed_total`,
-`chaff_leaked_total`, `tick`, `state_hash`, plus the per-family forms
-`chaff_{spawned,killed,leaked,despawned,alive}.<family>` (e.g.
-`chaff_leaked.bacteria`). Per-family assertions exist because "the bacteria
-got through" is a regression a total-only metric hides the moment the level
-also kills more viruses.
-
-Actions are `spawn_chaff`, `place_tower`, and `cmd` — the last runs a gym
-command (`docs/GYM.md`), so anything reachable from the in-game console is
-scriptable as a regression test without inventing a new action type first.
-
-### `--screenshot <level> --tick N --out <file.png>`
-
-Advances the deterministic sim to tick N, creates a headless GL 4.5 context,
-renders one frame, and writes a PNG. Also prints a JSON metadata block including
-`state_hash`, so a visual diff can be correlated with a sim-state diff.
-`--exec "<gym commands>"` sets the world up first, so a look found by hand in the
-console can be reproduced as a capture.
-
-### `--level-check <file|dir>` / `--level-fmt <file|dir> [--check]`
-
-Content tooling, in `app/LevelTools.h` rather than `Modes.h` -- they tick no
-sim, and `Modes.h` is the frozen contract for the three verification modes whose
-stdout other tools parse. `--level-check` runs `game/editor`'s validator over a
-level or a directory (including the bake-dependent reachability check) and
-prints a JSON report; exit 1 if any level has an error. `--level-fmt` rewrites
-through `LevelWriter`; `--check` makes it a gate instead, exiting 1 if anything
-is not already canonical. Together they are what stops an editor session
-producing content that surprises the game.
-
----
-
-## 9. Performance budgets (DESIGN.md §8.6) — acceptance criteria
-
-| Subsystem | Bench key | Budget @ 10k |
-|---|---|---|
-| Chaff: flow sample + separation + instanced render | `chaff_update` + `render_submit` | **< 4 ms** |
-| ≤200 named agents, ECS tick | `ecs_tick` | **< 2 ms** |
-| Spatial hash rebuild | `spatial_hash` | **< 1 ms** |
-| Whole frame | `frame_total` | **< 16.6 ms** |
-
-These are pass/fail, not aspirations. If a change pushes `--bench` over budget,
-that is a failure to report, not a footnote.
-
----
-
-## 10. Wave 0 status — what is real vs. stubbed
-
-*(Historical — this section describes the project immediately after Wave 0,*
-*kept for context on how the contracts were bootstrapped. For the current,*
-*up-to-date real-vs-stubbed status, see*
-*[`HANDOFF_TECHNICAL.md` §4](HANDOFF_TECHNICAL.md#4-whats-real-vs-stubbed--module-by-module)*
-*— nearly everything listed as stubbed below is real now.)*
-
-**Real and tested:** `core` (clock, RNG, arena, job system, profiler),
-`platform` (window/GL/input/file IO), `render::Camera`, `render::Screenshot`,
-`ChaffBuffers` SoA storage semantics, the ECS scheduler's ordering guarantee,
-`Economy`'s ledger, the CLI, and all three headless modes end to end.
-
-**Stubbed (compiling, returning defaults), pending their owning wave:**
-`FlowField` / `DistanceField` bake and sampling (1A), `SpatialHash::rebuild` and
-queries (1B), `ChaffSystem::update` (1B), `Renderer`'s draw passes and
-`ShaderManager` (1C), ECS behaviour systems (1D), `DamageSystem::apply` (2A),
-`TowerSystem` (2B), `EnemyRoster` spawning (2C), `LevelLoader` JSON parsing (2D),
-`WaveDirector` (3A), `Hud` (3B), `AudioEngine` (3C), `MetaProgression`
-save/load (4B).
-
-A Wave 0 `--screenshot` therefore produces a correctly-formed, uniformly cleared
-frame in the warm tissue-substrate colour. That is the expected result, not a
-bug: the clear path, the GL context, the readback, the flip, and the PNG encode
-are all proven, and Wave 1C only has to add draws.
-
----
-
-## 11. `config/` — the tuning surface
-
-Every gameplay-numeric value — tower stats and per-role mechanics, enemy family
-size/speed/health and elite stats, crowd physics, economy, abilities, meta
-rewards — lives in `assets/config/*.json` and is loaded at startup. Wave tables
-are the deliberate exception: they are authored per level in
-`assets/levels/*.json`, not tuned globally (see `game/level/Level.h`).
-
-**Module placement.** `immune_config` (`src/config/`) is generic machinery only:
-strict parsing, a field registry, path-addressed get/set, dump, and file
-polling. It links `core` + `platform` + nlohmann_json and knows nothing about
-towers or enemies. The six schemas live in `src/game/config/`, inside
-`immune_game`, because filling `sim::ChaffTuning` and pushing values into
-`render` both need modules `config/` sits below. Order is unchanged:
-`core → platform → config → sim → render → game → ui → app`.
-
-**One declaration, four behaviours.** A config struct declares its fields once
-as a `Schema` of `{name, kind, offsetof, doc}`. Parse, dump, get-by-path and
-set-by-path are all derived from that list, so a dumped file is guaranteed to
-round-trip and every field that exists is guaranteed to be reachable from
-`config set`. Document *structure* is still hand-written per file.
-
-**Authoritative.** A missing field is an error; an unknown key is an error with
-a did-you-mean suggestion. The shipped files are therefore always a complete,
-self-documenting list of every knob.
-
-**Frozen headers.** Adopting the config changed no frozen contract's public
-surface. Values reach their systems through seams that already existed
-(`TowerSystem::set_stats`, `ChaffSystem::set_tuning`) or through new,
-non-frozen headers (`TowerMechanics.h`, `EnemyConfigApply.h`,
-`AbilityConfigApply.h`). The two exceptions are additive: `Cli.h` gained
-`--config`/`--dump-config`, and `EnemyRoster.h` gained one friend declaration.
-`WaveDirector.h` later lost its `generate()`, when wave tables moved to the
-level files — the one frozen surface this project has deliberately narrowed.
-
-**Determinism.** The config is a determinism input, so `--sim-test` and
-`--bench` never hot-reload, `--config <dir>` pins it, and every sim-test report
-carries a `config_hash` beside `state_hash`.
-
-**Bootstrap.** `immune --dump-config <dir>` writes the live values out as a
-complete file set. `assets/config` was generated that way rather than
-transcribed, and `tests/test_config.cpp` asserts the shipped files still equal
-the compiled-in defaults.
+# IMMUNE architecture
+
+This is a map of the implemented engine and its ownership boundaries. Read it
+before changing a system that crosses modules. Source and tests establish
+current behavior; [DESIGN.md](../DESIGN.md) explains the intended experience.
+Historical implementation waves and `FROZEN CONTRACT` comments in headers
+describe how the project was assembled, not a separate approval process for
+current contributors.
+
+The engine guides are [SIMULATION.md](SIMULATION.md),
+[RENDERING.md](RENDERING.md), and [AUDIO_PLATFORM.md](AUDIO_PLATFORM.md). Start
+from [the documentation index](README.md) for gameplay, content, UI, and tools.
+
+## Module map
+
+The application is C++20. [CMakeLists.txt](../CMakeLists.txt) lists exact sources
+and link dependencies. `immune_common` supplies include paths, the C++ standard,
+and GLM. The remaining libraries are:
+
+| Target / directory | Responsibility | Direct project dependencies |
+| --- | --- | --- |
+| `immune_core` / `src/core` | Types, math, clocks, PCG RNG, arena, jobs, logging, profiling | common |
+| `immune_platform` / `src/platform` | SDL window/GL context, frame input, filesystem | core |
+| `immune_config` / `src/config` | Strict JSON/schema/registry/config-store machinery | core, platform |
+| `immune_sim` / `src/sim` | World, chaff, ECS, flow, squads, combat, fluid, scars | core |
+| `immune_vfx` / `src/vfx` | Cosmetic particles and family death-effect tables | core, sim |
+| `immune_render` / `src/render` | Camera, GL wrappers, shaders, world passes, PNG capture | core, platform, sim, vfx |
+| `immune_game` / `src/game` | Levels, waves, deployed cells, abilities, economy, progression, editor, gym, autoplay, telemetry, config adapters | core, config, sim, render |
+| `immune_gui` / `src/gui` | Retained widgets, layout, hit testing, SDF drawing, text/icons | core, platform, render |
+| `immune_ui` / `src/ui` | Player screens and developer panels | core, platform, render, game, gui |
+| `immune_audio` / `src/audio` | Procedural synthesis and mixing | core |
+| `immune_app` / `src/app` | Boot, state machine, input routing, wiring, command-line modes | core, platform, sim, render, game, ui, audio |
+
+External dependencies include SDL2, glad, GLM, EnTT, nlohmann JSON, Dear ImGui,
+stb, nanosvg, and Catch2. This is a dependency graph, not a single linear chain.
+`gui` links render for GL infrastructure but its source stays independent of
+game rules. Preserve these source boundaries:
+
+- Simulation receives plain data and explicit commands. It does not read SDL,
+  widgets, JSON files, or renderer state.
+- The renderer consumes simulation state; drawing must not change gameplay.
+- VFX receives sim outputs and cannot feed results back into it.
+- `game/config` translates JSON-backed game configuration into structs accepted
+  by sim/render/VFX. Generic `config` does not know enemy or tower rules.
+- UI screens consume models and return intents. App translates them into game
+  calls. Gym/editor panels use their documented shared game APIs.
+- `game/session` reports a level outcome; `app` decides which screen to enter.
+
+## Runtime ownership and level lifetime
+
+[App](../src/app/App.h) owns the interactive window, clock, jobs, simulation,
+renderer, audio, UI, game systems, configuration, and progression. Boot loads
+configuration, establishes GL-dependent subsystems, and starts the front end.
+See [App.cpp](../src/app/App.cpp) for initialization and teardown order.
+
+[GameStateMachine](../src/app/GameState.h) has Boot, MainMenu, LevelSelect,
+StrengthenImmunity, InLevel, Paused, Editor, LevelComplete, LevelFailed, and
+Quitting states. Only `InLevel` makes `sim_running()` true. The normal frame loop
+polls input, applies pending transitions, consumes fixed ticks while running,
+renders, and updates the audio listener/music state. Pending transitions prevent
+routine changes from destroying a screen during its own update; editor helpers
+also have explicit transition paths.
+
+In a non-running state, App calls `FixedClock::drop_accumulated()`. Menu time
+therefore does not become a burst of gameplay ticks on resume. Fast-forward
+changes the accumulator's time scale, not the fixed simulation `dt`.
+
+A level load initializes the world, bakes tissue/flow/lane data, registers named
+and tower systems, attaches game systems, and applies configuration.
+`SimWorld::init()` is destructive: it resets agents, ECS entities, ECS systems
+and registry context, combat stores, counters, and seeded state. Re-register
+per-level systems afterwards. Clearing entities alone can leave old systems
+behind and cause a second level to tick twice.
+
+Normal play calls `TowerSystem::validate_deploy()` / `deploy()` to create one
+persistent immune cell in the swarmer store, with no ECS tower/spawner entity.
+`deploy_cells()` validates and pays for requested quantities. Legacy `place()`
+creates a spawner tower for compatibility/debug uses, and its release systems
+remain installed. Do not infer current player behavior from older spawner
+comments in public headers. A direct deployment's high-range owner ID groups
+attribution/scars; it is not an ECS entity to dereference.
+
+The editor owns a `LevelDoc` and separate baked preview. It does not reinitialize
+the active world on every gesture. `LevelLoader::bake_geometry()` is shared by
+the editor and real loading; Play loads the in-memory document including unsaved
+edits. See [LEVEL_EDITOR.md](LEVEL_EDITOR.md).
+
+## Two tick boundaries
+
+[SimWorld::tick](../src/sim/SimWorld.cpp) advances engine stores: movement, ECS,
+combat, fluid, retirement, rebakes, and the world tick counter. It does not own
+wave scheduling, ATP, ability cooldowns, or level outcomes.
+
+[game::step_level](../src/game/session/LevelSession.cpp) owns the outer sequence:
+
+1. Apply queued gym spawns, then advance the authored wave director.
+2. Enable legacy tower release outside Prep; with no director, release continuously.
+3. Tick the world, then apply gym toggles before checking outcomes.
+4. Accrue passive ATP outside Prep, credit removed density, and credit pending
+   wave rewards.
+5. Advance active-ability timers.
+6. Check objective destruction first, then the survival deadline or wave clear.
+
+App and autoplay call this function. New headless gameplay runners should use
+it rather than duplicate the order. Focused engine tests/benchmarks may tick
+SimWorld directly, which intentionally represents a smaller workload.
+`LevelSystems` contains non-owning pointers, skips absent optional systems, and
+carries the level's `survive_seconds` setting.
+
+## Data and determinism
+
+Large populations use bounded structure-of-arrays stores: chaff, projectiles,
+swarmers, fluid, and cosmetic particles each have separate streams. Named agents,
+towers, and scars use EnTT components and explicit system phases. Do not
+introduce a heap object, virtual behavior call, or GL draw per chaff agent.
+
+Gameplay advances at `kTicksPerSecond == 60`, using `kFixedDt` for float math
+and `kFixedDtSeconds` for double scheduling. Randomness uses explicitly seeded
+[Rng](../src/core/Rng.h). Repeatable fixtures pin the build, configuration, seed,
+commands, worker count, and rebake scheduling. Range-based RNG partitioning can
+change when workers change; `pump_rebake()` uses elapsed time to choose how many
+complete regions run. Fixed ticks do not establish cross-machine or
+cross-thread bit equality. See [SIMULATION.md](SIMULATION.md#reproducibility-and-hashes).
+
+`state_hash()` is a regression fingerprint of selected state, not a save format
+or full-world serialization. Configuration has a separate `config_hash` in
+deterministic modes; named-agent tests also use `named::state_hash()`. Compare
+relevant counters/system-specific state as well as hashes when proving a change.
+
+## Core services
+
+| Service | Current behavior | Guidance / tests |
+| --- | --- | --- |
+| [Types.h](../src/core/Types.h), [Math.h](../src/core/Math.h) | Scalar/GLM aliases, rectangles, IDs, fixed ticks, family/tower enums | Enum order indexes config, streams, visuals, and roster tables. Update consumers together; use count constants. |
+| [Rng.h](../src/core/Rng.h) | PCG32 with explicit seed/stream; `fork(id)` does not advance the parent | Forks need a changing input for fresh randomness each tick. [test_rng.cpp](../tests/test_rng.cpp) |
+| [Clock.h](../src/core/Clock.h) | Double accumulator in tick units; default frame clamp 0.25 s; manual advancement, time scale, alpha | Clamped hitches discard excess catch-up time. [test_clock.cpp](../tests/test_clock.cpp) |
+| [Arena.h](../src/core/Arena.h) | Bump allocator, absolute-address alignment, O(1) reset, null on overflow, peak tracking | Only trivially destructible objects; reset invalidates pointers. Availability does not mean every temporary uses it. [test_arena.cpp](../tests/test_arena.cpp) |
+| [JobSystem.h](../src/core/JobSystem.h) | Fork/join contiguous ranges, dispatch/wait; caller participates | `JobSystem(0)` is serial; `kAutoWorkers` auto-sizes. Avoid shared RNG and order-sensitive float reductions. [test_jobsystem.cpp](../tests/test_jobsystem.cpp) |
+| [Profiler.h](../src/core/Profiler.h) | Reserved samples reduced to avg/p50/p99/min/max/count | Five canonical JSON keys always emit; extras follow sorted. Key order is stable; timings are not. [test_profiler.cpp](../tests/test_profiler.cpp) |
+| [Log.h](../src/core/Log.h) | Shared formatted diagnostics with selectable sink/level | Keep diagnostics out of machine-readable stdout. |
+
+Reuse buffers and reserve at load. Avoiding allocation in bulk hot paths is a
+design rule, not an allocation-profiler guarantee for every ECS spawn, query
+temporary, or runtime construction path.
+
+## Performance evidence
+
+Historical targets guide measurement. They are not claims that every
+hardware/build/configuration meets them, or that a single test enforces all of
+them.
+
+| Workload | Historical target |
+| --- | --- |
+| Chaff movement plus render submission at 10k | under 4 ms |
+| Up to 200 named agents' ECS tick | under 2 ms |
+| Spatial hash rebuild | under 1 ms |
+| Full interactive frame | under 16.6 ms |
+
+Canonical keys are `chaff_update`, `spatial_hash`, `ecs_tick`, `render_submit`,
+and `frame_total`; sim extras include `squad_update`, `hostile_update`, and
+`burrow_update`. `--bench` attempts hidden real GL and submits tissue, chaff,
+entities and fields each tick. Context/renderer failure degrades to sim timing
+with zero render samples; those zeros do not establish GPU performance. Several
+combat passes contribute to total tick
+cost without separate keys. Renderer `FrameStats::submit_ms` measures timed CPU
+pass submissions. App's `render_submit` scope also includes `end_frame()`, which
+currently calls `glFinish()` and can wait for GPU work. Neither figure is an
+isolated GPU timestamp measurement.
+
+Record scenario, ticks, seed, workers, build, hardware and config when comparing
+results. The old Wave 0 stub list has been retired from this guide: current
+functionality is documented by subsystem and tests.
+
+## Choosing an extension seam
+
+- Gameplay numbers belong in existing config schemas/adapters; see
+  [CONFIGURATION.md](CONFIGURATION.md).
+- Bulk-agent state needs spawn/clear/compaction, hash/counter decisions, and
+  CPU/GPU packing updates if visible.
+- Instantaneous visuals belong in `CombatEvent`; persistent things belong in
+  stores read by render.
+- Named behavior belongs in archetype tables/hooks and existing ECS phases.
+- Player actions go through intents/commands and game validation/spending APIs.
+- Editor rules belong in shared document/validator/bake paths so tools agree.
+
+See [TESTING.md](TESTING.md) for validation commands and test selection.

@@ -1199,7 +1199,6 @@ TEST_CASE("swarmers respect the vessel: a volley fired at a wall stays on the ti
     // aimed straight at the left room's bottom wall (y = 4).
     const u16 slot = swarmer_profile_slot(TowerType::CytotoxicT);
     world.swarmers().set_profile(slot, swarmer_profile(TowerType::CytotoxicT));
-    const f32 contact = swarmer_profile(TowerType::CytotoxicT).size * kWallContactFraction;
     for (u32 k = 0; k < 12; ++k) {
         SwarmerSpawnParams p;
         p.position = kRoomCenterLeft + Vec2{static_cast<f32>(k) * 0.4f - 2.4f, 0.0f};
@@ -1214,6 +1213,9 @@ TEST_CASE("swarmers respect the vessel: a volley fired at a wall stays on the ti
         contacts += world.swarmer_system().last_stats().wall_contacts;
         for (usize s = 0; s < world.swarmers().count(); ++s) {
             const Vec2 p{world.swarmers().pos_x[s], world.swarmers().pos_y[s]};
+            // Each unit's own body: towers.json gives swarmers a spawn size
+            // jitter, and the wall keeps the jittered body clear.
+            const f32 contact = world.swarmers().body_size(s) * kWallContactFraction;
             INFO("swarmer " << s << " at " << p.x << "," << p.y << " clearance " << world.sdf().sample(p));
             REQUIRE(world.sdf().sample(p) >= contact - 0.05f);
         }

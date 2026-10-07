@@ -384,7 +384,7 @@ HostileStats HostileSystem::update(ChaffBuffers& chaff, const SpatialHash& hash,
                 (sw.flags[k] & swarmer_flags::kPendingKill) != 0) {
                 retire = true;
             } else {
-                const f32 body = sw.profile_of(k).size * kWallContactFraction;
+                const f32 body = sw.body_size(k) * kWallContactFraction;
                 const f32 r = shot.radius + body;
                 if (math::length_sq(shot.position - Vec2{sw.pos_x[k], sw.pos_y[k]}) <= r * r) {
                     const f32 damage = shot.damage * tuning_.damage_taken_mult;
@@ -421,7 +421,7 @@ HostileStats HostileSystem::update(ChaffBuffers& chaff, const SpatialHash& hash,
         const Vec2 dir = math::normalize_safe(aim - origin);
         if (dir.x == 0.0f && dir.y == 0.0f) return;
         ToxinShot shot;
-        shot.position = origin + dir * (chaff_radius_[fam] * 1.35f);
+        shot.position = origin + dir * (chaff_radius_[fam] * chaff.size_scale[j] * 1.35f);
         shot.velocity = dir * fp.toxin_speed;
         shot.damage = fp.toxin_damage;
         shot.life = (fp.toxin_range + 8.0f) / fp.toxin_speed;
@@ -467,7 +467,7 @@ HostileStats HostileSystem::update(ChaffBuffers& chaff, const SpatialHash& hash,
             }
             host_pos = Vec2{sw.pos_x[idx], sw.pos_y[idx]};
             host_vel = Vec2{sw.vel_x[idx], sw.vel_y[idx]};
-            host_body = sw.profile_of(idx).size * kWallContactFraction;
+            host_body = sw.body_size(idx) * kWallContactFraction;
             ++swarmer_passengers_[idx];
             sw.health[idx] -= bite;
             stats.swarmer_damage += bite;
@@ -506,11 +506,11 @@ HostileStats HostileSystem::update(ChaffBuffers& chaff, const SpatialHash& hash,
             const BarFrame frame(*bar);
             Vec2 n;
             const Vec2 on = bar_point_at(frame, unpack_spot(chaff.host_generation[i]), n);
-            goal = frame.to_world(on + n * (chaff_radius_[fam] * 0.35f));
+            goal = frame.to_world(on + n * (chaff_radius_[fam] * chaff.size_scale[i] * 0.35f));
             inward = frame.dir_to_world(n * -1.0f);
         } else {
             const Vec2 dir = ring_dir(chaff.generation[i]);
-            const f32 ring = ring_radius(host_body, chaff_radius_[fam]);
+            const f32 ring = ring_radius(host_body, chaff_radius_[fam] * chaff.size_scale[i]);
             goal = host_pos + dir * ring;
             inward = dir * -1.0f;
         }
@@ -544,7 +544,8 @@ HostileStats HostileSystem::update(ChaffBuffers& chaff, const SpatialHash& hash,
         if (fp.aura_dps > 0.0f) reach_past_body = math::max(reach_past_body, fp.aura_radius);
         if (fp.toxin_damage > 0.0f) reach_past_body = math::max(reach_past_body, fp.toxin_range);
         if (fp.latch_dps > 0.0f) {
-            reach_past_body = math::max(reach_past_body, chaff_radius_[f] + fp.latch_reach);
+            reach_past_body = math::max(reach_past_body,
+                                        chaff_radius_[f] * chaff.max_size_scale() + fp.latch_reach);
         }
     }
     if (reach_past_body <= 0.0f) {
@@ -586,7 +587,7 @@ HostileStats HostileSystem::update(ChaffBuffers& chaff, const SpatialHash& hash,
             e.origin = contact;
             e.secondary = host_pos;
             e.direction = dir;
-            e.radius = chaff_radius_[fam];
+            e.radius = chaff_radius_[fam] * chaff.size_scale[j];
             e.magnitude = 1.0f;
             events->push(e);
         }
@@ -598,7 +599,7 @@ HostileStats HostileSystem::update(ChaffBuffers& chaff, const SpatialHash& hash,
         const SwarmerProfile& pr = sw.profile_of(i);
         const Vec2 p{sw.pos_x[i], sw.pos_y[i]};
         const Vec2 v{sw.vel_x[i], sw.vel_y[i]};
-        const f32 body = pr.size * kWallContactFraction;
+        const f32 body = sw.body_size(i) * kWallContactFraction;
         // A Latch unit is a granule already sitting on a pathogen; there is
         // nothing there for a virus to climb onto, and a granule that is both
         // riding and ridden would drag its pair across the map (each snaps to
@@ -624,7 +625,7 @@ HostileStats HostileSystem::update(ChaffBuffers& chaff, const SpatialHash& hash,
                 shoot(j, p, v, static_cast<u32>(i), sw.generation[i], false);
             }
             if (fp.latch_dps > 0.0f && latchable && swarmer_passengers_[i] < fp.latch_cap_swarmer) {
-                const f32 r = chaff_radius_[fam] + body + fp.latch_reach;
+                const f32 r = chaff_radius_[fam] * chaff.size_scale[j] + body + fp.latch_reach;
                 if (d2 < r * r) {
                     ++swarmer_passengers_[i];
                     const Vec2 dir = ring_dir(chaff.generation[j]);
@@ -686,7 +687,7 @@ HostileStats HostileSystem::update(ChaffBuffers& chaff, const SpatialHash& hash,
                               t.id.value, 0u, true);
                     }
                     if (fp.latch_dps > 0.0f && towers.passengers[k] < fp.latch_cap_scar) {
-                        const f32 r = chaff_radius_[fam] + fp.latch_reach;
+                        const f32 r = chaff_radius_[fam] * chaff.size_scale[j] + fp.latch_reach;
                         if (d2 < r * r) {
                             // Grab the face it touched, a little to one side
                             // so a queue of passengers spreads along the wall
@@ -694,7 +695,7 @@ HostileStats HostileSystem::update(ChaffBuffers& chaff, const SpatialHash& hash,
                             const Vec2 on = bar_surface_point(frame, l);
                             const f32 jitter = (static_cast<f32>((chaff.generation[j] * 2654435761u) >> 8) *
                                                     (2.0f / 16777216.0f) - 1.0f) *
-                                               chaff_radius_[fam];
+                                               chaff_radius_[fam] * chaff.size_scale[j];
                             const f32 spot = bar_perimeter_t(frame, on) + jitter / frame.perimeter();
                             Vec2 n;
                             const Vec2 at = bar_point_at(frame, spot, n);
@@ -731,7 +732,7 @@ HostileStats HostileSystem::update(ChaffBuffers& chaff, const SpatialHash& hash,
                 shoot(j, p, Vec2{0.0f, 0.0f}, t.id.value, 0u, true);
             }
             if (fp.latch_dps > 0.0f && towers.passengers[k] < fp.latch_cap_tower) {
-                const f32 r = chaff_radius_[fam] + body + fp.latch_reach;
+                const f32 r = chaff_radius_[fam] * chaff.size_scale[j] + body + fp.latch_reach;
                 if (d2 < r * r) {
                     ++towers.passengers[k];
                     const Vec2 dir = ring_dir(chaff.generation[j]);

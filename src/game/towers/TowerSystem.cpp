@@ -1191,6 +1191,7 @@ sim::SwarmerProfile swarmer_profile(TowerType type) {
     p.search_radius = m.swarm.search_radius;
     p.attach_radius = m.swarm.attach_radius;
     p.size = m.swarm.size;
+    p.size_jitter = m.swarm.size_jitter;
     p.max_health = m.swarm.max_health;
 
     p.dps = m.latch.dps;

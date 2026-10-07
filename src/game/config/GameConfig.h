@@ -67,6 +67,9 @@ struct SwarmParams {
     /// Body radius, world units: drawn at this size, and kept this far (x
     /// sim::kWallContactFraction) off the vessel wall.
     f32 size = 1.5f;
+    /// Spawn size variation, as a fraction of `size`: each released unit's
+    /// body (drawn and collision) is rolled in [1 - this, 1 + this].
+    f32 size_jitter = 0.5f;
     /// Hit points a swarmer is released with. The horde spends them
     /// (sim/hostile: viruses latch on and drain, bacteria burn); at zero the
     /// unit dissolves without acting.
@@ -325,6 +328,9 @@ struct FamilyChaffParams {
     f32 drift_bias = 0.0f;
     f32 replication_rate = 0.0f;
     bool collides = true;
+    /// Spawn size variation, as a fraction of the radius: each agent's body
+    /// (drawn and collision) is rolled in [1 - this, 1 + this] when it spawns.
+    f32 size_jitter = 0.5f;
 };
 
 struct FamilyConfig {

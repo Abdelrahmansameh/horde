@@ -267,8 +267,16 @@ struct SwarmerProfile {
     /// Shooter: its STANDOFF — it stops and fires once inside, chases when out.
     f32 attach_radius = 0.55f;
     /// Body radius. The renderer draws it, and the wall projection keeps this
-    /// much (times kWallContactFraction) clear of the vessel.
+    /// much (times kWallContactFraction) clear of the vessel. This is the
+    /// NOMINAL size: each unit's actual body is this times its spawn size
+    /// scale -- read it through SwarmerBuffers::body_size().
     f32 size = 0.5f;
+    /// Spawn size variation: each unit's body (drawn AND collision) is `size`
+    /// times a factor rolled uniformly in [1 - size_jitter, 1 + size_jitter]
+    /// at release (sim/SizeJitter.h). 0 = every unit exactly `size`. Zero here
+    /// so a bare sim is exact; towers.json (SwarmParams::size_jitter) supplies
+    /// the real value.
+    f32 size_jitter = 0.0f;
     /// Hit points the unit is released with. The horde's own attacks
     /// (sim/hostile) drain this; at zero the unit dissolves. See HEALTH in the
     /// file header.
@@ -750,6 +758,9 @@ public:
     std::vector<ArborGrabberState> arbor_grabber;
     /// Meaningful only for Shooter profiles. Parallel for the same reason.
     std::vector<ShooterMagazine> magazine;
+    /// Body size multiplier around 1, rolled once at spawn from the profile's
+    /// size_jitter and kept for life (sim/SizeJitter.h). See body_size().
+    std::vector<f32> size_scale;
 
     /// Reserves every stream. Call once at level load.
     void reserve(usize max_swarmers);
@@ -793,6 +804,10 @@ public:
         return profiles_[slot < kSwarmerProfileSlots ? slot : 0u];
     }
     const SwarmerProfile& profile_of(usize i) const { return profile_at(profile[i]); }
+    /// Unit i's actual body radius: its profile's size times its own spawn
+    /// size scale. Every collision, contact and draw reads this, never the
+    /// bare profile size, so what is drawn and what collides stay one size.
+    f32 body_size(usize i) const { return profile_of(i).size * size_scale[i]; }
 
 private:
     usize count_ = 0;
