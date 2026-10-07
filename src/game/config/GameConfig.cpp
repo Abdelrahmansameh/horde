@@ -506,6 +506,9 @@ GameConfig default_game_config() {
     }
     fill_default_mechanics(cfg.towers);
     cfg.towers.globals = tower_globals();
+    for (u32 t = 0; t < kTowerTypeCount; ++t) {
+        cfg.towers.death_vfx[t] = vfx::swarmer_death_vfx(static_cast<TowerType>(t));
+    }
 
     // --- enemies: read out of the roster and the renderer's tables ---------
     {

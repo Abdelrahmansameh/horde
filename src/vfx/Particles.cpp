@@ -225,6 +225,8 @@ void ParticleSystem::init(usize capacity, u64 seed) {
     buoy_.assign(capacity, 0.0f);
     end_x_.assign(capacity, 0.0f);
     end_y_.assign(capacity, 0.0f);
+    shape_.assign(capacity, 0.0f);
+    end_scale_.assign(capacity, 1.0f);
     seed_.assign(capacity, 0.0f);
     color_.assign(capacity, 0u);
     kind_.assign(capacity, 0u);
@@ -238,6 +240,7 @@ void ParticleSystem::shutdown() {
     pos_x.clear(); pos_y.clear(); vel_x.clear(); vel_y.clear();
     size_.clear(); rot_.clear(); spin_.clear(); age_.clear(); life_.clear();
     drag_.clear(); buoy_.clear(); end_x_.clear(); end_y_.clear(); seed_.clear();
+    shape_.clear(); end_scale_.clear();
     color_.clear(); kind_.clear(); blend_.clear();
     count_ = 0;
     capacity_ = 0;
@@ -275,6 +278,8 @@ bool ParticleSystem::spawn(const ParticleSpawnParams& params) {
     buoy_[i] = params.buoyancy;
     end_x_[i] = params.endpoint.x;
     end_y_[i] = params.endpoint.y;
+    shape_[i] = params.shape;
+    end_scale_[i] = params.end_scale;
     seed_[i] = pcg_f32(rng_state_);
     color_[i] = pack_rgba(params.color);
     kind_[i] = static_cast<u8>(params.kind);
@@ -334,6 +339,7 @@ void ParticleSystem::update(f32 dt, JobSystem* jobs) {
                 age_[i] = age_[n];   life_[i] = life_[n];
                 drag_[i] = drag_[n]; buoy_[i] = buoy_[n];
                 end_x_[i] = end_x_[n]; end_y_[i] = end_y_[n];
+                shape_[i] = shape_[n]; end_scale_[i] = end_scale_[n];
                 seed_[i] = seed_[n];
                 color_[i] = color_[n];
                 kind_[i] = kind_[n]; blend_[i] = blend_[n];
@@ -388,8 +394,8 @@ void ParticleSystem::build_instances(BlendMode blend, std::vector<ParticleInstan
         inst.kind_blend = static_cast<u32>(kind_[i]) | (static_cast<u32>(blend_[i]) << 16);
         inst.age_norm = t;
         inst.seed = seed_[i];
-        inst.pad0 = 0.0f;
-        inst.pad1 = 0.0f;
+        inst.shape = shape_[i];
+        inst.end_scale = end_scale_[i];
         out.push_back(inst);
     }
 }
@@ -1407,51 +1413,109 @@ void ParticleSystem::emit_for_event(const sim::CombatEvent& event) {
     }
 
     // -----------------------------------------------------------------------
-    // SwarmerDeath — a unit was eaten (sim/hostile), as opposed to running out
-    // (ProjectileExpired). It has to read as the unit COMING APART rather than
-    // fizzling: a flash of the tower's colour, then the body's worth of
-    // fragments thrown outward and a little mist left hanging. Scaled by the
-    // unit's body radius so a granule pops small and a macrophage pops big.
+    // SwarmerDeath — one of the tower's own units died, of any kind and by any
+    // cause: eaten, timed out, detonated, spent on a scar (CombatEvents.h).
+    // Every one of them ends the same way: the CELL BURSTS. Its body tears
+    // into ragged pieces of membrane and cytoplasm that start out as the whole
+    // cell and drift apart, its nucleus breaks into lumps, granules spill out,
+    // and all of it fades.
+    //
+    // MATTER, NOT LIGHT. No flash, no ring, nothing additive, and no tower
+    // palette: the pieces are drawn in what the unit is made of, so it reads
+    // as that cell coming apart, in the living body's visual language, rather
+    // than as an effect laid over it.
+    //
+    // Every number is towers.json's (towers.<name>.death_vfx, read through
+    // vfx/DeathVfx.h), which documents each one. Sizes and speeds there are
+    // multiples of the body radius, so this case scales them by it; sizes are
+    // VISIBLE extents, so they are converted to particle quads here, by where
+    // particle.frag puts each kind's edge in its quad.
     // -----------------------------------------------------------------------
     case sim::CombatEventType::SwarmerDeath: {
-        const f32 body = math::max(event.radius, 0.4f);
-        ParticleSpawnParams core;
-        core.kind = ParticleKind::Spark;
-        core.blend = BlendMode::Additive;
-        core.position = event.origin;
-        core.color = mix4(pal.primary, Vec4{1.0f, 1.0f, 1.0f, 1.0f}, 0.6f);
-        core.size = body * 0.9f;
-        core.lifetime = 0.09f;
-        core.drag = 5.0f;
-        push(core);
-        const u32 shards = 5u + static_cast<u32>(body * 3.0f);
-        for (u32 k = 0; k < shards; ++k) {
+        const SwarmerDeathVfx& look = swarmer_death_vfx(event.source);
+        if (!look.enabled) break;
+        // particle.frag: a Fragment's membrane sits at 0.43 of its quad, a
+        // Globule's outline at 0.38.
+        constexpr f32 kFragmentEdge = 0.43f;
+        constexpr f32 kGlobuleEdge = 0.38f;
+        const f32 body = math::max(event.radius, 0.05f);
+        // `magnitude` is the unit's speed at death, read raw rather than
+        // through `mag` (see ChaffDeath): the remains keep drifting the way the
+        // cell was going.
+        const Vec2 carried =
+            dir * (math::min(event.magnitude, look.inherit_speed_cap) * look.inherit_velocity);
+
+        // The body. Every piece sits on the cell's centre, turned to its own
+        // slice (particle.frag draws the wedge out from the particle's
+        // position), so at birth they tile the cell. Each then drifts out
+        // roughly along its slice, off it by a little and at its own speed, so
+        // the cell tears unevenly instead of opening like a flower.
+        const u32 pieces = math::max(look.piece_count, 1u);
+        const f32 slice = math::kTwoPi / static_cast<f32>(pieces);
+        const f32 base = pcg_range(rs, 0.0f, math::kTwoPi);
+        for (u32 k = 0; k < pieces; ++k) {
+            const f32 a = base + slice * static_cast<f32>(k);
+            const f32 heading = a + pcg_signed(rs) * look.piece_heading_jitter;
+            const Vec2 radial{std::cos(heading), std::sin(heading)};
+            ParticleSpawnParams f;
+            f.kind = ParticleKind::Fragment;
+            f.blend = BlendMode::AlphaBlend;
+            f.position = event.origin;
+            f.velocity = carried + radial * (body * pcg_range(rs, look.piece_speed_min,
+                                                              look.piece_speed_max));
+            f.color = look.cytoplasm;
+            f.size = body * look.piece_radius / kFragmentEdge;
+            f.lifetime = pcg_range(rs, look.piece_life_min, look.piece_life_max);
+            f.drag = look.piece_drag;
+            f.rotation = a;
+            f.spin = pcg_signed(rs) * look.piece_spin;
+            f.shape = 0.5f * slice + look.piece_overlap;
+            f.end_scale = look.piece_end_scale;
+            push(f);
+        }
+
+        // The nucleus, in a few lumps that barely move: the heavy part.
+        for (u32 k = 0; k < look.nucleus_count; ++k) {
             const f32 a = pcg_range(rs, 0.0f, math::kTwoPi);
             const Vec2 radial{std::cos(a), std::sin(a)};
-            ParticleSpawnParams sh;
-            sh.kind = ParticleKind::Shard;
-            sh.blend = BlendMode::AlphaBlend;
-            sh.position = event.origin + radial * (body * pcg_range(rs, 0.1f, 0.5f));
-            sh.velocity = radial * pcg_range(rs, 4.0f, 11.0f) + dir * 1.5f;
-            sh.color = mix4(pal.primary, pal.accent, pcg_f32(rs));
-            sh.size = body * pcg_range(rs, 0.12f, 0.24f);
-            sh.lifetime = pcg_range(rs, 0.22f, 0.40f);
-            sh.drag = 5.0f;
-            sh.rotation = a;
-            sh.spin = pcg_signed(rs) * 6.0f;
-            push(sh);
+            ParticleSpawnParams n;
+            n.kind = ParticleKind::Globule;
+            n.blend = BlendMode::AlphaBlend;
+            n.position = event.origin + radial * (body * pcg_range(rs, 0.0f, look.nucleus_spread));
+            n.velocity = carried + radial * (body * pcg_range(rs, look.nucleus_speed_min,
+                                                              look.nucleus_speed_max));
+            n.color = look.nucleus;
+            n.size = body * pcg_range(rs, look.nucleus_size_min, look.nucleus_size_max) / kGlobuleEdge;
+            n.lifetime = pcg_range(rs, look.nucleus_life_min, look.nucleus_life_max);
+            n.drag = look.nucleus_drag;
+            n.rotation = a;
+            n.spin = pcg_signed(rs) * look.nucleus_spin;
+            n.shape = look.lump_wobble;
+            n.end_scale = look.nucleus_end_scale;
+            push(n);
         }
-        for (u32 k = 0; k < 3; ++k) {
-            ParticleSpawnParams m;
-            m.kind = ParticleKind::Mist;
-            m.blend = BlendMode::AlphaBlend;
-            m.position = event.origin + Vec2{pcg_signed(rs), pcg_signed(rs)} * (body * 0.4f);
-            m.velocity = Vec2{pcg_signed(rs), pcg_signed(rs)} * 1.2f;
-            m.color = Vec4{pal.primary.r, pal.primary.g, pal.primary.b, 0.30f};
-            m.size = body * pcg_range(rs, 0.6f, 1.0f);
-            m.lifetime = pcg_range(rs, 0.35f, 0.6f);
-            m.drag = 2.5f;
-            push(m, 0.02f * static_cast<f32>(k));
+
+        // Granules spilling out of the cytoplasm, a little faster than the
+        // pieces they came out from between.
+        const Vec4 granule = mix4(look.cytoplasm, Vec4{1.0f, 1.0f, 1.0f, look.cytoplasm.a},
+                                  math::saturate(look.granule_whiten));
+        for (u32 k = 0; k < look.granule_count; ++k) {
+            const f32 a = pcg_range(rs, 0.0f, math::kTwoPi);
+            const Vec2 radial{std::cos(a), std::sin(a)};
+            ParticleSpawnParams g;
+            g.kind = ParticleKind::Globule;
+            g.blend = BlendMode::AlphaBlend;
+            g.position = event.origin + radial * (body * pcg_range(rs, look.granule_spread_min,
+                                                                   look.granule_spread_max));
+            g.velocity = carried + radial * (body * pcg_range(rs, look.granule_speed_min,
+                                                              look.granule_speed_max));
+            g.color = granule;
+            g.size = body * pcg_range(rs, look.granule_size_min, look.granule_size_max) / kGlobuleEdge;
+            g.lifetime = pcg_range(rs, look.granule_life_min, look.granule_life_max);
+            g.drag = look.granule_drag;
+            g.shape = look.lump_wobble;
+            g.end_scale = look.granule_end_scale;
+            push(g);
         }
         break;
     }

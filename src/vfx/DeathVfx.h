@@ -172,4 +172,107 @@ const FamilyDeathVfx& family_death_vfx(PathogenFamily family);
 /// values parsed out of enemies.json; nothing inside vfx/ ever calls it.
 void set_family_death_vfx(PathogenFamily family, const FamilyDeathVfx& look);
 
+// ===========================================================================
+// SWARMER DEATH — a friendly unit bursting (CombatEventType::SwarmerDeath).
+//
+// Same arrangement as FamilyDeathVfx, keyed by the tower that released the
+// unit and authored in assets/config/towers.json under
+// towers.<name>.death_vfx (game::apply_tower_config pushes it down).
+//
+// It is the opposite KIND of effect, deliberately: a pathogen death is a small
+// violent pop; a unit dying is a CELL BURSTING. Its body tears into pieces of
+// membrane and cytoplasm that start out as the whole cell and drift apart,
+// the nucleus breaks into lumps, granules spill, and all of it fades. Matter,
+// not light: no flash, no ring, nothing additive, and the colours are what the
+// unit is made of (assets/shaders/swarmer.frag), not the tower's bright
+// identity hue.
+//
+// SIZES AND SPEEDS ARE MULTIPLES OF THE UNIT'S BODY RADIUS (SwarmerProfile::
+// size), so a macrophage comes apart as wide, relative to itself, as a T cell,
+// and retuning a unit's size never needs this touched. Counts are absolute.
+// Every size is the visible extent of the piece, not its particle quad.
+// ===========================================================================
+struct SwarmerDeathVfx {
+    /// False draws nothing when this tower's units die.
+    bool enabled = true;
+
+    /// The cytoplasm at mid depth, tint already mixed in. The shader lightens
+    /// it toward the membrane and darkens it deep inside, as swarmer.frag does.
+    Vec4 cytoplasm{0.84f, 0.85f, 0.85f, 1.0f};
+    Vec4 nucleus{0.42f, 0.36f, 0.55f, 1.0f};
+
+    /// Fraction of the unit's velocity at death the remains carry, and the
+    /// speed (world units/sec) that is capped at first, so a unit killed at
+    /// launch speed does not smear its remains downrange.
+    f32 inherit_velocity = 0.33f;
+    f32 inherit_speed_cap = 40.0f;
+
+    // ---- The body tearing. -------------------------------------------------
+    /// How many pieces the body tears into. They tile the cell at birth.
+    u32 piece_count = 6;
+    /// x body radius: where the pieces' membrane sits at birth. The living
+    /// body's main disc is ~0.7 of its radius (its pseudopods reach ~0.9), so
+    /// much above 0.7 and the remains start out bigger than the cell was.
+    f32 piece_radius = 0.70f;
+    /// Radians each piece reaches past its slice on both sides, so the cell is
+    /// whole at birth where two neighbouring tears happen to agree.
+    f32 piece_overlap = 0.05f;
+    /// Size at the end of life as a fraction of size at birth. Below 1 the
+    /// torn membrane contracts as it goes; 1 holds it; never above 1 unless
+    /// the remains should swell.
+    f32 piece_end_scale = 0.75f;
+    f32 piece_speed_min = 3.3f;    ///< x body radius / sec
+    f32 piece_speed_max = 8.0f;
+    /// Radians a piece may drift off its own slice. 0 opens the cell like a
+    /// flower; a little tears it unevenly.
+    f32 piece_heading_jitter = 0.35f;
+    f32 piece_life_min = 0.38f;    ///< Seconds
+    f32 piece_life_max = 0.49f;
+    f32 piece_drag = 4.7f;         ///< Per-second velocity damping
+    /// Max |radians/sec|, signed per piece. Kept low: a piece turns about the
+    /// cell's old centre, not its own, so spin swings it sideways.
+    f32 piece_spin = 0.8f;
+
+    // ---- The nucleus breaking. ---------------------------------------------
+    u32 nucleus_count = 2;
+    f32 nucleus_size_min = 0.11f;  ///< x body radius, the lump's radius
+    f32 nucleus_size_max = 0.15f;
+    /// x body radius: how far from the centre a lump starts.
+    f32 nucleus_spread = 0.12f;
+    f32 nucleus_speed_min = 1.3f;  ///< x body radius / sec
+    f32 nucleus_speed_max = 2.9f;
+    f32 nucleus_life_min = 0.41f;
+    f32 nucleus_life_max = 0.53f;
+    f32 nucleus_drag = 4.0f;
+    f32 nucleus_spin = 2.0f;
+    f32 nucleus_end_scale = 0.65f;
+
+    // ---- Granules spilling. ------------------------------------------------
+    u32 granule_count = 6;
+    /// How far the granules are pushed from the cytoplasm colour toward white.
+    f32 granule_whiten = 0.20f;
+    f32 granule_size_min = 0.045f; ///< x body radius, the granule's radius
+    f32 granule_size_max = 0.075f;
+    f32 granule_spread_min = 0.10f;///< x body radius from the centre at birth
+    f32 granule_spread_max = 0.60f;
+    f32 granule_speed_min = 5.3f;  ///< x body radius / sec
+    f32 granule_speed_max = 9.3f;
+    f32 granule_life_min = 0.26f;
+    f32 granule_life_max = 0.41f;
+    f32 granule_drag = 5.3f;
+    f32 granule_end_scale = 0.65f;
+
+    /// How lumpy the nucleus pieces and granules are: 0 is round.
+    f32 lump_wobble = 0.10f;
+};
+
+/// The look currently in force for units released by `source`. TowerType::
+/// Count (no tower: the generic bomber of authored scenes) has its own slot,
+/// compiled in, never authored.
+const SwarmerDeathVfx& swarmer_death_vfx(TowerType source);
+
+/// Installs `look` for `source`. Called by game::apply_tower_config() with
+/// the values parsed out of towers.json; nothing inside vfx/ ever calls it.
+void set_swarmer_death_vfx(TowerType source, const SwarmerDeathVfx& look);
+
 } // namespace immune::vfx

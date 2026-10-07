@@ -904,6 +904,9 @@ bool Renderer::init(const RendererDesc& desc) {
     imp.particle_vao.attrib_float(7, 1, 1, GL_FLOAT, false,
                                   offsetof(vfx::ParticleInstance, age_norm));
     imp.particle_vao.attrib_float(8, 1, 1, GL_FLOAT, false, offsetof(vfx::ParticleInstance, seed));
+    imp.particle_vao.attrib_float(9, 1, 1, GL_FLOAT, false, offsetof(vfx::ParticleInstance, shape));
+    imp.particle_vao.attrib_float(10, 1, 1, GL_FLOAT, false,
+                                  offsetof(vfx::ParticleInstance, end_scale));
 
     // ---- Blob / tissue shared screen quad -----------------------------------
     if (!imp.screen_quad_vao.create()) { error_ = "failed to create the screen-quad VAO"; return false; }
@@ -2352,7 +2355,12 @@ void Renderer::submit_swarmers(const sim::SwarmerBuffers& swarmers) {
         const f32 fade = detonates ? 1.0f : math::saturate(swarmers.life[i] * 2.0f);
         const Vec4 tint = swarmer_tint(pr.source);
         inst.r = tint.r; inst.g = tint.g; inst.b = tint.b;
-        inst.a = entry >= 1.0f ? 0.0f : 0.55f + 0.45f * fade;
+        // A unit the horde killed this tick waits for the next compaction,
+        // but its death burst (vfx SwarmerDeath) is already drawing the cell
+        // in pieces. Drawing the body too would put the cell under its own
+        // remains for a frame and make the burst read bigger than the cell.
+        const bool dead = (swarmers.flags[i] & sim::swarmer_flags::kPendingKill) != 0;
+        inst.a = (entry >= 1.0f || dead) ? 0.0f : 0.55f + 0.45f * fade;
 
         // visual_id carries the VFX tier (1/3/5); the body shaders want the
         // data tier (1..3), and the bomber spends it on phagosome count.

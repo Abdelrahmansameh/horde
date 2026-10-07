@@ -124,6 +124,18 @@ CombatEvent make_event(CombatEventType type, TowerType source, Vec2 pos, Vec2 di
 
 } // namespace
 
+void raise_swarmer_death(const SwarmerBuffers& sw, usize i, CombatEventSink* events) {
+    if (events == nullptr || i >= sw.count()) return;
+    const SwarmerProfile& pr = sw.profile_of(i);
+    const Vec2 v{sw.vel_x[i], sw.vel_y[i]};
+    CombatEvent e = make_event(CombatEventType::SwarmerDeath, pr.source,
+                               Vec2{sw.pos_x[i], sw.pos_y[i]}, v, sw.visual_id[i]);
+    if (e.direction.x == 0.0f && e.direction.y == 0.0f) e.direction = Vec2{1.0f, 0.0f};
+    e.radius = pr.size;
+    e.magnitude = math::length(v);
+    events->push(e);
+}
+
 const char* swarmer_kind_name(SwarmerKind kind) {
     switch (kind) {
         case SwarmerKind::Latch:       return "latch";
@@ -562,6 +574,8 @@ SwarmerStats SwarmerSystem::update(SwarmerBuffers& sw,
             e.magnitude = 1.0f;
             events->push(e);
         }
+        // The payload is the tower's; the shell bursting is the unit's own.
+        raise_swarmer_death(sw, i, events);
     };
 
     // Adopt a search hit as swarmer i's target. A new target is a new chase.
@@ -831,10 +845,7 @@ SwarmerStats SwarmerSystem::update(SwarmerBuffers& sw,
             } else {
                 sw.flags[i] |= swarmer_flags::kPendingKill;
                 ++stats.expired;
-                if (events) {
-                    events->push(make_event(CombatEventType::ProjectileExpired, pr.source, p, v,
-                                            sw.visual_id[i]));
-                }
+                raise_swarmer_death(sw, i, events);
             }
             continue;
         }
@@ -877,6 +888,7 @@ SwarmerStats SwarmerSystem::update(SwarmerBuffers& sw,
                     e.magnitude = 0.0f;
                     events->push(e);
                 }
+                raise_swarmer_death(sw, i, events);
                 continue;
             }
             u32 s = sw.seed[i];

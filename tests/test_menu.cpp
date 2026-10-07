@@ -32,6 +32,7 @@
 #include <cmath>
 #include <cstdio>
 #include <memory>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -416,37 +417,54 @@ TEST_CASE("the front-end screens render (PNGs for review)", "[ui][menu][gl]") {
 
 // ---- Strengthen Immunity --------------------------------------------------------------
 
-TEST_CASE("tree layout: every node of the game's tree has its place in the figure", "[ui][menu][meta]") {
+TEST_CASE("tree layout: radial, every subject growing out in its own wedge", "[ui][menu][meta]") {
     TreeLayout layout;
     std::string err;
     REQUIRE(load_tree_layout(platform::asset_path("ui/tree_layout.json"), layout, &err));
     INFO(err);
-    CHECK(layout.nodes.size() == game::kTreeNodeCount);
+    REQUIRE(layout.nodes.size() == game::kTreeNodeCount);
+    auto key_of = [](u32 i) { return std::string(game::tree_node(static_cast<game::TreeNode>(i)).key); };
+    auto at = [&](game::TreeNode n) { return layout.nodes.at(game::tree_node(n).key).at; };
     for (u32 i = 0; i < game::kTreeNodeCount; ++i) {
-        const char* key = game::tree_node(static_cast<game::TreeNode>(i)).key;
+        const std::string key = key_of(i);
         CAPTURE(key);
         const auto it = layout.nodes.find(key);
         REQUIRE(it != layout.nodes.end());
         CHECK_FALSE(it->second.icon.empty());
-        // No two nodes touch: the figure is drawn by the nodes alone.
+        // No two nodes touch.
         for (const auto& [other, n] : layout.nodes) {
             if (other == key) continue;
             CAPTURE(other);
             CHECK(math::length(n.at - it->second.at) > (n.size + it->second.size) * 0.5f + 10.0f);
         }
+        // Every node sits further out than the node it grows from.
+        const game::TreeNode parent = game::tree_node(static_cast<game::TreeNode>(i)).parent;
+        if (parent != game::TreeNode::Count) CHECK(math::length(it->second.at) > math::length(at(parent)) + 100.0f);
     }
-    // A figure standing up: the heart in the middle of the chest, the head
-    // above the shoulders, the hands out to the sides, the feet below.
-    auto at = [&](const char* key) { return layout.nodes.at(key).at; };
-    CHECK(math::length(at("neutrophil.unlock")) < 120.0f);
-    CHECK(at("ability.fever.cooldown").y < at("goblet.unlock").y - 200.0f);
-    CHECK(at("cytotoxic.capstone").x < -900.0f);
-    CHECK(at("goblet.capstone").x > 900.0f);
-    CHECK(at("macrophage.capstone").y > 1200.0f);
-    CHECK(at("fibroblast.capstone").y > 1200.0f);
-    // Left and right mirror each other.
-    CHECK(at("cytotoxic.capstone").x == Catch::Approx(-at("goblet.capstone").x));
-    CHECK(at("ability.histamine.unlock").x == Catch::Approx(-at("ability.fever.unlock").x));
+    // The Neutrophil is the centre.
+    CHECK(math::length(at(game::kTreeRoot)) < 1.0f);
+    // Each subject (a subtree two steps out from the centre) keeps to one
+    // wedge: going round the circle, its nodes come in one unbroken run.
+    std::vector<std::pair<f32, u32>> round;   // angle, subject
+    for (u32 i = 0; i < game::kTreeNodeCount; ++i) {
+        std::vector<game::TreeNode> path{static_cast<game::TreeNode>(i)};
+        while (path.back() != game::kTreeRoot) path.push_back(game::tree_node(path.back()).parent);
+        if (path.size() < 3) continue;   // the centre and the three cores
+        const Vec2 p = layout.nodes.at(key_of(i)).at;
+        round.emplace_back(std::atan2(p.y, p.x), static_cast<u32>(path[path.size() - 3]));
+    }
+    std::sort(round.begin(), round.end());
+    std::set<u32> subjects;
+    usize runs = 0;
+    for (usize k = 0; k < round.size(); ++k) {
+        subjects.insert(round[k].second);
+        if (round[k].second != round[(k + 1) % round.size()].second) ++runs;
+    }
+    CHECK(subjects.size() == 8);
+    CHECK(runs == subjects.size());
+    // The Neutrophil's own lines grow straight up from the centre.
+    CHECK(std::fabs(at(game::TreeNode::NeutrophilRoundDamage).x) < 1.0f);
+    CHECK(at(game::TreeNode::NeutrophilRoundDamage).y < 0.0f);
 }
 
 TEST_CASE("tree model: the tree uncovers as it grows", "[ui][menu][meta]") {
@@ -454,32 +472,34 @@ TEST_CASE("tree model: the tree uncovers as it grows", "[ui][menu][meta]") {
     game::MetaProgression meta;
     meta.reset_to_new_game();
     TreeModel t = app::make_tree_model(meta, cfg);
-    // A new campaign sees the heart and the two nodes it feeds.
+    // A new campaign sees the Neutrophil and the three cores round it.
     std::vector<std::string> shown;
     for (const TreeNodeView& n : t.nodes) {
         if (t.revealed(n.key)) shown.push_back(n.key);
     }
     std::sort(shown.begin(), shown.end());
-    CHECK(shown == std::vector<std::string>{"hub.bone_marrow_reserve", "neutrophil.round_damage", "neutrophil.unlock"});
+    CHECK(shown == std::vector<std::string>{"hub.bone_marrow_reserve", "hub.efficient_clearance",
+                                            "hub.rapid_metabolism", "neutrophil.unlock"});
     // One purchase shows that node's children, and nothing past them.
     meta.credit(1000);
     REQUIRE(meta.purchase(game::TreeNode::BoneMarrowReserve, cfg) == game::MetaProgression::PurchaseResult::Ok);
     t = app::make_tree_model(meta, cfg);
-    CHECK(t.revealed("hub.elite_response"));
+    CHECK(t.revealed("neutrophil.round_damage"));
     CHECK(t.revealed("cytotoxic.unlock"));
-    CHECK(t.revealed("goblet.unlock"));
+    CHECK(t.revealed("macrophage.unlock"));
+    CHECK_FALSE(t.revealed("cytotoxic.drain"));
+    CHECK_FALSE(t.revealed("goblet.unlock"));
     CHECK_FALSE(t.revealed("hub.homeostasis"));
-    CHECK_FALSE(t.revealed("ability.fever.unlock"));
-    CHECK_FALSE(t.revealed("hub.rapid_metabolism"));
     // A node owned under older rules still shows, with the way to it and
-    // the next thing on offer past it.
+    // the next thing on offer past it, but not its unowned siblings.
     for (TreeNodeView& n : t.nodes) {
-        if (n.key == "cytotoxic.search") n.level = 1;
+        if (n.key == "goblet.slow_duration") n.level = 1;
     }
-    CHECK(t.revealed("cytotoxic.search"));
-    CHECK(t.revealed("cytotoxic.attach_speed"));
-    CHECK(t.revealed("cytotoxic.drain"));
-    CHECK(t.revealed("cytotoxic.stamina"));
+    CHECK(t.revealed("goblet.slow_duration"));
+    CHECK(t.revealed("goblet.slow_strength"));
+    CHECK(t.revealed("goblet.unlock"));
+    CHECK(t.revealed("goblet.capstone"));
+    CHECK_FALSE(t.revealed("goblet.splash_radius"));
 }
 
 TEST_CASE("tree: hidden until revealed, a card on hover, a click buys", "[ui][menu][meta]") {
@@ -497,8 +517,9 @@ TEST_CASE("tree: hidden until revealed, a card on hover, a click buys", "[ui][me
     CHECK(h.gui.find("tree/info") == nullptr);
     CHECK(h.shown("tree/neutrophil.unlock"));
     CHECK(h.shown("tree/hub.bone_marrow_reserve"));
-    CHECK(h.shown("tree/neutrophil.round_damage"));
-    CHECK_FALSE(h.shown("tree/hub.elite_response"));
+    CHECK(h.shown("tree/hub.efficient_clearance"));
+    CHECK(h.shown("tree/hub.rapid_metabolism"));
+    CHECK_FALSE(h.shown("tree/neutrophil.round_damage"));
     CHECK_FALSE(h.shown("tree/cytotoxic.unlock"));
     CHECK_FALSE(h.shown("tree/card"));
     // Hidden nodes cannot be clicked.
@@ -531,17 +552,17 @@ TEST_CASE("tree: hidden until revealed, a card on hover, a click buys", "[ui][me
     m.tree = app::make_tree_model(meta, cfg);
     h.frame(FrontScreen::Tree, m);
     CHECK(tree == h.front->tree());
-    CHECK(h.shown("tree/hub.elite_response"));
-    CHECK_FALSE(h.shown("tree/hub.homeostasis"));
+    CHECK(h.shown("tree/neutrophil.round_damage"));
     CHECK(h.shown("tree/cytotoxic.unlock"));
-    CHECK(h.shown("tree/goblet.unlock"));
+    CHECK(h.shown("tree/macrophage.unlock"));
+    CHECK_FALSE(h.shown("tree/goblet.unlock"));
     CHECK(h.label("tree/card/head/title/level") == "1/5");
     CHECK(h.label("tree/card/foot/cost_mc/value") == "35");
 
     // A capstone shows once the node it grows from is owned, and says what
     // it still needs.
-    for (game::TreeNode n : {game::TreeNode::NeutrophilRoundDamage, game::TreeNode::NeutrophilTriggerRate,
-                             game::TreeNode::NeutrophilSquadSize}) {
+    for (game::TreeNode n : {game::TreeNode::NeutrophilRoundDamage, game::TreeNode::NeutrophilAccuracy,
+                             game::TreeNode::NeutrophilTriggerRate}) {
         REQUIRE(meta.purchase(n, cfg) == game::MetaProgression::PurchaseResult::Ok);
     }
     m.tree = app::make_tree_model(meta, cfg);
@@ -564,10 +585,10 @@ TEST_CASE("tree: drag pans, the wheel zooms about the pointer, the buttons zoom 
     h.open(FrontScreen::Tree, m);
     TreeScreen* tree = h.front->tree();
     REQUIRE(tree != nullptr);
-    // A new campaign opens zoomed in on the heart.
+    // A new campaign opens zoomed in on the centre.
     const TreeScreen::View start = tree->view();
     CHECK(start.zoom == Catch::Approx(TreeScreen::kFrameZoom));
-    CHECK(std::fabs(start.center.x) < 1.0f);
+    CHECK(math::length(start.center) < 120.0f);
 
     // Drag the empty tissue: the body follows the pointer.
     const Vec2 from{300.0f, 700.0f}, to{420.0f, 640.0f};
@@ -609,11 +630,11 @@ TEST_CASE("tree: drag pans, the wheel zooms about the pointer, the buttons zoom 
     CHECK(tree->view().zoom == Catch::Approx(TreeScreen::kMaxZoom));
     for (int i = 0; i < 12; ++i) h.click("tree/view/zoom_out");
     const f32 widest = tree->view().zoom;
-    CHECK(widest < 0.6f);
+    CHECK(widest < start.zoom * 0.5f);
     h.click("tree/view/zoom_out");
     CHECK(tree->view().zoom == Catch::Approx(widest));
 
-    // Recenter frames what has grown: back on the heart.
+    // Recenter frames what has grown: back on the centre.
     h.click("tree/view/recenter");
     CHECK(tree->view().zoom == Catch::Approx(start.zoom));
     CHECK(tree->view().center.x == Catch::Approx(start.center.x).margin(0.01));

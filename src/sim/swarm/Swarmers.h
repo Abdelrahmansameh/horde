@@ -803,6 +803,16 @@ private:
     SwarmerProfile profiles_[kSwarmerProfileSlots]{};
 };
 
+/// Raises CombatEventType::SwarmerDeath for unit `i` as it stands: where it
+/// is, its heading and speed, its body radius, and its tower's type and tier.
+/// EVERY way a unit dies on the board ends here -- eaten by the horde
+/// (sim/hostile), lifetime run out, detonated, spent laying a scar -- so every
+/// kind comes apart in the same burst, and the event's fields cannot drift
+/// between the kernel and the hostile pass. The one retirement that does not
+/// call it is leaving the world: nothing off the map is worth a burst. A null
+/// `events` raises nothing.
+void raise_swarmer_death(const SwarmerBuffers& sw, usize i, CombatEventSink* events);
+
 struct SwarmerStats {
     u32 live = 0;
     u32 spawned_this_tick = 0;

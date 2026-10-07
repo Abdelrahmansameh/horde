@@ -167,9 +167,9 @@ draw call unless a stencil clip or a layer is in use.
 The out-of-match screens (src/ui/front) show over the same capture with
 `ui screen <name>`. The results use a sample first-clear payout; the level
 map treats every campaign level before `$L` as cleared, so pick `$L` to set
-how far along the campaign looks. The tree (a human body that uncovers as it
-grows) shows a few runs' progress (486 Memory Cells, 1 Antibody, the heart's
-lines, an arm and the head opened); `ui tree new|full` swaps in a new
+how far along the campaign looks. The tree (radial, uncovered as it grows)
+shows a few runs' progress (486 Memory Cells, 1 Antibody, the Neutrophil's
+lines, the Cytotoxic T and Histamine Flare opened); `ui tree new|full` swaps in a new
 campaign or everything bought, and must come BEFORE `ui screen tree` so the
 view frames it. Their widget paths: `menu/play`, `menu/quit`,
 `tree/<node key>` (e.g. `tree/neutrophil.capstone`; only revealed nodes

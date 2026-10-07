@@ -14,6 +14,12 @@
 //   Mist   — soft drifting blob, value-noise interior, fades in AND out.
 //   Beam   — dead-straight core with energy packets racing along its length.
 //   Bolt   — jagged multi-segment lightning with a branch fork, seed-varied.
+//   Fragment — one torn wedge of a dead cell: membrane arc, cytoplasm, ragged sides.
+//   Globule  — a soft-edged lump of cell matter (nucleus piece, granule).
+//
+// FRAGMENT and GLOBULE are MATTER, not light: no glow, no white core, no
+// additive pass. They are shaded the way swarmer.frag shades the living cell
+// they came out of, so a dying unit reads as that cell tearing apart.
 //
 // BEAM vs BOLT (DESIGN brief: "Straight beam = Laser, crazy branching
 // lightning = T Cell" must be instantly distinguishable). Three independent
@@ -33,6 +39,7 @@ flat in uint  v_kind;
 flat in float v_age;
 flat in float v_seed;
 flat in float v_aspect;
+flat in float v_shape;
 
 layout(location = 1) uniform float u_time;
 
@@ -45,8 +52,15 @@ const uint kShard  = 3u;
 const uint kMist   = 4u;
 const uint kBeam   = 5u;
 const uint kBolt   = 6u;
+const uint kFragment = 7u;
+const uint kGlobule  = 8u;
 
 const float kPi = 3.14159265;
+
+// Fallback half-angle for a Fragment spawned without a shape (a sixth of a
+// cell plus a little overlap). SwarmerDeath always authors its own, from the
+// piece count in towers.json's death_vfx.
+const float kFragmentHalfSpan = kPi / 6.0 + 0.05;
 
 float hash11(float p) {
     p = fract(p * 0.1031);
@@ -152,6 +166,47 @@ void main() {
         alpha = (glow * 0.45 + core * (0.65 + 0.9 * packets)) * shimmer;
         alpha *= 1.0 - 0.5 * v_age;
         rgb = mix(rgb, vec3(1.0), clamp(core * 0.55 + packets * 0.8, 0.0, 1.0));
+
+    } else if (v_kind == kFragment) {
+        // Local +x is the wedge's bisector and the quad's centre is the
+        // cell's old centre, so the wedge fans out from the origin.
+        float r = length(v_local);
+        vec2  dir = v_local / max(r, 1e-4);
+        float ang = atan(v_local.y, v_local.x);
+        // The torn sides wander as they run outward, differently per piece.
+        float tear = (vnoise(vec2(r * 12.0, v_seed * 53.0)) - 0.5) * 0.26;
+        float half_span = v_shape > 0.0 ? v_shape : kFragmentHalfSpan;
+        float side = (abs(ang) - (half_span + tear)) * max(r, 0.04);
+        // The membrane keeps the living cell's soft wobble.
+        float outer = r - (0.43 + 0.05 * (vnoise(dir * 2.2 + v_seed * 17.0) - 0.5));
+        // The middle, where the nucleus sat, tears out too.
+        float inner = 0.06 + 0.06 * vnoise(dir * 3.0 + v_seed * 29.0) - r;
+        float d = max(max(side, outer), inner);
+        float body = 1.0 - smoothstep(-0.012, 0.010, d);
+
+        // swarmer.frag's cytoplasm: lighter just under the membrane, denser
+        // deep inside, a fine grain; the torn edges a shade darker than the
+        // inside of the piece; the membrane a pale line round the arc.
+        float depth = clamp(-outer * 5.0, 0.0, 1.0);
+        float grain = smoothstep(0.62, 0.84, vnoise(v_local * 24.0 + v_seed * 41.0));
+        float cut = 1.0 - smoothstep(0.0, 0.035, -max(side, inner));
+        float membrane = 1.0 - smoothstep(0.0, 0.045, abs(outer));
+        rgb = min(v_tint.rgb * mix(1.10, 0.84, depth), vec3(1.0));
+        rgb = mix(rgb, vec3(1.0), grain * 0.16);
+        rgb *= 1.0 - 0.14 * cut;
+        rgb = mix(rgb, vec3(1.0), membrane * 0.55);
+        alpha = body;
+
+    } else if (v_kind == kGlobule) {
+        float r = length(v_local);
+        vec2  dir = v_local / max(r, 1e-4);
+        float d = r - (0.38 + max(v_shape, 0.0) * (vnoise(dir * 1.8 + v_seed * 31.0) - 0.5));
+        float body = 1.0 - smoothstep(-0.03, 0.012, d);
+        // Solid, a shade darker at the edge: a lump, never a bubble. A lighter
+        // rim reads as a hollow ring at the sizes granules are drawn.
+        float depth = clamp(-d * 5.0, 0.0, 1.0);
+        rgb = v_tint.rgb * mix(0.86, 1.0, depth);
+        alpha = body;
 
     } else { // kBolt
         const float kAmp = 0.34;

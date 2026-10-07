@@ -103,7 +103,55 @@ u32 family_slot(PathogenFamily family) {
     return i < kFamilyCount ? i : 0u;
 }
 
+/// The shipped swarmer bursts. One per tower plus the generic bomber, and they
+/// differ only in what the cell is made of and how much of it there is: the
+/// colours mirror assets/shaders/swarmer.frag (cytoplasm at mid depth with the
+/// tint mixed in, and the nucleus) -- if a unit is repainted there, repaint it
+/// here and in towers.json -- and the bigger bodies spill more. The motion is
+/// the struct's defaults for everyone, because "a cell bursting" is one thing
+/// and only its size should change how it reads.
+struct SwarmerTables {
+    SwarmerDeathVfx look[kTowerTypeCount + 1];
+
+    SwarmerTables() {
+        const auto set = [this](TowerType t, Vec4 cytoplasm, Vec4 nucleus, u32 lumps, u32 granules) {
+            SwarmerDeathVfx& s = look[static_cast<u32>(t)];
+            s.cytoplasm = cytoplasm;
+            s.nucleus = nucleus;
+            s.nucleus_count = lumps;
+            s.granule_count = granules;
+        };
+        // The near-colourless neutrophil body and its lobed violet nucleus.
+        set(TowerType::Neutrophil, {0.84f, 0.85f, 0.85f, 1.0f}, {0.42f, 0.36f, 0.55f, 1.0f}, 3, 9);
+        set(TowerType::Macrophage, {0.94f, 0.59f, 0.30f, 1.0f}, {0.36f, 0.16f, 0.06f, 1.0f}, 3, 10);
+        set(TowerType::CytotoxicT, {0.49f, 0.36f, 0.79f, 1.0f}, {0.25f, 0.16f, 0.45f, 1.0f}, 2, 6);
+        // The neutrophil body repainted jade; nucleus a deep shade of the tint.
+        set(TowerType::GobletCell, {0.65f, 0.92f, 0.80f, 1.0f}, {0.25f, 0.44f, 0.33f, 1.0f}, 3, 8);
+        set(TowerType::Fibroblast, {0.94f, 0.71f, 0.65f, 1.0f}, {0.46f, 0.22f, 0.32f, 1.0f}, 3, 8);
+        // The generic bomber (no tower): the old macrophage body, untinted.
+        set(TowerType::Count,      {0.96f, 0.82f, 0.69f, 1.0f}, {0.40f, 0.23f, 0.24f, 1.0f}, 2, 6);
+    }
+};
+
+SwarmerTables& swarmer_tables() {
+    static SwarmerTables t;
+    return t;
+}
+
+u32 tower_slot(TowerType source) {
+    const u32 i = static_cast<u32>(source);
+    return i <= kTowerTypeCount ? i : kTowerTypeCount;
+}
+
 } // namespace
+
+const SwarmerDeathVfx& swarmer_death_vfx(TowerType source) {
+    return swarmer_tables().look[tower_slot(source)];
+}
+
+void set_swarmer_death_vfx(TowerType source, const SwarmerDeathVfx& look) {
+    swarmer_tables().look[tower_slot(source)] = look;
+}
 
 const FamilyDeathVfx& family_death_vfx(PathogenFamily family) {
     return tables().look[family_slot(family)];

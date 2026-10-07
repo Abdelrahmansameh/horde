@@ -753,21 +753,7 @@ HostileStats HostileSystem::update(ChaffBuffers& chaff, const SpatialHash& hash,
         if (sw.health[i] > 0.0f) continue;
         sw.kill(i);
         ++stats.swarmers_killed;
-        if (events != nullptr) {
-            const SwarmerProfile& pr = sw.profile_of(i);
-            CombatEvent e;
-            e.type = CombatEventType::SwarmerDeath;
-            e.source = pr.source;
-            e.visual_id = static_cast<u16>(sw.visual_id[i] | kSwarmerEventBit);
-            e.target_family = PathogenFamily::Count;
-            e.origin = Vec2{sw.pos_x[i], sw.pos_y[i]};
-            e.secondary = e.origin;
-            e.direction = math::normalize_safe(Vec2{sw.vel_x[i], sw.vel_y[i]});
-            if (e.direction.x == 0.0f && e.direction.y == 0.0f) e.direction = Vec2{1.0f, 0.0f};
-            e.radius = pr.size;
-            e.magnitude = pr.max_health;
-            events->push(e);
-        }
+        raise_swarmer_death(sw, i, events);
     }
 
     last_ = stats;

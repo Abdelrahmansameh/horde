@@ -10,7 +10,9 @@
 #include "config/Json.h"
 #include "config/Registry.h"
 #include "game/config/GameConfig.h"
+#include "game/towers/TowerMechanics.h"
 #include "platform/FileIO.h"
+#include "vfx/Particles.h"
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
@@ -481,4 +483,48 @@ TEST_CASE("every config field is addressable from the registry", "[config][game]
         INFO(path);
         REQUIRE(registry.get(path, value, err));
     }
+}
+
+TEST_CASE("the shipped swarmer death bursts match the compiled defaults", "[config][game][vfx]") {
+    // towers.json's death_vfx blocks and vfx/DeathVfx.cpp's table are two
+    // copies of one look; a vfx-only test that loads no config sees the
+    // second. Keep them from drifting.
+    const Json shipped = immune::game::dump_game_config(load_from("assets/config"))[0];
+    const Json compiled = immune::game::dump_game_config(immune::game::default_game_config())[0];
+    for (u32 t = 0; t < kTowerTypeCount; ++t) {
+        const char* name = immune::game::tower_type_name(static_cast<TowerType>(t));
+        INFO(name);
+        REQUIRE(shipped["towers"][name]["death_vfx"].dump() ==
+                compiled["towers"][name]["death_vfx"].dump());
+    }
+}
+
+TEST_CASE("a tower's death burst is authored from towers.json", "[config][game][vfx]") {
+    immune::game::GameConfig cfg = immune::game::default_game_config();
+    const immune::game::GameConfig restore = cfg;
+    config::Registry registry;
+    immune::game::bind_game_config(registry, cfg);
+    std::string err;
+    REQUIRE(registry.set("towers.cytotoxic_t.death_vfx.piece_count", "3", err));
+    REQUIRE(registry.set("towers.cytotoxic_t.death_vfx.nucleus_count", "0", err));
+    REQUIRE(registry.set("towers.cytotoxic_t.death_vfx.granule_count", "0", err));
+    REQUIRE(registry.set("towers.neutrophil.death_vfx.enabled", "false", err));
+
+    immune::game::TowerSystem towers;
+    immune::game::apply_tower_config(towers, cfg.towers);
+
+    const auto burst = [](TowerType source) {
+        vfx::ParticleSystem ps;
+        ps.init(1024, 5);
+        sim::CombatEvent e;
+        e.type = sim::CombatEventType::SwarmerDeath;
+        e.source = source;
+        e.radius = 1.0f;
+        ps.emit_for_event(e);
+        return ps.live_count();
+    };
+    CHECK(burst(TowerType::CytotoxicT) == 3u);   // three pieces and nothing else
+    CHECK(burst(TowerType::Neutrophil) == 0u);   // switched off
+
+    immune::game::apply_tower_config(towers, restore.towers);
 }

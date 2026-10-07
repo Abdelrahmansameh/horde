@@ -127,6 +127,38 @@ TEST_CASE("build_instances returns only the requested blend mode", "[vfx][partic
     REQUIRE(!additive.empty());
 }
 
+TEST_CASE("a swarmer's death is the cell coming apart, not an explosion", "[vfx][particles]") {
+    // Art direction: a dead unit BURSTS like a cell -- torn pieces of its body
+    // and lumps of its contents that drift apart and fade -- with no flash,
+    // no shock ring, and nothing additive. Every tower, every size.
+    for (u8 t = 0; t <= static_cast<u8>(TowerType::Count); ++t) {
+        ParticleSystem ps;
+        ps.init(4096, 77);
+        sim::CombatEvent e = make_event(sim::CombatEventType::SwarmerDeath, static_cast<TowerType>(t));
+        e.radius = 0.7f + 0.5f * static_cast<f32>(t);
+        ps.emit_for_event(e);
+        INFO("tower index " << static_cast<int>(t));
+
+        std::vector<ParticleInstance> additive, matter;
+        ps.build_instances(BlendMode::Additive, additive);
+        ps.build_instances(BlendMode::AlphaBlend, matter);
+        REQUIRE(additive.empty());
+        u32 pieces = 0;
+        for (const ParticleInstance& inst : matter) {
+            const auto kind = static_cast<ParticleKind>(inst.kind_blend & 0xFFFFu);
+            REQUIRE((kind == ParticleKind::Fragment || kind == ParticleKind::Globule));
+            if (kind == ParticleKind::Fragment) ++pieces;
+        }
+        // The body tears into several pieces that start out as the cell.
+        REQUIRE(pieces >= 4);
+        for (const ParticleInstance& inst : matter) {
+            if (static_cast<ParticleKind>(inst.kind_blend & 0xFFFFu) != ParticleKind::Fragment) continue;
+            REQUIRE(std::abs(inst.x - e.origin.x) < 1e-3f);
+            REQUIRE(std::abs(inst.y - e.origin.y) < 1e-3f);
+        }
+    }
+}
+
 TEST_CASE("clear retires everything", "[vfx][particles]") {
     ParticleSystem ps;
     ps.init(1024, 3);

@@ -2,10 +2,11 @@
 //
 // The file is keyed by tower name. Each tower carries a `stats` object (the
 // TowerStats fields), a `swarm` object (the swarmer chassis every tower
-// shares: speed, aggro and contact radii) and a
+// shares: speed, aggro and contact radii), a
 // `payload` object whose shape is chosen by the tower's KIND — a bomber
 // cannot carry a stale dps, because the parser demands exactly the keys that
-// kind uses and rejects the rest.
+// kind uses and rejects the rest — and a `death_vfx` object: how its units
+// burst when they die (vfx/DeathVfx.h).
 #include "game/config/Schemas.h"
 
 #include <array>
@@ -161,6 +162,53 @@ constexpr Field kGlobalsFields[] = {
 };
 constexpr Schema kGlobalsSchema{"tower_globals", kGlobalsFields};
 
+// How a tower's units burst when they die. vfx/DeathVfx.h documents every
+// field; sizes and speeds are multiples of the unit's body radius.
+IMMUNE_CONFIG_SCHEMA_ASSERT(vfx::SwarmerDeathVfx);
+constexpr Field kDeathVfxFields[] = {
+    IMMUNE_CONFIG_FIELD(vfx::SwarmerDeathVfx, enabled, FieldKind::Bool, "False draws nothing when this tower's units die"),
+    IMMUNE_CONFIG_FIELD(vfx::SwarmerDeathVfx, cytoplasm, FieldKind::Vec4, "RGBA of the body pieces; mirror the unit's cytoplasm in swarmer.frag"),
+    IMMUNE_CONFIG_FIELD(vfx::SwarmerDeathVfx, nucleus, FieldKind::Vec4, "RGBA of the nucleus lumps"),
+    IMMUNE_CONFIG_FIELD(vfx::SwarmerDeathVfx, inherit_velocity, FieldKind::F32, "Fraction of the unit's velocity the remains carry"),
+    IMMUNE_CONFIG_FIELD(vfx::SwarmerDeathVfx, inherit_speed_cap, FieldKind::F32, "World units/sec the inherited speed is capped at first"),
+    IMMUNE_CONFIG_FIELD(vfx::SwarmerDeathVfx, piece_count, FieldKind::U32, "Pieces the body tears into; they tile the cell at birth"),
+    IMMUNE_CONFIG_FIELD(vfx::SwarmerDeathVfx, piece_radius, FieldKind::F32, "x body radius: the pieces' membrane at birth; ~0.7 matches the living body"),
+    IMMUNE_CONFIG_FIELD(vfx::SwarmerDeathVfx, piece_overlap, FieldKind::F32, "Radians each piece reaches past its slice on both sides"),
+    IMMUNE_CONFIG_FIELD(vfx::SwarmerDeathVfx, piece_end_scale, FieldKind::F32, "Size at death / size at birth; below 1 the pieces contract"),
+    IMMUNE_CONFIG_FIELD(vfx::SwarmerDeathVfx, piece_speed_min, FieldKind::F32, "x body radius / sec"),
+    IMMUNE_CONFIG_FIELD(vfx::SwarmerDeathVfx, piece_speed_max, FieldKind::F32, "x body radius / sec"),
+    IMMUNE_CONFIG_FIELD(vfx::SwarmerDeathVfx, piece_heading_jitter, FieldKind::F32, "Radians a piece may drift off its slice; 0 opens like a flower"),
+    IMMUNE_CONFIG_FIELD(vfx::SwarmerDeathVfx, piece_life_min, FieldKind::F32, "Seconds"),
+    IMMUNE_CONFIG_FIELD(vfx::SwarmerDeathVfx, piece_life_max, FieldKind::F32, "Seconds"),
+    IMMUNE_CONFIG_FIELD(vfx::SwarmerDeathVfx, piece_drag, FieldKind::F32, "Per-second velocity damping"),
+    IMMUNE_CONFIG_FIELD(vfx::SwarmerDeathVfx, piece_spin, FieldKind::F32, "Max |radians/sec|; a piece turns about the cell's old centre"),
+    IMMUNE_CONFIG_FIELD(vfx::SwarmerDeathVfx, nucleus_count, FieldKind::U32, "Lumps the nucleus breaks into"),
+    IMMUNE_CONFIG_FIELD(vfx::SwarmerDeathVfx, nucleus_size_min, FieldKind::F32, "x body radius, the lump's radius"),
+    IMMUNE_CONFIG_FIELD(vfx::SwarmerDeathVfx, nucleus_size_max, FieldKind::F32, "x body radius, the lump's radius"),
+    IMMUNE_CONFIG_FIELD(vfx::SwarmerDeathVfx, nucleus_spread, FieldKind::F32, "x body radius: how far from the centre a lump starts"),
+    IMMUNE_CONFIG_FIELD(vfx::SwarmerDeathVfx, nucleus_speed_min, FieldKind::F32, "x body radius / sec"),
+    IMMUNE_CONFIG_FIELD(vfx::SwarmerDeathVfx, nucleus_speed_max, FieldKind::F32, "x body radius / sec"),
+    IMMUNE_CONFIG_FIELD(vfx::SwarmerDeathVfx, nucleus_life_min, FieldKind::F32, "Seconds"),
+    IMMUNE_CONFIG_FIELD(vfx::SwarmerDeathVfx, nucleus_life_max, FieldKind::F32, "Seconds"),
+    IMMUNE_CONFIG_FIELD(vfx::SwarmerDeathVfx, nucleus_drag, FieldKind::F32, "Per-second velocity damping"),
+    IMMUNE_CONFIG_FIELD(vfx::SwarmerDeathVfx, nucleus_spin, FieldKind::F32, "Max |radians/sec|"),
+    IMMUNE_CONFIG_FIELD(vfx::SwarmerDeathVfx, nucleus_end_scale, FieldKind::F32, "Size at death / size at birth"),
+    IMMUNE_CONFIG_FIELD(vfx::SwarmerDeathVfx, granule_count, FieldKind::U32, "Granules spilled from the cytoplasm"),
+    IMMUNE_CONFIG_FIELD(vfx::SwarmerDeathVfx, granule_whiten, FieldKind::F32, "How far granules are pushed from the cytoplasm colour toward white, 0..1"),
+    IMMUNE_CONFIG_FIELD(vfx::SwarmerDeathVfx, granule_size_min, FieldKind::F32, "x body radius, the granule's radius"),
+    IMMUNE_CONFIG_FIELD(vfx::SwarmerDeathVfx, granule_size_max, FieldKind::F32, "x body radius, the granule's radius"),
+    IMMUNE_CONFIG_FIELD(vfx::SwarmerDeathVfx, granule_spread_min, FieldKind::F32, "x body radius from the centre at birth"),
+    IMMUNE_CONFIG_FIELD(vfx::SwarmerDeathVfx, granule_spread_max, FieldKind::F32, "x body radius from the centre at birth"),
+    IMMUNE_CONFIG_FIELD(vfx::SwarmerDeathVfx, granule_speed_min, FieldKind::F32, "x body radius / sec"),
+    IMMUNE_CONFIG_FIELD(vfx::SwarmerDeathVfx, granule_speed_max, FieldKind::F32, "x body radius / sec"),
+    IMMUNE_CONFIG_FIELD(vfx::SwarmerDeathVfx, granule_life_min, FieldKind::F32, "Seconds"),
+    IMMUNE_CONFIG_FIELD(vfx::SwarmerDeathVfx, granule_life_max, FieldKind::F32, "Seconds"),
+    IMMUNE_CONFIG_FIELD(vfx::SwarmerDeathVfx, granule_drag, FieldKind::F32, "Per-second velocity damping"),
+    IMMUNE_CONFIG_FIELD(vfx::SwarmerDeathVfx, granule_end_scale, FieldKind::F32, "Size at death / size at birth"),
+    IMMUNE_CONFIG_FIELD(vfx::SwarmerDeathVfx, lump_wobble, FieldKind::F32, "How lumpy nucleus pieces and granules are; 0 is round"),
+};
+constexpr Schema kDeathVfxSchema{"swarmer_death_vfx", kDeathVfxFields};
+
 /// The payload schema and the sub-struct offset for one kind. Selecting both
 /// from the kind is what keeps a tower's payload object exactly the shape
 /// its tower actually reads.
@@ -190,7 +238,7 @@ const void* payload_arm(const TowerMechanics& m, sim::SwarmerKind kind) {
     return reinterpret_cast<const u8*>(&m) + kind_binding(kind).offset;
 }
 
-constexpr std::string_view kTowerEntryKeys[] = {"kind", "stats", "swarm", "payload"};
+constexpr std::string_view kTowerEntryKeys[] = {"kind", "stats", "swarm", "payload", "death_vfx"};
 
 } // namespace
 
@@ -249,6 +297,11 @@ void parse_towers(const Json& doc, TowerConfig& out, config::Ctx& ctx) {
                 config::parse_struct(config::require_object(entry, "payload", ctx),
                                      *binding.schema, payload_arm(out.mechanics[t], kind), ctx);
             }
+            {
+                config::Ctx::Scope s(ctx, "death_vfx");
+                config::parse_struct(config::require_object(entry, "death_vfx", ctx),
+                                     kDeathVfxSchema, &out.death_vfx[t], ctx);
+            }
         }
     }
 }
@@ -273,12 +326,15 @@ Json dump_towers(const TowerConfig& cfg) {
         config::dump_struct(swarm, kSwarmSchema, &cfg.mechanics[t].swarm);
         Json payload = Json::object();
         config::dump_struct(payload, *binding.schema, payload_arm(cfg.mechanics[t], kind));
+        Json death_vfx = Json::object();
+        config::dump_struct(death_vfx, kDeathVfxSchema, &cfg.death_vfx[t]);
 
         Json entry = Json::object();
         entry["kind"] = tower_kind_name(kind);
         entry["stats"] = std::move(stats);
         entry["swarm"] = std::move(swarm);
         entry["payload"] = std::move(payload);
+        entry["death_vfx"] = std::move(death_vfx);
         towers[tower_type_name(type)] = std::move(entry);
     }
     doc["towers"] = std::move(towers);
@@ -297,6 +353,7 @@ void bind_towers(config::Registry& registry, TowerConfig& cfg) {
         registry.bind(base + "stats", kStatsSchema, &cfg.stats[t]);
         registry.bind(base + "swarm", kSwarmSchema, &cfg.mechanics[t].swarm);
         registry.bind(base + "payload", *binding.schema, payload_arm(cfg.mechanics[t], kind));
+        registry.bind(base + "death_vfx", kDeathVfxSchema, &cfg.death_vfx[t]);
     }
 }
 

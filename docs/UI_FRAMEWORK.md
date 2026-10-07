@@ -3,8 +3,8 @@
 The player-facing UI is being rebuilt on a custom C++ framework so it can match
 the "Living Membrane" design: wobbly cell-membrane panels with plum outlines,
 cell icons, a blood-filled organ bar, fluid-filled ability cells, a
-world-anchored tower popup, a skill tree shaped like a human body that pans,
-zooms and uncovers as it grows, and a vessel level map. The design lives in the canvas
+world-anchored tower popup, a radial skill tree that pans, zooms and
+uncovers as it grows, and a vessel level map. The design lives in the canvas
 (https://claude.ai/artifact/BmwSmwUEERL8X7rbVyfvWp; snapshot in
 `docs/ui-concepts/canvas/project/`) and its rules in `DESIGN.md` §8.
 
@@ -74,7 +74,7 @@ gui/  core     Gui context · Widget tree · layout · layers · input routing �
 | 2 | Core: widget tree, flex / anchored / world-anchored layout, `Gui` context and layers, pointer state machine (hover, capture, click/deny, drag, wheel, tooltips), animation (`Tween`, `Spring`, the canvas loops beat/pulse/wobble/throb/halo/spin/flow), theme (`assets/config/ui_theme.json`), base widgets (`Panel`, `Label`, `Icon`, `Button`, `Meter`, `Ring`, `Spacer`) | **Done** |
 | 3 | In-match HUD: `HudModel` + `app/UiBridge`, `HudScreen` (with the selection and armed cursors that were `Hud.cpp`'s statics) for the five canvas states, world overlays, `Gui` in `App`, the ImGui HUD removed (`Hud` became `DevUi`), `--screenshot --ui`, gym `ui` and `integrity` commands | **Done** |
 | 4 | Out-of-match screens: main menu (with the macrophage mascot), level select with campaign gating, pause, victory and defeat, screen transitions | **Done** |
-| 5 | Skill tree: `TreeScreen` over the nodes of `ImmunityTree.cpp`, laid out from the canvas; ImGui `Menu.cpp` removed. Since reworked: a body-shaped tree that pans, zooms and uncovers as it grows, with a hover card instead of the top bar | **Done** |
+| 5 | Skill tree: `TreeScreen` over the nodes of `ImmunityTree.cpp`, laid out from the canvas; ImGui `Menu.cpp` removed. Since reworked: a radial tree, each subject in its own wedge, that pans, zooms and uncovers as it grows, with a hover card instead of the top bar | **Done** |
 | 6 | Polish: fit-to-screen scaling and a UI scale option, perf (< 0.5 ms CPU per frame), fixes from the side-by-side pass | **Done** |
 
 ### Core (built)
@@ -163,11 +163,13 @@ gui/  core     Gui context · Widget tree · layout · layers · input routing �
 - `ui/front/TreeScreen`, shown by `FrontEnd` for `FrontScreen::Tree`. It no
   longer follows the canvas's Tree artboard: the tree is a real tree (one
   parent per node, at most three children, `ImmunityTree.cpp`'s `kEdges`)
-  whose nodes and vessels alone draw a human figure -- no outline.
-  `tools/gen_tree_layout.py` places every node (the Neutrophil at the heart
-  ringed by its lines like ribs, the hub up the sternum and neck and down the
-  belly, two abilities round the head and two down the waist, a tower down
-  each limb) into `assets/ui/tree_layout.json`, in tree units with the heart
+  laid out as a classic radial skill tree: the Neutrophil in the middle,
+  three core economy lines round it, and each subject (the attack towers, the
+  abilities, the systemic lines and control towers) growing outward in its
+  own wedge. `tools/gen_tree_layout.py` computes it from the catalog's
+  parent links and their clockwise order (a depth sets a node's ring; a
+  wedge is split among children by their leaf counts, with a gap between
+  subjects) into `assets/ui/tree_layout.json`, in tree units with the centre
   at the origin; `--preview` draws the grown tree the way the game does. The
   vessels between nodes follow the model's parent links, so the drawing
   cannot disagree with the rules.
@@ -178,10 +180,10 @@ gui/  core     Gui context · Widget tree · layout · layers · input routing �
   the nodes they feed show, the rest stay hidden (a purchase buds the next
   ones in). The screen syncs in place every frame.
 - The view (`TreeCanvas`, anonymous so node paths stay `tree/<key>`) is a
-  camera over the figure: drag anywhere to pan (a press on a node that turns
+  camera over the tree: drag anywhere to pan (a press on a node that turns
   into a drag pans too), the wheel zooms about the pointer, and
   `tree/view/{zoom_in,zoom_out,recenter}` zoom about the middle or frame the
-  revealed nodes. Zooming out stops at the whole figure; the view eases to its
+  revealed nodes. Zooming out stops at the whole tree; the view eases to its
   target and is kept across visits (`FrontEnd`). Nodes and their name pills
   are laid out from tree positions every frame; off-screen children are not
   drawn.
@@ -190,7 +192,7 @@ gui/  core     Gui context · Widget tree · layout · layers · input routing �
   capstones. Their glyphs bake in half-octave steps
   (`IconLibrary::draw_zoomable`) so zooming reuses a few bakes per icon. A
   vessel's lumen lights when its node is owned and carries plasma (SDF dots)
-  out from the heart.
+  out from the centre.
 - Hovering a node opens its card beside it (glyph, name, level, effect, what
   it needs, its price, and "Click to grow" or why not); a click on a node
   that can be bought reports `MenuAction::PurchaseNode`, anything else is the

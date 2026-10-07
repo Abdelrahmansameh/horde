@@ -43,6 +43,8 @@ layout(location = 5) in vec4  i_tint;       // offset 24 : tint_rgba8, normalize
 layout(location = 6) in uint  i_kind_blend; // offset 28 : kind | blend << 16
 layout(location = 7) in float i_age_norm;   // offset 32
 layout(location = 8) in float i_seed;       // offset 36
+layout(location = 9) in float i_shape;      // offset 40 : kind-specific shape number
+layout(location = 10) in float i_end_scale; // offset 44 : Fragment/Globule size at death
 
 layout(location = 0) uniform mat4 u_view_projection;
 layout(location = 1) uniform float u_time;
@@ -53,6 +55,7 @@ flat out uint  v_kind;
 flat out float v_age;
 flat out float v_seed;
 flat out float v_aspect;
+flat out float v_shape;
 
 // vfx::ParticleKind, low 16 bits of kind_blend. Order is frozen.
 const uint kTracer = 0u;
@@ -62,6 +65,8 @@ const uint kShard  = 3u;
 const uint kMist   = 4u;
 const uint kBeam   = 5u;
 const uint kBolt   = 6u;
+const uint kFragment = 7u;
+const uint kGlobule  = 8u;
 
 // Soft glow needs to bleed past the shape's true edge, so the quad is a little
 // larger than the shape it holds — same trick chaff.vert/field.vert use.
@@ -125,8 +130,13 @@ void main() {
         half_l = half_w = 0.5 * i_size * (1.0 + 0.9 * age); // drifts and swells
     } else if (kind == kSpark) {
         half_l = half_w = 0.5 * i_size * (1.0 - 0.30 * age);
+    } else if (kind == kFragment || kind == kGlobule) {
+        // Authored size over life (ParticleSpawnParams::end_scale). A torn
+        // piece contracts toward the quad's centre, which is the cell's old
+        // centre, so it draws in on itself rather than sliding over the gap.
+        half_l = half_w = 0.5 * i_size * mix(1.0, i_end_scale, age);
     }
-    // kShard keeps i_size and spins with i_rotation (CPU-integrated spin).
+    // kShard, kFragment and kGlobule turn with i_rotation (CPU-integrated spin).
 
     float aspect = half_l / max(half_w, 1e-6);
 
@@ -140,6 +150,7 @@ void main() {
     v_age    = age;
     v_seed   = i_seed;
     v_aspect = aspect;
+    v_shape  = i_shape;
 
     gl_Position = u_view_projection * vec4(center + offset, 0.0, 1.0);
 }

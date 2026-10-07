@@ -164,7 +164,7 @@ TEST_CASE("the catalog is one tree: one root, one parent each, at most three chi
     REQUIRE(kTreeRoot == tower_root(TowerType::Neutrophil));
 }
 
-TEST_CASE("every unlock is reached through Memory Cell nodes only; capstones end their limb", "[meta][tree]") {
+TEST_CASE("every unlock is reached through Memory Cell nodes only; capstones end their branch", "[meta][tree]") {
     // PROGRESSION.md §4.1: the player picks the order towers and abilities
     // are unlocked in, so no Antibody node may stand in front of another.
     auto antibody_priced = [](TreeNode n) {

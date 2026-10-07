@@ -983,9 +983,90 @@ TEST_CASE("a bomber that runs out of lifetime detonates where it stands", "[swar
 TEST_CASE("leaving the world is a plain dissolve even for a bomber", "[swarm][sim][bomber]") {
     Fixture f;
     f.add_swarmer(Vec2{127.5f, 64.0f}, Vec2{60.0f, 0.0f}, kBomber);
-    f.step(3);
+    CombatEventSink sink;
+    sink.reserve(64);
+    f.step(3, &sink);
     REQUIRE(f.swarm.count() == 0);
     REQUIRE(f.system.effects().bursts.empty());
+    // Nothing off the map is worth a death burst either.
+    for (const CombatEvent& e : sink.events()) REQUIRE(e.type != CombatEventType::SwarmerDeath);
+}
+
+// ---------------------------------------------------------------------------
+// Death bursts
+// ---------------------------------------------------------------------------
+
+TEST_CASE("every kind of swarmer raises one death burst when it dies, however it dies",
+          "[swarm][sim][death]") {
+    // The VFX layer draws a unit bursting apart off SwarmerDeath
+    // (CombatEvents.h), so a kind or a cause that forgot to raise it would
+    // simply vanish.
+    constexpr u16 kBuilder = 6;
+    struct Case {
+        const char* name;
+        u16 profile;
+        TowerType source;
+        bool target;   ///< Put an unkillable pathogen in reach (bomber contact).
+    };
+    const Case cases[] = {
+        {"latch expiry", kLatch, TowerType::CytotoxicT, false},
+        {"shooter expiry", kShooter, TowerType::Neutrophil, false},
+        {"arbor expiry", kArbor, TowerType::Macrophage, false},
+        {"bomber expiry", kBomber, TowerType::Count, false},
+        {"bomber contact", kBomber, TowerType::Count, true},
+        {"mucus contact", kMucus, TowerType::GobletCell, true},
+        {"builder spent on its scar", kBuilder, TowerType::Fibroblast, false},
+    };
+    for (const Case& c : cases) {
+        INFO(c.name);
+        Fixture f;
+        SwarmerProfile builder = f.swarm.profile_at(kLatch);
+        builder.kind = SwarmerKind::Builder;
+        builder.source = TowerType::Fibroblast;
+        builder.attach_radius = 0.8f;
+        f.swarm.set_profile(kBuilder, builder);
+        SwarmerProfile p = f.swarm.profile_at(c.profile);
+        p.lifetime = 0.5f;
+        f.swarm.set_profile(c.profile, p);
+
+        if (c.target) f.add_chaff(Vec2{44.0f, 40.0f}, 1.0e6f);
+        if (c.profile == kBuilder) {
+            SwarmerSpawnParams s;
+            s.position = Vec2{40.0f, 40.0f};
+            s.profile = kBuilder;
+            s.owner = EntityId{7u};
+            s.goal = Vec2{44.0f, 40.0f};
+            s.has_goal = true;
+            f.swarm.spawn(s);
+        } else {
+            f.add_swarmer(Vec2{40.0f, 40.0f}, Vec2{6.0f, 0.0f}, c.profile);
+        }
+
+        CombatEventSink sink;
+        sink.reserve(4096);
+        u32 built = 0;
+        for (int t = 0; t < 60; ++t) {   // one second: twice the lifetime
+            f.step(1, &sink);
+            built += f.system.last_stats().built;
+        }
+        REQUIRE(f.swarm.count() == 0);
+        // The builder case must actually exercise the spent-on-arrival path.
+        if (c.profile == kBuilder) REQUIRE(built == 1);
+
+        u32 deaths = 0;
+        for (const CombatEvent& e : sink.events()) {
+            REQUIRE(e.type != CombatEventType::ProjectileExpired);   // no more fizzles
+            if (e.type != CombatEventType::SwarmerDeath) continue;
+            ++deaths;
+            CHECK(e.source == c.source);
+            CHECK((e.visual_id & kSwarmerEventBit) != 0);
+            CHECK(e.radius == Catch::Approx(f.swarm.profile_at(c.profile).size));
+            CHECK(e.magnitude >= 0.0f);
+            CHECK(math::length(e.direction) == Catch::Approx(1.0f));
+            CHECK(math::length(e.origin - Vec2{40.0f, 40.0f}) < 8.0f);
+        }
+        REQUIRE(deaths == 1);
+    }
 }
 
 // ---------------------------------------------------------------------------

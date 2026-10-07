@@ -57,7 +57,16 @@ enum class ParticleKind : u8 {
     Beam = 5,
     /// Jagged multi-segment bolt. Tesla arcs.
     Bolt = 6,
-    Count = 7,
+    /// One torn piece of a cell: a wedge of its body with the membrane on the
+    /// outer arc, cytoplasm inside, and ragged sides. The cell's centre is
+    /// the particle's position and `rotation` points along the wedge, so N of
+    /// them spawned at one spot, turned 2*pi/N apart, ARE the cell at birth
+    /// and come apart as they move. Matter: alpha-blended, no glow.
+    Fragment = 7,
+    /// A soft-edged lump of cell matter -- a piece of nucleus, a granule.
+    /// Irregular outline, opaque, no glow.
+    Globule = 8,
+    Count = 9,
 };
 
 enum class BlendMode : u8 {
@@ -79,7 +88,8 @@ struct ParticleInstance {
     u32 kind_blend;    ///< ParticleKind in the low 16 bits, BlendMode in the high.
     f32 age_norm;      ///< 0 at birth -> 1 at death. Drives shader-side curves.
     f32 seed;          ///< Per-particle randomness, so bolts/shards differ.
-    f32 pad0, pad1;
+    f32 shape;         ///< ParticleSpawnParams::shape.
+    f32 end_scale;     ///< ParticleSpawnParams::end_scale.
 };
 
 struct ParticleSpawnParams {
@@ -96,6 +106,14 @@ struct ParticleSpawnParams {
     f32 spin = 0.0f;
     /// Endpoint for Beam/Bolt kinds, which are segments rather than points.
     Vec2 endpoint{0.0f, 0.0f};
+    /// The kind's one shape number, so a burst can be authored from config
+    /// rather than from shader constants. Fragment: half the angle, radians,
+    /// the wedge covers. Globule: how lumpy the outline is (0 = round). Read
+    /// by no other kind; <= 0 on a Fragment falls back to a sixth of a cell.
+    f32 shape = 0.0f;
+    /// Fragment and Globule only: size at the end of life as a fraction of
+    /// size at birth. 1 holds the size; below 1 the piece contracts.
+    f32 end_scale = 1.0f;
     ParticleKind kind = ParticleKind::Spark;
     BlendMode blend = BlendMode::Additive;
 };
@@ -157,6 +175,7 @@ private:
     std::vector<f32> age_, life_;
     std::vector<f32> drag_, buoy_;
     std::vector<f32> end_x_, end_y_;
+    std::vector<f32> shape_, end_scale_;
     std::vector<f32> seed_;
     std::vector<u32> color_;
     std::vector<u8>  kind_, blend_;

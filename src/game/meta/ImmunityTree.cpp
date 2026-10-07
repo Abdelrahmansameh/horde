@@ -119,13 +119,13 @@ static_assert(sizeof(kCatalog) / sizeof(kCatalog[0]) == kTreeNodeCount,
 
 // ---------------------------------------------------------------------------
 // The tree's shape: each node's parent. The Strengthen Immunity screen lays
-// the tree out so its nodes and vessels draw a human figure
-// (assets/ui/tree_layout.json, written by tools/gen_tree_layout.py), so the
-// table reads as anatomy: the Neutrophil is the heart, the hub lines run up
-// the sternum and neck and down the abdomen, two abilities ring the head and
-// two run down the sides of the belly, and each of the other four towers is
-// a limb ending in its capstone. Tower and ability unlocks are reached
-// through Memory Cell nodes only, never through another unlock.
+// it out radially (assets/ui/tree_layout.json, written by
+// tools/gen_tree_layout.py): the Neutrophil in the middle, three core
+// economy lines round it, and from each core its subjects grow outward, each
+// in its own wedge -- the attack towers, the abilities, the control towers
+// and the systemic lines. Children are listed in clockwise order, the order
+// the layout gives them. Tower and ability unlocks are reached through Memory
+// Cell nodes only, never through another unlock.
 // ---------------------------------------------------------------------------
 
 struct Edge {
@@ -135,74 +135,76 @@ struct Edge {
 
 using N = TreeNode;
 constexpr Edge kEdges[] = {
-    // The heart: up the sternum, down to the solar plexus.
+    // The centre: the Neutrophil, and the three cores round it.
     {N::BoneMarrowReserve, N::NeutrophilRoot},
-    {N::NeutrophilRoundDamage, N::NeutrophilRoot},
-    // The sternum: both shoulders and the neck.
+    {N::EfficientClearance, N::NeutrophilRoot},
+    {N::RapidMetabolism, N::NeutrophilRoot},
+
+    // Bone Marrow Reserve: the attack towers.
+    {N::MacrophageRoot, N::BoneMarrowReserve},
+    {N::NeutrophilRoundDamage, N::BoneMarrowReserve},
     {N::CytotoxicRoot, N::BoneMarrowReserve},
-    {N::GobletRoot, N::BoneMarrowReserve},
-    {N::EliteResponse, N::BoneMarrowReserve},
-    // The ribs: the Neutrophil's lines curl up around the heart.
+    // Macrophage.
+    {N::MacrophageGrabSpeed, N::MacrophageRoot},
+    {N::MacrophageCaptives, N::MacrophageRoot},
+    {N::MacrophageHealth, N::MacrophageRoot},
+    {N::MacrophageArms, N::MacrophageGrabSpeed},
+    {N::MacrophageSearch, N::MacrophageGrabSpeed},
+    {N::MacrophageCapstone, N::MacrophageCaptives},
+    {N::MacrophageWall, N::MacrophageHealth},
+    // Neutrophil: its lines start at Round Damage (its unlock is the centre).
     {N::NeutrophilTriggerRate, N::NeutrophilRoundDamage},
     {N::NeutrophilAccuracy, N::NeutrophilRoundDamage},
+    {N::NeutrophilAggroRange, N::NeutrophilRoundDamage},
     {N::NeutrophilSquadSize, N::NeutrophilTriggerRate},
-    {N::NeutrophilCapstone, N::NeutrophilSquadSize},
-    {N::NeutrophilAggroRange, N::NeutrophilAccuracy},
+    {N::NeutrophilCapstone, N::NeutrophilAccuracy},
     {N::NeutrophilVitality, N::NeutrophilAggroRange},
-    // The neck, and the head: a ring, its two sides an ability each, from
-    // the unlock up to its second line.
-    {N::Homeostasis, N::EliteResponse},
-    {N::HistamineUnlock, N::Homeostasis},
-    {N::FeverUnlock, N::Homeostasis},
-    {N::HistamineCooldown, N::HistamineUnlock},
-    {N::HistamineRadius, N::HistamineCooldown},
-    {N::FeverCooldown, N::FeverUnlock},
-    {N::FeverMagnitude, N::FeverCooldown},
-    // The abdomen: an ability down each side of the waist, the economy down
-    // the middle to the pelvis.
-    {N::RapidMetabolism, N::NeutrophilRoundDamage},
-    {N::ComplementUnlock, N::RapidMetabolism},
-    {N::ClotUnlock, N::RapidMetabolism},
-    {N::EfficientClearance, N::RapidMetabolism},
-    {N::ComplementCooldown, N::ComplementUnlock},
-    {N::ComplementChain, N::ComplementCooldown},
-    {N::ClotCooldown, N::ClotUnlock},
-    {N::ClotDuration, N::ClotCooldown},
-    {N::FieldRequisition, N::EfficientClearance},
-    {N::SystemicPotency, N::EfficientClearance},
-    {N::MembraneResilience, N::EfficientClearance},
-    // The left arm: the Cytotoxic T, from the shoulder to the hand.
+    // Cytotoxic T.
+    {N::CytotoxicAttachSpeed, N::CytotoxicRoot},
     {N::CytotoxicDrain, N::CytotoxicRoot},
-    {N::CytotoxicHealth, N::CytotoxicDrain},
-    {N::CytotoxicAttachSpeed, N::CytotoxicDrain},
-    {N::CytotoxicSearch, N::CytotoxicAttachSpeed},
-    {N::CytotoxicStamina, N::CytotoxicSearch},
-    {N::CytotoxicCapstone, N::CytotoxicStamina},
-    // The right arm: the Goblet Cell.
-    {N::GobletSlowStrength, N::GobletRoot},
-    {N::GobletHealth, N::GobletSlowStrength},
-    {N::GobletSlowDuration, N::GobletSlowStrength},
-    {N::GobletSplashRadius, N::GobletSlowDuration},
-    {N::GobletWeakness, N::GobletSplashRadius},
-    {N::GobletCapstone, N::GobletWeakness},
-    // The hips, and the left leg: the Macrophage, down to the foot.
-    {N::MacrophageRoot, N::MembraneResilience},
-    {N::FibroblastRoot, N::MembraneResilience},
-    {N::MacrophageGrabSpeed, N::MacrophageRoot},
-    {N::MacrophageArms, N::MacrophageGrabSpeed},
-    {N::MacrophageCaptives, N::MacrophageGrabSpeed},
-    {N::MacrophageHealth, N::MacrophageCaptives},
-    {N::MacrophageSearch, N::MacrophageCaptives},
-    {N::MacrophageWall, N::MacrophageSearch},
-    {N::MacrophageCapstone, N::MacrophageWall},
-    // The right leg: the Fibroblast.
+    {N::CytotoxicSearch, N::CytotoxicRoot},
+    {N::CytotoxicStamina, N::CytotoxicAttachSpeed},
+    {N::CytotoxicCapstone, N::CytotoxicDrain},
+    {N::CytotoxicHealth, N::CytotoxicSearch},
+
+    // Efficient Clearance: the abilities, the offensive pair behind Systemic
+    // Potency and the supporting pair behind Homeostasis.
+    {N::SystemicPotency, N::EfficientClearance},
+    {N::Homeostasis, N::EfficientClearance},
+    {N::ComplementUnlock, N::SystemicPotency},
+    {N::HistamineUnlock, N::SystemicPotency},
+    {N::ComplementCooldown, N::ComplementUnlock},
+    {N::ComplementChain, N::ComplementUnlock},
+    {N::HistamineCooldown, N::HistamineUnlock},
+    {N::HistamineRadius, N::HistamineUnlock},
+    {N::FeverUnlock, N::Homeostasis},
+    {N::ClotUnlock, N::Homeostasis},
+    {N::FeverCooldown, N::FeverUnlock},
+    {N::FeverMagnitude, N::FeverUnlock},
+    {N::ClotCooldown, N::ClotUnlock},
+    {N::ClotDuration, N::ClotUnlock},
+
+    // Rapid Metabolism: the systemic lines and the control towers.
+    {N::FieldRequisition, N::RapidMetabolism},
+    {N::FibroblastRoot, N::RapidMetabolism},
+    {N::GobletRoot, N::RapidMetabolism},
+    {N::EliteResponse, N::FieldRequisition},
+    {N::MembraneResilience, N::FieldRequisition},
+    // Fibroblast.
+    {N::FibroblastBuildRadius, N::FibroblastRoot},
     {N::FibroblastScarHealth, N::FibroblastRoot},
-    {N::FibroblastHealth, N::FibroblastScarHealth},
+    {N::FibroblastHealth, N::FibroblastRoot},
+    {N::FibroblastScarSize, N::FibroblastBuildRadius},
     {N::FibroblastReinforce, N::FibroblastScarHealth},
-    {N::FibroblastBuildRadius, N::FibroblastReinforce},
-    {N::FibroblastScarSize, N::FibroblastReinforce},
-    {N::FibroblastInflammation, N::FibroblastScarSize},
+    {N::FibroblastInflammation, N::FibroblastScarHealth},
     {N::FibroblastCapstone, N::FibroblastInflammation},
+    // Goblet Cell.
+    {N::GobletSplashRadius, N::GobletRoot},
+    {N::GobletSlowStrength, N::GobletRoot},
+    {N::GobletHealth, N::GobletRoot},
+    {N::GobletWeakness, N::GobletSplashRadius},
+    {N::GobletSlowDuration, N::GobletSlowStrength},
+    {N::GobletCapstone, N::GobletSlowDuration},
 };
 static_assert(sizeof(kEdges) / sizeof(kEdges[0]) == kTreeNodeCount - 1,
               "every node but the root has exactly one parent");

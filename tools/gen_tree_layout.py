@@ -1,25 +1,33 @@
-"""Generates the Strengthen Immunity tree's layout: a human figure.
+"""Generates the Strengthen Immunity tree's layout: a classic radial tree.
 
-The tree (src/game/meta/ImmunityTree.cpp) is laid out so that its nodes and
-the vessels between them draw the body they strengthen -- no outline, the
-pattern alone. The Neutrophil, owned from the start, is the heart, ringed by
-its own lines like ribs; the hub lines run up the sternum and the neck and
-down the middle of the abdomen to the pelvis; two abilities ring the head and
-two run down the sides of the waist; each of the other four towers is a limb,
-from its unlock at the shoulder or hip to its capstone at the hand or foot.
-This script places every node and writes the placement to
+The tree (src/game/meta/ImmunityTree.cpp) is laid out radially from its
+root. The Neutrophil, owned from the start, is the centre; the three core
+economy lines sit round it; and from each core its subjects grow outward, each
+in its own wedge -- the attack towers (Macrophage, Neutrophil, Cytotoxic T),
+the abilities, and the systemic lines with the control towers (Fibroblast,
+Goblet Cell). This script places every node and writes the placement to
 assets/ui/tree_layout.json, which the game's tree screen
 (src/ui/front/TreeScreen) draws from.
 
-The tree's SHAPE (who is whose parent) is the game's: it is read from
-ImmunityTree.cpp's kEdges table, and the vessels between nodes are drawn from
-it at run time. This script only decides where each node sits. It checks
-that every node of the catalog is placed, that the Neutrophil is the only
-root, that no node has more than three children, and that no two nodes
-overlap.
+The tree's SHAPE (who is whose parent, and the clockwise order of a node's
+children) is the game's: it is read from ImmunityTree.cpp's kEdges table, and
+the vessels between nodes are drawn from it at run time. This script only
+works out where each node sits:
+
+  - a node's depth sets its ring (RING_1 out from the centre for the cores,
+    RING_STEP further for each level after that);
+  - every node gets a wedge of its parent's, in proportion to how many leaves
+    hang below it, and sits in the middle of it; the subtrees under the
+    centre and the cores keep PETAL_GAP between them, so each subject reads as
+    its own region;
+  - the whole tree is turned so the Neutrophil's own lines grow straight up.
+
+It checks that every node of the catalog is placed, that the Neutrophil is
+the only root, that no node has more than three children, and that no two
+nodes overlap.
 
 Output, in tree units (one unit is one logical pixel at zoom 1), y down, the
-heart at the origin:
+centre at the origin:
   nodes  game key -> centre, diameter, and the glyph icon it shows
 
 Usage:  python tools/gen_tree_layout.py [--check] [--preview out.png]
@@ -40,11 +48,18 @@ HEADER = ROOT / "src" / "game" / "meta" / "ImmunityTree.h"
 SOURCE = ROOT / "src" / "game" / "meta" / "ImmunityTree.cpp"
 OUT = ROOT / "assets" / "ui" / "tree_layout.json"
 
+# Tree units.
+RING_1 = 180.0
+RING_STEP = 165.0
+PETAL_GAP = math.radians(9.0)
+# The node whose wedge points straight up.
+UP = "neutrophil.round_damage"
+
 # ---------------------------------------------------------------- the catalog
 
 
 def read_catalog():
-    """(keys in TreeNode order, {key: kind}, {child key: parent key})"""
+    """(keys in TreeNode order, {key: kind}, [(child, parent)] in kEdges order)"""
     header = HEADER.read_text(encoding="utf-8")
     block = header[header.index("enum class TreeNode : u16 {"):]
     block = block[:block.index("Count,")]
@@ -54,12 +69,15 @@ def read_catalog():
     if len(enum) != len(nodes):
         sys.exit(f"TreeNode has {len(enum)} entries but kCatalog has {len(nodes)}")
     key_of = {name: key for name, (key, _) in zip(enum, nodes)}
-    edges = re.findall(r"\{N::(\w+), N::(\w+)\}", source)
-    parent = {key_of[c]: key_of[p] for c, p in edges}
-    return [k for k, _ in nodes], dict(nodes), parent
+    edges = [(key_of[c], key_of[p]) for c, p in re.findall(r"\{N::(\w+), N::(\w+)\}", source)]
+    return [k for k, _ in nodes], dict(nodes), edges
 
 
-KEYS, KIND, PARENT = read_catalog()
+KEYS, KIND, EDGES = read_catalog()
+PARENT = dict(EDGES)
+CHILDREN = {}
+for _child, _parent in EDGES:
+    CHILDREN.setdefault(_parent, []).append(_child)
 
 # Diameter by kind, in tree units.
 SIZE = {"TowerRoot": 108, "AbilityRoot": 84, "Capstone": 92, "Stat": 62, "Economy": 62, "AbilityStat": 60}
@@ -127,7 +145,80 @@ ICON = {
     "fibroblast.capstone": "stat_fire",
 }
 
-# ---------------------------------------------------------------- 2D helpers
+# ---------------------------------------------------------------- the layout
+
+
+def root():
+    roots = [k for k in KEYS if k not in PARENT]
+    if roots != ["neutrophil.unlock"]:
+        sys.exit(f"the tree must have the Neutrophil as its only root, not {roots}")
+    return roots[0]
+
+
+def leaves(key):
+    kids = CHILDREN.get(key, [])
+    return 1 if not kids else sum(leaves(k) for k in kids)
+
+
+def place_nodes():
+    """{key: (x, y)}: the radial layout described at the top of the file."""
+    angle, depth = {}, {}
+
+    def grow(key, a0, a1, d):
+        angle[key], depth[key] = (a0 + a1) / 2, d
+        kids = CHILDREN.get(key, [])
+        if not kids:
+            return
+        gap = PETAL_GAP if d <= 1 else 0.0
+        usable = (a1 - a0) - gap * len(kids)
+        total = sum(leaves(k) for k in kids)
+        a = a0
+        for k in kids:
+            span = usable * leaves(k) / total
+            grow(k, a + gap / 2, a + gap / 2 + span, d + 1)
+            a += span + gap
+
+    centre = root()
+    grow(centre, 0.0, 2.0 * math.pi, 0)
+    turn = -math.pi / 2 - angle[UP]          # screen y is down: -90 degrees is up
+    pos = {}
+    for key in angle:
+        r = 0.0 if depth[key] == 0 else RING_1 + (depth[key] - 1) * RING_STEP
+        a = angle[key] + turn
+        pos[key] = (round(r * math.cos(a), 1), round(r * math.sin(a), 1))
+    return pos
+
+
+def check_nodes(pos):
+    missing = [k for k in KEYS if k not in pos]
+    no_icon = [k for k in KEYS if k not in ICON]
+    if missing or no_icon:
+        sys.exit(f"unplaced: {missing}  no icon: {no_icon}")
+    for parent, kids in CHILDREN.items():
+        if len(kids) > 3:
+            sys.exit(f"{parent} has {len(kids)} children: {kids}")
+    # No two nodes closer than a third of a small node between their rims.
+    keys = sorted(pos)
+    for i, a in enumerate(keys):
+        for b in keys[i + 1:]:
+            gap = math.dist(pos[a], pos[b]) - (SIZE[KIND[a]] + SIZE[KIND[b]]) / 2
+            if gap < 20:
+                sys.exit(f"{a} and {b} overlap (gap {gap:.0f})")
+
+
+# ---------------------------------------------------------------- output
+
+
+def build():
+    pos = place_nodes()
+    check_nodes(pos)
+    nodes = {k: {"x": pos[k][0], "y": pos[k][1], "size": SIZE[KIND[k]], "icon": ICON[k]} for k in KEYS}
+    return {
+        "_comment": "Generated by tools/gen_tree_layout.py: the Strengthen Immunity tree laid out radially, "
+                    "each subject in its own wedge, in tree units (one logical pixel at zoom 1), y down, "
+                    "the centre at the origin. Do not edit by hand.",
+        "nodes": nodes,
+    }
 
 
 def add(a, b):
@@ -145,149 +236,6 @@ def mul(a, k):
 def norm(a):
     length = math.hypot(a[0], a[1]) or 1.0
     return (a[0] / length, a[1] / length)
-
-
-def lerp(a, b, t):
-    return (a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t)
-
-
-def mirror(p):
-    return (-p[0], p[1])
-
-
-# ---------------------------------------------------------------- the figure
-# Tree units, y down, the heart at the origin. The limbs' joints are the right
-# half's (screen right); the left half mirrors them.
-
-SHOULDER, ELBOW, WRIST, HAND = (330, -262), (690, -168), (1000, -88), (1082, -64)
-HIP, KNEE, ANKLE, FOOT = (172, 600), (210, 1040), (232, 1420), (268, 1474)
-HEAD, HEAD_RADIUS = (0, -610), 150
-
-POS = {}
-
-
-def put(key, p):
-    if key in POS:
-        sys.exit(f"{key} placed twice")
-    POS[key] = (round(p[0], 1), round(p[1], 1))
-
-
-def pair(left, right, p):
-    """A left/right pair at mirrored places; `p` is the right one."""
-    put(left, mirror(p))
-    put(right, p)
-
-
-def place_nodes():
-    # The spine: sternum, heart, solar plexus, stomach, navel, pelvis; and
-    # the neck up to the head.
-    put("hub.bone_marrow_reserve", (0, -250))
-    put("neutrophil.unlock", (0, -78))
-    put("neutrophil.round_damage", (0, 92))
-    put("hub.rapid_metabolism", (0, 252))
-    put("hub.efficient_clearance", (0, 404))
-    put("hub.membrane_resilience", (0, 552))
-    put("hub.elite_response", (0, -352))
-
-    # The head: seven nodes evenly round a ring, Homeostasis at the bottom
-    # where the neck joins, Histamine Flare up the left side and Fever
-    # Response up the right, their last lines meeting at the crown.
-    ring = ["hub.homeostasis", "ability.histamine.unlock", "ability.histamine.cooldown",
-            "ability.histamine.radius", "ability.fever.magnitude", "ability.fever.cooldown",
-            "ability.fever.unlock"]
-    for k, key in enumerate(ring):
-        a = math.radians(180.0 + k * 360.0 / len(ring))   # clockwise from the top
-        put(key, add(HEAD, (HEAD_RADIUS * math.sin(a), -HEAD_RADIUS * math.cos(a))))
-
-    # The ribs curl up around the heart, the capstone on the left.
-    pair("neutrophil.trigger_rate", "neutrophil.accuracy", (178, 42))
-    pair("neutrophil.squad_size", "neutrophil.aggro_range", (218, -104))
-    pair("neutrophil.capstone", "neutrophil.vitality", (152, -230))
-
-    # The belly: Complement Cascade down the left side of the waist and
-    # Fibrin Clot down the right, the economy down the middle.
-    pair("ability.complement.unlock", "ability.clot.unlock", (196, 228))
-    pair("ability.complement.cooldown", "ability.clot.cooldown", (212, 362))
-    pair("ability.complement.chain", "ability.clot.duration", (200, 492))
-    pair("hub.field_requisition", "hub.systemic_potency", (100, 470))
-
-    # The arms: the unlock at the shoulder, a chain down the arm to the
-    # capstone in the hand, and one bud on the underside of the upper arm.
-    def arm(side, root, a, bud, b, c, d, cap):
-        f = (lambda q: q) if side > 0 else mirror
-        up = norm(sub(ELBOW, SHOULDER))
-        under = (-up[1], up[0])          # towards the body, below the arm
-        put(root, f((352, -268)))
-        put(a, f(lerp(SHOULDER, ELBOW, 0.40)))
-        put(bud, f(add(lerp(SHOULDER, ELBOW, 0.66), mul(under, 50))))
-        put(b, f(add(lerp(SHOULDER, ELBOW, 0.92), mul(under, -12))))
-        put(c, f(lerp(ELBOW, WRIST, 0.42)))
-        put(d, f(lerp(ELBOW, WRIST, 0.88)))
-        put(cap, f(add(HAND, (14, 4))))
-
-    arm(-1, "cytotoxic.unlock", "cytotoxic.drain", "cytotoxic.tower_health", "cytotoxic.attach_speed",
-        "cytotoxic.search", "cytotoxic.stamina", "cytotoxic.capstone")
-    arm(1, "goblet.unlock", "goblet.slow_strength", "goblet.tower_health", "goblet.slow_duration",
-        "goblet.splash_radius", "goblet.weakness", "goblet.capstone")
-
-    # The legs: the unlock at the hip, a chain down to the capstone at the
-    # foot, a bud on each side of the thigh.
-    def leg(side, root, a, bud_out, b, bud_in, c, d, cap):
-        f = (lambda q: q) if side > 0 else mirror
-        down = norm(sub(KNEE, HIP))
-        outward = (down[1], -down[0])
-        put(root, f((190, 690)))
-        put(a, f(lerp(HIP, KNEE, 0.48)))
-        put(bud_out, f(add(lerp(HIP, KNEE, 0.62), mul(outward, 64))))
-        put(b, f(lerp(HIP, KNEE, 0.86)))
-        put(bud_in, f(add(lerp(HIP, KNEE, 1.04), mul(outward, -66))))
-        put(c, f(lerp(KNEE, ANKLE, 0.34)))
-        put(d, f(lerp(KNEE, ANKLE, 0.74)))
-        put(cap, f(add(FOOT, (6, 0))))
-
-    leg(-1, "macrophage.unlock", "macrophage.grab_speed", "macrophage.arms", "macrophage.captives",
-        "macrophage.health", "macrophage.search", "macrophage.wall", "macrophage.capstone")
-    leg(1, "fibroblast.unlock", "fibroblast.scar_health", "fibroblast.tower_health", "fibroblast.reinforce",
-        "fibroblast.build_radius", "fibroblast.scar_size", "fibroblast.inflammation", "fibroblast.capstone")
-
-
-def check_nodes():
-    missing = [k for k in KEYS if k not in POS]
-    extra = [k for k in POS if k not in KIND]
-    no_icon = [k for k in KEYS if k not in ICON]
-    if missing or extra or no_icon:
-        sys.exit(f"unplaced: {missing}  unknown: {extra}  no icon: {no_icon}")
-    roots = [k for k in KEYS if k not in PARENT]
-    if roots != ["neutrophil.unlock"]:
-        sys.exit(f"the tree must have the Neutrophil as its only root, not {roots}")
-    children = {}
-    for child, parent in PARENT.items():
-        children.setdefault(parent, []).append(child)
-    for parent, kids in children.items():
-        if len(kids) > 3:
-            sys.exit(f"{parent} has {len(kids)} children: {kids}")
-    # No two nodes closer than a third of a small node between their rims.
-    keys = sorted(POS)
-    for i, a in enumerate(keys):
-        for b in keys[i + 1:]:
-            gap = math.dist(POS[a], POS[b]) - (SIZE[KIND[a]] + SIZE[KIND[b]]) / 2
-            if gap < 20:
-                sys.exit(f"{a} and {b} overlap (gap {gap:.0f})")
-
-
-# ---------------------------------------------------------------- output
-
-
-def build():
-    place_nodes()
-    check_nodes()
-    nodes = {k: {"x": POS[k][0], "y": POS[k][1], "size": SIZE[KIND[k]], "icon": ICON[k]} for k in KEYS}
-    return {
-        "_comment": "Generated by tools/gen_tree_layout.py: the Strengthen Immunity tree laid out as a human "
-                    "figure, in tree units (one logical pixel at zoom 1), y down, the heart at the origin. "
-                    "Do not edit by hand.",
-        "nodes": nodes,
-    }
 
 
 def vessel(pos, child):
@@ -308,7 +256,7 @@ def vessel(pos, child):
     return points
 
 
-def preview(layout, path, scale=0.42, supersample=2):
+def preview(layout, path, scale=0.5, supersample=2):
     """The fully grown tree as the game draws it: vessels and nodes."""
     from PIL import Image, ImageDraw
 

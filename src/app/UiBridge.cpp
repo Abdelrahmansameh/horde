@@ -216,13 +216,14 @@ ui::TreeModel make_screenshot_tree_model(ScreenshotTree progress) {
             meta.credit(30);
             break;
         case ScreenshotTree::Sample: {
-            // A few runs and two first clears in: the heart's lines, an arm
-            // and the head opened, 486 Memory Cells and an Antibody to spend.
-            const T buys[] = {T::NeutrophilRoundDamage, T::NeutrophilRoundDamage, T::NeutrophilRoundDamage,
-                              T::BoneMarrowReserve,     T::BoneMarrowReserve,     T::NeutrophilTriggerRate,
+            // A few runs and two first clears in: the Neutrophil's lines,
+            // the Cytotoxic T and Histamine Flare opened, 486 Memory Cells and
+            // an Antibody to spend.
+            const T buys[] = {T::BoneMarrowReserve,     T::BoneMarrowReserve,     T::NeutrophilRoundDamage,
+                              T::NeutrophilRoundDamage, T::NeutrophilRoundDamage, T::NeutrophilTriggerRate,
                               T::NeutrophilTriggerRate, T::NeutrophilAccuracy,    T::RapidMetabolism,
-                              T::CytotoxicRoot,         T::CytotoxicDrain,        T::EliteResponse,
-                              T::Homeostasis,           T::HistamineUnlock,       T::HistamineCooldown};
+                              T::CytotoxicRoot,         T::CytotoxicDrain,        T::EfficientClearance,
+                              T::SystemicPotency,       T::HistamineUnlock,       T::HistamineCooldown};
             game::MetaProgression rich = meta;
             rich.credit(100000, 100);
             for (T b : buys) rich.purchase(b, cfg);

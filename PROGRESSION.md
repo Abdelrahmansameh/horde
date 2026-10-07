@@ -54,49 +54,41 @@ A single currency funding everything makes "which tower do I unlock next" and "d
 
 ## 4. Tree shape
 
-Strengthen Immunity is one tree, and its nodes, joined by vessels that branch outward from the heart the way arteries do, draw the body it strengthens: no outline, the pattern of nodes alone makes a human figure. The Neutrophil (innate immunity, owned from the start) is the heart, ringed by its own lines like ribs; the hub lines run up the sternum and the neck and down the middle of the belly; two abilities make the ring of the head and two run down the sides of the waist; each of the other four towers is a limb, from its unlock at the shoulder or hip down to its capstone at the hand or foot.
+Strengthen Immunity is one tree, drawn as a classic radial skill tree: the Neutrophil (innate immunity, owned from the start) in the middle, three core economy lines round it, and from each core its subjects grow outward, each in its own wedge of the circle, joined by vessels that branch the way arteries do.
 
 ```
-                      Radius               Healing Strength
-                   Cooldown                     Cooldown                    head: a ring,
-              [Histamine Flare]          [Fever Response]                   an ability up
-                              \          /                                  each side
-                             [ Homeostasis ]
-                                    |
-                            [ Elite Response ]                              neck
-                                    |
-   [Cytotoxic T] -------- [ Bone Marrow Reserve ] -------- [Goblet Cell]    shoulders
-   left arm, capstone                  |                   right arm, capstone
-   in the hand                [ NEUTROPHIL ] the root      in the hand
-                                       |
-       ribs: Neutrophil ------ [ Round Damage ] ------ ribs: Neutrophil     chest
-       lines, capstone                 |               lines
-   [Complement Cascade] -- [ Rapid Metabolism ] -- [Fibrin Clot]            belly: an
-    Cooldown, Chain Links              |            Cooldown, Duration       ability down
-                                       |                                     each side
-                          [ Efficient Clearance ] -- Field Requisition,
-                                       |             Systemic Potency
-                          [ Membrane Resilience ]                           pelvis
-                               /               \
-                     [Macrophage]             [Fibroblast]                  hips
-                     left leg, capstone       right leg, capstone
-                     at the foot              at the foot
+                            [ NEUTROPHIL ]   the centre, owned from the start
+                                  |
+        +-------------------------+--------------------------+
+        |                         |                          |
+  Bone Marrow Reserve      Efficient Clearance        Rapid Metabolism        the three cores
+  (top)                    (right)                    (bottom and left)
+        |                         |                          |
+   Macrophage              Systemic Potency           Field Requisition
+   Neutrophil's lines        Complement Cascade         Elite Response
+   Cytotoxic T               Histamine Flare            Membrane Resilience
+                           Homeostasis                Fibroblast
+                             Fever Response           Goblet Cell
+                             Fibrin Clot
+     attack towers            abilities               systemic lines,
+                                                      control towers
 ```
 
 The rules:
 
 - **One parent each.** Every node hangs off exactly one parent; the Neutrophil, the root, has none. No node has more than **three** children.
 - **A node opens when its parent is owned** (at any level). That is the only prerequisite besides a capstone's branch-point threshold (§4.1).
-- **Milestones stay the player's choice.** The path from the heart to every tower and ability unlock runs through Memory Cell nodes only, never through another Antibody node, so the order towers and abilities are unlocked in is still the player's (the direct answer to "you can choose the order in which you unlock the towers"). Where a milestone sits sets how soon it can be reached: the arms are one cheap node from the heart, the belly abilities two, the head's three, the legs four.
-- **Capstones end a limb.** Each is a leaf at the end of its branch's chain (the hands, the feet, the top of the ribs).
-- **The tree uncovers as it grows.** The screen shows the owned nodes and the nodes they feed -- what can be bought next -- and hides everything past them. A new campaign sees the heart and its two children, zoomed in; the figure takes shape as it grows. The view pans and zooms out to the whole figure.
+- **Each subject grows in its own region.** Under each core, every subject (a tower, an ability pair, the systemic lines) is a subtree that fans outward in its own wedge: the attack towers across the top with the Neutrophil's own lines straight up, the abilities down the right, the systemic lines and the control towers round the bottom and the left.
+- **Milestones stay the player's choice.** The path from the centre to every tower and ability unlock runs through Memory Cell nodes only, never through another Antibody node, so the order towers and abilities are unlocked in is still the player's (the direct answer to "you can choose the order in which you unlock the towers"). Every tower unlock is one core away from the centre; every ability is a core and a gate (Systemic Potency for the offensive pair, Homeostasis for the supporting pair) away.
+- **Capstones sit on the rim.** Each is a leaf at the outer end of its branch.
+- **The tree uncovers as it grows.** The screen shows the owned nodes and the nodes they feed -- what can be bought next -- and hides everything past them. A new campaign sees the Neutrophil and its three cores, zoomed in. The view pans and zooms out to the whole tree.
 
 ### 4.1 Node types
 
-- **Root (unlock) node.** One per tower branch. Neutrophil's is already owned at campaign start and is the root of the whole tree; the other four each cost a small number of Antibodies and sit at a shoulder or a hip, reached through hub (Memory Cell) nodes only.
-- **Stat (leveled) node.** Several per branch, each one upgradeable dimension of that tower, bought in discrete levels (roughly 3-5 per line) at a Memory Cell cost that rises per level. A branch's lines form a short chain down its limb, with a bud or two off it; one level in a line opens the lines after it.
-- **Capstone node.** One per branch, at the end of its limb, gated behind (a) its parent and (b) a minimum number of points already spent anywhere in that branch (a simple threshold, e.g. "6 points spent in this branch"; exact number is a balance call). Costs both Antibodies and Memory Cells. This is the build-defining, unique-effect purchase at the end of investing in one tower, distinct in kind from the stat lines feeding it.
-- **Hub nodes.** Economy lines (Memory Cells) along the spine, and ability-unlock nodes (Antibody-gated roots, exactly like a tower root, each with its own Memory-Cell-funded stat lines beneath it).
+- **Root (unlock) node.** One per tower branch. Neutrophil's is already owned at campaign start and is the centre of the whole tree; the other four each cost a small number of Antibodies and sit one core out from the centre, reached through Memory Cell nodes only.
+- **Stat (leveled) node.** Several per branch, each one upgradeable dimension of that tower, bought in discrete levels (roughly 3-5 per line) at a Memory Cell cost that rises per level. A branch's lines fan out from its unlock in two or three short chains; one level in a line opens the lines after it.
+- **Capstone node.** One per branch, at the outer end of it, gated behind (a) its parent and (b) a minimum number of points already spent anywhere in that branch (a simple threshold, e.g. "6 points spent in this branch"; exact number is a balance call). Costs both Antibodies and Memory Cells. This is the build-defining, unique-effect purchase at the end of investing in one tower, distinct in kind from the stat lines feeding it.
+- **Hub nodes.** Economy lines (Memory Cells) -- the three cores round the centre, the two gates in front of the abilities, and the systemic lines -- and ability-unlock nodes (Antibody-gated roots, exactly like a tower root, each with its own Memory-Cell-funded stat lines beneath it).
 
 ### 4.2 What's deliberately *not* in the tree (v1)
 
@@ -105,7 +97,7 @@ The rules:
 
 ## 5. Tower branches
 
-Each branch's stat lines are drawn directly from what's tunable per tower in the current roster. Every branch follows the same shape: an unlock root (already owned for Neutrophil), a chain of stat lines down its limb, one capstone at the end of it.
+Each branch's stat lines are drawn directly from what's tunable per tower in the current roster. Every branch follows the same shape: an unlock root (already owned for Neutrophil), stat lines fanning out from it, one capstone at the outer end.
 
 The tree was trimmed (2026-10) by the lines that duplicated another: every tower's own placement-cost line (Field Requisition, §6, does that for all of them), a second health line where a branch had two, the Cytotoxic T's second drain line, the Fibroblast's second scar-health line, the Goblet Cell's droplet count and the Macrophage's Body Mass. The tables below list what is left.
 
@@ -174,7 +166,7 @@ The tree was trimmed (2026-10) by the lines that duplicated another: every tower
 
 ## 6. Hub branch
 
-Cheap and broad: the spine of the body (§4), and the first thing any player buys, struggling or not.
+Cheap and broad: the three cores round the centre (§4) are the first thing any player buys, struggling or not.
 
 **Economy lines (Memory Cells):**
 
@@ -191,7 +183,7 @@ Cheap and broad: the spine of the body (§4), and the first thing any player buy
 
 All four of the game's existing player-triggered abilities move here, unlocked permanently instead of available from the start:
 
-| Ability | Unlock (Antibody) | Lines (Memory Cells), the second growing from the first |
+| Ability | Unlock (Antibody) | Lines (Memory Cells) |
 |---|---|---|
 | **Complement Cascade Burst** | unlock node | Cooldown Reduction · Chain Link count |
 | **Histamine Flare** | unlock node | Cooldown Reduction · Radius |

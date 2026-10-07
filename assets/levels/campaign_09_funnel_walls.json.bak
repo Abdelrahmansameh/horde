@@ -102,7 +102,7 @@
       "prep_time": 8,
       "atp_reward": 50,
       "spawns": [
-        { "family": "virus", "count": 5000, "duration": 4 },
+        { "family": "virus", "count": 1000, "duration": 4 },
         { "family": "virus", "count": 50, "start_time": 1, "duration": 4 },
         { "family": "virus", "count": 50, "start_time": 2, "duration": 4 }
       ]

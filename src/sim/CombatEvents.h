@@ -88,12 +88,15 @@ enum class CombatEventType : u8 {
     /// agents on one tick, and letting that flood the shared sink would starve
     /// every tower's own effect at exactly the moment the screen is busiest.
     ChaffDeath = 11,
-    /// A swarmer was killed by the horde (sim/hostile/HostileAttacks.h):
-    /// drained by latched viruses or burned by a bacterial aura. `origin` =
-    /// where it dissolved, `radius` = its body radius, `source` = the tower
-    /// type that released it, `visual_id` = its tier with kSwarmerEventBit.
-    /// Distinct from ProjectileExpired (a unit that simply ran out) so the
-    /// VFX can make being eaten look like being eaten.
+    /// A swarmer died, of every kind and by every cause on the board: killed
+    /// by the horde (sim/hostile/HostileAttacks.h), its lifetime run out, a
+    /// bomber detonating (raised alongside its Explosion -- the payload is
+    /// the tower's, the shell bursting is the unit's), or a builder spent on
+    /// its scar. Only leaving the world raises nothing. `origin` = where it
+    /// died, `direction` = its heading, `magnitude` = its SPEED at death
+    /// (world units/sec, as ChaffDeath), `radius` = its body radius, `source`
+    /// = the tower type that released it, `visual_id` = its tier with
+    /// kSwarmerEventBit. Built in one place, sim::raise_swarmer_death().
     SwarmerDeath = 12,
     /// A tower's integrity reached zero and it was torn down
     /// (game/towers/TowerSystem.cpp). `origin` = its centre, `radius` = its

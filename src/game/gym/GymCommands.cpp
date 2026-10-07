@@ -162,6 +162,7 @@ const CombatEventName kCombatEventNames[] = {
     {"slash", sim::CombatEventType::BladeSlash},
     {"splash", sim::CombatEventType::FluidSplash},
     {"death", sim::CombatEventType::ChaffDeath},
+    {"swarmer", sim::CombatEventType::SwarmerDeath},
 };
 
 // ---------------------------------------------------------------------------
@@ -963,6 +964,9 @@ GymResult cmd_vfx(GymContext& ctx, const std::vector<std::string>& tok) {
         e.magnitude = 4.0f;
         e.source = TowerType::Neutrophil;
         e.target_family = PathogenFamily::Virus;
+        // A swarmer death scales with the body, so the area-effect radius
+        // above would draw a cell six units across. A Neutrophil's is 2.
+        if (type == sim::CombatEventType::SwarmerDeath) e.radius = 2.0f;
         return e;
     };
 

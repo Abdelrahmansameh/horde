@@ -4,11 +4,11 @@
   "display_name": "First Bend",
   "description": "One vessel, two corners. Learn where a bend slows the horde down.",
   "difficulty": 1,
-  "economy": { "starting_atp": 300 },
   "tags": ["campaign"],
   "region": "capillary",
   "world": { "min": [0, 0], "max": [146.2, 142.8] },
   "camera": { "view_height": 142.8 },
+  "economy": { "starting_atp": 300 },
   "vessels": [
     {
       "id": "main",
@@ -28,7 +28,7 @@
     }
   ],
   "spawn_points": [
-    { "id": "p0", "pos": [-64.012, 116.008], "radius": 9.52, "lane_id": "main" }
+    { "id": "p0", "pos": [-81.262, 116.008], "radius": 9.52, "lane_id": "main" }
   ],
   "objectives": [
     { "id": "organ", "pos": [206.734, 31.552], "half_extents": [3.4, 10.88] }
@@ -61,8 +61,7 @@
       "atp_reward": 86,
       "spawns": [
         { "family": "virus", "count": 372, "duration": 4 },
-        { "family": "bacteria", "count": 56, "start_time": 1, "duration": 3.5 },
-        { "family": "parasite", "count": 8, "start_time": 1.5, "duration": 3.5 }
+        { "family": "bacteria", "count": 56, "start_time": 5, "duration": 3.5 }
       ]
     },
     {
@@ -70,9 +69,18 @@
       "prep_time": 5.6,
       "atp_reward": 104,
       "spawns": [
+        { "family": "virus", "count": 200, "duration": 2 },
+        { "family": "bacteria", "count": 95, "start_time": 3.037, "duration": 2 },
+        { "family": "virus", "count": 50, "start_time": 6, "duration": 2 }
+      ]
+    },
+    {
+      "name": "campaign_01_first_bend_wave_4_copy",
+      "prep_time": 5.6,
+      "atp_reward": 104,
+      "spawns": [
         { "family": "virus", "count": 489, "duration": 4 },
-        { "family": "bacteria", "count": 95, "start_time": 1, "duration": 3.5 },
-        { "family": "parasite", "count": 14, "start_time": 1.5, "duration": 3.5 }
+        { "family": "bacteria", "count": 95, "start_time": 1, "duration": 3.5 }
       ]
     },
     {

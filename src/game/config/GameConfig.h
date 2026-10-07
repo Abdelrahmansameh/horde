@@ -277,6 +277,8 @@ struct TowerConfig {
     TowerGlobals globals{};
     TowerStats stats[kTowerTypeCount]{};
     TowerMechanics mechanics[kTowerTypeCount]{};
+    /// How the tower's units burst when they die (vfx/DeathVfx.h).
+    vfx::SwarmerDeathVfx death_vfx[kTowerTypeCount]{};
 };
 
 // ---------------------------------------------------------------------------

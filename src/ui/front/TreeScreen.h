@@ -1,23 +1,20 @@
 // ui/front/TreeScreen.h — the Strengthen Immunity tree, on the gui framework.
 //
-// The tree's nodes and vessels draw the body it strengthens -- no outline,
-// the pattern alone. tools/gen_tree_layout.py places every node of
-// game/meta/ImmunityTree on a human figure (the Neutrophil at the heart
-// ringed by its lines like ribs, the hub lines up the sternum and neck and
-// down the belly, two abilities round the head and two down the waist, a
-// tower down each limb to its capstone at the hand or foot) and writes it to
-// assets/ui/tree_layout.json. The vessels between nodes follow the game's
-// parent links (TreeNodeView::parent), so the drawing cannot disagree with
-// the rules.
+// A classic radial skill tree. tools/gen_tree_layout.py lays out every node
+// of game/meta/ImmunityTree from its parent links: the Neutrophil in the
+// middle, three core economy lines round it, and each subject (the attack
+// towers, the abilities, the systemic lines and the control towers) growing
+// outward in its own wedge; it writes that to assets/ui/tree_layout.json.
+// The vessels between nodes follow the game's parent links
+// (TreeNodeView::parent), so the drawing cannot disagree with the rules.
 //
-// The figure is uncovered as it grows (TreeModel::revealed): a node shows
-// once its parent is owned, so a new campaign sees the heart and the two
-// nodes it feeds, zoomed in, and each purchase buds the next nodes into
-// view.
+// The tree is uncovered as it grows (TreeModel::revealed): a node shows once
+// its parent is owned, so a new campaign sees the Neutrophil and its three
+// cores, zoomed in, and each purchase buds the next nodes into view.
 //
 // The view pans (drag anywhere), zooms about the pointer (wheel) and has
 // zoom-in, zoom-out and recenter buttons; zooming out stops at the whole
-// figure. Hovering a node opens its card beside it (name, level, effect, what
+// tree. Hovering a node opens its card beside it (name, level, effect, what
 // it needs, its price); clicking a node buys its next level. Buying is app/'s
 // job: a click reports MenuAction::PurchaseNode and app/ buys through
 // MetaProgression, exactly as before.
@@ -37,7 +34,7 @@ namespace immune::gui { class Gui; class Widget; class Label; class Icon; class 
 namespace immune::ui {
 
 /// assets/ui/tree_layout.json, in tree units: one logical pixel at zoom 1,
-/// y down, the heart at the origin.
+/// y down, the centre (the Neutrophil) at the origin.
 struct TreeLayout {
     struct Node {
         Vec2 at;

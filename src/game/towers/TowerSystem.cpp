@@ -21,6 +21,7 @@
 #include "sim/scar/Scars.h"
 #include "sim/swarm/Swarmers.h"
 #include "sim/spatial/SpatialHash.h"
+#include "vfx/DeathVfx.h"
 
 #include <algorithm>
 #include <cmath>
@@ -1288,6 +1289,9 @@ void apply_tower_config(TowerSystem& towers, const TowerConfig& cfg) {
     for (u32 t = 0; t < kTowerTypeCount; ++t) {
         towers.set_stats(static_cast<TowerType>(t), cfg.stats[t]);
         g_mechanics[t] = cfg.mechanics[t];
+        // vfx/ cannot see game/, so the units' death burst is pushed down,
+        // the same way apply_enemy_config does the pathogens'.
+        vfx::set_swarmer_death_vfx(static_cast<TowerType>(t), cfg.death_vfx[t]);
     }
     g_globals = cfg.globals;
 }
