@@ -13,7 +13,9 @@
 //   5 = fibrin clot bar (game/abilities Fibrin Clot; v_shape_param is the
 //       bar's aspect, half_length / half_width, and v_tint.a its dissolve)
 //   6 = collagen scar bar (sim/scar, the Fibroblast's wall; v_shape_param is
-//       the aspect as for 5, and v_tint.a its remaining INTEGRITY fraction)
+//       the aspect as for 5, and the tint carries its STATE, not a colour:
+//       r assembled, g repair freshness, b a per-wall seed, a the integrity
+//       shown -- see Renderer::submit_entities)
 // Tower shape ids start at 16 (kTowerShapeBase in TowerSystem.cpp) and run in
 // TowerType declaration order, so id == 16 + TowerType:
 //   16 = Neutrophil   17 = Macrophage (branching multi-grabber)
@@ -538,98 +540,322 @@ float sdf_clot(vec2 p, float aspect, float phase, float dissolve, out float plat
 // ---------------------------------------------------------------------------
 // COLLAGEN SCAR -- the Fibroblast's wall (sim/scar).
 //
-// Scar tissue is collagen laid down in dense parallel bundles, and that is
-// the read here: the same rounded bar the sim carved, less frayed than the
-// clot (this is a structure, not a tangle), striped end to end with fibre
-// bundles that run ALONG the bar. No platelets -- collagen is the fibroblast's
-// own product, nothing is caught in it.
+// A ROPE: three collagen cords laid side by side down the bar, crimped a
+// little out of step so they read as twisted together, each one made of
+// SEGMENTS -- the bundles the cell laid one after another. Opaque and shaded
+// as solid round cords (a lit crown, a shaded underside, grooves where they
+// meet, a twist striation), so the wall reads as a woven thing standing in
+// the lane. Every animation is a segment having its moment:
 //
-// `damage` is 1 - v_tint.a: the horde chews the wall from its faces, so the
-// bar loses thickness in noisy bites along its length and cracks open along
-// the fibre lines as its integrity falls, and at nothing it is gone. The
-// bites are seeded by position, not by time, so a wall that is being eaten
-// looks eaten in one place rather than shimmering everywhere.
+//   build   thin threads spin out from the middle (where the cell sits) to
+//           the ends first, then segment by segment, middle outward, they
+//           thicken into full cords;
+//   damage  segments are TORN OUT -- outer cords and the ends first, the
+//           middle cord last. A lost segment simply is not there: the cord
+//           ends round off either side of the gap and the lane shows through.
+//           Nothing darkens; the rope just comes apart;
+//   repair  threads bridge the gaps and the lost segments thicken back in,
+//           bright while they are fresh.
 // ---------------------------------------------------------------------------
-float sdf_scar(vec2 p, float aspect, float phase, float damage, out float fibre,
-               out float crack) {
-    vec2 he = vec2(0.5, 0.5 / max(aspect, 1.0));
-    // A slight, slow writhe along the long edges: collagen creeps.
-    float w = fbm(vec2(p.x * 7.0 + phase * 0.02, p.y * 10.0 + 1.9)) - 0.5;
-    vec2 wp = vec2(p.x, p.y + w * he.y * 0.30);
-    float r = he.y * 0.70;
-    vec2 q = abs(wp) - (he - vec2(r));
-    float box = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r;
+const float kScarCordGap = 0.60;   // cord spacing across, half-widths
+const float kScarCordR   = 0.42;   // full cord radius
+const float kScarSegLen  = 1.45;   // segment length along a cord
+const float kScarThreadR = 0.075;  // a scaffold thread's radius
+const float kScarFar = 50.0;
 
-    // Bites: the faces are chewed in where the noise says the crowd was.
-    // Deeper toward the ends first, so a wall dies from its tips inward and
-    // the last of it is the middle still holding.
-    float bite = vnoise(vec2(p.x * 9.0 + 5.1, 0.0)) * 0.7 + vnoise(vec2(p.x * 23.0, 2.2)) * 0.3;
-    float thin = damage * he.y * (0.55 + 0.9 * bite) * (0.8 + 0.5 * abs(p.x) / he.x);
-    float body = box + thin;
+float scar_cord_y(float x, float cord, float seed) {
+    return (cord - 1.0) * kScarCordGap + 0.085 * sin(x * 1.7 + cord * 2.1 + seed * 6.0);
+}
 
-    // Fibre bundles: bands running along the bar, gently waved.
-    float band = vnoise(vec2(p.x * 9.0 + phase * 0.01, p.y * 85.0));
-    fibre = smoothstep(0.38, 0.62, band);
-    // Cracks open along the bands as integrity falls: long in x, thin in y,
-    // so they read as splits between fibre bundles and not as pockmarks.
-    float cn = vnoise(vec2(p.x * 7.0 + 2.3, p.y * 75.0 + 7.0)) * 0.7 + vnoise(vec2(p.x * 19.0, p.y * 140.0)) * 0.3;
-    crack = smoothstep(1.0 - damage * 0.85, 1.0 - damage * 0.85 + 0.10, cn) * step(0.0, -body);
+// 0..1, how much of a segment is there; `fresh` how newly laid it is.
+float scar_seg_presence(float cord, float xc, float h, float aspect, float build,
+                        float damage, float repair, out float fresh) {
+    // Outer cords and the ends are at risk first, the middle cord last.
+    float risk = clamp(0.60 * abs(cord - 1.0) + 0.45 * smoothstep(aspect - 2.6, aspect, abs(xc)), 0.0, 1.0);
+    float gone = 0.05 + 0.92 * clamp((1.0 - risk) * 0.72 + h * 0.28, 0.0, 1.0);
+    float g_dmg = 1.0 - smoothstep(gone - 0.07, gone, damage);
+    // Laid middle first, out to the ends.
+    float came = 0.12 + 0.55 * clamp(abs(xc) / max(aspect, 1.0), 0.0, 1.0) + 0.14 * h;
+    float g_bld = smoothstep(came, came + 0.22, build);
+    fresh = max((1.0 - smoothstep(0.0, 0.30, build - came)) * step(came, build),
+                repair * (1.0 - smoothstep(0.0, 0.22, gone - damage)));
+    return min(g_dmg, g_bld);
+}
+
+// Signed distance to the rope, half-width units. `across` = the pixel's
+// position across the nearest cord (-1..1), `seg_h` its segment's random
+// number, `fresh` how newly laid that segment is, `thread` 1 on a bare
+// scaffold thread.
+float scar_wall(vec2 q, float aspect, float seed, float build, float damage, float repair,
+                out float across, out float seg_h, out float fresh, out float thread) {
+    float wall = kScarFar;
+    float best = kScarFar;
+    across = 0.0; seg_h = 0.0; fresh = 0.0; thread = 0.0;
+    float front = aspect * smoothstep(0.0, 0.45, build) + 0.35;
+    float thread_show = max(1.0 - smoothstep(0.80, 1.0, build), repair);
+    for (int k = 0; k < 3; ++k) {
+        float cord = float(k);
+        float yc = scar_cord_y(q.x, cord, seed);
+        // The cords end staggered, the middle one longest, like a rope's end.
+        float end = aspect - 0.30 - 0.32 * abs(cord - 1.0);
+        float off = hash21(vec2(cord * 3.1, seed * 7.7)) * kScarSegLen;
+        float si = floor((q.x + off) / kScarSegLen);
+        for (int j = -1; j <= 1; ++j) {
+            float s = si + float(j);
+            float x0 = max(s * kScarSegLen - off, -end);
+            float x1 = min(s * kScarSegLen - off + kScarSegLen, end);
+            if (x1 <= x0) continue;
+            float xc = 0.5 * (x0 + x1);
+            float hl = 0.5 * (x1 - x0);
+            float h = hash21(vec2(s * 1.37 + cord * 17.1, cord * 3.7 + seed * 11.3));
+            float fr;
+            float g = scar_seg_presence(cord, xc, h, aspect, build, damage, repair, fr);
+            float r = g > 0.001 ? kScarCordR * (0.92 + 0.14 * h) * (0.25 + 0.75 * g) : 0.0;
+            float rt = kScarThreadR * thread_show * step(abs(xc) - hl, front);
+            float rad = max(r, rt);
+            if (rad <= 0.0) continue;
+            // A capsule down the crimped centreline, its ends rounded so a
+            // gap shows cord ends and a joint a slight waist.
+            float dx = max(abs(q.x - xc) - max(hl - 0.55 * rad, 0.0), 0.0);
+            float d = length(vec2(dx, q.y - yc)) - rad;
+            wall = smin(wall, d, 0.14);
+            if (d < best) {
+                best = d;
+                across = clamp((q.y - yc) / rad, -1.0, 1.0);
+                seg_h = h;
+                fresh = r >= rt ? fr : 0.0;
+                thread = r < rt ? 1.0 : 0.0;
+            }
+        }
+    }
+    return wall;
+}
+
+// Shades one scar fragment. `q` and `shadow_q` in half-width units, `px` the
+// size of a pixel in them. Straight alpha out; the shadow separately.
+vec4 shade_scar(vec2 q, vec2 shadow_q, float aspect, float seed, float build, float damage,
+                float repair, float px, out float shadow) {
+    float across, seg_h, fresh, thread;
+    float wall = scar_wall(q, aspect, seed, build, damage, repair, across, seg_h, fresh, thread);
+    float a = 1.0 - smoothstep(-px, px, wall);
+
+    float s_across, s_h, s_fresh, s_thread;
+    float sw = scar_wall(shadow_q, aspect, seed, build, damage, repair, s_across, s_h, s_fresh, s_thread);
+    shadow = (1.0 - smoothstep(-0.25, 0.30, sw)) * 0.40;
+
+    // A solid round cord, lit from above: the crown catches the light, the
+    // underside and the grooves between cords fall into shade.
+    float nz = sqrt(max(1.0 - across * across, 0.0));
+    float lit = 0.45 * across + 0.90 * nz;
+    vec3 rgb = mix(vec3(0.13, 0.28, 0.68), vec3(0.29, 0.55, 0.96), smoothstep(-0.25, 0.75, lit));
+    rgb *= 0.93 + 0.12 * seg_h;
+    // The twist: fine fibres running round the cord at a slant.
+    float twist = sin((q.x * 2.4 + across * 1.9 + seg_h * 5.0) * 3.14159);
+    rgb *= 1.0 + 0.07 * twist * nz;
+    // A wet highlight streak along each cord's crown.
+    rgb = mix(rgb, vec3(0.74, 0.90, 1.00), pow(max(lit, 0.0), 10.0) * 0.55);
+    // Fresh collagen is bright as it knits in; a bare thread is pale.
+    rgb = mix(rgb, vec3(0.56, 0.82, 1.00), fresh * 0.45);
+    rgb = mix(rgb, vec3(0.80, 0.93, 1.00), thread * 0.85);
+    // A firm edge, so the rope holds its shape on the bright lane.
+    float edge = 1.0 - smoothstep(0.0, 0.11, -wall);
+    rgb = mix(rgb, vec3(0.12, 0.17, 0.46), edge * 0.70 * (1.0 - thread));
+    return vec4(rgb, a);
+}
+// "Nothing here" for the distances below that pass through smin: a 1e9
+// would swallow the body whole in float (swarmer.frag says why).
+const float kFar = 8.0;
+
+// ---------------------------------------------------------------------------
+// BUILDER -- a fibroblast, crawling.
+//
+// Same spindle as ever -- a body drawn out along the heading with a process
+// off each end -- but built the way the other cells here are built: a chain
+// of soft lobes fused with smin() under a domain-warped membrane, so it reads
+// as a sac of liquid rather than a cut-out. Local +x is the heading.
+//
+// THE CRAWL. A migrating fibroblast inches: the leading lamella reaches out
+// and sticks, the body stretches after it, then contracts and drags its tail
+// up. One stroke per cycle (fibro_stroke: +1 reach, -1 contract) drives the
+// stretch, the lamella's reach and the tail, and a swell rolls down the lobe
+// chain front to back once a stroke -- the peristaltic wave that makes it
+// look like it is pulling itself along. `move` (0..1, its speed over its
+// profile speed) scales all of it, so a cell standing still only breathes.
+//
+// SECRETION (`secrete` 0..1 while it lays or mends a wall; it has turned to
+// lie along the wall by then): it draws out long and thin, its vesicles run
+// to the two poles, and each pole spins out a crimped collagen thread. The
+// particle layer carries the threads on from there to the wall.
+// ---------------------------------------------------------------------------
+// The lobe chain, nose to tail: centre x and radius.
+const float kFibroLobeX[6] = float[6](0.255, 0.115, -0.035, -0.180, -0.300, -0.385);
+const float kFibroLobeR[6] = float[6](0.122, 0.166, 0.182, 0.150, 0.100, 0.058);
+
+// The crawl stroke: +1 the reach, -1 the contraction. Two sines so the stride
+// never quite repeats.
+float fibro_stroke(float c) { return 0.82 * sin(c) + 0.18 * sin(2.0 * c + 0.9); }
+
+float sdf_fibroblast_cell(vec2 p, float phase, float move, float secrete, float load,
+                          out float nucleus_d, out float nucleolus, out float vesicle,
+                          out float lamella, out float thread_d, out float pole_glow) {
+    float c = phase * 1.15;
+    float stroke = fibro_stroke(c) * move;
+    float pull = sin(3.14159 * clamp(secrete, 0.0, 1.0));
+
+    float wx = fbm(p * 4.0 + vec2(phase * 0.10, 0.0)) - 0.5;
+    float wy = fbm(p * 4.0 + vec2(3.1, -phase * 0.09)) - 0.5;
+    vec2 wp = p + vec2(wx, wy) * 0.050;
+
+    // Stretch on the reach, bunch on the contraction, long and thin while it
+    // secretes; volume kept, so longer is thinner.
+    float sx = 1.0 + 0.09 * stroke + 0.16 * pull;
+    vec2 bp = vec2(wp.x / sx, wp.y * sx);
+    bp.x += 0.020 * min(stroke, 0.0);
+
+    // The lobe chain, with the crawl's swell rolling down it.
+    float roll = fract(c / 6.2831853);
+    float body = kFar;
+    for (int k = 0; k < 6; ++k) {
+        float fk = float(k);
+        float wave = pow(max(cos(6.2831853 * (roll - fk / 6.0)), 0.0), 3.0);
+        float r = kFibroLobeR[k] * (1.0 - 0.10 * pull) + (0.006 + 0.024 * move) * wave;
+        vec2 lc = vec2(kFibroLobeX[k], 0.014 * sin(phase * 0.31 + fk * 0.9));
+        body = smin(body, length((bp - lc) * vec2(0.78, 1.0)) - r, 0.11);
+    }
+
+    // Leading lamella: a flat fan on the nose, its edge ruffling. Reaches on
+    // the stroke, pulls in on the contraction.
+    float reach = 0.032 * max(stroke, 0.0);
+    vec2 fc = vec2(0.345 + reach, 0.0);
+    float lam = length((bp - fc) * vec2(1.9, 1.10)) - 0.120;
+    for (int k = 0; k < 4; ++k) {
+        float fk = float(k);
+        float a = (fk - 1.5) * 0.44;
+        float ruff = 0.5 + 0.5 * sin(phase * 1.9 - fk * 1.4);
+        vec2 rc = fc + vec2(cos(a) * 0.070, sin(a) * 0.105) * (1.0 + 0.18 * ruff);
+        lam = smin(lam, length(bp - rc) - (0.034 + 0.010 * ruff), 0.045);
+    }
+    body = smin(body, lam, 0.08);
+    lamella = smoothstep(0.26, 0.42, bp.x);
+
+    // Two filopodia off the lamella's corners, flicking.
+    for (int k = 0; k < 2; ++k) {
+        float side = k == 0 ? 1.0 : -1.0;
+        float a = side * (0.62 + 0.10 * sin(phase * 1.3 + side));
+        vec2 root = fc + vec2(cos(a) * 0.07, sin(a) * 0.12);
+        vec2 tip = root + vec2(cos(a * 0.6), sin(a * 0.6)) * (0.075 + 0.03 * sin(phase * 1.7 + side * 2.0));
+        body = smin(body, sdf_tapered_segment(bp, root, tip, 0.013, 0.004), 0.02);
+    }
+
+    // Trailing tail: dragged out on the reach, snapped up on the contraction.
+    float tail_len = (0.16 + 0.05 * stroke) * (1.0 - 0.7 * pull);
+    vec2 t0 = vec2(-0.40, 0.0);
+    vec2 t1 = t0 + vec2(-tail_len, 0.05 * sin(phase * 0.6) + 0.015 * stroke);
+    body = smin(body, sdf_tapered_segment(bp, t0, t1, 0.034, 0.008), 0.035);
+
+    // Secretion threads, crimped, out of both poles.
+    thread_d = kFar;
+    pole_glow = 0.0;
+    if (secrete > 0.0) {
+        float out_t = smoothstep(0.0, 0.55, secrete) * (1.0 - smoothstep(0.82, 1.0, secrete));
+        for (int k = 0; k < 2; ++k) {
+            float side = k == 0 ? 1.0 : -1.0;
+            vec2 root = vec2(side * 0.38, 0.0);
+            float len = 0.38 * out_t;
+            float x = (bp.x - root.x) * side;
+            float crimp = 0.020 * sin(x * 40.0 - phase * 4.0) * clamp(x / 0.08, 0.0, 1.0);
+            float th = mix(0.028, 0.009, clamp(x / max(len, 1e-3), 0.0, 1.0));
+            float d = length(vec2(max(abs(x - 0.5 * len) - 0.5 * len, 0.0), bp.y - crimp)) - th;
+            thread_d = min(thread_d, d);
+            pole_glow = max(pole_glow, out_t * exp(-dot(bp - root, bp - root) / 0.003));
+        }
+        body = smin(body, thread_d, 0.03);
+    }
+
+    // Nucleus: an ellipsoid in the waist, lagging the crawl a beat.
+    vec2 nc = vec2(-0.040 - 0.028 * stroke, 0.006 * sin(phase * 0.5));
+    vec2 np = (bp - nc);
+    nucleus_d = (length(np * vec2(1.0 / 0.130, 1.0 / 0.085)) - 1.0) * 0.085;
+    nucleolus = 0.0;
+    for (int k = 0; k < 2; ++k) {
+        vec2 oc = nc + vec2(0.032 - 0.066 * float(k), 0.014 - 0.030 * float(k));
+        nucleolus = max(nucleolus, 1.0 - smoothstep(0.011, 0.020, length(bp - oc)));
+    }
+
+    // Procollagen vesicles -- the wall it carries. They stream back down the
+    // cell as it crawls, refill while it rests, and on secretion run out to
+    // the poles and go.
+    float vd = kFar;
+    for (int k = 0; k < 9; ++k) {
+        float fk = float(k);
+        if (fk >= load * 9.0) break;
+        float h1 = fract(sin(fk * 12.9898) * 43758.5453);
+        float h2 = fract(sin(fk * 78.233) * 43758.5453);
+        float x = mix(0.27, -0.27, fract(h1 + phase * 0.030 * (0.35 + move)));
+        float half_w = 0.13 * (1.0 - smoothstep(0.10, 0.30, abs(x)));
+        vec2 vc = vec2(x, (h2 * 2.0 - 1.0) * half_w);
+        // Kept off the nucleus.
+        vec2 off = vc - nc;
+        float in_n = length(off * vec2(1.0 / 0.15, 1.0 / 0.10));
+        if (in_n < 1.0) vc = nc + off / max(in_n, 0.2);
+        float r = 0.017 + 0.008 * h1;
+        if (secrete > 0.0) {
+            float side = vc.x >= nc.x ? 1.0 : -1.0;
+            float go = smoothstep(h1 * 0.25, 0.40 + h1 * 0.25, secrete);
+            vc = mix(vc, vec2(side * 0.38, 0.0), go);
+            r *= 1.0 - go;
+        }
+        vd = min(vd, length(bp - vc) - r);
+    }
+    vesicle = 1.0 - smoothstep(-0.006, 0.004, vd);
     return body;
 }
 
-// ---------------------------------------------------------------------------
-// BUILDER -- Fibroblast.
-//
-// A fibroblast is the spindle of the cell world: a long tapered body with
-// an oval nucleus in its waist and thin processes trailing from both tips,
-// crawling through the matrix it lays down. So this is the one tower body
-// that is not round at all: a fusiform soma, warped just enough to read as a
-// membrane, a central ellipsoid nucleus, and `2 + tier` fine processes
-// reaching out of the two ends, which is the countable feature an upgrade
-// adds. Inside, faint fibre streaks run along the long axis -- the collagen
-// the cell is full of, and the same striping its scars carry, so the wall
-// and the cell that laid it read as one material.
-// ---------------------------------------------------------------------------
-float sdf_fibroblast(vec2 p, float phase, float tier, out float nucleus_d,
-                     out float fibre, out float process_d) {
-    float wx = fbm(p * 5.0 + vec2(phase * 0.08, 0.0)) - 0.5;
-    float wy = fbm(p * 5.0 + vec2(3.1, -phase * 0.07)) - 0.5;
-    vec2 wp = p + vec2(wx, wy) * 0.035;
+// Shades the cell. Straight-alpha colour for the body; `shadow` separately.
+vec4 shade_fibroblast_cell(vec2 p, float phase, float move, float secrete, float load, float engaged_rim,
+                           vec3 hue, out float shadow) {
+    float nucleus_d, nucleolus, vesicle, lamella, thread_d, pole_glow;
+    float body_d = sdf_fibroblast_cell(p, phase, move, secrete, load, nucleus_d, nucleolus,
+                                       vesicle, lamella, thread_d, pole_glow);
+    float a = 1.0 - smoothstep(-0.022, 0.008, body_d);
+    vec2 sp = p - vec2(0.070, -0.060);
+    float sd = length(vec2(sp.x * 0.92, sp.y * 2.0)) - 0.40;
+    shadow = (1.0 - smoothstep(-0.12, 0.05, sd)) * 0.34;
 
-    // Fusiform soma: an ellipse whose across-axis squash grows toward the
-    // tips, so the ends draw to points instead of rounding off.
-    float taper = 2.3 + 3.2 * smoothstep(0.16, 0.44, abs(wp.x));
-    float body = length(vec2(wp.x, wp.y * taper)) - 0.44;
-    // A slight bow along the length -- fibroblasts are never quite straight.
-    body += 0.010 * sin(wp.x * 5.0 + phase * 0.3) * (1.0 - abs(wp.x) * 1.4);
+    // Wet: pale and thin at the rim and over the lamella, a deep clear blue
+    // where the cell is thick -- the subsurface ramp every body here uses.
+    float depth = clamp(-body_d * 5.6, 0.0, 1.0) * (1.0 - 0.25 * lamella);
+    vec3 cyto = mix(vec3(0.50, 0.76, 1.00), vec3(0.14, 0.35, 0.80), depth);
+    cyto = mix(cyto, hue, 0.22);
+    // Rough ER: a fine streaky grain along the long axis.
+    float er = smoothstep(0.55, 0.80, fbm(vec2(p.x * 9.0 + phase * 0.03, p.y * 24.0)));
+    float in_cyto = smoothstep(0.0, 0.030, nucleus_d);
+    vec3 rgb = mix(cyto, vec3(0.74, 0.89, 1.00), er * in_cyto * 0.32 * depth);
 
-    // Processes: fine tapering filaments from each tip, fanned a little,
-    // 2 + tier of them split across the two ends.
-    process_d = 1e9;
-    int n = 2 + int(clamp(tier, 1.0, 3.0));
-    for (int k = 0; k < 5; ++k) {
-        if (k >= n) break;
-        float side = (k % 2 == 0) ? 1.0 : -1.0;
-        float fk = float(k / 2);
-        float fan = (fk - 0.5 * float((n - 1) / 2)) * 0.32 + 0.12 * sin(phase * 0.4 + fk * 1.7);
-        vec2 root = vec2(side * 0.41, 0.0);
-        vec2 dir = normalize(vec2(side * 1.0, fan));
-        float len = 0.16 + 0.05 * fk;
-        vec2 tip = root + dir * len;
-        // Thin at the tip, a touch thicker at the root.
-        float d = sdf_segment(p, root, tip, 0.012);
-        float along = clamp(dot(p - root, dir) / len, 0.0, 1.0);
-        process_d = min(process_d, d + along * 0.006);
-    }
-    body = smin(body, process_d, 0.03);
+    // Vesicles: pearly beads.
+    rgb = mix(rgb, vec3(0.84, 0.95, 1.00), vesicle * in_cyto * 0.70);
 
-    // Nucleus: an ellipsoid in the waist, long axis with the cell.
-    vec2 np = p - vec2(0.0, 0.0);
-    nucleus_d = length(vec2(np.x, np.y * 1.9)) - 0.115;
+    // Nucleus: deep indigo, chromatin mottle, a pale envelope, nucleoli.
+    float nuc = 1.0 - smoothstep(-0.010, 0.010, nucleus_d);
+    float chromatin = fbm(p * 15.0 + vec2(phase * 0.03, 0.0));
+    rgb = mix(rgb, mix(vec3(0.10, 0.14, 0.40), vec3(0.27, 0.35, 0.70), chromatin), nuc * 0.92);
+    rgb = mix(rgb, vec3(0.56, 0.71, 0.98), (1.0 - smoothstep(0.0, 0.016, abs(nucleus_d))) * 0.50);
+    rgb = mix(rgb, vec3(0.05, 0.07, 0.25), nucleolus * nuc * 0.70);
 
-    // Collagen streaks along the long axis.
-    fibre = smoothstep(0.42, 0.62, vnoise(vec2(p.x * 12.0 + phase * 0.02, p.y * 60.0)));
-    return body;
+    // The threads it spins and the hot poles they leave from.
+    float thread = 1.0 - smoothstep(-0.004, 0.008, thread_d);
+    rgb = mix(rgb, vec3(0.90, 0.97, 1.00), thread * 0.85);
+    rgb = mix(rgb, vec3(0.86, 0.96, 1.00), clamp(pole_glow, 0.0, 1.0) * 0.35);
+
+    // Membrane rim, and a soft wet highlight off the key light.
+    float rim = 1.0 - smoothstep(0.0, 0.032, abs(body_d));
+    rgb = mix(rgb, vec3(0.74, 0.90, 1.00), rim * (0.45 + engaged_rim));
+    vec2 hl = p - vec2(-0.05, 0.075);
+    rgb = mix(rgb, vec3(1.0), exp(-dot(hl, hl) / 0.008) * smoothstep(0.0, -0.05, body_d) * 0.22);
+
+    // The lamella is a thin sheet: a little of the ground shows through it.
+    float alpha = a;
+    return vec4(rgb, alpha);
 }
 
 const vec2 kEntityShadowDir = vec2(0.085, -0.070);
@@ -768,37 +994,24 @@ void main() {
         if (o_color.a <= 0.001) discard;
         return;
     } else if (v_shape_id == 6u) {
-        // COLLAGEN SCAR. See sdf_scar above.
-        float damage = 1.0 - clamp(v_tint.a, 0.0, 1.0);
-        float fibre, crack;
-        float body_d = sdf_scar(v_local, v_shape_param, v_anim_phase, damage, fibre, crack);
-
-        float a = 1.0 - smoothstep(-0.018, 0.008, body_d);
-        float he_y = 0.5 / max(v_shape_param, 1.0);
-        vec2 hp = v_local - kEntityShadowDir;
-        float rr = he_y * 0.70;
-        vec2 hq = abs(hp) - (vec2(0.5, he_y) - vec2(rr));
-        float sd = length(max(hq, 0.0)) + min(max(hq.x, hq.y), 0.0) - rr;
-        float sh = (1.0 - smoothstep(-0.10, 0.03, sd)) * 0.42 * (1.0 - damage * 0.6);
-        if (a <= 0.0 && sh <= 0.0) discard;
-
-        float depth = clamp(-body_d / max(he_y, 1e-3), 0.0, 1.0);
-        // Collagen: pale, faintly warm, denser and rosier in the interior.
-        vec3 collagen = mix(vec3(1.00, 0.95, 0.92), v_tint.rgb, depth * 0.80);
-        // Fibre bundles a shade lighter and, between them, a shade deeper.
-        collagen = mix(collagen, vec3(1.00, 0.98, 0.96), fibre * 0.30 * depth);
-        collagen = mix(collagen, v_tint.rgb * 0.80, (1.0 - fibre) * 0.18 * depth);
-        // Cracks: dark seams where the wall is giving way.
-        vec3 rgb = mix(collagen, vec3(0.38, 0.16, 0.20), crack * 0.85);
-        // Chewed faces go bruised, like a wounded tower does.
-        float lum = dot(rgb, vec3(0.30, 0.59, 0.11));
-        rgb = mix(rgb, mix(vec3(lum), vec3(0.50, 0.22, 0.30), 0.5), damage * 0.35 * (1.0 - depth * 0.5));
-        float rim = 1.0 - smoothstep(0.0, 0.028, abs(body_d));
-        rgb = mix(rgb, vec3(1.0, 0.97, 0.95), rim * 0.55);
-
-        // Opaque up to whatever is left: a wall the horde cannot cross should
-        // never look see-through, and the damage is spent on the shape.
-        o_color = over_shadow(rgb, a, sh);
+        // COLLAGEN SCAR. See scar_wall above. The renderer sends the wall's
+        // state, not a colour, in the tint (Renderer.cpp, submit_entities):
+        // r = assembled 0..1, g = repair freshness 1..0, b = a per-wall
+        // seed, a = the integrity shown.
+        float aspect = max(v_shape_param, 1.0);
+        // Half-width units: the bar's thickness runs -1..1 across.
+        vec2 q = v_local * (2.0 * aspect);
+        float px = max(fwidth(q.x), fwidth(q.y)) * 0.75;
+        // The drop shadow falls the way every other body's does in WORLD
+        // space, so it is counter-rotated into the bar's frame. Walls are a
+        // half-width of about one world unit, so that is the unit used.
+        float cr = cos(v_rotation), sr = sin(v_rotation);
+        vec2 sdw = vec2(0.30, -0.26);
+        vec2 shadow_q = q - vec2(sdw.x * cr + sdw.y * sr, -sdw.x * sr + sdw.y * cr);
+        float sh;
+        vec4 wall = shade_scar(q, shadow_q, aspect, v_tint.b * 7.31, v_tint.r,
+                               1.0 - clamp(v_tint.a, 0.0, 1.0), v_tint.g, px, sh);
+        o_color = over_shadow(wall.rgb, wall.a, sh);
         if (o_color.a <= 0.001) discard;
         return;
     } else if (v_shape_id == 16u) {
@@ -994,46 +1207,16 @@ void main() {
         if (o_color.a <= 0.001) discard;
         return;
     } else if (v_shape_id == 20u) {
-        // BUILDER (Fibroblast). See sdf_fibroblast above.
-        float nucleus_d, fibre, process_d;
-        float body_d = sdf_fibroblast(v_local, v_anim_phase, v_shape_param,
-                                      nucleus_d, fibre, process_d);
-
-        float a = 1.0 - smoothstep(-0.022, 0.008, body_d);
-        // A thin body: the shadow is a squashed disc so it stays under the cell.
-        vec2 sp = v_local - kEntityShadowDir;
-        float sd = length(vec2(sp.x, sp.y * 2.4)) - 0.42;
-        float sh = (1.0 - smoothstep(-0.10, 0.03, sd)) * 0.42;
-        if (a <= 0.0 && sh <= 0.0) discard;
-
-        // Shallow ramp: this body is thin end to end, so almost none of it
-        // is far inside the membrane.
-        float depth = clamp(-body_d * 5.0, 0.0, 1.0);
-        // Identity hue, shared verbatim with palette_for() in vfx/Particles.cpp:
-        // salmon, the colour of fresh granulation tissue.
-        const vec3 kCollagenHue = vec3(1.00, 0.72, 0.64);
-        vec3 cytoplasm = mix(vec3(1.00, 0.92, 0.88), vec3(0.82, 0.48, 0.44), depth);
-        cytoplasm = mix(cytoplasm, kCollagenHue, 0.22);
-        // Collagen streaks, suppressed over the nucleus.
-        float in_cyto = smoothstep(0.0, 0.04, nucleus_d);
-        vec3 rgb = mix(cytoplasm, vec3(1.00, 0.86, 0.80), fibre * in_cyto * 0.45 * depth);
-
-        // Nucleus: dusky mauve, with a chromatin mottle so it reads as an
-        // organelle and not a hole.
-        float nuc = 1.0 - smoothstep(-0.010, 0.010, nucleus_d);
-        float chromatin = fbm(v_local * 16.0 + vec2(v_anim_phase * 0.03, 0.0));
-        rgb = mix(rgb, mix(vec3(0.42, 0.20, 0.30), vec3(0.60, 0.34, 0.42), chromatin), nuc * 0.90);
-        rgb = mix(rgb, vec3(0.92, 0.70, 0.72), (1.0 - smoothstep(0.0, 0.016, abs(nucleus_d))) * 0.50);
-
-        // The processes are brighter than the soma they leave, so the tier
-        // count reads even where they are a pixel wide.
-        float proc = 1.0 - smoothstep(-0.004, 0.010, process_d);
-        rgb = mix(rgb, vec3(1.00, 0.90, 0.86), proc * 0.55 * smoothstep(0.30, 0.42, abs(v_local.x)));
-
-        float rim = 1.0 - smoothstep(0.0, 0.030, abs(body_d));
-        rgb = mix(rgb, vec3(1.00, 0.96, 0.94), rim * 0.55);
-
-        o_color = over_shadow(wounded(rgb, body_d, v_tint.a), a, sh);
+        // BUILDER (Fibroblast), the legacy stationary emitter the gym's
+        // `tower` command still places: the deployed cell's own body
+        // (swarmer.frag kind 5), standing still, its hue the roster's.
+        float sh;
+        vec4 cell = shade_fibroblast_cell(v_local, v_anim_phase * 0.6, 0.0, 0.0, 1.0, 0.0,
+                                          vec3(0.42, 0.74, 1.00), sh);
+        float nucleus_d, nucleolus, vesicle, lamella, thread_d, pole_glow;
+        float body_d = sdf_fibroblast_cell(v_local, v_anim_phase * 0.6, 0.0, 0.0, 1.0, nucleus_d,
+                                           nucleolus, vesicle, lamella, thread_d, pole_glow);
+        o_color = over_shadow(wounded(cell.rgb, body_d, v_tint.a), cell.a, sh);
         if (o_color.a <= 0.001) discard;
         return;
     } else if (v_shape_id == 2u) {

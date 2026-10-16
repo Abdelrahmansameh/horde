@@ -145,10 +145,12 @@ public:
 
     const std::vector<EntityId>& placed_towers() const { return towers_; }
 
-    /// Whether towers release volleys at all. Towers spawn CONTINUOUSLY while
-    /// this is on -- with or without anything to aim at -- and hold between
+    /// Whether towers release volleys and deployed fibroblasts work at all.
+    /// Towers spawn CONTINUOUSLY while this is on -- with or without anything
+    /// to aim at -- and hold between
     /// rounds. game/session/LevelSession.cpp sets it from the wave phase every
-    /// tick (off in Prep); it defaults to on so a world with no wave director
+    /// tick (on in Spawning/Clearing); it defaults to on so a world with no wave
+    /// director
     /// (tests, the gym, headless captures) behaves as one long round.
     void set_releasing(bool on) { releasing_ = on; }
     bool releasing() const { return releasing_; }

@@ -127,7 +127,8 @@ struct SwarmerTables {
         set(TowerType::CytotoxicT, {0.49f, 0.36f, 0.79f, 1.0f}, {0.25f, 0.16f, 0.45f, 1.0f}, 2, 6);
         // The neutrophil body repainted jade; nucleus a deep shade of the tint.
         set(TowerType::GobletCell, {0.65f, 0.92f, 0.80f, 1.0f}, {0.25f, 0.44f, 0.33f, 1.0f}, 3, 8);
-        set(TowerType::Fibroblast, {0.94f, 0.71f, 0.65f, 1.0f}, {0.46f, 0.22f, 0.32f, 1.0f}, 3, 8);
+        // Collagen blue, the indigo nucleus.
+        set(TowerType::Fibroblast, {0.50f, 0.75f, 1.00f, 1.0f}, {0.16f, 0.20f, 0.48f, 1.0f}, 3, 8);
         // The generic bomber (no tower): the old macrophage body, untinted.
         set(TowerType::Count,      {0.96f, 0.82f, 0.69f, 1.0f}, {0.40f, 0.23f, 0.24f, 1.0f}, 2, 6);
     }

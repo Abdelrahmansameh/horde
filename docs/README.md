@@ -22,6 +22,7 @@ overrides and permanent upgrades. Source and data take precedence over prose.
 | Subject | Reference |
 |---|---|
 | Prerequisites, presets, build paths, and launch | [Building](BUILDING.md) |
+| Standalone Windows executable, packaging, and release checks | [Publishing](PUBLISHING.md) |
 | Catch2, simulation scripts, screenshots, and benchmarks | [Testing](TESTING.md) |
 | Naming, hot paths, determinism, contracts, and documentation upkeep | [Conventions](CONVENTIONS.md) |
 | First steps, parallel work, and reporting evidence | [Agent brief](AGENT_BRIEF.md) |

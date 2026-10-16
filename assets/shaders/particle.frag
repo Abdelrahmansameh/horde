@@ -16,8 +16,9 @@
 //   Bolt   — jagged multi-segment lightning with a branch fork, seed-varied.
 //   Fragment — one torn wedge of a dead cell: membrane arc, cytoplasm, ragged sides.
 //   Globule  — a soft-edged lump of cell matter (nucleus piece, granule).
+//   Fibril   — one crimped collagen strand; the crimp relaxes as it ages.
 //
-// FRAGMENT and GLOBULE are MATTER, not light: no glow, no white core, no
+// FRAGMENT, GLOBULE and FIBRIL are MATTER, not light: no glow, no white core, no
 // additive pass. They are shaded the way swarmer.frag shades the living cell
 // they came out of, so a dying unit reads as that cell tearing apart.
 //
@@ -54,6 +55,7 @@ const uint kBeam   = 5u;
 const uint kBolt   = 6u;
 const uint kFragment = 7u;
 const uint kGlobule  = 8u;
+const uint kFibril   = 9u;
 
 const float kPi = 3.14159265;
 
@@ -207,6 +209,21 @@ void main() {
         float depth = clamp(-d * 5.0, 0.0, 1.0);
         rgb = v_tint.rgb * mix(0.86, 1.0, depth);
         alpha = body;
+
+    } else if (v_kind == kFibril) {
+        // A collagen strand: crimped, the crimp relaxing as it ages, tapered
+        // at both ends, a lit crown down its length. The quad is three
+        // thicknesses wide (particle.vert), so the strand's own half-width is
+        // a sixth of the width unit.
+        float t = t_along;
+        float crimp = 0.24 * (1.0 - 0.8 * v_age) * sin(t * 12.566 + v_seed * 6.2831853);
+        float half_th = 0.16 * smoothstep(0.0, 0.12, t) * (1.0 - smoothstep(0.88, 1.0, t));
+        float across = (v_local.y - crimp) / max(half_th, 1e-3);
+        float body = 1.0 - smoothstep(0.75, 1.0, abs(across));
+        float crown = 1.0 - smoothstep(0.0, 0.9, abs(across + 0.25));
+        rgb = mix(v_tint.rgb * 0.72, v_tint.rgb, crown);
+        rgb = mix(rgb, vec3(1.0), pow(crown, 4.0) * 0.30);
+        alpha = body * smoothstep(0.0, 0.12, v_age + 0.04);
 
     } else { // kBolt
         const float kAmp = 0.34;

@@ -20,13 +20,14 @@ SessionOutcome step_level(const LevelSystems& s, Profiler* profiler) {
     // spawning into the same spawn point on the same tick resolve in a fixed order.
     if (s.spawns != nullptr) s.spawns->tick(world);
     if (s.waves != nullptr) s.waves->tick(world, world.rng(), kFixedDt);
-    // Towers spawn continuously while a round is on and hold in Prep: the
-    // build phase between rounds is for building, not for seeding the lane.
+    // Towers and fibroblasts work during Spawning/Clearing and hold in Prep
+    // or Complete. Placement between rounds must not seed the lane with walls.
     // With no wave director the level is one long round.
-    if (s.towers != nullptr) {
-        s.towers->set_releasing(s.waves == nullptr ||
-                                s.waves->status().phase != WavePhase::Prep);
-    }
+    const bool round_active = s.waves == nullptr ||
+        s.waves->status().phase == WavePhase::Spawning ||
+        s.waves->status().phase == WavePhase::Clearing;
+    if (s.towers != nullptr) s.towers->set_releasing(round_active);
+    world.swarmer_system().set_builders_active(round_active);
     world.tick(profiler);
     // Before the win/loss check below reads the snapshot, so an enabled hold
     // actually prevents the loss instead of racing it.

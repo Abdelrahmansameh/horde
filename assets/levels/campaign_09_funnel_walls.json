@@ -2,213 +2,360 @@
   "schema": 2,
   "name": "campaign_09_funnel_walls",
   "display_name": "The Funnel",
-  "description": "Three breaches along the top pour into a V of walls that narrows onto the organ.",
+  "description": "Three skin breaches converge between collagen walls. Each front wraps the tissue pins before draining through the offscreen wound bed.",
   "difficulty": 9,
   "tags": ["campaign"],
   "region": "skin",
-  "world": { "min": [0, 0], "max": [864, 595.2], "cell_size": 1.5 },
-  "camera": { "view_height": 595.2 },
-  "economy": { "starting_atp": 2700 },
+  "world": { "min": [0, 0], "max": [432, 297.6], "cell_size": 0.75 },
+  "camera": { "center": [216, 148.8], "view_height": 297.6, "min_view_height": 226.176, "max_view_height": 297.6 },
+  "economy": { "starting_atp": 2050 },
   "vessels": [
     {
       "id": "in_w",
+      "vessel_type": "mucosal_fold",
       "points": [
-        { "p": [192, 606.72], "w": 96 },
-        { "p": [192, 566.4], "w": 96 },
-        { "p": [192, 518.4], "w": 96 }
+        { "p": [96, 350], "w": 48 },
+        { "p": [96, 283.2], "w": 48 },
+        { "p": [96, 259.2], "w": 48 }
       ]
     },
     {
       "id": "in_c",
+      "vessel_type": "mucosal_fold",
       "points": [
-        { "p": [432, 606.72], "w": 96 },
-        { "p": [432, 566.4], "w": 96 },
-        { "p": [432, 518.4], "w": 96 }
+        { "p": [216, 350], "w": 48 },
+        { "p": [216, 283.2], "w": 48 },
+        { "p": [216, 259.2], "w": 48 }
       ]
     },
     {
       "id": "in_e",
+      "vessel_type": "mucosal_fold",
       "points": [
-        { "p": [672, 606.72], "w": 96 },
-        { "p": [672, 566.4], "w": 96 },
-        { "p": [672, 518.4], "w": 96 }
+        { "p": [336, 350], "w": 48 },
+        { "p": [336, 283.2], "w": 48 },
+        { "p": [336, 259.2], "w": 48 }
       ]
     },
     {
-      "id": "field_0",
+      "id": "funnel_band_0",
       "lane_id": "in_c",
+      "vessel_type": "mucosal_fold",
       "points": [
-        { "p": [57.6, 96], "w": 163.2 },
-        { "p": [432, 96], "w": 163.2 },
-        { "p": [806.4, 96], "w": 163.2 }
+        { "p": [195, 48], "w": 35 },
+        { "p": [216, 48], "w": 35 },
+        { "p": [237, 48], "w": 35 }
       ]
     },
     {
-      "id": "field_1",
+      "id": "funnel_band_1",
       "lane_id": "in_c",
+      "vessel_type": "mucosal_fold",
       "points": [
-        { "p": [57.6, 240], "w": 163.2 },
-        { "p": [432, 240], "w": 163.2 },
-        { "p": [806.4, 240], "w": 163.2 }
+        { "p": [165, 120], "w": 45 },
+        { "p": [216, 120], "w": 45 },
+        { "p": [267.5, 120], "w": 45 }
       ]
     },
     {
-      "id": "field_2",
+      "id": "funnel_band_2",
       "lane_id": "in_c",
+      "vessel_type": "mucosal_fold",
       "points": [
-        { "p": [57.6, 374.4], "w": 163.2 },
-        { "p": [432, 374.4], "w": 163.2 },
-        { "p": [806.4, 374.4], "w": 163.2 }
+        { "p": [140, 187.2], "w": 52.5 },
+        { "p": [216, 187.2], "w": 52.5 },
+        { "p": [292, 187.2], "w": 52.5 }
       ]
     },
     {
-      "id": "field_3",
+      "id": "funnel_band_3",
       "lane_id": "in_c",
+      "vessel_type": "mucosal_fold",
       "points": [
-        { "p": [57.6, 508.8], "w": 163.2 },
-        { "p": [432, 508.8], "w": 163.2 },
-        { "p": [806.4, 508.8], "w": 163.2 }
+        { "p": [117.5, 254.4], "w": 60 },
+        { "p": [216, 254.4], "w": 60 },
+        { "p": [314.5, 254.4], "w": 60 }
+      ]
+    },
+    {
+      "id": "west_confluence",
+      "lane_id": "in_w",
+      "vessel_type": "mucosal_fold",
+      "points": [
+        { "p": [112.5, 270], "w": 52.5 },
+        { "p": [150, 225], "w": 52.5 },
+        { "p": [180, 180], "w": 52.5 },
+        { "p": [205, 145], "w": 52.5 },
+        { "p": [225, 110], "w": 52.5 },
+        { "p": [216, 75], "w": 52.5 },
+        { "p": [216, 48], "w": 52.5 }
+      ]
+    },
+    {
+      "id": "central_confluence",
+      "lane_id": "in_c",
+      "vessel_type": "mucosal_fold",
+      "points": [
+        { "p": [216, 270], "w": 52.5 },
+        { "p": [216, 190], "w": 52.5 },
+        { "p": [240, 150], "w": 52.5 },
+        { "p": [240, 112.5], "w": 52.5 },
+        { "p": [225, 85], "w": 52.5 },
+        { "p": [216, 48], "w": 52.5 }
+      ]
+    },
+    {
+      "id": "east_confluence",
+      "lane_id": "in_e",
+      "vessel_type": "mucosal_fold",
+      "points": [
+        { "p": [319.5, 270], "w": 52.5 },
+        { "p": [282, 225], "w": 52.5 },
+        { "p": [252, 180], "w": 52.5 },
+        { "p": [227, 145], "w": 52.5 },
+        { "p": [207, 110], "w": 52.5 },
+        { "p": [216, 75], "w": 52.5 },
+        { "p": [216, 48], "w": 52.5 }
+      ]
+    },
+    {
+      "id": "wound_drain",
+      "lane_id": "in_c",
+      "vessel_type": "mucosal_fold",
+      "points": [
+        { "p": [216, 48], "w": 45 },
+        { "p": [216, 0], "w": 45 },
+        { "p": [216, -42.5], "w": 45 }
       ]
     }
   ],
   "obstacles": [
-    { "id": "wall_w", "shape": "capsule", "points": [[153.6, 499.2], [326.4, 57.6]], "radius": 55.68 },
-    { "id": "wall_e", "shape": "capsule", "points": [[710.4, 499.2], [537.6, 57.6]], "radius": 55.68 },
-    { "id": "pin_0", "shape": "disc", "pos": [432, 316.8], "radius": 14.4 },
-    { "id": "pin_1", "shape": "disc", "pos": [398.4, 259.2], "radius": 14.4 },
-    { "id": "pin_2", "shape": "disc", "pos": [465.6, 259.2], "radius": 14.4 },
-    { "id": "pin_3", "shape": "disc", "pos": [364.8, 201.6], "radius": 14.4 },
-    { "id": "pin_4", "shape": "disc", "pos": [432, 201.6], "radius": 14.4 },
-    { "id": "pin_5", "shape": "disc", "pos": [499.2, 201.6], "radius": 14.4 },
-    { "id": "pin_6", "shape": "disc", "pos": [398.4, 144], "radius": 14.4 },
-    { "id": "pin_7", "shape": "disc", "pos": [465.6, 144], "radius": 14.4 }
+    { "id": "wall_w", "shape": "capsule", "points": [[76.8, 249.6], [163.2, 28.8]], "radius": 27.84 },
+    { "id": "wall_e", "shape": "capsule", "points": [[355.2, 249.6], [268.8, 28.8]], "radius": 27.84 },
+    { "id": "pin_0", "shape": "disc", "pos": [216, 158.4], "radius": 7.2 },
+    { "id": "pin_1", "shape": "disc", "pos": [199.2, 129.6], "radius": 7.2 },
+    { "id": "pin_2", "shape": "disc", "pos": [232.8, 129.6], "radius": 7.2 },
+    { "id": "pin_3", "shape": "disc", "pos": [182.4, 100.8], "radius": 7.2 },
+    { "id": "pin_4", "shape": "disc", "pos": [216, 100.8], "radius": 7.2 },
+    { "id": "pin_5", "shape": "disc", "pos": [249.6, 100.8], "radius": 7.2 }
   ],
   "spawn_points": [
-    { "id": "p_w", "pos": [192, 606.72], "radius": 34.56, "lane_id": "in_w" },
-    { "id": "p_c", "pos": [432, 606.72], "radius": 34.56, "lane_id": "in_c" },
-    { "id": "p_e", "pos": [672, 606.72], "radius": 34.56, "lane_id": "in_e" }
+    { "id": "p_w", "pos": [96, 326.88], "radius": 17.28, "lane_id": "in_w" },
+    { "id": "p_c", "pos": [216, 326.88], "radius": 17.28, "lane_id": "in_c" },
+    { "id": "p_e", "pos": [336, 326.88], "radius": 17.28, "lane_id": "in_e" }
   ],
   "objectives": [
-    { "id": "organ", "pos": [432, 28.8], "half_extents": [57.6, 9.6] }
+    { "id": "organ", "pos": [216, -32], "half_extents": [28.8, 4.8] }
   ],
   "placement_zones": [
-    { "min": [0, 0], "max": [864, 595.2] },
-    { "min": [316.8, 38.4], "max": [547.2, 326.4], "concentrated": true, "priority": 3 },
-    { "min": [240, 326.4], "max": [624, 537.6], "concentrated": true, "priority": 1.5 }
+    { "min": [0, 0], "max": [432, 297.6] },
+    { "min": [175, 30], "max": [257, 145], "concentrated": true, "priority": 3 },
+    { "min": [140, 160], "max": [292, 255], "concentrated": true, "priority": 2 }
+  ],
+  "squad_paths": [
+    { "id": "west_funnel_route", "lane_id": "in_w", "points": [[96, 326.88], [96, 283.2], [112.5, 270], [150, 225], [180, 180], [195, 165], [205, 145], [216, 140], [216, 122], [230, 112.5], [230, 92.5], [216, 75], [216, 48], [216, -32]], "half_width": 3 },
+    { "id": "central_funnel_right", "lane_id": "in_c", "points": [[216, 326.88], [216, 250], [216, 190], [230, 170], [240, 150], [255, 130], [240, 112.5], [225, 85], [216, 55], [216, -32]], "half_width": 3 },
+    { "id": "central_funnel_left", "lane_id": "in_c", "points": [[216, 326.88], [216, 250], [216, 190], [202, 170], [192, 150], [177, 130], [192, 112.5], [207, 85], [216, 55], [216, -32]], "half_width": 3 },
+    { "id": "east_funnel_route", "lane_id": "in_e", "points": [[336, 326.88], [336, 283.2], [319.5, 270], [282, 225], [252, 180], [237, 165], [227, 145], [216, 140], [216, 122], [202, 112.5], [202, 92.5], [216, 75], [216, 48], [216, -32]], "half_width": 3 }
   ],
   "waves": [
     {
       "name": "campaign_09_funnel_walls_wave_1",
-      "prep_time": 8,
-      "atp_reward": 50,
+      "prep_time": 10,
+      "atp_reward": 85,
       "spawns": [
-        { "family": "virus", "count": 5000, "duration": 4 },
-        { "family": "virus", "count": 50, "start_time": 1, "duration": 4 },
-        { "family": "virus", "count": 50, "start_time": 2, "duration": 4 }
+        { "family": "virus", "count": 170, "duration": 3.2, "spawn_point_id": "p_w", "squad_size": 60, "squad_paths": ["west_funnel_route"] },
+        { "family": "bacteria", "count": 77, "start_time": 0.75, "duration": 3.2, "spawn_point_id": "p_c", "squad_size": 60, "squad_paths": ["central_funnel_right"] },
+        { "family": "virus", "count": 170, "start_time": 1.5, "duration": 3.2, "spawn_point_id": "p_e", "squad_size": 60, "squad_paths": ["east_funnel_route"] },
+        { "family": "bacteria", "count": 77, "start_time": 4.45, "duration": 3.2, "spawn_point_id": "p_w", "squad_size": 60, "squad_paths": ["west_funnel_route"] },
+        { "family": "virus", "count": 170, "start_time": 5.2, "duration": 3.2, "spawn_point_id": "p_c", "squad_size": 60, "squad_paths": ["central_funnel_left"] },
+        { "family": "bacteria", "count": 76, "start_time": 5.95, "duration": 3.2, "spawn_point_id": "p_e", "squad_size": 60, "squad_paths": ["east_funnel_route"] }
       ]
     },
     {
       "name": "campaign_09_funnel_walls_wave_2",
-      "prep_time": 7.56,
-      "atp_reward": 100,
+      "prep_time": 9.3,
+      "atp_reward": 128,
       "spawns": [
-        { "family": "virus", "count": 1000, "duration": 4 },
-        { "family": "bacteria", "count": 300, "start_time": 1, "duration": 3.5 },
-        { "family": "parasite", "count": 28, "start_time": 1.5, "duration": 3.5 }
+        { "family": "bacteria", "count": 121, "duration": 3.24, "spawn_point_id": "p_w", "squad_size": 60, "squad_paths": ["west_funnel_route"] },
+        { "family": "virus", "count": 268, "start_time": 0.75, "duration": 3.24, "spawn_point_id": "p_c", "squad_size": 60, "squad_paths": ["central_funnel_left"] },
+        { "family": "bacteria", "count": 120, "start_time": 1.5, "duration": 3.24, "spawn_point_id": "p_e", "squad_size": 60, "squad_paths": ["east_funnel_route"] },
+        { "family": "virus", "count": 268, "start_time": 4.49, "duration": 3.24, "spawn_point_id": "p_w", "squad_size": 60, "squad_paths": ["west_funnel_route"] },
+        { "family": "bacteria", "count": 120, "start_time": 5.24, "duration": 3.24, "spawn_point_id": "p_c", "squad_size": 60, "squad_paths": ["central_funnel_right"] },
+        { "family": "virus", "count": 268, "start_time": 5.99, "duration": 3.24, "spawn_point_id": "p_e", "squad_size": 60, "squad_paths": ["east_funnel_route"] }
       ]
     },
     {
       "name": "campaign_09_funnel_walls_wave_3",
-      "prep_time": 7.11,
-      "atp_reward": 150,
+      "prep_time": 8.6,
+      "atp_reward": 171,
       "spawns": [
-        { "family": "virus", "count": 1500, "duration": 4 },
-        { "family": "bacteria", "count": 500, "start_time": 1, "duration": 3.5 },
-        { "family": "parasite", "count": 47, "start_time": 1.5, "duration": 3.5 }
+        { "family": "parasite", "count": 42, "duration": 3.28, "spawn_point_id": "p_w", "squad_size": 60, "squad_paths": ["west_funnel_route"] },
+        { "family": "virus", "count": 350, "start_time": 0.75, "duration": 3.28, "spawn_point_id": "p_c", "squad_size": 60, "squad_paths": ["central_funnel_right"] },
+        { "family": "bacteria", "count": 158, "start_time": 1.5, "duration": 3.28, "spawn_point_id": "p_e", "squad_size": 60, "squad_paths": ["east_funnel_route"] },
+        { "family": "virus", "count": 350, "start_time": 4.53, "duration": 3.28, "spawn_point_id": "p_w", "squad_size": 60, "squad_paths": ["west_funnel_route"] },
+        { "family": "bacteria", "count": 158, "start_time": 5.28, "duration": 3.28, "spawn_point_id": "p_c", "squad_size": 60, "squad_paths": ["central_funnel_left"] },
+        { "family": "parasite", "count": 42, "start_time": 6.03, "duration": 3.28, "spawn_point_id": "p_e", "squad_size": 60, "squad_paths": ["east_funnel_route"] },
+        { "family": "bacteria", "count": 158, "start_time": 9.06, "duration": 3.28, "spawn_point_id": "p_w", "squad_size": 60, "squad_paths": ["west_funnel_route"] },
+        { "family": "parasite", "count": 42, "start_time": 9.81, "duration": 3.28, "spawn_point_id": "p_c", "squad_size": 60, "squad_paths": ["central_funnel_right"] },
+        { "family": "virus", "count": 350, "start_time": 10.56, "duration": 3.28, "spawn_point_id": "p_e", "squad_size": 60, "squad_paths": ["east_funnel_route"] }
       ]
     },
     {
       "name": "campaign_09_funnel_walls_wave_4",
-      "prep_time": 6.67,
-      "atp_reward": 200,
+      "prep_time": 7.9,
+      "atp_reward": 214,
       "spawns": [
-        { "family": "virus", "count": 1285, "duration": 4 },
-        { "family": "bacteria", "count": 441, "start_time": 1, "duration": 3.5 },
-        { "family": "parasite", "count": 66, "start_time": 1.5, "duration": 3.5 }
+        { "family": "virus", "count": 459, "duration": 3.32, "spawn_point_id": "p_w", "squad_size": 60, "squad_paths": ["west_funnel_route"] },
+        { "family": "bacteria", "count": 207, "start_time": 0.75, "duration": 3.32, "spawn_point_id": "p_c", "squad_size": 60, "squad_paths": ["central_funnel_left"] },
+        { "family": "parasite", "count": 55, "start_time": 1.5, "duration": 3.32, "spawn_point_id": "p_e", "squad_size": 60, "squad_paths": ["east_funnel_route"] },
+        { "family": "bacteria", "count": 207, "start_time": 4.57, "duration": 3.32, "spawn_point_id": "p_w", "squad_size": 60, "squad_paths": ["west_funnel_route"] },
+        { "family": "parasite", "count": 55, "start_time": 5.32, "duration": 3.32, "spawn_point_id": "p_c", "squad_size": 60, "squad_paths": ["central_funnel_right"] },
+        { "family": "virus", "count": 459, "start_time": 6.07, "duration": 3.32, "spawn_point_id": "p_e", "squad_size": 60, "squad_paths": ["east_funnel_route"] },
+        { "family": "parasite", "count": 55, "start_time": 9.14, "duration": 3.32, "spawn_point_id": "p_w", "squad_size": 60, "squad_paths": ["west_funnel_route"] },
+        { "family": "virus", "count": 459, "start_time": 9.89, "duration": 3.32, "spawn_point_id": "p_c", "squad_size": 60, "squad_paths": ["central_funnel_left"] },
+        { "family": "bacteria", "count": 206, "start_time": 10.64, "duration": 3.32, "spawn_point_id": "p_e", "squad_size": 60, "squad_paths": ["east_funnel_route"] }
       ]
     },
     {
       "name": "campaign_09_funnel_walls_wave_5",
-      "prep_time": 6.22,
-      "atp_reward": 250,
+      "prep_time": 7.2,
+      "atp_reward": 257,
       "spawns": [
-        { "family": "virus", "count": 1592, "duration": 4 },
-        { "family": "bacteria", "count": 570, "start_time": 1, "duration": 3.5 },
-        { "family": "parasite", "count": 86, "start_time": 1.5, "duration": 3.5 },
-        { "family": "bacteria", "count": 110, "start_time": 0.5, "duration": 5.5 },
-        { "family": "parasite", "count": 16, "start_time": 1, "duration": 5.5 }
+        { "family": "bacteria", "count": 257, "duration": 3.36, "spawn_point_id": "p_w", "squad_size": 60, "squad_paths": ["west_funnel_route"] },
+        { "family": "parasite", "count": 69, "start_time": 0.75, "duration": 3.36, "spawn_point_id": "p_c", "squad_size": 60, "squad_paths": ["central_funnel_right"] },
+        { "family": "virus", "count": 571, "start_time": 1.5, "duration": 3.36, "spawn_point_id": "p_e", "squad_size": 60, "squad_paths": ["east_funnel_route"] },
+        { "family": "parasite", "count": 69, "start_time": 4.61, "duration": 3.36, "spawn_point_id": "p_w", "squad_size": 60, "squad_paths": ["west_funnel_route"] },
+        { "family": "virus", "count": 571, "start_time": 5.36, "duration": 3.36, "spawn_point_id": "p_c", "squad_size": 60, "squad_paths": ["central_funnel_left"] },
+        { "family": "bacteria", "count": 257, "start_time": 6.11, "duration": 3.36, "spawn_point_id": "p_e", "squad_size": 60, "squad_paths": ["east_funnel_route"] },
+        { "family": "virus", "count": 571, "start_time": 9.22, "duration": 3.36, "spawn_point_id": "p_w", "squad_size": 60, "squad_paths": ["west_funnel_route"] },
+        { "family": "bacteria", "count": 257, "start_time": 9.97, "duration": 3.36, "spawn_point_id": "p_c", "squad_size": 60, "squad_paths": ["central_funnel_right"] },
+        { "family": "parasite", "count": 69, "start_time": 10.72, "duration": 3.36, "spawn_point_id": "p_e", "squad_size": 60, "squad_paths": ["east_funnel_route"] }
       ]
     },
     {
       "name": "campaign_09_funnel_walls_wave_6",
-      "prep_time": 5.78,
+      "prep_time": 6.5,
       "atp_reward": 300,
       "spawns": [
-        { "family": "virus", "count": 1900, "duration": 4 },
-        { "family": "bacteria", "count": 699, "start_time": 1, "duration": 3.5 },
-        { "family": "parasite", "count": 105, "start_time": 1.5, "duration": 3.5 },
-        { "family": "bacteria", "count": 165, "start_time": 0.5, "duration": 5.5 },
-        { "family": "parasite", "count": 25, "start_time": 1, "duration": 5.5 }
+        { "family": "parasite", "count": 41, "duration": 3.39, "spawn_point_id": "p_w", "squad_size": 60, "squad_paths": ["west_funnel_route"] },
+        { "family": "virus", "count": 343, "start_time": 0.75, "duration": 3.39, "spawn_point_id": "p_c", "squad_size": 60, "squad_paths": ["central_funnel_left"] },
+        { "family": "bacteria", "count": 155, "start_time": 1.5, "duration": 3.39, "spawn_point_id": "p_e", "squad_size": 60, "squad_paths": ["east_funnel_route"] },
+        { "family": "virus", "count": 343, "start_time": 4.64, "duration": 3.39, "spawn_point_id": "p_w", "squad_size": 60, "squad_paths": ["west_funnel_route"] },
+        { "family": "bacteria", "count": 155, "start_time": 5.39, "duration": 3.39, "spawn_point_id": "p_c", "squad_size": 60, "squad_paths": ["central_funnel_right"] },
+        { "family": "parasite", "count": 41, "start_time": 6.14, "duration": 3.39, "spawn_point_id": "p_e", "squad_size": 60, "squad_paths": ["east_funnel_route"] },
+        { "family": "bacteria", "count": 155, "start_time": 9.28, "duration": 3.39, "spawn_point_id": "p_w", "squad_size": 60, "squad_paths": ["west_funnel_route"] },
+        { "family": "parasite", "count": 41, "start_time": 10.03, "duration": 3.39, "spawn_point_id": "p_c", "squad_size": 60, "squad_paths": ["central_funnel_left"] },
+        { "family": "virus", "count": 343, "start_time": 10.78, "duration": 3.39, "spawn_point_id": "p_e", "squad_size": 60, "squad_paths": ["east_funnel_route"] },
+        { "family": "parasite", "count": 41, "start_time": 13.92, "duration": 3.39, "spawn_point_id": "p_w", "squad_size": 60, "squad_paths": ["west_funnel_route"] },
+        { "family": "virus", "count": 343, "start_time": 14.67, "duration": 3.39, "spawn_point_id": "p_c", "squad_size": 60, "squad_paths": ["central_funnel_right"] },
+        { "family": "bacteria", "count": 154, "start_time": 15.42, "duration": 3.39, "spawn_point_id": "p_e", "squad_size": 60, "squad_paths": ["east_funnel_route"] },
+        { "family": "virus", "count": 343, "start_time": 18.56, "duration": 3.39, "spawn_point_id": "p_w", "squad_size": 60, "squad_paths": ["west_funnel_route"] },
+        { "family": "bacteria", "count": 155, "start_time": 19.31, "duration": 3.39, "spawn_point_id": "p_c", "squad_size": 60, "squad_paths": ["central_funnel_left"] },
+        { "family": "parasite", "count": 41, "start_time": 20.06, "duration": 3.39, "spawn_point_id": "p_e", "squad_size": 60, "squad_paths": ["east_funnel_route"] },
+        { "family": "bacteria", "count": 155, "start_time": 23.2, "duration": 3.39, "spawn_point_id": "p_w", "squad_size": 60, "squad_paths": ["west_funnel_route"] },
+        { "family": "parasite", "count": 41, "start_time": 23.95, "duration": 3.39, "spawn_point_id": "p_c", "squad_size": 60, "squad_paths": ["central_funnel_right"] },
+        { "family": "virus", "count": 343, "start_time": 24.7, "duration": 3.39, "spawn_point_id": "p_e", "squad_size": 60, "squad_paths": ["east_funnel_route"] }
       ]
     },
     {
       "name": "campaign_09_funnel_walls_wave_7",
-      "prep_time": 5.33,
-      "atp_reward": 350,
+      "prep_time": 5.8,
+      "atp_reward": 343,
       "spawns": [
-        { "family": "virus", "count": 2208, "duration": 4 },
-        { "family": "bacteria", "count": 828, "start_time": 1, "duration": 3.5 },
-        { "family": "parasite", "count": 124, "start_time": 1.5, "duration": 3.5 },
-        { "family": "bacteria", "count": 220, "start_time": 0.5, "duration": 5.5 },
-        { "family": "parasite", "count": 33, "start_time": 1, "duration": 5.5 }
+        { "family": "virus", "count": 402, "duration": 3.43, "spawn_point_id": "p_w", "squad_size": 60, "squad_paths": ["west_funnel_route"] },
+        { "family": "bacteria", "count": 181, "start_time": 0.75, "duration": 3.43, "spawn_point_id": "p_c", "squad_size": 60, "squad_paths": ["central_funnel_right"] },
+        { "family": "parasite", "count": 48, "start_time": 1.5, "duration": 3.43, "spawn_point_id": "p_e", "squad_size": 60, "squad_paths": ["east_funnel_route"] },
+        { "family": "bacteria", "count": 181, "start_time": 4.68, "duration": 3.43, "spawn_point_id": "p_w", "squad_size": 60, "squad_paths": ["west_funnel_route"] },
+        { "family": "parasite", "count": 48, "start_time": 5.43, "duration": 3.43, "spawn_point_id": "p_c", "squad_size": 60, "squad_paths": ["central_funnel_left"] },
+        { "family": "virus", "count": 402, "start_time": 6.18, "duration": 3.43, "spawn_point_id": "p_e", "squad_size": 60, "squad_paths": ["east_funnel_route"] },
+        { "family": "parasite", "count": 49, "start_time": 9.36, "duration": 3.43, "spawn_point_id": "p_w", "squad_size": 60, "squad_paths": ["west_funnel_route"] },
+        { "family": "virus", "count": 402, "start_time": 10.11, "duration": 3.43, "spawn_point_id": "p_c", "squad_size": 60, "squad_paths": ["central_funnel_right"] },
+        { "family": "bacteria", "count": 181, "start_time": 10.86, "duration": 3.43, "spawn_point_id": "p_e", "squad_size": 60, "squad_paths": ["east_funnel_route"] },
+        { "family": "virus", "count": 402, "start_time": 14.04, "duration": 3.43, "spawn_point_id": "p_w", "squad_size": 60, "squad_paths": ["west_funnel_route"] },
+        { "family": "bacteria", "count": 181, "start_time": 14.79, "duration": 3.43, "spawn_point_id": "p_c", "squad_size": 60, "squad_paths": ["central_funnel_left"] },
+        { "family": "parasite", "count": 48, "start_time": 15.54, "duration": 3.43, "spawn_point_id": "p_e", "squad_size": 60, "squad_paths": ["east_funnel_route"] },
+        { "family": "bacteria", "count": 181, "start_time": 18.72, "duration": 3.43, "spawn_point_id": "p_w", "squad_size": 60, "squad_paths": ["west_funnel_route"] },
+        { "family": "parasite", "count": 48, "start_time": 19.47, "duration": 3.43, "spawn_point_id": "p_c", "squad_size": 60, "squad_paths": ["central_funnel_right"] },
+        { "family": "virus", "count": 402, "start_time": 20.22, "duration": 3.43, "spawn_point_id": "p_e", "squad_size": 60, "squad_paths": ["east_funnel_route"] },
+        { "family": "parasite", "count": 48, "start_time": 23.4, "duration": 3.43, "spawn_point_id": "p_w", "squad_size": 60, "squad_paths": ["west_funnel_route"] },
+        { "family": "virus", "count": 402, "start_time": 24.15, "duration": 3.43, "spawn_point_id": "p_c", "squad_size": 60, "squad_paths": ["central_funnel_left"] },
+        { "family": "bacteria", "count": 181, "start_time": 24.9, "duration": 3.43, "spawn_point_id": "p_e", "squad_size": 60, "squad_paths": ["east_funnel_route"] }
       ]
     },
     {
       "name": "campaign_09_funnel_walls_wave_8",
-      "prep_time": 4.89,
-      "atp_reward": 400,
-      "modifier": "fever",
+      "prep_time": 5.1,
+      "atp_reward": 386,
       "spawns": [
-        { "family": "virus", "count": 2515, "duration": 4 },
-        { "family": "bacteria", "count": 956, "start_time": 1, "duration": 3.5 },
-        { "family": "parasite", "count": 143, "start_time": 1.5, "duration": 3.5 },
-        { "family": "bacteria", "count": 276, "start_time": 0.5, "duration": 5.5 },
-        { "family": "parasite", "count": 41, "start_time": 1, "duration": 5.5 }
+        { "family": "bacteria", "count": 208, "duration": 3.47, "spawn_point_id": "p_w", "squad_size": 60, "squad_paths": ["west_funnel_route"] },
+        { "family": "parasite", "count": 55, "start_time": 0.75, "duration": 3.47, "spawn_point_id": "p_c", "squad_size": 60, "squad_paths": ["central_funnel_left"] },
+        { "family": "virus", "count": 462, "start_time": 1.5, "duration": 3.47, "spawn_point_id": "p_e", "squad_size": 60, "squad_paths": ["east_funnel_route"] },
+        { "family": "parasite", "count": 55, "start_time": 4.72, "duration": 3.47, "spawn_point_id": "p_w", "squad_size": 60, "squad_paths": ["west_funnel_route"] },
+        { "family": "virus", "count": 462, "start_time": 5.47, "duration": 3.47, "spawn_point_id": "p_c", "squad_size": 60, "squad_paths": ["central_funnel_right"] },
+        { "family": "bacteria", "count": 208, "start_time": 6.22, "duration": 3.47, "spawn_point_id": "p_e", "squad_size": 60, "squad_paths": ["east_funnel_route"] },
+        { "family": "virus", "count": 462, "start_time": 9.44, "duration": 3.47, "spawn_point_id": "p_w", "squad_size": 60, "squad_paths": ["west_funnel_route"] },
+        { "family": "bacteria", "count": 208, "start_time": 10.19, "duration": 3.47, "spawn_point_id": "p_c", "squad_size": 60, "squad_paths": ["central_funnel_left"] },
+        { "family": "parasite", "count": 55, "start_time": 10.94, "duration": 3.47, "spawn_point_id": "p_e", "squad_size": 60, "squad_paths": ["east_funnel_route"] },
+        { "family": "bacteria", "count": 208, "start_time": 14.16, "duration": 3.47, "spawn_point_id": "p_w", "squad_size": 60, "squad_paths": ["west_funnel_route"] },
+        { "family": "parasite", "count": 55, "start_time": 14.91, "duration": 3.47, "spawn_point_id": "p_c", "squad_size": 60, "squad_paths": ["central_funnel_right"] },
+        { "family": "virus", "count": 462, "start_time": 15.66, "duration": 3.47, "spawn_point_id": "p_e", "squad_size": 60, "squad_paths": ["east_funnel_route"] },
+        { "family": "parasite", "count": 55, "start_time": 18.88, "duration": 3.47, "spawn_point_id": "p_w", "squad_size": 60, "squad_paths": ["west_funnel_route"] },
+        { "family": "virus", "count": 462, "start_time": 19.63, "duration": 3.47, "spawn_point_id": "p_c", "squad_size": 60, "squad_paths": ["central_funnel_left"] },
+        { "family": "bacteria", "count": 208, "start_time": 20.38, "duration": 3.47, "spawn_point_id": "p_e", "squad_size": 60, "squad_paths": ["east_funnel_route"] },
+        { "family": "virus", "count": 462, "start_time": 23.6, "duration": 3.47, "spawn_point_id": "p_w", "squad_size": 60, "squad_paths": ["west_funnel_route"] },
+        { "family": "bacteria", "count": 208, "start_time": 24.35, "duration": 3.47, "spawn_point_id": "p_c", "squad_size": 60, "squad_paths": ["central_funnel_right"] },
+        { "family": "parasite", "count": 55, "start_time": 25.1, "duration": 3.47, "spawn_point_id": "p_e", "squad_size": 60, "squad_paths": ["east_funnel_route"] }
       ]
     },
     {
       "name": "campaign_09_funnel_walls_wave_9",
-      "prep_time": 4.44,
-      "atp_reward": 450,
+      "prep_time": 4.4,
+      "atp_reward": 429,
       "spawns": [
-        { "family": "virus", "count": 2823, "duration": 4 },
-        { "family": "bacteria", "count": 1085, "start_time": 1, "duration": 3.5 },
-        { "family": "parasite", "count": 163, "start_time": 1.5, "duration": 3.5 },
-        { "family": "bacteria", "count": 331, "start_time": 0.5, "duration": 5.5 },
-        { "family": "parasite", "count": 50, "start_time": 1, "duration": 5.5 }
+        { "family": "parasite", "count": 63, "duration": 3.51, "spawn_point_id": "p_w", "squad_size": 60, "squad_paths": ["west_funnel_route"] },
+        { "family": "virus", "count": 522, "start_time": 0.75, "duration": 3.51, "spawn_point_id": "p_c", "squad_size": 60, "squad_paths": ["central_funnel_right"] },
+        { "family": "bacteria", "count": 235, "start_time": 1.5, "duration": 3.51, "spawn_point_id": "p_e", "squad_size": 60, "squad_paths": ["east_funnel_route"] },
+        { "family": "virus", "count": 523, "start_time": 4.76, "duration": 3.51, "spawn_point_id": "p_w", "squad_size": 60, "squad_paths": ["west_funnel_route"] },
+        { "family": "bacteria", "count": 235, "start_time": 5.51, "duration": 3.51, "spawn_point_id": "p_c", "squad_size": 60, "squad_paths": ["central_funnel_left"] },
+        { "family": "parasite", "count": 63, "start_time": 6.26, "duration": 3.51, "spawn_point_id": "p_e", "squad_size": 60, "squad_paths": ["east_funnel_route"] },
+        { "family": "bacteria", "count": 235, "start_time": 9.52, "duration": 3.51, "spawn_point_id": "p_w", "squad_size": 60, "squad_paths": ["west_funnel_route"] },
+        { "family": "parasite", "count": 63, "start_time": 10.27, "duration": 3.51, "spawn_point_id": "p_c", "squad_size": 60, "squad_paths": ["central_funnel_right"] },
+        { "family": "virus", "count": 522, "start_time": 11.02, "duration": 3.51, "spawn_point_id": "p_e", "squad_size": 60, "squad_paths": ["east_funnel_route"] },
+        { "family": "parasite", "count": 63, "start_time": 14.28, "duration": 3.51, "spawn_point_id": "p_w", "squad_size": 60, "squad_paths": ["west_funnel_route"] },
+        { "family": "virus", "count": 522, "start_time": 15.03, "duration": 3.51, "spawn_point_id": "p_c", "squad_size": 60, "squad_paths": ["central_funnel_left"] },
+        { "family": "bacteria", "count": 235, "start_time": 15.78, "duration": 3.51, "spawn_point_id": "p_e", "squad_size": 60, "squad_paths": ["east_funnel_route"] },
+        { "family": "virus", "count": 523, "start_time": 19.04, "duration": 3.51, "spawn_point_id": "p_w", "squad_size": 60, "squad_paths": ["west_funnel_route"] },
+        { "family": "bacteria", "count": 235, "start_time": 19.79, "duration": 3.51, "spawn_point_id": "p_c", "squad_size": 60, "squad_paths": ["central_funnel_right"] },
+        { "family": "parasite", "count": 63, "start_time": 20.54, "duration": 3.51, "spawn_point_id": "p_e", "squad_size": 60, "squad_paths": ["east_funnel_route"] },
+        { "family": "bacteria", "count": 235, "start_time": 23.8, "duration": 3.51, "spawn_point_id": "p_w", "squad_size": 60, "squad_paths": ["west_funnel_route"] },
+        { "family": "parasite", "count": 63, "start_time": 24.55, "duration": 3.51, "spawn_point_id": "p_c", "squad_size": 60, "squad_paths": ["central_funnel_left"] },
+        { "family": "virus", "count": 522, "start_time": 25.3, "duration": 3.51, "spawn_point_id": "p_e", "squad_size": 60, "squad_paths": ["east_funnel_route"] }
       ]
     },
     {
       "name": "campaign_09_funnel_walls_wave_10",
       "prep_time": 4,
-      "atp_reward": 500,
-      "modifier": "swarm",
+      "atp_reward": 472,
       "spawns": [
-        { "family": "virus", "count": 3131, "duration": 4 },
-        { "family": "bacteria", "count": 1214, "start_time": 1, "duration": 3.5 },
-        { "family": "parasite", "count": 182, "start_time": 1.5, "duration": 3.5 },
-        { "family": "bacteria", "count": 386, "start_time": 0.5, "duration": 5.5 },
-        { "family": "parasite", "count": 58, "start_time": 1, "duration": 5.5 }
+        { "family": "virus", "count": 584, "duration": 3.55, "spawn_point_id": "p_w", "squad_size": 60, "squad_paths": ["west_funnel_route"] },
+        { "family": "bacteria", "count": 263, "start_time": 0.75, "duration": 3.55, "spawn_point_id": "p_c", "squad_size": 60, "squad_paths": ["central_funnel_left"] },
+        { "family": "parasite", "count": 70, "start_time": 1.5, "duration": 3.55, "spawn_point_id": "p_e", "squad_size": 60, "squad_paths": ["east_funnel_route"] },
+        { "family": "bacteria", "count": 263, "start_time": 4.8, "duration": 3.55, "spawn_point_id": "p_w", "squad_size": 60, "squad_paths": ["west_funnel_route"] },
+        { "family": "parasite", "count": 70, "start_time": 5.55, "duration": 3.55, "spawn_point_id": "p_c", "squad_size": 60, "squad_paths": ["central_funnel_right"] },
+        { "family": "virus", "count": 584, "start_time": 6.3, "duration": 3.55, "spawn_point_id": "p_e", "squad_size": 60, "squad_paths": ["east_funnel_route"] },
+        { "family": "parasite", "count": 70, "start_time": 9.6, "duration": 3.55, "spawn_point_id": "p_w", "squad_size": 60, "squad_paths": ["west_funnel_route"] },
+        { "family": "virus", "count": 584, "start_time": 10.35, "duration": 3.55, "spawn_point_id": "p_c", "squad_size": 60, "squad_paths": ["central_funnel_left"] },
+        { "family": "bacteria", "count": 262, "start_time": 11.1, "duration": 3.55, "spawn_point_id": "p_e", "squad_size": 60, "squad_paths": ["east_funnel_route"] },
+        { "family": "virus", "count": 584, "start_time": 14.4, "duration": 3.55, "spawn_point_id": "p_w", "squad_size": 60, "squad_paths": ["west_funnel_route"] },
+        { "family": "bacteria", "count": 263, "start_time": 15.15, "duration": 3.55, "spawn_point_id": "p_c", "squad_size": 60, "squad_paths": ["central_funnel_right"] },
+        { "family": "parasite", "count": 70, "start_time": 15.9, "duration": 3.55, "spawn_point_id": "p_e", "squad_size": 60, "squad_paths": ["east_funnel_route"] },
+        { "family": "bacteria", "count": 263, "start_time": 19.2, "duration": 3.55, "spawn_point_id": "p_w", "squad_size": 60, "squad_paths": ["west_funnel_route"] },
+        { "family": "parasite", "count": 70, "start_time": 19.95, "duration": 3.55, "spawn_point_id": "p_c", "squad_size": 60, "squad_paths": ["central_funnel_left"] },
+        { "family": "virus", "count": 584, "start_time": 20.7, "duration": 3.55, "spawn_point_id": "p_e", "squad_size": 60, "squad_paths": ["east_funnel_route"] },
+        { "family": "parasite", "count": 70, "start_time": 24, "duration": 3.55, "spawn_point_id": "p_w", "squad_size": 60, "squad_paths": ["west_funnel_route"] },
+        { "family": "virus", "count": 584, "start_time": 24.75, "duration": 3.55, "spawn_point_id": "p_c", "squad_size": 60, "squad_paths": ["central_funnel_right"] },
+        { "family": "bacteria", "count": 262, "start_time": 25.5, "duration": 3.55, "spawn_point_id": "p_e", "squad_size": 60, "squad_paths": ["east_funnel_route"] }
       ]
     }
   ]

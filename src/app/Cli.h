@@ -42,6 +42,7 @@ enum class Mode : u8 {
     LevelFmt,       ///< --level-fmt: rewrite level files canonically (--check = dry run).
     Help,
     Invalid,
+    Licenses,       ///< --licenses: bundled third-party license notices on stdout.
 };
 
 struct Options {

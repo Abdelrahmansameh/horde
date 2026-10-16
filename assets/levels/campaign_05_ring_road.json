@@ -1,213 +1,229 @@
 {
   "schema": 2,
   "name": "campaign_05_ring_road",
-  "display_name": "Ring Road",
-  "description": "A ring around a core with loops on every side. Block one road and the horde takes another.",
+  "display_name": "Marrow Pools",
+  "description": "Three breaches enter a porous marrow field. Bone islands divide the attack streams across broad pools, while two hidden sinusoids drain toward the organ.",
   "difficulty": 5,
   "tags": ["campaign"],
-  "region": "organ_chamber",
-  "world": { "min": [0, 0], "max": [396.8, 396.8], "cell_size": 0.75 },
-  "camera": { "view_height": 396.8 },
-  "economy": { "starting_atp": 1500 },
+  "region": "marrow",
+  "world": { "min": [0, 0], "max": [450, 240], "cell_size": 0.75 },
+  "camera": { "center": [225, 120], "view_height": 240, "min_view_height": 180, "max_view_height": 240 },
+  "economy": { "starting_atp": 920 },
   "vessels": [
     {
-      "id": "ring",
-      "lane_id": "inlet",
+      "id": "upper_marrow_pool",
+      "lane_id": "marrow_upper",
+      "vessel_type": "lymphatic",
       "points": [
-        { "p": [297.6, 186], "w": 37.2 },
-        { "p": [270.36, 251.76], "w": 37.2 },
-        { "p": [204.6, 279], "w": 37.2 },
-        { "p": [138.84, 251.76], "w": 37.2 },
-        { "p": [111.6, 186], "w": 37.2 },
-        { "p": [138.84, 120.24], "w": 37.2 },
-        { "p": [204.6, 93], "w": 37.2 },
-        { "p": [270.36, 120.24], "w": 37.2 },
-        { "p": [297.6, 186], "w": 37.2 },
-        { "p": [270.36, 251.76], "w": 37.2 }
+        { "p": [-125, 173.5], "w": 41 },
+        { "p": [-35, 173.5], "w": 41 },
+        { "p": [25, 174], "w": 41 },
+        { "p": [75, 175], "w": 55.14 },
+        { "p": [113, 160], "w": 104.52 },
+        { "p": [154, 146], "w": 135.01 },
+        { "p": [190, 130], "w": 133 },
+        { "p": [224, 128], "w": 131.41 },
+        { "p": [269, 132], "w": 158.59 },
+        { "p": [313, 152], "w": 125.85 },
+        { "p": [350, 166], "w": 97.07 },
+        { "p": [376, 165], "w": 57.57 },
+        { "p": [425, 159.5], "w": 43 },
+        { "p": [575, 159.5], "w": 43 }
       ]
     },
     {
-      "id": "inlet",
+      "id": "lower_marrow_pool",
+      "lane_id": "marrow_lower",
       "points": [
-        { "p": [-163.44, 194.4], "w": 37.2 },
-        { "p": [55.8, 198.4], "w": 37.2 },
-        { "p": [112.84, 189.72], "w": 37.2 }
+        { "p": [-125, 85], "w": 45 },
+        { "p": [-35, 85], "w": 45 },
+        { "p": [25, 83], "w": 45 },
+        { "p": [76, 83], "w": 44.59 },
+        { "p": [116, 92], "w": 113.39 },
+        { "p": [161, 96], "w": 125.18 },
+        { "p": [205, 91], "w": 107.54 },
+        { "p": [248, 77], "w": 101.38 },
+        { "p": [285, 50], "w": 83.47 },
+        { "p": [325, 43], "w": 77.16 },
+        { "p": [360, 48], "w": 79.26 },
+        { "p": [392, 34], "w": 30 },
+        { "p": [425, 21.5], "w": 40 },
+        { "p": [575, 21.5], "w": 40 }
       ]
     },
     {
-      "id": "stem",
-      "lane_id": "inlet",
+      "id": "vertical_marrow_pool",
+      "lane_id": "marrow_top",
+      "vessel_type": "lymphatic",
       "points": [
-        { "p": [204.6, 279], "w": 37.2 },
-        { "p": [204.6, 328.6], "w": 37.2 },
-        { "p": [204.6, 375.72], "w": 37.2 }
+        { "p": [308.5, 330], "w": 41 },
+        { "p": [308.5, 270], "w": 41 },
+        { "p": [308.5, 225], "w": 41 },
+        { "p": [310, 197], "w": 52.34 },
+        { "p": [328, 172], "w": 80.82 },
+        { "p": [347, 142], "w": 105.92 },
+        { "p": [355, 111], "w": 54.81 },
+        { "p": [367, 77], "w": 50.46 },
+        { "p": [374, 49], "w": 52.23 }
       ]
     },
     {
-      "id": "west_road",
-      "lane_id": "inlet",
+      "id": "hidden_organ_sinus",
+      "lane_id": "marrow_upper",
+      "vessel_type": "lymphatic",
       "points": [
-        { "p": [62, 198.4], "w": 33.48 },
-        { "p": [54.56, 136.4], "w": 33.48 },
-        { "p": [68.2, 68.2], "w": 33.48 },
-        { "p": [117.8, 37.2], "w": 33.48 },
-        { "p": [204.6, 43.4], "w": 33.48 },
-        { "p": [204.6, 93], "w": 33.48 }
-      ]
-    },
-    {
-      "id": "south_road",
-      "lane_id": "inlet",
-      "points": [
-        { "p": [204.6, 43.4], "w": 33.48 },
-        { "p": [266.6, 35.96], "w": 33.48 },
-        { "p": [334.8, 59.52], "w": 33.48 },
-        { "p": [360.84, 124], "w": 33.48 },
-        { "p": [348.44, 204.6], "w": 33.48 },
-        { "p": [367.04, 266.6], "w": 33.48 },
-        { "p": [322.4, 323.64], "w": 33.48 },
-        { "p": [260.4, 354.64], "w": 33.48 },
-        { "p": [204.6, 363.32], "w": 33.48 }
-      ]
-    },
-    {
-      "id": "north_west_road",
-      "lane_id": "inlet",
-      "points": [
-        { "p": [62, 198.4], "w": 33.48 },
-        { "p": [48.36, 272.8], "w": 33.48 },
-        { "p": [86.8, 336.04], "w": 33.48 },
-        { "p": [155, 367.04], "w": 33.48 },
-        { "p": [204.6, 363.32], "w": 33.48 }
-      ]
-    },
-    {
-      "id": "spoke_e",
-      "lane_id": "inlet",
-      "points": [
-        { "p": [297.6, 186], "w": 33.48 },
-        { "p": [348.44, 204.6], "w": 33.48 }
-      ]
-    },
-    {
-      "id": "east_hook",
-      "lane_id": "inlet",
-      "points": [
-        { "p": [270.32, 251.72], "w": 31 },
-        { "p": [322.4, 291.4], "w": 31 },
-        { "p": [378.2, 272.8], "w": 31 },
-        { "p": [379.44, 210.8], "w": 31 },
-        { "p": [379.44, 155], "w": 31 }
-      ]
-    },
-    {
-      "id": "shortcut_sw",
-      "lane_id": "inlet",
-      "points": [
-        { "p": [68.2, 68.2], "w": 28.52 },
-        { "p": [111.6, 93], "w": 28.52 },
-        { "p": [138.88, 120.28], "w": 28.52 }
+        { "p": [557, 21.5], "w": 42 },
+        { "p": [557, 90.5], "w": 42 },
+        { "p": [557, 159.5], "w": 42 }
       ]
     }
   ],
+  "obstacles": [
+    { "id": "trabecular_island_1", "shape": "polygon", "points": [[111, 143], [114.04, 144.68], [117.23, 146.05], [120.56, 147.04], [123.98, 147.62], [127.45, 147.73], [130.89, 147.32], [134.22, 146.33], [137.29, 144.72], [139.93, 142.48], [141.89, 139.63], [142.95, 136.33], [143.12, 132.96], [146.3, 131.57], [149.24, 129.73], [151.91, 127.5], [154.25, 124.95], [156.25, 122.1], [157.81, 119.01], [158.86, 115.7], [159.28, 112.26], [158.95, 108.81], [157.83, 105.53], [155.99, 102.59], [154.47, 99.51], [154.26, 96.06], [155.09, 92.69], [156.44, 89.5], [157.86, 86.33], [158.87, 83.01], [158.74, 79.57], [157.06, 76.56], [154.31, 74.45], [151.13, 73.09], [147.69, 72.64], [144.25, 73.02], [140.93, 74.03], [137.77, 75.48], [134.77, 77.23], [131.92, 79.21], [129.18, 81.35], [126.55, 83.61], [123.86, 85.26], [120.49, 84.41], [117.03, 84.25], [113.6, 84.78], [110.35, 85.99], [107.42, 87.84], [104.97, 90.29], [103.18, 93.25], [102.23, 96.58], [102.24, 100.04], [102.72, 103.3], [100.62, 106.06], [99.05, 109.16], [98.06, 112.48], [97.63, 115.93], [97.72, 119.4], [98.25, 122.83], [99.18, 126.17], [100.45, 129.4], [102.04, 132.49], [103.9, 135.42], [106.03, 138.16], [108.4, 140.7], [111, 143]] },
+    { "id": "trabecular_island_2", "shape": "polygon", "points": [[275.5, 141], [278.62, 142.54], [281.92, 143.64], [285.34, 144.28], [288.81, 144.46], [292.28, 144.17], [295.68, 143.43], [298.94, 142.23], [301.99, 140.54], [304.7, 138.37], [306.89, 135.67], [308.31, 132.51], [308.7, 129.06], [310.28, 126.83], [313.4, 125.28], [316.25, 123.29], [318.7, 120.83], [320.57, 117.9], [321.67, 114.61], [321.88, 111.14], [321.16, 107.75], [319.65, 104.62], [317.49, 101.89], [314.87, 99.61], [312.63, 97.01], [311.2, 93.84], [310.25, 90.49], [309.52, 87.09], [308.66, 83.72], [307.24, 80.55], [304.85, 78.05], [301.72, 76.56], [298.3, 75.95], [294.86, 76.39], [291.69, 77.79], [288.88, 79.85], [286.39, 82.27], [284.1, 84.89], [281.91, 87.61], [279.74, 90.33], [277.48, 92.97], [274.44, 93.88], [270.97, 94.11], [267.59, 94.9], [264.39, 96.27], [261.51, 98.21], [259.07, 100.69], [257.25, 103.64], [256.22, 106.96], [256.1, 110.43], [256.93, 113.8], [257.52, 116.91], [256.39, 120.2], [256.15, 123.66], [256.84, 127.06], [258.32, 130.2], [260.41, 132.99], [262.93, 135.38], [265.77, 137.39], [268.85, 139.01], [272.11, 140.22], [275.5, 141]] }
+  ],
   "spawn_points": [
-    { "id": "p0", "pos": [-159.44, 194.4], "radius": 16.12, "lane_id": "inlet" }
+    { "id": "marrow_upper_left", "pos": [-100, 173.5], "radius": 11, "lane_id": "marrow_upper" },
+    { "id": "marrow_lower_left", "pos": [-100, 85], "radius": 11, "lane_id": "marrow_lower" },
+    { "id": "marrow_roof", "pos": [308.5, 305], "radius": 11, "lane_id": "marrow_top" }
   ],
   "objectives": [
-    { "id": "organ", "pos": [204.6, 369.52], "half_extents": [18.6, 6.2] }
+    { "id": "organ", "pos": [545, 90.5], "half_extents": [15, 80] }
   ],
   "placement_zones": [
-    { "min": [0, 0], "max": [396.8, 396.8] },
-    { "min": [173.6, 272.8], "max": [235.6, 372], "concentrated": true, "priority": 3 },
-    { "min": [93, 155], "max": [155, 217], "concentrated": true, "priority": 2 },
-    { "min": [161.2, 235.6], "max": [248, 291.4], "concentrated": true, "priority": 2 }
+    { "min": [0, 0], "max": [450, 240] },
+    { "min": [155, 70], "max": [235, 165], "concentrated": true, "priority": 3 },
+    { "min": [228, 146], "max": [344, 193], "concentrated": true, "priority": 2.5 },
+    { "min": [253, 22], "max": [375, 74], "concentrated": true, "priority": 2.5 },
+    { "min": [341, 71], "max": [391, 139], "concentrated": true, "priority": 2 }
+  ],
+  "squad_paths": [
+    { "id": "marrow_north_band", "lane_id": "marrow_upper", "points": [[-100, 173.5], [6.96, 173.93], [15.94, 174.26], [24.92, 174.69], [33.89, 175.2], [42.86, 175.79], [51.83, 176.44], [60.79, 177.14], [69.75, 177.85], [78.71, 178.55], [87.67, 179.2], [96.64, 179.74], [105.62, 180.12], [114.61, 180.3], [123.6, 180.23], [132.58, 179.87], [141.53, 179.05], [150.41, 177.68], [159.2, 175.81], [167.89, 173.52], [176.5, 170.95], [185.08, 168.28], [193.71, 165.75], [202.45, 163.66], [211.34, 162.66], [220.22, 164.04], [229.02, 165.84], [237.77, 167.9], [246.49, 170.06], [255.25, 172.1], [264.07, 173.78], [273, 174.83], [281.98, 174.97], [290.96, 174.62], [299.93, 174], [308.88, 173.17], [317.82, 172.21], [326.74, 171.17], [335.67, 170.09], [344.59, 168.99], [353.51, 167.92], [362.44, 166.87], [371.37, 165.88], [380.31, 164.94], [389.26, 164.07], [398.21, 163.27], [407.17, 162.54], [416.13, 161.88], [425.1, 161.3], [434.07, 160.8], [443.05, 160.37], [545, 159.5]], "half_width": 9 },
+    { "id": "marrow_diagonal_band", "lane_id": "marrow_upper", "points": [[-100, 173.5], [6.96, 173.93], [15.94, 174.26], [24.92, 174.69], [33.89, 175.2], [42.86, 175.79], [51.83, 176.44], [60.79, 177.14], [69.75, 177.85], [78.71, 178.55], [87.67, 179.2], [96.64, 179.74], [105.62, 180.12], [114.61, 180.3], [123.6, 180.23], [132.58, 179.87], [141.53, 179.05], [150.41, 177.68], [159.2, 175.81], [167.89, 173.52], [176.5, 170.95], [187, 167], [207, 150], [218, 126], [226, 99], [238, 73], [257, 54], [292, 35], [335, 25], [395, 21.5], [545, 21.5]], "half_width": 9 },
+    { "id": "marrow_south_band", "lane_id": "marrow_lower", "points": [[-100, 85], [6.8, 83.9], [15.71, 83.01], [24.57, 81.85], [33.4, 80.39], [42.17, 78.66], [50.89, 76.66], [59.55, 74.42], [68.16, 71.99], [76.74, 69.45], [85.31, 66.88], [93.91, 64.42], [102.57, 62.21], [111.34, 60.42], [120.17, 59.04], [129.06, 58.02], [138, 57.86], [146.9, 58.63], [155.69, 60.29], [164.3, 62.7], [172.74, 65.66], [181.08, 68.9], [189.41, 72.17], [197.81, 75.23], [206.32, 77.99], [215.12, 79.07], [223.52, 76.17], [230.71, 70.88], [237.27, 64.8], [243.82, 58.7], [250.8, 53.12], [258.56, 48.7], [266.73, 45.06], [275.09, 41.87], [283.58, 39.08], [292.19, 36.63], [300.87, 34.49], [309.61, 32.6], [318.41, 30.95], [327.23, 29.5], [336.09, 28.23], [344.96, 27.12], [353.85, 26.15], [362.76, 25.31], [371.68, 24.58], [380.6, 23.95], [389.53, 23.42], [398.46, 22.96], [407.4, 22.58], [416.34, 22.27], [425.28, 22.02], [434.22, 21.82], [443.17, 21.67], [545, 21.5]], "half_width": 9 },
+    { "id": "marrow_central_band", "lane_id": "marrow_lower", "points": [[-100, 85], [6.8, 83.9], [15.71, 83.01], [24.57, 81.85], [33.4, 80.39], [42.17, 78.66], [50.89, 76.66], [59.55, 74.42], [68.16, 71.99], [76.74, 69.45], [85.31, 66.88], [93.91, 64.42], [102.57, 62.21], [111.34, 60.42], [120.17, 59.04], [129.06, 58.02], [138, 57.86], [146.9, 58.63], [155.69, 60.29], [174, 67], [194, 84], [208, 108], [220, 135], [240, 159], [269, 171], [311, 173], [370, 165], [425, 159.5], [545, 159.5]], "half_width": 9 },
+    { "id": "marrow_outer_bend", "lane_id": "marrow_top", "points": [[308.5, 305], [308.5, 233.23], [308.5, 224.31], [308.5, 215.38], [309.58, 206.54], [312.73, 198.22], [317.55, 190.72], [323.1, 183.73], [328.45, 176.6], [332.87, 168.86], [335.88, 160.47], [338.04, 151.83], [340.91, 143.37], [343.82, 134.94], [346.68, 126.49], [349.39, 117.98], [351.81, 109.4], [353.84, 100.71], [355.3, 91.91], [356.95, 83.14], [359.54, 74.61], [363.08, 66.42], [367.49, 58.67], [372.67, 51.41], [378.49, 44.65], [384.85, 38.39], [391.63, 32.59], [399.42, 28.31], [407.85, 25.42], [416.57, 23.51], [425.41, 22.33], [434.31, 21.69], [443.23, 21.42], [545, 21.5]], "half_width": 9 },
+    { "id": "marrow_upper_bend", "lane_id": "marrow_top", "points": [[308.5, 305], [308.5, 233.23], [308.5, 224.31], [308.5, 215.38], [309.58, 206.54], [312.73, 198.22], [317.55, 190.72], [323.1, 183.73], [328.45, 176.6], [332.87, 168.86], [335.88, 160.47], [345, 170], [371, 165], [425, 159.5], [545, 159.5]], "half_width": 9 }
   ],
   "waves": [
     {
       "name": "campaign_05_ring_road_wave_1",
-      "prep_time": 8,
-      "atp_reward": 50,
+      "prep_time": 11,
+      "atp_reward": 65,
       "spawns": [
-        { "family": "virus", "count": 250, "duration": 4 }
+        { "family": "virus", "count": 165, "duration": 3.6, "spawn_point_id": "marrow_upper_left", "squad_size": 60, "squad_paths": ["marrow_north_band"] },
+        { "family": "virus", "count": 165, "start_time": 1, "duration": 3.6, "spawn_point_id": "marrow_lower_left", "squad_size": 60, "squad_paths": ["marrow_south_band"] }
       ]
     },
     {
       "name": "campaign_05_ring_road_wave_2",
-      "prep_time": 7.43,
-      "atp_reward": 84,
+      "prep_time": 10.3,
+      "atp_reward": 96,
       "spawns": [
-        { "family": "virus", "count": 462, "duration": 4 },
-        { "family": "bacteria", "count": 120, "start_time": 1, "duration": 3.5 },
-        { "family": "parasite", "count": 18, "start_time": 1.5, "duration": 3.5 }
+        { "family": "bacteria", "count": 60, "duration": 3.65, "spawn_point_id": "marrow_upper_left", "squad_size": 60, "squad_paths": ["marrow_diagonal_band"] },
+        { "family": "virus", "count": 133, "start_time": 1, "duration": 3.65, "spawn_point_id": "marrow_lower_left", "squad_size": 60, "squad_paths": ["marrow_central_band"] },
+        { "family": "bacteria", "count": 60, "start_time": 2, "duration": 3.65, "spawn_point_id": "marrow_roof", "squad_size": 60, "squad_paths": ["marrow_upper_bend"] },
+        { "family": "virus", "count": 133, "start_time": 4.9, "duration": 3.65, "spawn_point_id": "marrow_upper_left", "squad_size": 60, "squad_paths": ["marrow_north_band"] },
+        { "family": "bacteria", "count": 60, "start_time": 5.9, "duration": 3.65, "spawn_point_id": "marrow_lower_left", "squad_size": 60, "squad_paths": ["marrow_south_band"] },
+        { "family": "virus", "count": 133, "start_time": 6.9, "duration": 3.65, "spawn_point_id": "marrow_roof", "squad_size": 60, "squad_paths": ["marrow_outer_bend"] }
       ]
     },
     {
       "name": "campaign_05_ring_road_wave_3",
-      "prep_time": 6.86,
-      "atp_reward": 118,
+      "prep_time": 9.6,
+      "atp_reward": 127,
       "spawns": [
-        { "family": "virus", "count": 675, "duration": 4 },
-        { "family": "bacteria", "count": 204, "start_time": 1, "duration": 3.5 },
-        { "family": "parasite", "count": 31, "start_time": 1.5, "duration": 3.5 }
+        { "family": "parasite", "count": 22, "duration": 3.7, "spawn_point_id": "marrow_upper_left", "squad_size": 60, "squad_paths": ["marrow_north_band"] },
+        { "family": "virus", "count": 183, "start_time": 1, "duration": 3.7, "spawn_point_id": "marrow_lower_left", "squad_size": 60, "squad_paths": ["marrow_south_band"] },
+        { "family": "bacteria", "count": 83, "start_time": 2, "duration": 3.7, "spawn_point_id": "marrow_roof", "squad_size": 60, "squad_paths": ["marrow_outer_bend"] },
+        { "family": "virus", "count": 183, "start_time": 4.95, "duration": 3.7, "spawn_point_id": "marrow_upper_left", "squad_size": 60, "squad_paths": ["marrow_diagonal_band"] },
+        { "family": "bacteria", "count": 83, "start_time": 5.95, "duration": 3.7, "spawn_point_id": "marrow_lower_left", "squad_size": 60, "squad_paths": ["marrow_central_band"] },
+        { "family": "parasite", "count": 22, "start_time": 6.95, "duration": 3.7, "spawn_point_id": "marrow_roof", "squad_size": 60, "squad_paths": ["marrow_upper_bend"] },
+        { "family": "bacteria", "count": 83, "start_time": 9.9, "duration": 3.7, "spawn_point_id": "marrow_upper_left", "squad_size": 60, "squad_paths": ["marrow_north_band"] },
+        { "family": "parasite", "count": 22, "start_time": 10.9, "duration": 3.7, "spawn_point_id": "marrow_lower_left", "squad_size": 60, "squad_paths": ["marrow_south_band"] },
+        { "family": "virus", "count": 183, "start_time": 11.9, "duration": 3.7, "spawn_point_id": "marrow_roof", "squad_size": 60, "squad_paths": ["marrow_outer_bend"] }
       ]
     },
     {
       "name": "campaign_05_ring_road_wave_4",
-      "prep_time": 6.29,
-      "atp_reward": 152,
+      "prep_time": 8.9,
+      "atp_reward": 158,
       "spawns": [
-        { "family": "virus", "count": 887, "duration": 4 },
-        { "family": "bacteria", "count": 288, "start_time": 1, "duration": 3.5 },
-        { "family": "parasite", "count": 43, "start_time": 1.5, "duration": 3.5 }
+        { "family": "virus", "count": 248, "duration": 3.75, "spawn_point_id": "marrow_upper_left", "squad_size": 60, "squad_paths": ["marrow_diagonal_band"] },
+        { "family": "bacteria", "count": 111, "start_time": 1, "duration": 3.75, "spawn_point_id": "marrow_lower_left", "squad_size": 60, "squad_paths": ["marrow_central_band"] },
+        { "family": "parasite", "count": 30, "start_time": 2, "duration": 3.75, "spawn_point_id": "marrow_roof", "squad_size": 60, "squad_paths": ["marrow_upper_bend"] },
+        { "family": "bacteria", "count": 111, "start_time": 5, "duration": 3.75, "spawn_point_id": "marrow_upper_left", "squad_size": 60, "squad_paths": ["marrow_north_band"] },
+        { "family": "parasite", "count": 30, "start_time": 6, "duration": 3.75, "spawn_point_id": "marrow_lower_left", "squad_size": 60, "squad_paths": ["marrow_south_band"] },
+        { "family": "virus", "count": 247, "start_time": 7, "duration": 3.75, "spawn_point_id": "marrow_roof", "squad_size": 60, "squad_paths": ["marrow_outer_bend"] },
+        { "family": "parasite", "count": 30, "start_time": 10, "duration": 3.75, "spawn_point_id": "marrow_upper_left", "squad_size": 60, "squad_paths": ["marrow_diagonal_band"] },
+        { "family": "virus", "count": 247, "start_time": 11, "duration": 3.75, "spawn_point_id": "marrow_lower_left", "squad_size": 60, "squad_paths": ["marrow_central_band"] },
+        { "family": "bacteria", "count": 111, "start_time": 12, "duration": 3.75, "spawn_point_id": "marrow_roof", "squad_size": 60, "squad_paths": ["marrow_upper_bend"] }
       ]
     },
     {
       "name": "campaign_05_ring_road_wave_5",
-      "prep_time": 5.71,
-      "atp_reward": 186,
+      "prep_time": 8.2,
+      "atp_reward": 189,
       "spawns": [
-        { "family": "virus", "count": 1100, "duration": 4 },
-        { "family": "bacteria", "count": 371, "start_time": 1, "duration": 3.5 },
-        { "family": "parasite", "count": 56, "start_time": 1.5, "duration": 3.5 },
-        { "family": "bacteria", "count": 72, "start_time": 0.5, "duration": 5.5 },
-        { "family": "parasite", "count": 11, "start_time": 1, "duration": 5.5 }
+        { "family": "bacteria", "count": 141, "duration": 3.8, "spawn_point_id": "marrow_upper_left", "squad_size": 60, "squad_paths": ["marrow_north_band"] },
+        { "family": "parasite", "count": 38, "start_time": 1, "duration": 3.8, "spawn_point_id": "marrow_lower_left", "squad_size": 60, "squad_paths": ["marrow_south_band"] },
+        { "family": "virus", "count": 313, "start_time": 2, "duration": 3.8, "spawn_point_id": "marrow_roof", "squad_size": 60, "squad_paths": ["marrow_outer_bend"] },
+        { "family": "parasite", "count": 38, "start_time": 5.05, "duration": 3.8, "spawn_point_id": "marrow_upper_left", "squad_size": 60, "squad_paths": ["marrow_diagonal_band"] },
+        { "family": "virus", "count": 313, "start_time": 6.05, "duration": 3.8, "spawn_point_id": "marrow_lower_left", "squad_size": 60, "squad_paths": ["marrow_central_band"] },
+        { "family": "bacteria", "count": 141, "start_time": 7.05, "duration": 3.8, "spawn_point_id": "marrow_roof", "squad_size": 60, "squad_paths": ["marrow_upper_bend"] },
+        { "family": "virus", "count": 313, "start_time": 10.1, "duration": 3.8, "spawn_point_id": "marrow_upper_left", "squad_size": 60, "squad_paths": ["marrow_north_band"] },
+        { "family": "bacteria", "count": 141, "start_time": 11.1, "duration": 3.8, "spawn_point_id": "marrow_lower_left", "squad_size": 60, "squad_paths": ["marrow_south_band"] },
+        { "family": "parasite", "count": 37, "start_time": 12.1, "duration": 3.8, "spawn_point_id": "marrow_roof", "squad_size": 60, "squad_paths": ["marrow_outer_bend"] }
       ]
     },
     {
       "name": "campaign_05_ring_road_wave_6",
-      "prep_time": 5.14,
+      "prep_time": 7.5,
       "atp_reward": 220,
       "spawns": [
-        { "family": "virus", "count": 1312, "duration": 4 },
-        { "family": "bacteria", "count": 456, "start_time": 1, "duration": 3.5 },
-        { "family": "parasite", "count": 68, "start_time": 1.5, "duration": 3.5 },
-        { "family": "bacteria", "count": 108, "start_time": 0.5, "duration": 5.5 },
-        { "family": "parasite", "count": 16, "start_time": 1, "duration": 5.5 }
+        { "family": "parasite", "count": 46, "duration": 3.85, "spawn_point_id": "marrow_upper_left", "squad_size": 60, "squad_paths": ["marrow_diagonal_band"] },
+        { "family": "virus", "count": 381, "start_time": 1, "duration": 3.85, "spawn_point_id": "marrow_lower_left", "squad_size": 60, "squad_paths": ["marrow_central_band"] },
+        { "family": "bacteria", "count": 171, "start_time": 2, "duration": 3.85, "spawn_point_id": "marrow_roof", "squad_size": 60, "squad_paths": ["marrow_upper_bend"] },
+        { "family": "virus", "count": 381, "start_time": 5.1, "duration": 3.85, "spawn_point_id": "marrow_upper_left", "squad_size": 60, "squad_paths": ["marrow_north_band"] },
+        { "family": "bacteria", "count": 171, "start_time": 6.1, "duration": 3.85, "spawn_point_id": "marrow_lower_left", "squad_size": 60, "squad_paths": ["marrow_south_band"] },
+        { "family": "parasite", "count": 46, "start_time": 7.1, "duration": 3.85, "spawn_point_id": "marrow_roof", "squad_size": 60, "squad_paths": ["marrow_outer_bend"] },
+        { "family": "bacteria", "count": 171, "start_time": 10.2, "duration": 3.85, "spawn_point_id": "marrow_upper_left", "squad_size": 60, "squad_paths": ["marrow_diagonal_band"] },
+        { "family": "parasite", "count": 46, "start_time": 11.2, "duration": 3.85, "spawn_point_id": "marrow_lower_left", "squad_size": 60, "squad_paths": ["marrow_central_band"] },
+        { "family": "virus", "count": 381, "start_time": 12.2, "duration": 3.85, "spawn_point_id": "marrow_roof", "squad_size": 60, "squad_paths": ["marrow_upper_bend"] }
       ]
     },
     {
       "name": "campaign_05_ring_road_wave_7",
-      "prep_time": 4.57,
-      "atp_reward": 254,
+      "prep_time": 6.8,
+      "atp_reward": 251,
       "spawns": [
-        { "family": "virus", "count": 1525, "duration": 4 },
-        { "family": "bacteria", "count": 540, "start_time": 1, "duration": 3.5 },
-        { "family": "parasite", "count": 81, "start_time": 1.5, "duration": 3.5 },
-        { "family": "bacteria", "count": 144, "start_time": 0.5, "duration": 5.5 },
-        { "family": "parasite", "count": 22, "start_time": 1, "duration": 5.5 }
+        { "family": "virus", "count": 450, "duration": 3.9, "spawn_point_id": "marrow_upper_left", "squad_size": 60, "squad_paths": ["marrow_north_band"] },
+        { "family": "bacteria", "count": 202, "start_time": 1, "duration": 3.9, "spawn_point_id": "marrow_lower_left", "squad_size": 60, "squad_paths": ["marrow_south_band"] },
+        { "family": "parasite", "count": 54, "start_time": 2, "duration": 3.9, "spawn_point_id": "marrow_roof", "squad_size": 60, "squad_paths": ["marrow_outer_bend"] },
+        { "family": "bacteria", "count": 203, "start_time": 5.15, "duration": 3.9, "spawn_point_id": "marrow_upper_left", "squad_size": 60, "squad_paths": ["marrow_diagonal_band"] },
+        { "family": "parasite", "count": 54, "start_time": 6.15, "duration": 3.9, "spawn_point_id": "marrow_lower_left", "squad_size": 60, "squad_paths": ["marrow_central_band"] },
+        { "family": "virus", "count": 450, "start_time": 7.15, "duration": 3.9, "spawn_point_id": "marrow_roof", "squad_size": 60, "squad_paths": ["marrow_upper_bend"] },
+        { "family": "parasite", "count": 54, "start_time": 10.3, "duration": 3.9, "spawn_point_id": "marrow_upper_left", "squad_size": 60, "squad_paths": ["marrow_north_band"] },
+        { "family": "virus", "count": 450, "start_time": 11.3, "duration": 3.9, "spawn_point_id": "marrow_lower_left", "squad_size": 60, "squad_paths": ["marrow_south_band"] },
+        { "family": "bacteria", "count": 202, "start_time": 12.3, "duration": 3.9, "spawn_point_id": "marrow_roof", "squad_size": 60, "squad_paths": ["marrow_outer_bend"] }
       ]
     },
     {
       "name": "campaign_05_ring_road_wave_8",
-      "prep_time": 4,
-      "atp_reward": 288,
+      "prep_time": 6.1,
+      "atp_reward": 282,
       "spawns": [
-        { "family": "virus", "count": 1737, "duration": 4 },
-        { "family": "bacteria", "count": 623, "start_time": 1, "duration": 3.5 },
-        { "family": "parasite", "count": 93, "start_time": 1.5, "duration": 3.5 },
-        { "family": "bacteria", "count": 180, "start_time": 0.5, "duration": 5.5 },
-        { "family": "parasite", "count": 27, "start_time": 1, "duration": 5.5 }
+        { "family": "bacteria", "count": 234, "duration": 3.95, "spawn_point_id": "marrow_upper_left", "squad_size": 60, "squad_paths": ["marrow_diagonal_band"] },
+        { "family": "parasite", "count": 63, "start_time": 1, "duration": 3.95, "spawn_point_id": "marrow_lower_left", "squad_size": 60, "squad_paths": ["marrow_central_band"] },
+        { "family": "virus", "count": 520, "start_time": 2, "duration": 3.95, "spawn_point_id": "marrow_roof", "squad_size": 60, "squad_paths": ["marrow_upper_bend"] },
+        { "family": "parasite", "count": 63, "start_time": 5.2, "duration": 3.95, "spawn_point_id": "marrow_upper_left", "squad_size": 60, "squad_paths": ["marrow_north_band"] },
+        { "family": "virus", "count": 520, "start_time": 6.2, "duration": 3.95, "spawn_point_id": "marrow_lower_left", "squad_size": 60, "squad_paths": ["marrow_south_band"] },
+        { "family": "bacteria", "count": 234, "start_time": 7.2, "duration": 3.95, "spawn_point_id": "marrow_roof", "squad_size": 60, "squad_paths": ["marrow_outer_bend"] },
+        { "family": "virus", "count": 520, "start_time": 10.4, "duration": 3.95, "spawn_point_id": "marrow_upper_left", "squad_size": 60, "squad_paths": ["marrow_diagonal_band"] },
+        { "family": "bacteria", "count": 234, "start_time": 11.4, "duration": 3.95, "spawn_point_id": "marrow_lower_left", "squad_size": 60, "squad_paths": ["marrow_central_band"] },
+        { "family": "parasite", "count": 62, "start_time": 12.4, "duration": 3.95, "spawn_point_id": "marrow_roof", "squad_size": 60, "squad_paths": ["marrow_upper_bend"] }
       ]
     }
-  ]
+  ],
+  "editor": { "grid_size": 5, "camera_center": [225, 120], "camera_view_height": 240, "notes": "Approved Marrow Pools: one broad porous field, two irregular trabecular bone islands, three offscreen afferents, and two right sinusoids into one hidden organ rectangle. Alternating authored streams occupy both sides of each island and cross the central gap rather than collapsing into one merger. Islands create useful forward holds and short bypasses; no ornamental rings or dead lanes. Keep the approved 450x240 proportions. Homogeneous per-port bursts retain at least 1.25 seconds between releases." }
 }

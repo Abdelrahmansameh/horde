@@ -101,10 +101,10 @@ TEST_CASE("HUD: the dock shows unlocked towers in canvas order, greyed when unaf
     REQUIRE(h.shown("hud/dock/neutrophil"));
     CHECK(h.w("hud/dock/neutrophil")->enabled);        // 70 <= 150
     CHECK_FALSE(h.w("hud/dock/macrophage")->enabled);  // 180 > 150
-    auto* short_label = dynamic_cast<gui::Label*>(h.w("hud/dock/macrophage/short"));
-    REQUIRE(short_label != nullptr);
-    CHECK(short_label->text() == "30 ATP short");
-    CHECK(h.shown("hud/dock/macrophage/afford"));
+    auto* cost_label = dynamic_cast<gui::Label*>(h.w("hud/dock/macrophage/cost"));
+    REQUIRE(cost_label != nullptr);
+    CHECK(cost_label->text() == "180");
+    CHECK_FALSE(h.shown("hud/dock/macrophage/short"));
 
     // Hotkeys follow the dock: Attack then Control.
     CHECK(dock_slot(TowerType::Neutrophil) == 0);
@@ -128,7 +128,9 @@ TEST_CASE("HUD: clicking a card arms placement; again, or Escape, disarms", "[ui
     CHECK(h.hud->has_build_cursor());
     CHECK(h.hud->build_cursor() == TowerType::Neutrophil);
     h.frame(m);
-    CHECK(h.shown("hud/dock/neutrophil/tag"));
+    auto* card = dynamic_cast<gui::Button*>(h.w("hud/dock/neutrophil"));
+    REQUIRE(card != nullptr);
+    CHECK(card->nudge.x == 14.0f);
     CHECK(h.shown("hud/hint"));
     REQUIRE(h.gui.click("hud/dock/neutrophil"));
     CHECK_FALSE(h.hud->has_build_cursor());

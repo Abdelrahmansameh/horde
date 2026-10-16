@@ -1,211 +1,386 @@
 {
   "schema": 2,
   "name": "campaign_07_chevron_sieve",
-  "display_name": "Chevron Sieve",
-  "description": "Three breaches inside a wedge of islands. The horde squeezes through the slits; make it pay.",
+  "display_name": "Intestinal Battlefield",
+  "description": "A large continuous intestinal field, entered at four separate left-edge breaches. Forward-moving streams cover upper, middle, and lower approaches. Two wall-attached folds and a central tissue island bend streams toward separate broad right exits. There is no central interchange. The organ lies beyond the right edge.",
   "difficulty": 7,
-  "tags": ["campaign"],
+  "tags": ["campaign", "multiple_fronts", "open_field", "convergence"],
   "region": "mucosal",
-  "world": { "min": [0, 0], "max": [697, 510], "cell_size": 1.25 },
-  "camera": { "view_height": 510 },
-  "economy": { "starting_atp": 2100 },
+  "world": { "min": [0, 0], "max": [450, 240], "cell_size": 1 },
+  "camera": { "center": [225, 120], "view_height": 240, "min_view_height": 182.4, "max_view_height": 240 },
+  "economy": { "starting_atp": 1400 },
   "vessels": [
     {
-      "id": "in_top",
+      "id": "intestinal_basin",
+      "lane_id": "intestinal_field",
+      "vessel_type": "mucosal_fold",
       "points": [
-        { "p": [-10.2, 408], "w": 76.5 },
-        { "p": [68, 408], "w": 76.5 },
-        { "p": [153, 399.5], "w": 76.5 }
+        { "p": [65, 124], "w": 200 },
+        { "p": [130, 124], "w": 220 },
+        { "p": [200, 123], "w": 218 },
+        { "p": [275, 122], "w": 220 },
+        { "p": [350, 118], "w": 216 },
+        { "p": [395, 112], "w": 202 }
       ]
     },
     {
-      "id": "in_mid",
+      "id": "dorsal_basin_shoulder",
+      "lane_id": "intestinal_field",
+      "vessel_type": "mucosal_fold",
       "points": [
-        { "p": [-10.2, 255], "w": 76.5 },
-        { "p": [68, 255], "w": 76.5 },
-        { "p": [153, 255], "w": 76.5 }
+        { "p": [50, 190], "w": 70 },
+        { "p": [130, 191], "w": 75 },
+        { "p": [235, 190], "w": 78 },
+        { "p": [330, 180], "w": 90 },
+        { "p": [400, 174], "w": 95 }
       ]
     },
     {
-      "id": "in_bot",
+      "id": "ventral_basin_shoulder",
+      "lane_id": "intestinal_field",
+      "vessel_type": "mucosal_fold",
       "points": [
-        { "p": [-10.2, 102], "w": 76.5 },
-        { "p": [68, 102], "w": 76.5 },
-        { "p": [153, 110.5], "w": 76.5 }
+        { "p": [47, 40], "w": 74 },
+        { "p": [130, 39], "w": 72 },
+        { "p": [230, 36], "w": 70 },
+        { "p": [330, 48], "w": 80 },
+        { "p": [400, 55.5], "w": 76 }
       ]
     },
     {
-      "id": "field_0",
-      "lane_id": "in_mid",
+      "id": "upper_efferent_mouth",
+      "lane_id": "intestinal_field",
+      "vessel_type": "mucosal_fold",
       "points": [
-        { "p": [153, 93.5], "w": 127.5 },
-        { "p": [391, 93.5], "w": 127.5 },
-        { "p": [629, 93.5], "w": 127.5 }
+        { "p": [390, 169.5], "w": 61 },
+        { "p": [450, 169.5], "w": 61 },
+        { "p": [605, 169.5], "w": 61 }
       ]
     },
     {
-      "id": "field_1",
-      "lane_id": "in_mid",
+      "id": "lower_efferent_mouth",
+      "lane_id": "intestinal_field",
+      "vessel_type": "mucosal_fold",
       "points": [
-        { "p": [153, 204], "w": 127.5 },
-        { "p": [391, 204], "w": 127.5 },
-        { "p": [629, 204], "w": 127.5 }
+        { "p": [390, 55.5], "w": 63 },
+        { "p": [450, 55.5], "w": 63 },
+        { "p": [605, 55.5], "w": 63 }
       ]
     },
     {
-      "id": "field_2",
-      "lane_id": "in_mid",
+      "id": "hidden_primary_organ_bed",
+      "lane_id": "intestinal_field",
+      "vessel_type": "mucosal_fold",
       "points": [
-        { "p": [153, 314.5], "w": 127.5 },
-        { "p": [391, 314.5], "w": 127.5 },
-        { "p": [629, 314.5], "w": 127.5 }
+        { "p": [590, 55.5], "w": 28 },
+        { "p": [590, 111], "w": 28 },
+        { "p": [590, 169.5], "w": 28 }
       ]
     },
     {
-      "id": "field_3",
-      "lane_id": "in_mid",
+      "id": "p_upper_a_breach",
+      "lane_id": "intestinal_field",
+      "vessel_type": "mucosal_fold",
       "points": [
-        { "p": [153, 425], "w": 127.5 },
-        { "p": [391, 425], "w": 127.5 },
-        { "p": [629, 425], "w": 127.5 }
+        { "p": [-160, 202], "w": 36 },
+        { "p": [-90, 202], "w": 36 },
+        { "p": [0, 202], "w": 36 },
+        { "p": [50, 202], "w": 46 },
+        { "p": [95, 202], "w": 64 }
       ]
     },
     {
-      "id": "outlet",
-      "lane_id": "in_mid",
+      "id": "p_upper_b_breach",
+      "lane_id": "intestinal_field",
+      "vessel_type": "mucosal_fold",
       "points": [
-        { "p": [595, 255], "w": 204 },
-        { "p": [646, 255], "w": 204 },
-        { "p": [845, 255], "w": 204 }
+        { "p": [-160, 145], "w": 30 },
+        { "p": [-90, 145], "w": 30 },
+        { "p": [0, 145], "w": 30 },
+        { "p": [50, 145], "w": 40 },
+        { "p": [95, 145], "w": 64 }
+      ]
+    },
+    {
+      "id": "p_lower_a_breach",
+      "lane_id": "intestinal_field",
+      "vessel_type": "mucosal_fold",
+      "points": [
+        { "p": [-160, 90], "w": 30 },
+        { "p": [-90, 90], "w": 30 },
+        { "p": [0, 90], "w": 30 },
+        { "p": [50, 90], "w": 40 },
+        { "p": [95, 90], "w": 64 }
+      ]
+    },
+    {
+      "id": "p_lower_b_breach",
+      "lane_id": "intestinal_field",
+      "vessel_type": "mucosal_fold",
+      "points": [
+        { "p": [-160, 37.5], "w": 35 },
+        { "p": [-90, 37.5], "w": 35 },
+        { "p": [0, 37.5], "w": 35 },
+        { "p": [50, 37.5], "w": 45 },
+        { "p": [95, 37.5], "w": 64 }
       ]
     }
   ],
   "obstacles": [
-    { "id": "upper_0", "shape": "box", "pos": [205.7, 425], "half_extents": [39.1, 25.5], "rotation": -25.463 },
-    { "id": "upper_1", "shape": "box", "pos": [294.95, 382.5], "half_extents": [39.1, 25.5], "rotation": -25.463 },
-    { "id": "upper_2", "shape": "box", "pos": [384.2, 340], "half_extents": [39.1, 25.5], "rotation": -25.463 },
-    { "id": "upper_3", "shape": "box", "pos": [473.45, 297.5], "half_extents": [39.1, 25.5], "rotation": -25.463 },
-    { "id": "lower_0", "shape": "box", "pos": [205.7, 85], "half_extents": [39.1, 25.5], "rotation": 25.463 },
-    { "id": "lower_1", "shape": "box", "pos": [294.95, 127.5], "half_extents": [39.1, 25.5], "rotation": 25.463 },
-    { "id": "lower_2", "shape": "box", "pos": [384.2, 170], "half_extents": [39.1, 25.5], "rotation": 25.463 },
-    { "id": "lower_3", "shape": "box", "pos": [473.45, 212.5], "half_extents": [39.1, 25.5], "rotation": 25.463 },
-    { "id": "tip_n", "shape": "capsule", "points": [[508.3, 338.3], [598.4, 255]], "radius": 17 },
-    { "id": "tip_s", "shape": "capsule", "points": [[508.3, 171.7], [598.4, 255]], "radius": 17 },
-    { "id": "wall_ne", "shape": "polygon", "points": [[476, 510], [697, 510], [697, 365.5]] },
-    { "id": "wall_se", "shape": "polygon", "points": [[476, 0], [697, 0], [697, 144.5]] }
+    { "id": "dorsal_outer_tissue", "shape": "polygon", "points": [[-175, 240], [640, 240], [640, 199], [397, 199], [394.172, 202.202], [390.815, 205.202], [386.972, 207.997], [382.684, 210.58], [377.992, 212.945], [372.938, 215.088], [367.565, 217.001], [361.912, 218.68], [356.022, 220.119], [349.938, 221.312], [343.699, 222.255], [337.348, 222.94], [330.927, 223.363], [324.476, 223.518], [318.039, 223.398], [311.656, 223], [305.369, 222.317], [299.22, 221.343], [293.249, 220.072], [287.5, 218.5], [285.541, 219.216], [283.273, 220.001], [280.709, 220.832], [277.864, 221.688], [274.75, 222.547], [271.381, 223.387], [267.77, 224.187], [263.932, 224.924], [259.879, 225.577], [255.625, 226.125], [251.184, 226.545], [246.568, 226.816], [241.792, 226.916], [236.869, 226.823], [231.812, 226.516], [226.636, 225.972], [221.353, 225.17], [215.977, 224.089], [210.521, 222.706], [205, 221], [203.456, 221.623], [201.679, 222.282], [199.675, 222.96], [197.452, 223.64], [195.016, 224.305], [192.373, 224.938], [189.531, 225.522], [186.496, 226.04], [183.275, 226.476], [179.875, 226.812], [176.302, 227.033], [172.564, 227.12], [168.667, 227.057], [164.617, 226.828], [160.422, 226.414], [156.088, 225.8], [151.622, 224.968], [147.031, 223.903], [142.321, 222.585], [137.5, 221], [135.069, 222.311], [132.304, 223.537], [129.243, 224.669], [125.928, 225.696], [122.398, 226.609], [118.694, 227.399], [114.856, 228.055], [110.924, 228.568], [106.938, 228.928], [102.938, 229.125], [98.964, 229.15], [95.056, 228.992], [91.255, 228.642], [87.6, 228.091], [84.133, 227.328], [80.892, 226.344], [77.918, 225.129], [75.252, 223.673], [72.932, 221.967], [71, 220], [-25, 220], [-175, 220]] },
+    { "id": "ventral_outer_tissue", "shape": "polygon", "points": [[-175, 0], [640, 0], [640, 24.5], [395, 24.5], [391.261, 21.732], [387.406, 19.408], [383.454, 17.503], [379.424, 15.988], [375.336, 14.836], [371.208, 14.02], [367.061, 13.511], [362.912, 13.284], [358.781, 13.31], [354.688, 13.562], [350.65, 14.014], [346.688, 14.636], [342.82, 15.402], [339.067, 16.286], [335.445, 17.258], [331.976, 18.292], [328.678, 19.361], [325.57, 20.436], [322.671, 21.492], [320, 22.5], [314.474, 20.434], [309.006, 18.718], [303.606, 17.33], [298.288, 16.244], [293.062, 15.438], [287.942, 14.886], [282.939, 14.566], [278.064, 14.452], [273.331, 14.521], [268.75, 14.75], [264.334, 15.113], [260.096, 15.588], [256.046, 16.149], [252.198, 16.774], [248.562, 17.438], [245.152, 18.116], [241.978, 18.786], [239.054, 19.422], [236.391, 20.001], [234, 20.5], [228.502, 18.726], [222.974, 17.29], [217.437, 16.17], [211.912, 15.344], [206.422, 14.789], [200.988, 14.484], [195.632, 14.405], [190.376, 14.532], [185.241, 14.842], [180.25, 15.312], [175.424, 15.922], [170.784, 16.648], [166.353, 17.469], [162.152, 18.362], [158.203, 19.305], [154.528, 20.276], [151.148, 21.253], [148.086, 22.214], [145.363, 23.137], [143, 24], [137.379, 22.439], [131.919, 21.188], [126.624, 20.219], [121.496, 19.504], [116.539, 19.016], [111.756, 18.726], [107.152, 18.607], [102.728, 18.632], [98.489, 18.772], [94.438, 19], [90.577, 19.288], [86.912, 19.608], [83.445, 19.933], [80.178, 20.234], [77.117, 20.484], [74.264, 20.656], [71.622, 20.721], [69.195, 20.652], [66.987, 20.421], [65, 20], [-25, 20], [-175, 20]] },
+    { "id": "west_fold_lower", "shape": "polygon", "points": [[-175, 55], [45, 55], [46.564, 55.123], [48.09, 55.489], [49.54, 56.09], [50.878, 56.91], [52.071, 57.929], [53.09, 59.122], [53.91, 60.46], [54.511, 61.91], [54.877, 63.436], [55, 65], [54.877, 66.564], [54.511, 68.09], [53.91, 69.54], [53.09, 70.878], [52.071, 72.071], [50.878, 73.09], [49.54, 73.91], [48.09, 74.511], [46.564, 74.877], [45, 75], [-175, 75]] },
+    { "id": "west_fold_middle", "shape": "polygon", "points": [[-175, 105], [44, 105], [45.955, 105.154], [47.863, 105.612], [49.675, 106.362], [51.347, 107.387], [52.839, 108.661], [54.113, 110.153], [55.138, 111.825], [55.888, 113.637], [56.346, 115.545], [56.5, 117.5], [56.346, 119.455], [55.888, 121.363], [55.138, 123.175], [54.113, 124.847], [52.839, 126.339], [51.347, 127.613], [49.675, 128.638], [47.863, 129.388], [45.955, 129.846], [44, 130], [-175, 130]] },
+    { "id": "west_fold_upper", "shape": "polygon", "points": [[-175, 160], [48, 160], [49.877, 160.148], [51.708, 160.587], [53.448, 161.308], [55.053, 162.292], [56.485, 163.515], [57.708, 164.947], [58.692, 166.552], [59.413, 168.292], [59.852, 170.123], [60, 172], [59.852, 173.877], [59.413, 175.708], [58.692, 177.448], [57.708, 179.053], [56.485, 180.485], [55.053, 181.708], [53.448, 182.692], [51.708, 183.413], [49.877, 183.852], [48, 184], [-175, 184]] },
+    { "id": "efferent_tissue_recess", "shape": "polygon", "points": [[407.5, 138], [408.326, 134.805], [409.01, 131.672], [409.557, 128.602], [409.976, 125.596], [410.273, 122.656], [410.456, 119.784], [410.532, 116.981], [410.508, 114.248], [410.391, 111.587], [410.188, 109], [409.906, 106.488], [409.552, 104.052], [409.134, 101.694], [408.659, 99.416], [408.133, 97.219], [407.564, 95.104], [406.959, 93.073], [406.326, 91.128], [405.67, 89.27], [405, 87.5], [560, 87.5], [560, 138]] },
+    { "id": "dorsal_attached_fold", "shape": "polygon", "points": [[170, 240], [173.45, 240], [176.9, 240], [180.35, 240], [183.81, 240], [187.26, 240], [190.71, 240], [194.16, 240], [197.61, 240], [201.06, 240], [204.52, 240], [207.97, 240], [211.42, 240], [211.46, 240], [211.41, 240], [211.37, 240], [211.32, 240], [211.28, 240], [211.24, 236.87], [211.19, 233.42], [211.15, 229.97], [211.1, 226.52], [211.06, 223.07], [211.01, 219.62], [209.52, 216.69], [207.53, 213.88], [205.8, 210.89], [204.38, 207.75], [203.32, 204.46], [202.64, 201.08], [202.34, 197.64], [202.37, 194.19], [202.69, 190.76], [203.21, 187.35], [203.88, 183.96], [204.63, 180.59], [205.37, 177.22], [205.53, 173.78], [204.78, 170.43], [202.99, 167.5], [200.25, 165.42], [196.94, 164.53], [193.53, 164.89], [190.4, 166.33], [187.57, 168.3], [185.24, 170.83], [183.56, 173.84], [182.47, 177.11], [181.79, 180.49], [181.29, 183.91], [180.78, 187.32], [180.08, 190.7], [179.08, 194], [177.71, 197.17], [176.12, 200.23], [174.46, 203.26], [172.84, 206.31], [171.41, 209.45], [170.32, 212.72], [169.7, 216.11], [169.66, 219.56], [170, 222.98], [170, 226.44], [170, 229.89], [170, 233.34], [170, 236.79], [170, 240], [170, 240], [170, 240], [170, 240], [170, 240], [170, 240]] },
+    { "id": "ventral_attached_fold", "shape": "polygon", "points": [[307, 0], [310.5, 0], [314, 0], [317.5, 0], [320.99, 0], [324.49, 0], [327.99, 0], [331.49, 0], [334.99, 0], [338.49, 0], [341.98, 0], [345.48, 0], [348.98, 0], [351.03, 0], [351.12, 0], [351.2, 0], [351.28, 0], [351.36, 0], [351.45, 0], [351.53, 2.46], [351.61, 5.96], [351.69, 9.46], [351.78, 12.96], [351.86, 16.45], [351.94, 19.95], [351.6, 23.36], [350.27, 26.6], [349.18, 29.92], [348.3, 33.3], [347.59, 36.73], [347.02, 40.18], [346.53, 43.65], [346.07, 47.11], [345.57, 50.58], [345, 54.03], [344.21, 57.43], [342.87, 60.66], [340.97, 63.59], [338.42, 65.96], [335.27, 67.44], [331.8, 67.82], [328.38, 67.15], [325.23, 65.64], [322.42, 63.58], [320.34, 60.78], [319.26, 57.47], [318.92, 53.99], [318.95, 50.49], [319.03, 47], [318.92, 43.5], [318.39, 40.05], [317.25, 36.74], [315.57, 33.68], [313.57, 30.81], [311.54, 27.96], [309.73, 24.97], [308.27, 21.79], [307.22, 18.46], [307, 14.98], [307, 11.49], [307, 7.99], [307, 4.49], [307, 0.99], [307, 0], [307, 0], [307, 0], [307, 0], [307, 0], [307, 0]] },
+    { "id": "central_tissue_island", "shape": "polygon", "points": [[248, 145], [250.86, 146.94], [253.94, 148.5], [257.21, 149.62], [260.61, 150.25], [264.06, 150.34], [267.48, 149.86], [270.77, 148.8], [273.8, 147.16], [276.47, 144.97], [278.62, 142.27], [280.13, 139.17], [280.9, 135.81], [282.39, 133.11], [285.07, 130.93], [287.38, 128.37], [289.26, 125.47], [290.68, 122.32], [291.62, 119], [292.08, 115.57], [292.08, 112.12], [291.64, 108.69], [290.75, 105.35], [289.42, 102.16], [287.65, 99.2], [285.43, 96.55], [282.79, 94.32], [280.57, 91.82], [278.51, 89.04], [275.98, 86.7], [273.02, 84.91], [269.76, 83.79], [266.33, 83.4], [262.9, 83.74], [259.63, 84.83], [256.69, 86.64], [254.29, 89.11], [252.6, 92.12], [250.57, 94.39], [247.42, 95.81], [244.63, 97.84], [242.25, 100.34], [240.29, 103.18], [238.75, 106.28], [237.63, 109.55], [236.94, 112.93], [236.68, 116.38], [236.9, 119.82], [237.63, 123.2], [238.91, 126.41], [240.29, 129.36], [239, 132.55], [238.76, 135.98], [239.76, 139.27], [241.87, 141.99], [244.73, 143.91], [248, 145]] }
   ],
   "spawn_points": [
-    { "id": "p_top", "pos": [-10.2, 408], "radius": 28.9, "lane_id": "in_top" },
-    { "id": "p_mid", "pos": [-10.2, 255], "radius": 28.9, "lane_id": "in_mid" },
-    { "id": "p_bot", "pos": [-10.2, 102], "radius": 28.9, "lane_id": "in_bot" }
+    { "id": "p_upper_a", "pos": [-125, 202], "radius": 9, "lane_id": "intestinal_field" },
+    { "id": "p_upper_b", "pos": [-125, 145], "radius": 9, "lane_id": "intestinal_field" },
+    { "id": "p_lower_a", "pos": [-125, 90], "radius": 9, "lane_id": "intestinal_field" },
+    { "id": "p_lower_b", "pos": [-125, 37.5], "radius": 9, "lane_id": "intestinal_field" }
   ],
   "objectives": [
-    { "id": "organ", "pos": [842.8, 255], "half_extents": [8.5, 102] }
+    { "id": "organ", "pos": [590, 111], "half_extents": [8, 95] }
   ],
   "placement_zones": [
-    { "min": [1, 0], "max": [698, 510] },
-    { "min": [510, 153], "max": [680, 357], "concentrated": true, "priority": 3 },
-    { "min": [170, 170], "max": [476, 340], "concentrated": true, "priority": 2 }
+    { "min": [0, 0], "max": [450, 240] },
+    { "min": [150, 128], "max": [229, 176], "concentrated": true, "priority": 2.5 },
+    { "min": [218, 150], "max": [314, 190], "concentrated": true, "priority": 3 },
+    { "min": [222, 52], "max": [312, 84], "concentrated": true, "priority": 3 },
+    { "min": [302, 72], "max": [370, 111], "concentrated": true, "priority": 2.5 }
+  ],
+  "squad_paths": [
+    { "id": "route_upper_a_center", "lane_id": "intestinal_field", "points": [[-125, 202], [-20, 202], [-11.01, 201.97], [-2.03, 201.86], [6.95, 201.68], [15.93, 201.4], [24.91, 201.04], [33.89, 200.56], [42.85, 199.97], [51.81, 199.24], [60.75, 198.37], [69.68, 197.35], [78.58, 196.15], [87.46, 194.77], [96.31, 193.21], [105.13, 191.49], [113.92, 189.64], [122.7, 187.72], [131.48, 185.83], [140.18, 183.63], [148.14, 179.5], [155.15, 173.89], [161.53, 167.56], [167.8, 161.13], [174.61, 155.28], [182.5, 151.05], [191.27, 149.2], [200.18, 150.02], [208.38, 153.62], [215.7, 158.81], [222.66, 164.5], [229.86, 169.87], [237.8, 174.03], [246.3, 176.93], [255.03, 179.07], [263.89, 180.53], [272.83, 181.42], [281.81, 181.82], [290.79, 181.83], [299.77, 181.52], [308.74, 180.96], [317.69, 180.22], [326.64, 179.36], [335.58, 178.43], [344.51, 177.51], [353.46, 176.64], [362.4, 175.74], [371.34, 174.85], [380.28, 174.02], [389.24, 173.25], [398.19, 172.54], [407.16, 171.9], [416.12, 171.34], [425.1, 170.85], [434.07, 170.44], [443.05, 170.1], [452.03, 169.83], [461.02, 169.63], [470, 169.5], [590, 169.5]], "half_width": 4 },
+    { "id": "route_upper_a_shoulder", "lane_id": "intestinal_field", "points": [[-125, 202], [-20, 202], [-11.01, 201.97], [-2.03, 201.86], [6.95, 201.68], [15.93, 201.4], [24.91, 201.04], [33.89, 200.56], [42.85, 200.255], [51.81, 200.421], [60.75, 200.445], [69.68, 200.318], [78.58, 200.008], [87.46, 199.516], [96.31, 198.21], [105.13, 196.49], [113.92, 194.64], [122.7, 192.72], [131.48, 190.83], [140.18, 188.63], [148.14, 184.5], [155.15, 178.89], [161.53, 172.56], [167.8, 166.13], [174.61, 160.28], [182.5, 156.05], [191.27, 154.2], [200.18, 155.02], [208.38, 158.62], [215.7, 163.81], [222.66, 169.5], [229.86, 174.87], [237.8, 179.03], [246.3, 181.93], [255.03, 184.07], [263.89, 185.53], [272.83, 186.42], [281.81, 186.82], [290.79, 186.83], [299.77, 186.52], [308.74, 185.96], [317.69, 185.22], [326.64, 184.36], [335.58, 183.43], [344.51, 182.51], [353.46, 181.64], [362.4, 180.74], [371.34, 179.85], [380.28, 179.02], [389.24, 178.25], [398.19, 177.54], [407.16, 176.9], [416.12, 175.83], [425.1, 174.592], [434.07, 173.434], [443.05, 172.346], [452.03, 171.328], [461.02, 170.378], [470, 169.5], [590, 169.5]], "half_width": 4 },
+    { "id": "route_upper_b_center", "lane_id": "intestinal_field", "points": [[-125, 145], [-20, 145], [-11.15, 145], [-2.3, 145], [6.55, 144.99], [15.4, 144.99], [24.25, 144.97], [33.1, 144.95], [41.95, 144.91], [50.8, 144.86], [59.65, 144.79], [68.5, 144.7], [77.35, 144.57], [86.19, 144.4], [95.04, 144.18], [103.89, 143.89], [112.73, 143.52], [121.56, 143.04], [130.39, 142.42], [139.21, 141.63], [148, 140.62], [156.66, 138.9], [165.35, 137.25], [174.17, 136.56], [183, 136.99], [191.71, 138.55], [200.18, 141.11], [208.39, 144.4], [216.4, 148.15], [224.31, 152.12], [232.36, 155.77], [240.8, 158.42], [249.49, 160.12], [258.3, 160.85], [267.15, 160.73], [275.96, 159.94], [284.72, 158.7], [293.45, 157.22], [302.17, 155.7], [310.9, 154.28], [319.67, 153.1], [328.48, 152.22], [337.3, 151.51], [346.13, 150.93], [354.97, 150.48], [363.81, 150.14], [372.66, 149.9], [381.5, 149.74], [390.35, 149.64], [399.2, 149.61], [408.05, 149.62], [416.9, 149.66], [425.75, 149.72], [434.6, 149.79], [443.45, 149.87], [452.3, 149.93], [461.15, 149.98], [470, 150], [590, 150]], "half_width": 4 },
+    { "id": "route_upper_b_shoulder", "lane_id": "intestinal_field", "points": [[-125, 145], [-20, 145], [-11.15, 145], [-2.3, 145], [6.55, 144.99], [15.4, 144.99], [24.25, 144.97], [33.1, 144.95], [41.95, 145.222], [50.8, 146.588], [59.65, 147.934], [68.5, 149.26], [77.35, 150.546], [86.19, 151.79], [95.04, 152.18], [103.89, 151.89], [112.73, 151.52], [121.56, 151.04], [130.39, 150.42], [139.21, 149.63], [148, 148.62], [156.66, 146.9], [165.35, 145.25], [174.17, 144.56], [183, 144.99], [191.71, 146.55], [200.18, 149.11], [208.39, 152.4], [216.4, 156.15], [224.31, 160.12], [232.36, 163.77], [240.8, 166.42], [249.49, 168.12], [258.3, 168.85], [267.15, 168.73], [275.96, 167.94], [284.72, 166.7], [293.45, 165.22], [302.17, 163.7], [310.9, 162.28], [319.67, 161.1], [328.48, 160.22], [337.3, 159.51], [346.13, 158.93], [354.97, 158.48], [363.81, 158.14], [372.66, 157.9], [381.5, 157.74], [390.35, 157.64], [399.2, 157.61], [408.05, 157.62], [416.9, 156.74], [425.75, 155.62], [434.6, 154.51], [443.45, 153.41], [452.3, 152.29], [461.15, 151.16], [470, 150], [590, 150]], "half_width": 4 },
+    { "id": "route_lower_a_center", "lane_id": "intestinal_field", "points": [[-125, 90], [-20, 90], [-11.13, 90.03], [-2.25, 90.12], [6.62, 90.28], [15.49, 90.49], [24.36, 90.78], [33.22, 91.14], [42.08, 91.56], [50.94, 92.05], [59.8, 92.61], [68.65, 93.23], [77.5, 93.89], [86.34, 94.59], [95.19, 95.3], [104.04, 95.98], [112.89, 96.58], [121.75, 97.03], [130.62, 97.24], [139.49, 97.1], [148.34, 96.51], [157.13, 95.32], [165.77, 93.29], [174.23, 90.62], [182.55, 87.55], [190.79, 84.25], [199.02, 80.93], [207.31, 77.76], [215.71, 74.93], [224.27, 72.6], [232.99, 70.97], [241.81, 70], [250.67, 70.15], [259.43, 71.52], [268, 73.82], [276.39, 76.72], [284.67, 79.91], [292.94, 83.11], [301.32, 86.01], [309.9, 88.27], [318.68, 89.48], [327.55, 89.4], [336.32, 88.09], [344.72, 85.28], [352.5, 81.03], [359.69, 75.84], [366.71, 70.42], [374.05, 65.44], [381.96, 61.42], [390.43, 58.8], [399.12, 57.03], [407.92, 55.92], [416.77, 55.29], [425.64, 55.02], [434.51, 55], [443.38, 55.11], [452.26, 55.28], [461.13, 55.44], [470, 55.5], [590, 55.5]], "half_width": 4 },
+    { "id": "route_lower_a_shoulder", "lane_id": "intestinal_field", "points": [[-125, 90], [-20, 90], [-11.13, 90.03], [-2.25, 90.12], [6.62, 90.28], [15.49, 90.49], [24.36, 90.78], [33.22, 91.14], [42.08, 91.227], [50.94, 90.3], [59.8, 89.442], [68.65, 88.646], [77.5, 87.89], [86.34, 87.176], [95.19, 87.3], [104.04, 87.98], [112.89, 88.58], [121.75, 89.03], [130.62, 89.24], [139.49, 89.1], [148.34, 88.51], [157.13, 87.32], [165.77, 85.29], [174.23, 82.62], [182.55, 79.55], [190.79, 76.25], [199.02, 72.93], [207.31, 69.76], [215.71, 66.93], [224.27, 64.6], [232.99, 62.97], [241.81, 62], [250.67, 62.15], [259.43, 63.52], [268, 65.82], [276.39, 68.72], [284.67, 71.91], [292.94, 75.11], [301.32, 78.01], [309.9, 80.27], [318.68, 81.48], [327.55, 81.4], [336.32, 80.09], [344.72, 77.28], [352.5, 73.03], [359.69, 67.84], [366.71, 62.42], [374.05, 57.44], [381.96, 53.42], [390.43, 50.8], [399.12, 49.03], [407.92, 47.92], [416.77, 48.193], [425.64, 49.105], [434.51, 50.268], [443.38, 51.561], [452.26, 52.915], [461.13, 54.257], [470, 55.5], [590, 55.5]], "half_width": 4 },
+    { "id": "route_lower_b_center", "lane_id": "intestinal_field", "points": [[-125, 37.5], [-20, 37.5], [-11.1, 37.53], [-2.2, 37.61], [6.71, 37.75], [15.61, 37.95], [24.5, 38.22], [33.4, 38.55], [42.29, 38.95], [51.18, 39.43], [60.07, 39.99], [68.95, 40.62], [77.82, 41.33], [86.69, 42.11], [95.55, 42.96], [104.41, 43.86], [113.26, 44.79], [122.12, 45.72], [130.98, 46.58], [139.85, 47.32], [148.74, 47.83], [157.64, 48.03], [166.54, 48.18], [175.44, 48.4], [184.33, 48.72], [193.22, 49.17], [202.11, 49.79], [210.97, 50.61], [219.81, 51.68], [228.61, 53.02], [237.35, 54.69], [246.02, 56.7], [254.59, 59.11], [263.04, 61.91], [271.51, 64.64], [279.97, 67.42], [288.36, 70.4], [296.74, 73.4], [305.19, 76.18], [313.8, 78.46], [322.57, 79.95], [331.45, 80.5], [340.25, 79.43], [348.37, 75.83], [355.59, 70.65], [362.25, 64.74], [368.76, 58.67], [375.48, 52.82], [382.66, 47.58], [390.48, 43.34], [398.98, 40.73], [407.75, 39.25], [416.62, 38.53], [425.52, 38.37], [434.42, 38.58], [443.32, 38.99], [452.21, 39.45], [461.1, 39.84], [470, 40], [590, 40]], "half_width": 4 },
+    { "id": "route_lower_b_shoulder", "lane_id": "intestinal_field", "points": [[-125, 37.5], [-20, 37.5], [-11.1, 37.53], [-2.2, 37.61], [6.71, 37.75], [15.61, 37.95], [24.5, 38.22], [33.4, 38.55], [42.29, 38.721], [51.18, 38.312], [60.07, 37.983], [68.95, 37.725], [77.82, 37.548], [86.69, 37.441], [95.55, 37.96], [104.41, 38.86], [113.26, 39.79], [122.12, 40.72], [130.98, 41.58], [139.85, 42.32], [148.74, 42.83], [157.64, 43.03], [166.54, 43.18], [175.44, 43.4], [184.33, 43.72], [193.22, 44.17], [202.11, 44.79], [210.97, 45.61], [219.81, 46.68], [228.61, 48.02], [237.35, 49.69], [246.02, 51.7], [254.59, 54.11], [263.04, 56.91], [271.51, 59.64], [279.97, 62.42], [288.36, 65.4], [296.74, 68.4], [305.19, 71.18], [313.8, 73.46], [322.57, 74.95], [331.45, 75.5], [340.25, 74.43], [348.37, 70.83], [355.59, 65.65], [362.25, 59.74], [368.76, 53.67], [375.48, 47.82], [382.66, 42.58], [390.48, 38.34], [398.98, 35.73], [407.75, 34.25], [416.62, 34.082], [425.52, 34.663], [434.42, 35.615], [443.32, 36.767], [452.21, 37.968], [461.1, 39.098], [470, 40], [590, 40]], "half_width": 4 }
   ],
   "waves": [
     {
       "name": "campaign_07_chevron_sieve_wave_1",
-      "prep_time": 8,
-      "atp_reward": 50,
+      "prep_time": 10,
+      "atp_reward": 75,
       "spawns": [
-        { "family": "virus", "count": 306, "duration": 4 }
+        { "family": "virus", "count": 172, "duration": 3.4, "spawn_point_id": "p_upper_a", "squad_size": 60, "squad_paths": ["route_upper_a_center"] },
+        { "family": "bacteria", "count": 78, "start_time": 0.75, "duration": 3.4, "spawn_point_id": "p_upper_b", "squad_size": 60, "squad_paths": ["route_upper_b_center"] },
+        { "family": "bacteria", "count": 78, "start_time": 4.65, "duration": 3.4, "spawn_point_id": "p_upper_a", "squad_size": 60, "squad_paths": ["route_upper_a_shoulder"] },
+        { "family": "virus", "count": 172, "start_time": 5.4, "duration": 3.4, "spawn_point_id": "p_upper_b", "squad_size": 60, "squad_paths": ["route_upper_b_shoulder"] }
       ]
     },
     {
       "name": "campaign_07_chevron_sieve_wave_2",
-      "prep_time": 7.5,
-      "atp_reward": 92,
+      "prep_time": 9.3,
+      "atp_reward": 112,
       "spawns": [
-        { "family": "virus", "count": 566, "duration": 4 },
-        { "family": "bacteria", "count": 152, "start_time": 1, "duration": 3.5 },
-        { "family": "parasite", "count": 23, "start_time": 1.5, "duration": 3.5 }
+        { "family": "bacteria", "count": 87, "duration": 3.44, "spawn_point_id": "p_upper_a", "squad_size": 60, "squad_paths": ["route_upper_a_shoulder"] },
+        { "family": "virus", "count": 192, "start_time": 0.75, "duration": 3.44, "spawn_point_id": "p_upper_b", "squad_size": 60, "squad_paths": ["route_upper_b_shoulder"] },
+        { "family": "bacteria", "count": 86, "start_time": 1.5, "duration": 3.44, "spawn_point_id": "p_lower_a", "squad_size": 60, "squad_paths": ["route_lower_a_shoulder"] },
+        { "family": "virus", "count": 192, "start_time": 4.69, "duration": 3.44, "spawn_point_id": "p_upper_a", "squad_size": 60, "squad_paths": ["route_upper_a_center"] },
+        { "family": "bacteria", "count": 86, "start_time": 5.44, "duration": 3.44, "spawn_point_id": "p_upper_b", "squad_size": 60, "squad_paths": ["route_upper_b_center"] },
+        { "family": "virus", "count": 192, "start_time": 6.19, "duration": 3.44, "spawn_point_id": "p_lower_a", "squad_size": 60, "squad_paths": ["route_lower_a_center"] }
       ]
     },
     {
       "name": "campaign_07_chevron_sieve_wave_3",
-      "prep_time": 7,
-      "atp_reward": 134,
+      "prep_time": 8.6,
+      "atp_reward": 149,
       "spawns": [
-        { "family": "virus", "count": 826, "duration": 4 },
-        { "family": "bacteria", "count": 258, "start_time": 1, "duration": 3.5 },
-        { "family": "parasite", "count": 39, "start_time": 1.5, "duration": 3.5 }
+        { "family": "parasite", "count": 23, "duration": 3.49, "spawn_point_id": "p_upper_a", "squad_size": 60, "squad_paths": ["route_upper_a_center"] },
+        { "family": "virus", "count": 194, "start_time": 0.75, "duration": 3.49, "spawn_point_id": "p_upper_b", "squad_size": 60, "squad_paths": ["route_upper_b_center"] },
+        { "family": "bacteria", "count": 87, "start_time": 1.5, "duration": 3.49, "spawn_point_id": "p_lower_a", "squad_size": 60, "squad_paths": ["route_lower_a_center"] },
+        { "family": "parasite", "count": 23, "start_time": 2.25, "duration": 3.49, "spawn_point_id": "p_lower_b", "squad_size": 60, "squad_paths": ["route_lower_b_center"] },
+        { "family": "virus", "count": 194, "start_time": 4.74, "duration": 3.49, "spawn_point_id": "p_upper_a", "squad_size": 60, "squad_paths": ["route_upper_a_shoulder"] },
+        { "family": "bacteria", "count": 88, "start_time": 5.49, "duration": 3.49, "spawn_point_id": "p_upper_b", "squad_size": 60, "squad_paths": ["route_upper_b_shoulder"] },
+        { "family": "parasite", "count": 23, "start_time": 6.24, "duration": 3.49, "spawn_point_id": "p_lower_a", "squad_size": 60, "squad_paths": ["route_lower_a_shoulder"] },
+        { "family": "virus", "count": 194, "start_time": 6.99, "duration": 3.49, "spawn_point_id": "p_lower_b", "squad_size": 60, "squad_paths": ["route_lower_b_shoulder"] },
+        { "family": "bacteria", "count": 88, "start_time": 9.48, "duration": 3.49, "spawn_point_id": "p_upper_a", "squad_size": 60, "squad_paths": ["route_upper_a_center"] },
+        { "family": "parasite", "count": 23, "start_time": 10.23, "duration": 3.49, "spawn_point_id": "p_upper_b", "squad_size": 60, "squad_paths": ["route_upper_b_center"] },
+        { "family": "virus", "count": 194, "start_time": 10.98, "duration": 3.49, "spawn_point_id": "p_lower_a", "squad_size": 60, "squad_paths": ["route_lower_a_center"] },
+        { "family": "bacteria", "count": 87, "start_time": 11.73, "duration": 3.49, "spawn_point_id": "p_lower_b", "squad_size": 60, "squad_paths": ["route_lower_b_center"] }
       ]
     },
     {
       "name": "campaign_07_chevron_sieve_wave_4",
-      "prep_time": 6.5,
-      "atp_reward": 176,
+      "prep_time": 7.9,
+      "atp_reward": 186,
       "spawns": [
-        { "family": "virus", "count": 1086, "duration": 4 },
-        { "family": "bacteria", "count": 364, "start_time": 1, "duration": 3.5 },
-        { "family": "parasite", "count": 55, "start_time": 1.5, "duration": 3.5 }
+        { "family": "virus", "count": 259, "duration": 3.53, "spawn_point_id": "p_upper_a", "squad_size": 60, "squad_paths": ["route_upper_a_shoulder"] },
+        { "family": "bacteria", "count": 116, "start_time": 0.75, "duration": 3.53, "spawn_point_id": "p_upper_b", "squad_size": 60, "squad_paths": ["route_upper_b_shoulder"] },
+        { "family": "parasite", "count": 31, "start_time": 1.5, "duration": 3.53, "spawn_point_id": "p_lower_a", "squad_size": 60, "squad_paths": ["route_lower_a_shoulder"] },
+        { "family": "virus", "count": 258, "start_time": 2.25, "duration": 3.53, "spawn_point_id": "p_lower_b", "squad_size": 60, "squad_paths": ["route_lower_b_shoulder"] },
+        { "family": "bacteria", "count": 116, "start_time": 4.78, "duration": 3.53, "spawn_point_id": "p_upper_a", "squad_size": 60, "squad_paths": ["route_upper_a_center"] },
+        { "family": "parasite", "count": 31, "start_time": 5.53, "duration": 3.53, "spawn_point_id": "p_upper_b", "squad_size": 60, "squad_paths": ["route_upper_b_center"] },
+        { "family": "virus", "count": 258, "start_time": 6.28, "duration": 3.53, "spawn_point_id": "p_lower_a", "squad_size": 60, "squad_paths": ["route_lower_a_center"] },
+        { "family": "bacteria", "count": 116, "start_time": 7.03, "duration": 3.53, "spawn_point_id": "p_lower_b", "squad_size": 60, "squad_paths": ["route_lower_b_center"] },
+        { "family": "parasite", "count": 31, "start_time": 9.56, "duration": 3.53, "spawn_point_id": "p_upper_a", "squad_size": 60, "squad_paths": ["route_upper_a_shoulder"] },
+        { "family": "virus", "count": 259, "start_time": 10.31, "duration": 3.53, "spawn_point_id": "p_upper_b", "squad_size": 60, "squad_paths": ["route_upper_b_shoulder"] },
+        { "family": "bacteria", "count": 116, "start_time": 11.06, "duration": 3.53, "spawn_point_id": "p_lower_a", "squad_size": 60, "squad_paths": ["route_lower_a_shoulder"] },
+        { "family": "parasite", "count": 31, "start_time": 11.81, "duration": 3.53, "spawn_point_id": "p_lower_b", "squad_size": 60, "squad_paths": ["route_lower_b_shoulder"] }
       ]
     },
     {
       "name": "campaign_07_chevron_sieve_wave_5",
-      "prep_time": 6,
-      "atp_reward": 218,
+      "prep_time": 7.2,
+      "atp_reward": 223,
       "spawns": [
-        { "family": "virus", "count": 1346, "duration": 4 },
-        { "family": "bacteria", "count": 471, "start_time": 1, "duration": 3.5 },
-        { "family": "parasite", "count": 71, "start_time": 1.5, "duration": 3.5 },
-        { "family": "bacteria", "count": 91, "start_time": 0.5, "duration": 5.5 },
-        { "family": "parasite", "count": 14, "start_time": 1, "duration": 5.5 }
+        { "family": "bacteria", "count": 73, "duration": 3.57, "spawn_point_id": "p_upper_a", "squad_size": 60, "squad_paths": ["route_upper_a_center"] },
+        { "family": "parasite", "count": 20, "start_time": 0.75, "duration": 3.57, "spawn_point_id": "p_upper_b", "squad_size": 60, "squad_paths": ["route_upper_b_center"] },
+        { "family": "virus", "count": 162, "start_time": 1.5, "duration": 3.57, "spawn_point_id": "p_lower_a", "squad_size": 60, "squad_paths": ["route_lower_a_center"] },
+        { "family": "bacteria", "count": 73, "start_time": 2.25, "duration": 3.57, "spawn_point_id": "p_lower_b", "squad_size": 60, "squad_paths": ["route_lower_b_center"] },
+        { "family": "parasite", "count": 20, "start_time": 4.82, "duration": 3.57, "spawn_point_id": "p_upper_a", "squad_size": 60, "squad_paths": ["route_upper_a_shoulder"] },
+        { "family": "virus", "count": 162, "start_time": 5.57, "duration": 3.57, "spawn_point_id": "p_upper_b", "squad_size": 60, "squad_paths": ["route_upper_b_shoulder"] },
+        { "family": "bacteria", "count": 73, "start_time": 6.32, "duration": 3.57, "spawn_point_id": "p_lower_a", "squad_size": 60, "squad_paths": ["route_lower_a_shoulder"] },
+        { "family": "parasite", "count": 20, "start_time": 7.07, "duration": 3.57, "spawn_point_id": "p_lower_b", "squad_size": 60, "squad_paths": ["route_lower_b_shoulder"] },
+        { "family": "virus", "count": 162, "start_time": 9.64, "duration": 3.57, "spawn_point_id": "p_upper_a", "squad_size": 60, "squad_paths": ["route_upper_a_center"] },
+        { "family": "bacteria", "count": 73, "start_time": 10.39, "duration": 3.57, "spawn_point_id": "p_upper_b", "squad_size": 60, "squad_paths": ["route_upper_b_center"] },
+        { "family": "parasite", "count": 20, "start_time": 11.14, "duration": 3.57, "spawn_point_id": "p_lower_a", "squad_size": 60, "squad_paths": ["route_lower_a_center"] },
+        { "family": "virus", "count": 162, "start_time": 11.89, "duration": 3.57, "spawn_point_id": "p_lower_b", "squad_size": 60, "squad_paths": ["route_lower_b_center"] },
+        { "family": "bacteria", "count": 73, "start_time": 14.46, "duration": 3.57, "spawn_point_id": "p_upper_a", "squad_size": 60, "squad_paths": ["route_upper_a_shoulder"] },
+        { "family": "parasite", "count": 20, "start_time": 15.21, "duration": 3.57, "spawn_point_id": "p_upper_b", "squad_size": 60, "squad_paths": ["route_upper_b_shoulder"] },
+        { "family": "virus", "count": 162, "start_time": 15.96, "duration": 3.57, "spawn_point_id": "p_lower_a", "squad_size": 60, "squad_paths": ["route_lower_a_shoulder"] },
+        { "family": "bacteria", "count": 73, "start_time": 16.71, "duration": 3.57, "spawn_point_id": "p_lower_b", "squad_size": 60, "squad_paths": ["route_lower_b_shoulder"] },
+        { "family": "parasite", "count": 20, "start_time": 19.28, "duration": 3.57, "spawn_point_id": "p_upper_a", "squad_size": 60, "squad_paths": ["route_upper_a_center"] },
+        { "family": "virus", "count": 162, "start_time": 20.03, "duration": 3.57, "spawn_point_id": "p_upper_b", "squad_size": 60, "squad_paths": ["route_upper_b_center"] },
+        { "family": "bacteria", "count": 73, "start_time": 20.78, "duration": 3.57, "spawn_point_id": "p_lower_a", "squad_size": 60, "squad_paths": ["route_lower_a_center"] },
+        { "family": "parasite", "count": 20, "start_time": 21.53, "duration": 3.57, "spawn_point_id": "p_lower_b", "squad_size": 60, "squad_paths": ["route_lower_b_center"] },
+        { "family": "virus", "count": 162, "start_time": 24.1, "duration": 3.57, "spawn_point_id": "p_upper_a", "squad_size": 60, "squad_paths": ["route_upper_a_shoulder"] },
+        { "family": "bacteria", "count": 73, "start_time": 24.85, "duration": 3.57, "spawn_point_id": "p_upper_b", "squad_size": 60, "squad_paths": ["route_upper_b_shoulder"] },
+        { "family": "parasite", "count": 20, "start_time": 25.6, "duration": 3.57, "spawn_point_id": "p_lower_a", "squad_size": 60, "squad_paths": ["route_lower_a_shoulder"] },
+        { "family": "virus", "count": 162, "start_time": 26.35, "duration": 3.57, "spawn_point_id": "p_lower_b", "squad_size": 60, "squad_paths": ["route_lower_b_shoulder"] }
       ]
     },
     {
       "name": "campaign_07_chevron_sieve_wave_6",
-      "prep_time": 5.5,
+      "prep_time": 6.5,
       "atp_reward": 260,
       "spawns": [
-        { "family": "virus", "count": 1606, "duration": 4 },
-        { "family": "bacteria", "count": 577, "start_time": 1, "duration": 3.5 },
-        { "family": "parasite", "count": 87, "start_time": 1.5, "duration": 3.5 },
-        { "family": "bacteria", "count": 136, "start_time": 0.5, "duration": 5.5 },
-        { "family": "parasite", "count": 20, "start_time": 1, "duration": 5.5 }
+        { "family": "parasite", "count": 24, "duration": 3.62, "spawn_point_id": "p_upper_a", "squad_size": 60, "squad_paths": ["route_upper_a_shoulder"] },
+        { "family": "virus", "count": 197, "start_time": 0.75, "duration": 3.62, "spawn_point_id": "p_upper_b", "squad_size": 60, "squad_paths": ["route_upper_b_shoulder"] },
+        { "family": "bacteria", "count": 88, "start_time": 1.5, "duration": 3.62, "spawn_point_id": "p_lower_a", "squad_size": 60, "squad_paths": ["route_lower_a_shoulder"] },
+        { "family": "parasite", "count": 24, "start_time": 2.25, "duration": 3.62, "spawn_point_id": "p_lower_b", "squad_size": 60, "squad_paths": ["route_lower_b_shoulder"] },
+        { "family": "virus", "count": 197, "start_time": 4.87, "duration": 3.62, "spawn_point_id": "p_upper_a", "squad_size": 60, "squad_paths": ["route_upper_a_center"] },
+        { "family": "bacteria", "count": 88, "start_time": 5.62, "duration": 3.62, "spawn_point_id": "p_upper_b", "squad_size": 60, "squad_paths": ["route_upper_b_center"] },
+        { "family": "parasite", "count": 24, "start_time": 6.37, "duration": 3.62, "spawn_point_id": "p_lower_a", "squad_size": 60, "squad_paths": ["route_lower_a_center"] },
+        { "family": "virus", "count": 196, "start_time": 7.12, "duration": 3.62, "spawn_point_id": "p_lower_b", "squad_size": 60, "squad_paths": ["route_lower_b_center"] },
+        { "family": "bacteria", "count": 88, "start_time": 9.74, "duration": 3.62, "spawn_point_id": "p_upper_a", "squad_size": 60, "squad_paths": ["route_upper_a_shoulder"] },
+        { "family": "parasite", "count": 24, "start_time": 10.49, "duration": 3.62, "spawn_point_id": "p_upper_b", "squad_size": 60, "squad_paths": ["route_upper_b_shoulder"] },
+        { "family": "virus", "count": 196, "start_time": 11.24, "duration": 3.62, "spawn_point_id": "p_lower_a", "squad_size": 60, "squad_paths": ["route_lower_a_shoulder"] },
+        { "family": "bacteria", "count": 88, "start_time": 11.99, "duration": 3.62, "spawn_point_id": "p_lower_b", "squad_size": 60, "squad_paths": ["route_lower_b_shoulder"] },
+        { "family": "parasite", "count": 24, "start_time": 14.61, "duration": 3.62, "spawn_point_id": "p_upper_a", "squad_size": 60, "squad_paths": ["route_upper_a_center"] },
+        { "family": "virus", "count": 197, "start_time": 15.36, "duration": 3.62, "spawn_point_id": "p_upper_b", "squad_size": 60, "squad_paths": ["route_upper_b_center"] },
+        { "family": "bacteria", "count": 88, "start_time": 16.11, "duration": 3.62, "spawn_point_id": "p_lower_a", "squad_size": 60, "squad_paths": ["route_lower_a_center"] },
+        { "family": "parasite", "count": 24, "start_time": 16.86, "duration": 3.62, "spawn_point_id": "p_lower_b", "squad_size": 60, "squad_paths": ["route_lower_b_center"] },
+        { "family": "virus", "count": 197, "start_time": 19.48, "duration": 3.62, "spawn_point_id": "p_upper_a", "squad_size": 60, "squad_paths": ["route_upper_a_shoulder"] },
+        { "family": "bacteria", "count": 88, "start_time": 20.23, "duration": 3.62, "spawn_point_id": "p_upper_b", "squad_size": 60, "squad_paths": ["route_upper_b_shoulder"] },
+        { "family": "parasite", "count": 24, "start_time": 20.98, "duration": 3.62, "spawn_point_id": "p_lower_a", "squad_size": 60, "squad_paths": ["route_lower_a_shoulder"] },
+        { "family": "virus", "count": 196, "start_time": 21.73, "duration": 3.62, "spawn_point_id": "p_lower_b", "squad_size": 60, "squad_paths": ["route_lower_b_shoulder"] },
+        { "family": "bacteria", "count": 88, "start_time": 24.35, "duration": 3.62, "spawn_point_id": "p_upper_a", "squad_size": 60, "squad_paths": ["route_upper_a_center"] },
+        { "family": "parasite", "count": 24, "start_time": 25.1, "duration": 3.62, "spawn_point_id": "p_upper_b", "squad_size": 60, "squad_paths": ["route_upper_b_center"] },
+        { "family": "virus", "count": 196, "start_time": 25.85, "duration": 3.62, "spawn_point_id": "p_lower_a", "squad_size": 60, "squad_paths": ["route_lower_a_center"] },
+        { "family": "bacteria", "count": 88, "start_time": 26.6, "duration": 3.62, "spawn_point_id": "p_lower_b", "squad_size": 60, "squad_paths": ["route_lower_b_center"] }
       ]
     },
     {
       "name": "campaign_07_chevron_sieve_wave_7",
-      "prep_time": 5,
-      "atp_reward": 302,
+      "prep_time": 5.8,
+      "atp_reward": 297,
       "spawns": [
-        { "family": "virus", "count": 1866, "duration": 4 },
-        { "family": "bacteria", "count": 684, "start_time": 1, "duration": 3.5 },
-        { "family": "parasite", "count": 103, "start_time": 1.5, "duration": 3.5 },
-        { "family": "bacteria", "count": 182, "start_time": 0.5, "duration": 5.5 },
-        { "family": "parasite", "count": 27, "start_time": 1, "duration": 5.5 }
+        { "family": "virus", "count": 232, "duration": 3.66, "spawn_point_id": "p_upper_a", "squad_size": 60, "squad_paths": ["route_upper_a_center"] },
+        { "family": "bacteria", "count": 104, "start_time": 0.75, "duration": 3.66, "spawn_point_id": "p_upper_b", "squad_size": 60, "squad_paths": ["route_upper_b_center"] },
+        { "family": "parasite", "count": 28, "start_time": 1.5, "duration": 3.66, "spawn_point_id": "p_lower_a", "squad_size": 60, "squad_paths": ["route_lower_a_center"] },
+        { "family": "virus", "count": 231, "start_time": 2.25, "duration": 3.66, "spawn_point_id": "p_lower_b", "squad_size": 60, "squad_paths": ["route_lower_b_center"] },
+        { "family": "bacteria", "count": 104, "start_time": 4.91, "duration": 3.66, "spawn_point_id": "p_upper_a", "squad_size": 60, "squad_paths": ["route_upper_a_shoulder"] },
+        { "family": "parasite", "count": 28, "start_time": 5.66, "duration": 3.66, "spawn_point_id": "p_upper_b", "squad_size": 60, "squad_paths": ["route_upper_b_shoulder"] },
+        { "family": "virus", "count": 231, "start_time": 6.41, "duration": 3.66, "spawn_point_id": "p_lower_a", "squad_size": 60, "squad_paths": ["route_lower_a_shoulder"] },
+        { "family": "bacteria", "count": 104, "start_time": 7.16, "duration": 3.66, "spawn_point_id": "p_lower_b", "squad_size": 60, "squad_paths": ["route_lower_b_shoulder"] },
+        { "family": "parasite", "count": 28, "start_time": 9.82, "duration": 3.66, "spawn_point_id": "p_upper_a", "squad_size": 60, "squad_paths": ["route_upper_a_center"] },
+        { "family": "virus", "count": 231, "start_time": 10.57, "duration": 3.66, "spawn_point_id": "p_upper_b", "squad_size": 60, "squad_paths": ["route_upper_b_center"] },
+        { "family": "bacteria", "count": 104, "start_time": 11.32, "duration": 3.66, "spawn_point_id": "p_lower_a", "squad_size": 60, "squad_paths": ["route_lower_a_center"] },
+        { "family": "parasite", "count": 28, "start_time": 12.07, "duration": 3.66, "spawn_point_id": "p_lower_b", "squad_size": 60, "squad_paths": ["route_lower_b_center"] },
+        { "family": "virus", "count": 231, "start_time": 14.73, "duration": 3.66, "spawn_point_id": "p_upper_a", "squad_size": 60, "squad_paths": ["route_upper_a_shoulder"] },
+        { "family": "bacteria", "count": 104, "start_time": 15.48, "duration": 3.66, "spawn_point_id": "p_upper_b", "squad_size": 60, "squad_paths": ["route_upper_b_shoulder"] },
+        { "family": "parasite", "count": 28, "start_time": 16.23, "duration": 3.66, "spawn_point_id": "p_lower_a", "squad_size": 60, "squad_paths": ["route_lower_a_shoulder"] },
+        { "family": "virus", "count": 231, "start_time": 16.98, "duration": 3.66, "spawn_point_id": "p_lower_b", "squad_size": 60, "squad_paths": ["route_lower_b_shoulder"] },
+        { "family": "bacteria", "count": 104, "start_time": 19.64, "duration": 3.66, "spawn_point_id": "p_upper_a", "squad_size": 60, "squad_paths": ["route_upper_a_center"] },
+        { "family": "parasite", "count": 28, "start_time": 20.39, "duration": 3.66, "spawn_point_id": "p_upper_b", "squad_size": 60, "squad_paths": ["route_upper_b_center"] },
+        { "family": "virus", "count": 231, "start_time": 21.14, "duration": 3.66, "spawn_point_id": "p_lower_a", "squad_size": 60, "squad_paths": ["route_lower_a_center"] },
+        { "family": "bacteria", "count": 104, "start_time": 21.89, "duration": 3.66, "spawn_point_id": "p_lower_b", "squad_size": 60, "squad_paths": ["route_lower_b_center"] },
+        { "family": "parasite", "count": 28, "start_time": 24.55, "duration": 3.66, "spawn_point_id": "p_upper_a", "squad_size": 60, "squad_paths": ["route_upper_a_shoulder"] },
+        { "family": "virus", "count": 231, "start_time": 25.3, "duration": 3.66, "spawn_point_id": "p_upper_b", "squad_size": 60, "squad_paths": ["route_upper_b_shoulder"] },
+        { "family": "bacteria", "count": 104, "start_time": 26.05, "duration": 3.66, "spawn_point_id": "p_lower_a", "squad_size": 60, "squad_paths": ["route_lower_a_shoulder"] },
+        { "family": "parasite", "count": 28, "start_time": 26.8, "duration": 3.66, "spawn_point_id": "p_lower_b", "squad_size": 60, "squad_paths": ["route_lower_b_shoulder"] }
       ]
     },
     {
       "name": "campaign_07_chevron_sieve_wave_8",
-      "prep_time": 4.5,
-      "atp_reward": 344,
+      "prep_time": 5.1,
+      "atp_reward": 334,
       "spawns": [
-        { "family": "virus", "count": 2126, "duration": 4 },
-        { "family": "bacteria", "count": 790, "start_time": 1, "duration": 3.5 },
-        { "family": "parasite", "count": 118, "start_time": 1.5, "duration": 3.5 },
-        { "family": "bacteria", "count": 228, "start_time": 0.5, "duration": 5.5 },
-        { "family": "parasite", "count": 34, "start_time": 1, "duration": 5.5 }
+        { "family": "bacteria", "count": 120, "duration": 3.71, "spawn_point_id": "p_upper_a", "squad_size": 60, "squad_paths": ["route_upper_a_shoulder"] },
+        { "family": "parasite", "count": 32, "start_time": 0.75, "duration": 3.71, "spawn_point_id": "p_upper_b", "squad_size": 60, "squad_paths": ["route_upper_b_shoulder"] },
+        { "family": "virus", "count": 267, "start_time": 1.5, "duration": 3.71, "spawn_point_id": "p_lower_a", "squad_size": 60, "squad_paths": ["route_lower_a_shoulder"] },
+        { "family": "bacteria", "count": 120, "start_time": 2.25, "duration": 3.71, "spawn_point_id": "p_lower_b", "squad_size": 60, "squad_paths": ["route_lower_b_shoulder"] },
+        { "family": "parasite", "count": 32, "start_time": 4.96, "duration": 3.71, "spawn_point_id": "p_upper_a", "squad_size": 60, "squad_paths": ["route_upper_a_center"] },
+        { "family": "virus", "count": 267, "start_time": 5.71, "duration": 3.71, "spawn_point_id": "p_upper_b", "squad_size": 60, "squad_paths": ["route_upper_b_center"] },
+        { "family": "bacteria", "count": 120, "start_time": 6.46, "duration": 3.71, "spawn_point_id": "p_lower_a", "squad_size": 60, "squad_paths": ["route_lower_a_center"] },
+        { "family": "parasite", "count": 32, "start_time": 7.21, "duration": 3.71, "spawn_point_id": "p_lower_b", "squad_size": 60, "squad_paths": ["route_lower_b_center"] },
+        { "family": "virus", "count": 267, "start_time": 9.92, "duration": 3.71, "spawn_point_id": "p_upper_a", "squad_size": 60, "squad_paths": ["route_upper_a_shoulder"] },
+        { "family": "bacteria", "count": 120, "start_time": 10.67, "duration": 3.71, "spawn_point_id": "p_upper_b", "squad_size": 60, "squad_paths": ["route_upper_b_shoulder"] },
+        { "family": "parasite", "count": 32, "start_time": 11.42, "duration": 3.71, "spawn_point_id": "p_lower_a", "squad_size": 60, "squad_paths": ["route_lower_a_shoulder"] },
+        { "family": "virus", "count": 266, "start_time": 12.17, "duration": 3.71, "spawn_point_id": "p_lower_b", "squad_size": 60, "squad_paths": ["route_lower_b_shoulder"] },
+        { "family": "bacteria", "count": 120, "start_time": 14.88, "duration": 3.71, "spawn_point_id": "p_upper_a", "squad_size": 60, "squad_paths": ["route_upper_a_center"] },
+        { "family": "parasite", "count": 32, "start_time": 15.63, "duration": 3.71, "spawn_point_id": "p_upper_b", "squad_size": 60, "squad_paths": ["route_upper_b_center"] },
+        { "family": "virus", "count": 266, "start_time": 16.38, "duration": 3.71, "spawn_point_id": "p_lower_a", "squad_size": 60, "squad_paths": ["route_lower_a_center"] },
+        { "family": "bacteria", "count": 120, "start_time": 17.13, "duration": 3.71, "spawn_point_id": "p_lower_b", "squad_size": 60, "squad_paths": ["route_lower_b_center"] },
+        { "family": "parasite", "count": 32, "start_time": 19.84, "duration": 3.71, "spawn_point_id": "p_upper_a", "squad_size": 60, "squad_paths": ["route_upper_a_shoulder"] },
+        { "family": "virus", "count": 267, "start_time": 20.59, "duration": 3.71, "spawn_point_id": "p_upper_b", "squad_size": 60, "squad_paths": ["route_upper_b_shoulder"] },
+        { "family": "bacteria", "count": 120, "start_time": 21.34, "duration": 3.71, "spawn_point_id": "p_lower_a", "squad_size": 60, "squad_paths": ["route_lower_a_shoulder"] },
+        { "family": "parasite", "count": 32, "start_time": 22.09, "duration": 3.71, "spawn_point_id": "p_lower_b", "squad_size": 60, "squad_paths": ["route_lower_b_shoulder"] },
+        { "family": "virus", "count": 267, "start_time": 24.8, "duration": 3.71, "spawn_point_id": "p_upper_a", "squad_size": 60, "squad_paths": ["route_upper_a_center"] },
+        { "family": "bacteria", "count": 120, "start_time": 25.55, "duration": 3.71, "spawn_point_id": "p_upper_b", "squad_size": 60, "squad_paths": ["route_upper_b_center"] },
+        { "family": "parasite", "count": 32, "start_time": 26.3, "duration": 3.71, "spawn_point_id": "p_lower_a", "squad_size": 60, "squad_paths": ["route_lower_a_center"] },
+        { "family": "virus", "count": 266, "start_time": 27.05, "duration": 3.71, "spawn_point_id": "p_lower_b", "squad_size": 60, "squad_paths": ["route_lower_b_center"] }
       ]
     },
     {
       "name": "campaign_07_chevron_sieve_wave_9",
-      "prep_time": 4,
-      "atp_reward": 386,
-      "modifier": "swarm",
+      "prep_time": 4.4,
+      "atp_reward": 371,
       "spawns": [
-        { "family": "virus", "count": 2386, "duration": 4 },
-        { "family": "bacteria", "count": 896, "start_time": 1, "duration": 3.5 },
-        { "family": "parasite", "count": 134, "start_time": 1.5, "duration": 3.5 },
-        { "family": "bacteria", "count": 273, "start_time": 0.5, "duration": 5.5 },
-        { "family": "parasite", "count": 41, "start_time": 1, "duration": 5.5 }
+        { "family": "parasite", "count": 36, "duration": 3.75, "spawn_point_id": "p_upper_a", "squad_size": 60, "squad_paths": ["route_upper_a_center"] },
+        { "family": "virus", "count": 303, "start_time": 0.75, "duration": 3.75, "spawn_point_id": "p_upper_b", "squad_size": 60, "squad_paths": ["route_upper_b_center"] },
+        { "family": "bacteria", "count": 136, "start_time": 1.5, "duration": 3.75, "spawn_point_id": "p_lower_a", "squad_size": 60, "squad_paths": ["route_lower_a_center"] },
+        { "family": "parasite", "count": 36, "start_time": 2.25, "duration": 3.75, "spawn_point_id": "p_lower_b", "squad_size": 60, "squad_paths": ["route_lower_b_center"] },
+        { "family": "virus", "count": 303, "start_time": 5, "duration": 3.75, "spawn_point_id": "p_upper_a", "squad_size": 60, "squad_paths": ["route_upper_a_shoulder"] },
+        { "family": "bacteria", "count": 136, "start_time": 5.75, "duration": 3.75, "spawn_point_id": "p_upper_b", "squad_size": 60, "squad_paths": ["route_upper_b_shoulder"] },
+        { "family": "parasite", "count": 36, "start_time": 6.5, "duration": 3.75, "spawn_point_id": "p_lower_a", "squad_size": 60, "squad_paths": ["route_lower_a_shoulder"] },
+        { "family": "virus", "count": 303, "start_time": 7.25, "duration": 3.75, "spawn_point_id": "p_lower_b", "squad_size": 60, "squad_paths": ["route_lower_b_shoulder"] },
+        { "family": "bacteria", "count": 136, "start_time": 10, "duration": 3.75, "spawn_point_id": "p_upper_a", "squad_size": 60, "squad_paths": ["route_upper_a_center"] },
+        { "family": "parasite", "count": 36, "start_time": 10.75, "duration": 3.75, "spawn_point_id": "p_upper_b", "squad_size": 60, "squad_paths": ["route_upper_b_center"] },
+        { "family": "virus", "count": 303, "start_time": 11.5, "duration": 3.75, "spawn_point_id": "p_lower_a", "squad_size": 60, "squad_paths": ["route_lower_a_center"] },
+        { "family": "bacteria", "count": 136, "start_time": 12.25, "duration": 3.75, "spawn_point_id": "p_lower_b", "squad_size": 60, "squad_paths": ["route_lower_b_center"] },
+        { "family": "parasite", "count": 36, "start_time": 15, "duration": 3.75, "spawn_point_id": "p_upper_a", "squad_size": 60, "squad_paths": ["route_upper_a_shoulder"] },
+        { "family": "virus", "count": 303, "start_time": 15.75, "duration": 3.75, "spawn_point_id": "p_upper_b", "squad_size": 60, "squad_paths": ["route_upper_b_shoulder"] },
+        { "family": "bacteria", "count": 136, "start_time": 16.5, "duration": 3.75, "spawn_point_id": "p_lower_a", "squad_size": 60, "squad_paths": ["route_lower_a_shoulder"] },
+        { "family": "parasite", "count": 36, "start_time": 17.25, "duration": 3.75, "spawn_point_id": "p_lower_b", "squad_size": 60, "squad_paths": ["route_lower_b_shoulder"] },
+        { "family": "virus", "count": 303, "start_time": 20, "duration": 3.75, "spawn_point_id": "p_upper_a", "squad_size": 60, "squad_paths": ["route_upper_a_center"] },
+        { "family": "bacteria", "count": 136, "start_time": 20.75, "duration": 3.75, "spawn_point_id": "p_upper_b", "squad_size": 60, "squad_paths": ["route_upper_b_center"] },
+        { "family": "parasite", "count": 36, "start_time": 21.5, "duration": 3.75, "spawn_point_id": "p_lower_a", "squad_size": 60, "squad_paths": ["route_lower_a_center"] },
+        { "family": "virus", "count": 303, "start_time": 22.25, "duration": 3.75, "spawn_point_id": "p_lower_b", "squad_size": 60, "squad_paths": ["route_lower_b_center"] },
+        { "family": "bacteria", "count": 136, "start_time": 25, "duration": 3.75, "spawn_point_id": "p_upper_a", "squad_size": 60, "squad_paths": ["route_upper_a_shoulder"] },
+        { "family": "parasite", "count": 36, "start_time": 25.75, "duration": 3.75, "spawn_point_id": "p_upper_b", "squad_size": 60, "squad_paths": ["route_upper_b_shoulder"] },
+        { "family": "virus", "count": 303, "start_time": 26.5, "duration": 3.75, "spawn_point_id": "p_lower_a", "squad_size": 60, "squad_paths": ["route_lower_a_shoulder"] },
+        { "family": "bacteria", "count": 136, "start_time": 27.25, "duration": 3.75, "spawn_point_id": "p_lower_b", "squad_size": 60, "squad_paths": ["route_lower_b_shoulder"] }
       ]
     }
-  ]
+  ],
+  "editor": { "grid_size": 2, "notes": "Approved intestinal field: four ordered left breaches feed one broad basin. Dorsal and ventral folds attach to surrounding tissue; one enlarged central island gives upper/lower shoulders. Two broad right mouths lead to one hidden primary organ rectangle. Parallel fans keep routes in their sectors rather than crossing at a hub. Early waves use two then three sectors; every port and shoulder variant is used in later homogeneous bursts, with 1.25s air gaps per marker." }
 }

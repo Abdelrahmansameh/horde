@@ -30,7 +30,6 @@
 
 #include <catch2/catch_test_macros.hpp>
 
-#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -91,15 +90,7 @@ bool build(Harness& h, const std::string& path, u64 seed = 12345) {
 }
 
 std::vector<std::string> shipped_levels() {
-    std::vector<std::string> out;
-    const std::string dir = platform::asset_path("levels");
-    if (!std::filesystem::is_directory(dir)) return out;
-    for (const auto& entry : std::filesystem::directory_iterator(dir)) {
-        if (entry.is_regular_file() && entry.path().extension() == ".json") {
-            out.push_back(entry.path().string());
-        }
-    }
-    return out;
+    return platform::list_files(platform::asset_path("levels"), ".json");
 }
 
 /// Runs the bot for `ticks`, returning the harness so callers can assert on it.

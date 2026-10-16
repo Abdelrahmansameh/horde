@@ -1,6 +1,7 @@
 #include "gui/text/Font.h"
 
 #include "core/Math.h"
+#include "platform/FileIO.h"
 
 // stb_truetype's implementation lives in this one translation unit.
 // STBTT_STATIC keeps it private to this file, so it cannot collide with the
@@ -21,8 +22,6 @@
 #pragma GCC diagnostic pop
 #endif
 
-#include <fstream>
-#include <iterator>
 #include <vector>
 
 namespace immune::gui {
@@ -60,13 +59,17 @@ bool FontLibrary::load(const std::string& dir) {
     loaded_ = false;
     for (usize i = 0; i < kFontCount; ++i) {
         const std::string path = dir + "/" + font_file(static_cast<FontId>(i));
-        std::ifstream in(path, std::ios::binary);
-        if (!in) {
+        auto data = platform::read_binary_file(path);
+        if (!data) {
             error_ = "cannot open font " + path;
             return false;
         }
         auto face = std::make_unique<Face>();
-        face->data.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+        face->data = std::move(*data);
+        if (face->data.size() < 12) {
+            error_ = "not a TrueType font: " + path;
+            return false;
+        }
         const int offset = stbtt_GetFontOffsetForIndex(face->data.data(), 0);
         if (offset < 0 || stbtt_InitFont(&face->info, face->data.data(), offset) == 0) {
             error_ = "not a TrueType font: " + path;

@@ -280,6 +280,27 @@ TEST_CASE("hub lines reach the economy, every tower and the sim", "[meta][tree]"
     REQUIRE(fx.hostile_damage_taken_mult == Catch::Approx(0.92f));
 }
 
+TEST_CASE("the Fibroblast lines reach its builder's rest, territory and wall count", "[meta][tree]") {
+    const GameConfig base = default_game_config();
+    GameConfig cfg = base;
+    apply_immunity_tree(bought({{TreeNode::FibroblastRoot, 1}, {TreeNode::FibroblastBuildRadius, 2},
+                                {TreeNode::FibroblastHealth, 1}, {TreeNode::FibroblastBuildRate, 3},
+                                {TreeNode::FibroblastScarSize, 1}, {TreeNode::FibroblastScarNetwork, 2}}),
+                        cfg);
+    const u32 t = static_cast<u32>(TowerType::Fibroblast);
+    const BuilderParams& b0 = base.towers.mechanics[t].builder;
+    const BuilderParams& b = cfg.towers.mechanics[t].builder;
+    REQUIRE(b.build_radius == Catch::Approx(b0.build_radius * 1.24f));
+    REQUIRE(b.leash_radius == Catch::Approx(b0.leash_radius * 1.24f));
+    REQUIRE(b.build_cooldown == Catch::Approx(b0.build_cooldown * 0.64f));
+    REQUIRE(b.max_scars == b0.max_scars + 2);
+    REQUIRE(b.roam_speed_mult == Catch::Approx(b0.roam_speed_mult));
+    // The other cells are untouched.
+    const u32 n = static_cast<u32>(TowerType::Neutrophil);
+    REQUIRE(cfg.towers.mechanics[n].builder.build_cooldown == Catch::Approx(base.towers.mechanics[n].builder.build_cooldown));
+    REQUIRE(cfg.towers.mechanics[n].builder.max_scars == base.towers.mechanics[n].builder.max_scars);
+}
+
 TEST_CASE("capstones turn on their mechanics", "[meta][tree]") {
     GameConfig cfg = default_game_config();
     const TreeEffects fx = apply_immunity_tree(

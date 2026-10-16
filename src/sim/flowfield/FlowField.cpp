@@ -203,7 +203,7 @@ void DistanceField::bake(const TissueMask& mask) {
     for (i32 y = 0; y < ph; ++y) {
         for (i32 x = 0; x < pw; ++x) {
             const usize i = inside.idx(x, y);
-            const bool walk = mask.walkable(x - 1, y - 1); // out-of-range -> false (padding)
+            const bool walk = !mask.authored_wall(x - 1, y - 1); // runtime blocks are transparent
             if (walk) {
                 inside.dx[i] = kEdtFar;
                 inside.dy[i] = kEdtFar;
@@ -227,7 +227,7 @@ void DistanceField::bake(const TissueMask& mask) {
         for (i32 x = 0; x < width_; ++x) {
             const usize pi = inside.idx(x + 1, y + 1);
             const usize mi = static_cast<usize>(y) * static_cast<usize>(width_) + static_cast<usize>(x);
-            if (mask.walkable(x, y)) {
+            if (!mask.authored_wall(x, y)) {
                 distance_[mi] = (std::sqrt(inside.dist_sq(pi)) - 0.5f) * cell_size_;
             } else {
                 distance_[mi] = -(std::sqrt(outside.dist_sq(pi)) - 0.5f) * cell_size_;
@@ -610,6 +610,7 @@ void FlowField::bake(const TissueMask& mask, const FlowFieldBakeDesc& desc) {
     const usize n = static_cast<usize>(width_) * static_cast<usize>(height_);
     cost_.assign(n, kInf);
     direction_.assign(n, Vec2{0.0f, 0.0f});
+    friendly_direction_.assign(n, Vec2{0.0f, 0.0f});
     raw_direction_.assign(n, Vec2{0.0f, 0.0f});
     smooth_front_.clear();
     smooth_back_.clear();
@@ -641,6 +642,28 @@ void FlowField::bake(const TissueMask& mask, const FlowFieldBakeDesc& desc) {
     sweep(mask, /*restricted=*/false);
     compute_directions(mask, 0, 0, width_ - 1, height_ - 1);
     smooth_directions(mask, 0, 0, width_ - 1, height_ - 1);
+
+    friendly_direction_ = direction_;
+    // Usually a full bake happens before any block exists. Also support a
+    // full bake with standing walls (editor/reload) without leaking them into
+    // friendly guidance. Incremental hostile rebakes leave this plane alone.
+    bool has_blocks = false;
+    for (i32 y = 0; y < height_ && !has_blocks; ++y)
+        for (i32 x = 0; x < width_; ++x)
+            if (mask.runtime_block(x, y)) { has_blocks = true; break; }
+    if (has_blocks) {
+        TissueMask open = mask;
+        for (i32 y = 0; y < height_; ++y) {
+            for (i32 x = 0; x < width_; ++x) {
+                if (!open.runtime_block(x, y)) continue;
+                open.set_walkable(x, y, true);
+                open.set_runtime_block(x, y, false);
+            }
+        }
+        FlowField friendly;
+        friendly.bake(open, desc);
+        friendly_direction_ = std::move(friendly.direction_);
+    }
 
     stats_.regions_processed = 1;
     stats_.last_bake_ms = clock.elapsed_ms();
@@ -846,6 +869,15 @@ Vec2 FlowField::sample(Vec2 world_pos) const {
 }
 
 Vec2 FlowField::sample_with_support(Vec2 world_pos, f32& support) const {
+    return sample_directions(world_pos, support, direction_);
+}
+
+Vec2 FlowField::sample_friendly(Vec2 world_pos) const {
+    f32 support = 0.0f;
+    return sample_directions(world_pos, support, friendly_direction_);
+}
+
+Vec2 FlowField::sample_directions(Vec2 world_pos, f32& support, const std::vector<Vec2>& directions) const {
     support = 0.0f;
     if (width_ <= 0 || height_ <= 0) return Vec2{0.0f, 0.0f};
     const Vec2 g = (world_pos - origin_) / cell_size_ - Vec2{0.5f, 0.5f};
@@ -868,7 +900,7 @@ Vec2 FlowField::sample_with_support(Vec2 world_pos, f32& support) const {
             const i32 x = x0 + i;
             const i32 y = y0 + j;
             if (x < 0 || y < 0 || x >= width_ || y >= height_) continue;
-            const Vec2 d = direction_[static_cast<usize>(y) * static_cast<usize>(width_) +
+            const Vec2 d = directions[static_cast<usize>(y) * static_cast<usize>(width_) +
                                       static_cast<usize>(x)];
             if (d.x == 0.0f && d.y == 0.0f) continue;
             const f32 w = wx[i] * wy[j];

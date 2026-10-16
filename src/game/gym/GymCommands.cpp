@@ -17,6 +17,7 @@
 #include "game/wave/WaveDirector.h"
 #include "render/Camera.h"
 #include "sim/SimWorld.h"
+#include "sim/scar/Scars.h"
 #include "sim/ecs/Components.h"
 #include "sim/squad/Squads.h"
 
@@ -327,6 +328,10 @@ const std::vector<GymCommandInfo>& command_table() {
          "Flag chaff for removal, with real kill accounting."},
         {"tower", "<type|all|list> [at <x,y|cursor>]",
          "Place a tower for free. 'all' spreads one of each across the level."},
+        {"cell", "<type> [at <x,y|cursor>]",
+         "Deploy one persistent cell for free, the way the deck does (`tower` places a legacy emitter)."},
+        {"scar", "[at <x,y|cursor>] | integrity <1-100> | mend <hp> | list",
+         "Lay a Fibroblast wall, set every standing wall's integrity, or mend them the way a builder does."},
         {"sell", "[all]", "Sell the last-placed tower, or every tower."},
         {"fire", "", "Clear every placed tower's cooldown so it releases a volley next tick."},
         {"cast", "<complement|histamine|fever|clot> [at <x,y|cursor>]", "Cast a player ability."},
@@ -749,6 +754,113 @@ GymResult cmd_tower(GymContext& ctx, const std::vector<std::string>& tok) {
                         placement_result_name(why_not)));
     }
     return okay(fmt("placed %s at (%.1f, %.1f) (free)", tower_type_name(type), got.x, got.y));
+}
+
+/// `cell` -- deploys one persistent cell the way the player's deck does
+/// (TowerSystem::deploy), unlike `tower`, which places a legacy emitter.
+GymResult cmd_cell(GymContext& ctx, const std::vector<std::string>& tok) {
+    if (ctx.world == nullptr) return fail("no world in this context");
+    if (ctx.towers == nullptr) return fail("no tower system in this context");
+    if (tok.size() < 2) return fail("usage: cell <type> [at <x,y|cursor>]");
+    TowerType type = TowerType::Neutrophil;
+    if (!parse_tower_type(lower(tok[1]), type)) return fail("unknown cell '" + tok[1] + "' (try: tower list)");
+
+    usize i = 2;
+    Vec2 at = ctx.has_cursor ? ctx.cursor : ctx.world->desc().world_bounds.center();
+    std::string error;
+    if (!parse_at_clause(ctx, tok, i, at, error)) return fail(error);
+    if (i != tok.size()) return fail("unexpected argument after cell position");
+
+    // Near the point, not exactly on it, for the same reason `tower` nudges.
+    PlacementResult why_not = PlacementResult::Ok;
+    for (const f32 dy : {0.0f, 3.0f, -3.0f, 6.0f, -6.0f, 9.0f, -9.0f}) {
+        const Vec2 p{at.x, at.y + dy};
+        const PlacementQuery q = ctx.towers->validate_deploy(*ctx.world, type, p, 0xFFFF'FFFFu);
+        if (!q.valid()) {
+            why_not = q.result;
+            continue;
+        }
+        if (ctx.towers->deploy(*ctx.world, type, p)) {
+            return okay(fmt("deployed a %s cell at (%.1f, %.1f) (free)", tower_type_name(type), p.x, p.y));
+        }
+    }
+    return fail(fmt("cannot deploy %s near (%.1f, %.1f): %s", tower_type_name(type), at.x, at.y,
+                    placement_result_name(why_not)));
+}
+
+/// `scar` -- lays, wears and mends Fibroblast walls directly, so a capture or
+/// a playtest can show any state of one without waiting on builders and a
+/// horde to get it there.
+GymResult cmd_scar(GymContext& ctx, const std::vector<std::string>& tok) {
+    if (ctx.world == nullptr) return fail("no world in this context");
+    sim::SimWorld& world = *ctx.world;
+    entt::registry& registry = world.ecs().registry();
+    const std::string sub = tok.size() > 1 ? lower(tok[1]) : std::string("list");
+
+    // Standing walls in entity order, so `integrity` and `mend` touch them
+    // in an order that does not depend on the pool.
+    std::vector<entt::entity> walls;
+    for (auto e : registry.view<sim::comp::Scar, sim::comp::Health>()) {
+        if (!registry.get<sim::comp::Health>(e).dead()) walls.push_back(e);
+    }
+    std::sort(walls.begin(), walls.end());
+
+    if (sub == "list") {
+        std::string out = fmt("%zu standing scar(s)", walls.size());
+        for (entt::entity e : walls) {
+            const auto& hp = registry.get<sim::comp::Health>(e);
+            const auto* tf = registry.try_get<sim::comp::Transform>(e);
+            const Vec2 c = tf ? tf->position : Vec2{0.0f, 0.0f};
+            out += fmt("\n  (%.1f, %.1f) %.0f/%.0f", c.x, c.y, hp.current, hp.max);
+        }
+        return okay(std::move(out));
+    }
+    if (sub == "integrity") {
+        f32 pct = 0.0f;
+        if (tok.size() != 3 || !parse_f32(tok[2], pct) || pct <= 0.0f || pct > 100.0f) {
+            return fail("usage: scar integrity <1-100>");
+        }
+        if (walls.empty()) return fail("no standing scars");
+        for (entt::entity e : walls) {
+            auto& hp = registry.get<sim::comp::Health>(e);
+            hp.current = hp.max * pct / 100.0f;
+        }
+        return okay(fmt("%zu scar(s) set to %.0f%% integrity", walls.size(), pct));
+    }
+    if (sub == "mend") {
+        f32 amount = 0.0f;
+        if (tok.size() != 3 || !parse_f32(tok[2], amount) || amount <= 0.0f) return fail("usage: scar mend <hp>");
+        if (walls.empty()) return fail("no standing scars");
+        for (entt::entity e : walls) {
+            const auto* tf = registry.try_get<sim::comp::Transform>(e);
+            world.scars().reinforce(world, world.ecs().to_id(e), amount, tf ? tf->position : Vec2{0.0f, 0.0f},
+                                    &world.combat_events());
+        }
+        return okay(fmt("mended %zu scar(s) by %.0f", walls.size(), amount));
+    }
+
+    // scar [at <x,y|cursor>]: a wall with the Fibroblast's own numbers, laid
+    // across the flow there the way a builder lays one, owned by nobody.
+    usize i = 1;
+    Vec2 at = ctx.has_cursor ? ctx.cursor : world.desc().world_bounds.center();
+    std::string error;
+    if (!parse_at_clause(ctx, tok, i, at, error)) return fail(error);
+    if (i != tok.size()) return fail("usage: scar [at <x,y|cursor>] | integrity <1-100> | mend <hp> | list");
+    sim::ScarDesc d = sim::scar_desc_from_profile(swarmer_profile(TowerType::Fibroblast));
+    d.center = at;
+    d.max_scars = 0;
+    d.spacing = 0.0f;
+    sim::ScarBuildResult r = sim::ScarBuildResult::Dropped;
+    world.scars().build(world, d, &r, &world.combat_events());
+    switch (r) {
+    case sim::ScarBuildResult::Built: return okay(fmt("laid a scar at (%.1f, %.1f)", at.x, at.y));
+    case sim::ScarBuildResult::Reinforced: return okay("a scar was already there; reinforced it");
+    case sim::ScarBuildResult::OffTissue: return fail("not on walkable tissue");
+    case sim::ScarBuildResult::WouldSever: return fail("that wall would seal the lane");
+    case sim::ScarBuildResult::NoCells: return fail("that wall covers no walkable cell");
+    case sim::ScarBuildResult::Dropped: break;
+    }
+    return fail("nothing laid");
 }
 
 GymResult cmd_sell(GymContext& ctx, const std::vector<std::string>& tok) {
@@ -1625,6 +1737,8 @@ GymResult gym_execute(GymContext& ctx, std::string_view line) {
     if (cmd == "flood") return cmd_flood(ctx, tok);
     if (cmd == "kill") return cmd_kill(ctx, tok);
     if (cmd == "tower") return cmd_tower(ctx, tok);
+    if (cmd == "cell") return cmd_cell(ctx, tok);
+    if (cmd == "scar") return cmd_scar(ctx, tok);
     if (cmd == "sell") return cmd_sell(ctx, tok);
     if (cmd == "fire") return cmd_fire(ctx);
     if (cmd == "cast") return cmd_cast(ctx, tok);

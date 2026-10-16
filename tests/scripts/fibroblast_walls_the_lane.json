@@ -47,7 +47,7 @@
     {"tick": 300, "metric": "scars_live", "op": ">=", "value": 1},
     {"tick": 300, "metric": "chaff_latched", "op": ">", "value": 0},
     {"tick": 300, "metric": "towers_lost_total", "op": "==", "value": 0},
-    {"tick": 900, "metric": "scars_built_total", "op": ">=", "value": 3},
+    {"tick": 900, "metric": "scars_built_total", "op": ">=", "value": 2},
     {"tick": 1500, "metric": "scars_lost_total", "op": ">=", "value": 1},
     {"tick": 1500, "metric": "state_hash", "op": "!=", "value": 0}
   ]

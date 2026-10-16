@@ -2,14 +2,13 @@
 
 #include "core/Math.h"
 #include "gui/draw/DrawList.h"
+#include "platform/FileIO.h"
 
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
-#include <fstream>
-#include <iterator>
 
 #include "gui/icons/NanoSvg.h"
 
@@ -34,16 +33,19 @@ IconLibrary::~IconLibrary() {
 }
 
 usize IconLibrary::load_dir(const std::string& dir) {
-    namespace fs = std::filesystem;
     usize loaded = 0;
-    std::error_code ec;
-    for (const fs::directory_entry& e : fs::directory_iterator(dir, ec)) {
-        if (!e.is_regular_file() || e.path().extension() != ".svg") continue;
-        std::ifstream in(e.path(), std::ios::binary);
-        std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-        if (load_svg(e.path().stem().string(), std::move(text))) ++loaded;
+    if (!platform::directory_exists(dir)) {
+        errors_.push_back("cannot list " + dir);
+        return loaded;
     }
-    if (ec) errors_.push_back("cannot list " + dir + ": " + ec.message());
+    for (const std::string& path : platform::list_files(dir, ".svg")) {
+        auto text = platform::read_text_file(path);
+        if (!text) {
+            errors_.push_back("cannot read " + path);
+            continue;
+        }
+        if (load_svg(std::filesystem::path(path).stem().string(), std::move(*text))) ++loaded;
+    }
     return loaded;
 }
 

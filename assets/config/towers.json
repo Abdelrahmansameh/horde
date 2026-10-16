@@ -79,16 +79,16 @@
         "release_per_shot": 4,
         "search_radius": 12.0,
         "size": 0.705,
-        "size_jitter": 0.5,
+        "size_jitter": 0.25,
         "speed": 30.0
       }
     },
     "fibroblast": {
       "death_vfx": {
         "cytoplasm": [
-          0.94,
-          0.71,
-          0.65,
+          0.5,
+          0.75,
+          1.0,
           1.0
         ],
         "enabled": true,
@@ -108,9 +108,9 @@
         "inherit_velocity": 0.33,
         "lump_wobble": 0.1,
         "nucleus": [
-          0.46,
-          0.22,
-          0.32,
+          0.16,
+          0.2,
+          0.48,
           1.0
         ],
         "nucleus_count": 3,
@@ -139,18 +139,22 @@
       "kind": "builder",
       "payload": {
         "build_candidates": 12,
+        "build_cooldown": 6.0,
         "build_min_clearance": 1.0,
         "build_min_radius": 4.0,
         "build_radius": 18.0,
         "crowd_push": 0.0,
+        "leash_radius": 8.0,
         "max_scars": 3,
+        "roam_speed_mult": 0.4,
         "scar_half_length": 6.0,
         "scar_half_width": 1,
         "scar_health": 220.0,
         "scar_lifetime": 0.0,
         "scar_reinforce": 50.0,
         "scar_spacing": 6.0,
-        "scar_tilt": 0.2
+        "scar_tilt": 0.2,
+        "secrete_seconds": 1.6
       },
       "stats": {
         "build_cost": 30,
@@ -166,7 +170,7 @@
         "release_per_shot": 1,
         "search_radius": 14.0,
         "size": 1.6,
-        "size_jitter": 0.5,
+        "size_jitter": 0.25,
         "speed": 12.0
       }
     },
@@ -247,7 +251,7 @@
         "release_per_shot": 1,
         "search_radius": 14.0,
         "size": 1.8,
-        "size_jitter": 0.5,
+        "size_jitter": 0.25,
         "speed": 25.0
       }
     },
@@ -334,7 +338,7 @@
         "release_per_shot": 3,
         "search_radius": 26.0,
         "size": 2.6,
-        "size_jitter": 0.5,
+        "size_jitter": 0.25,
         "speed": 15.0
       }
     },
@@ -430,7 +434,7 @@
         "release_per_shot": 2,
         "search_radius": 28.0,
         "size": 2.0,
-        "size_jitter": 0.5,
+        "size_jitter": 0.25,
         "speed": 22.0
       }
     }

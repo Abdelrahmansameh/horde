@@ -25,6 +25,7 @@
 #include "sim/flowfield/FlowField.h"
 #include "sim/squad/Squads.h"
 #include "sim/projectile/Projectiles.h"
+#include "sim/scar/Scars.h"
 #include "sim/hostile/HostileAttacks.h"
 #include "sim/fluid/Fluid.h"
 #include "sim/swarm/Swarmers.h"
@@ -260,7 +261,7 @@ Vec4 swarmer_tint(TowerType source) {
     case TowerType::Macrophage: return Vec4{1.00f, 0.56f, 0.14f, 1.0f};
     case TowerType::CytotoxicT: return Vec4{0.78f, 0.68f, 1.00f, 1.0f};
     case TowerType::GobletCell: return Vec4{0.55f, 0.98f, 0.74f, 1.0f};
-    case TowerType::Fibroblast: return Vec4{1.00f, 0.72f, 0.64f, 1.0f};
+    case TowerType::Fibroblast: return Vec4{0.42f, 0.74f, 1.00f, 1.0f};
     case TowerType::Count: break;
     }
     return Vec4{1.0f, 1.0f, 1.0f, 1.0f};
@@ -1892,22 +1893,33 @@ void Renderer::submit_entities(const sim::EcsWorld& ecs) {
         }
 
         // Collagen scar (sim/scar): the same squashed bar as the clot (shape
-        // 6 reads shape_param the same way), but what runs down is its
-        // INTEGRITY, not a clock -- the alpha carries the remaining health
-        // fraction, the way a tower's does, and the shader spends it on
-        // fraying and thinning the wall where the horde has chewed it. A
-        // scar on a lifetime fades over its last stretch as well.
+        // 6 reads shape_param the same way), drawn from its state rather than
+        // tinted, so the whole tint carries that state (entity.frag, shape 6):
+        //   r  how far it has assembled (age over kScarAssembleSeconds);
+        //   g  how fresh its last repair is, 1 -> 0;
+        //   b  a per-wall seed, so no two walls tear the same way;
+        //   a  the INTEGRITY shown: the health fraction, eased up from where
+        //      it stood over a repair instead of popping, and run down over
+        //      the last stretch of a lifetime. The shader spends it on which
+        //      of the wall's segments are still there.
         if (const auto* scar = registry.try_get<const sim::comp::Scar>(entity)) {
             inst.shape_param = scar->half_extents.x / math::max(scar->half_extents.y, 1e-3f);
             f32 frac = 1.0f;
             if (const auto* hp = registry.try_get<const sim::comp::Health>(entity)) {
                 frac = hp->max > 0.0f ? math::saturate(hp->current / hp->max) : 1.0f;
             }
+            const f32 knit = math::saturate(scar->repair_age / sim::kScarRepairSeconds);
+            if (knit < 1.0f) {
+                frac = math::lerp(math::min(scar->repair_from, frac), frac, math::smoothstep01(knit / 0.8f));
+            }
             if (scar->duration > 0.0f) {
                 const f32 life = scar->remaining / scar->duration;
                 frac = math::min(frac, math::saturate(life / kClotDissolveFraction));
             }
-            inst.tint_rgba8 = pack_rgba8(Vec4{sp.tint.r, sp.tint.g, sp.tint.b, frac});
+            const f32 built = math::saturate(scar->age / sim::kScarAssembleSeconds);
+            u32 seed = static_cast<u32>(entt::to_integral(entity)) * 0x9E3779B1u;
+            seed ^= seed >> 16;
+            inst.tint_rgba8 = pack_rgba8(Vec4{built, 1.0f - knit, static_cast<f32>(seed & 0xFFu) / 255.0f, frac});
         }
 
         // Elite death burst (DESIGN.md §9.5 tier 2: "individual pop/burst
@@ -2388,6 +2400,25 @@ void Renderer::submit_swarmers(const sim::SwarmerBuffers& swarmers) {
             const f32 speed = math::length(Vec2{inst.vx, inst.vy});
             const Vec2 heading = speed > 1.0e-5f ? Vec2{inst.vx, inst.vy} / speed : Vec2{1.0f, 0.0f};
             pack_magazine(pr, swarmers.magazine[i], heading, inst.arm);
+        } else if (pr.kind == sim::SwarmerKind::Builder) {
+            // The crawl and the secretion (swarmer.frag, kind 5):
+            //   arm[0] = {pace 0..1 (speed over the profile's), secretion
+            //             0..1 or -1 when not secreting, procollagen load 0..1}
+            // The load is the wall the cell is carrying: full on the way to a
+            // site, spent at the poles during the secretion (the shader runs
+            // that part), refilling over the rest of the rest.
+            const f32 pace = pr.speed > 0.0f ? math::saturate(math::length(Vec2{inst.vx, inst.vy}) / pr.speed) : 0.0f;
+            const f32 secrete = swarmers.secrete_progress(i);
+            f32 load = 1.0f;
+            const u8 f = swarmers.flags[i];
+            if (secrete < 0.0f && (f & sim::swarmer_flags::kPersistent) != 0 &&
+                (f & sim::swarmer_flags::kHasGoal) == 0) {
+                const f32 refill = pr.build_cooldown - sim::SwarmerBuffers::secretion_hold(pr);
+                load = refill > 0.0f ? math::saturate(1.0f - swarmers.rest[i] / refill) : 1.0f;
+            }
+            inst.arm[0][0] = pace;
+            inst.arm[0][1] = secrete;
+            inst.arm[0][2] = load;
         }
         base[i] = inst;
     }

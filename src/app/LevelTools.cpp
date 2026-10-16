@@ -19,7 +19,6 @@
 #include <nlohmann/json.hpp>
 
 #include <cstdio>
-#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -32,12 +31,11 @@ using json = nlohmann::json;
 /// a CI report is diffable run to run.
 std::vector<std::string> resolve_targets(const std::string& path, std::string& err) {
     std::vector<std::string> out;
-    std::error_code ec;
     if (path.empty()) {
         err = "no path given";
         return out;
     }
-    if (std::filesystem::is_directory(path, ec)) {
+    if (platform::directory_exists(path)) {
         out = platform::list_files(path, ".json");
         if (out.empty()) err = "no .json files in '" + path + "'";
         return out;

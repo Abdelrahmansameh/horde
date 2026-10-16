@@ -112,7 +112,9 @@ inline Vec4 mix4(const Vec4& a, const Vec4& b, f32 t) { return a + (b - a) * t; 
 //   Macrophage ARBOR GRABBER orange (digestive, not fire — no reds)
 //   CytotoxicT LATCH         violet-white
 //   GobletCell MUCUS BOMBER  jade green (mucin)
-//   Fibroblast BUILDER       salmon / dusty rose (collagen)
+//   Fibroblast BUILDER       collagen blue (the colour a trichrome stain
+//                            turns collagen -- and the one hue nothing
+//                            else on the board uses)
 // ---------------------------------------------------------------------------
 struct TowerPalette {
     Vec4 primary;  ///< The hue a player identifies the tower by.
@@ -125,7 +127,7 @@ TowerPalette palette_for(TowerType t) {
     case TowerType::Macrophage: return {Vec4{1.00f, 0.56f, 0.14f, 1.0f}, Vec4{1.00f, 0.95f, 0.88f, 1.0f}};
     case TowerType::CytotoxicT: return {Vec4{0.76f, 0.66f, 1.00f, 1.0f}, Vec4{1.00f, 1.00f, 1.00f, 1.0f}};
     case TowerType::GobletCell: return {Vec4{0.55f, 0.98f, 0.74f, 1.0f}, Vec4{0.90f, 1.00f, 0.92f, 1.0f}};
-    case TowerType::Fibroblast: return {Vec4{1.00f, 0.72f, 0.64f, 1.0f}, Vec4{1.00f, 0.94f, 0.90f, 1.0f}};
+    case TowerType::Fibroblast: return {Vec4{0.42f, 0.74f, 1.00f, 1.0f}, Vec4{0.88f, 0.96f, 1.00f, 1.0f}};
     case TowerType::Count:
     default:                    return {Vec4{0.88f, 0.90f, 0.96f, 1.0f}, Vec4{1.00f, 1.00f, 1.00f, 1.0f}};
     }
@@ -1580,48 +1582,121 @@ void ParticleSystem::emit_for_event(const sim::CombatEvent& event) {
     }
 
     // -----------------------------------------------------------------------
-    // ScarBuilt / ScarDestroyed — a Fibroblast's collagen wall went down or
-    // came down (sim/scar). `direction` runs along the bar, `radius` is its
-    // half-length and `magnitude` its half-width (on ScarBuilt; on
-    // ScarDestroyed magnitude is 1 for chewed through, 0 for dissolved).
-    // Both are drawn ALONG the bar rather than from its centre: a wall is a
-    // line, and a burst from its middle would read as something else
-    // happening at that point. The build is quiet -- fibres settling into
-    // place -- and the loss is a scatter of collagen across the lane.
+    // The Fibroblast's collagen walls (sim/scar). `direction` runs along the
+    // bar, `radius` is its half-length and `magnitude` its half-width (on
+    // ScarDestroyed magnitude is instead 1 for chewed through, 0 for
+    // dissolved; ScarChipped has its own fields). The wall itself is drawn
+    // from its state (entity.frag shape 6: assembling, losing segments,
+    // knitting back); these are the loose collagen around that.
+    //
+    //   ScarBuilt       the cell, lying along the new wall, sprays fibrils
+    //                   out of both poles; they fly out along the bar,
+    //                   slow, and lie down along it as their crimp relaxes,
+    //                   the near ones first -- the wall thickening out of
+    //                   them behind (it assembles middle-out over the same
+    //                   second and a half).
+    //   ScarReinforced  the same from the builder, fewer, into the gaps.
+    //   ScarChipped     a lump and a frayed strand or two knocked off the
+    //                   face that lost them.
+    //   ScarDestroyed   the whole rope comes apart: lumps and strands off
+    //                   its length, a haze of matrix.
+    //
+    // Fibrils fly with drag and are never staged with a delay: a staged
+    // particle still integrates while it waits, so it would be born already
+    // far down its path. All of them leave at once, at speeds that settle
+    // each one at its own spot (a damped launch travels speed / drag).
     // -----------------------------------------------------------------------
-    case sim::CombatEventType::ScarBuilt: {
+    case sim::CombatEventType::ScarBuilt:
+    case sim::CombatEventType::ScarReinforced: {
+        const bool built = event.type == sim::CombatEventType::ScarBuilt;
         const Vec2 along = math::normalize_safe(event.direction);
         const Vec2 across = perp(along);
         const f32 half_len = math::max(event.radius, 0.5f);
         const f32 half_wid = math::max(event.magnitude, 0.2f);
-        const u32 fibres = 6u + static_cast<u32>(half_len * 2.0f);
-        for (u32 k = 0; k < fibres; ++k) {
-            const f32 u = pcg_range(rs, -1.0f, 1.0f);
-            ParticleSpawnParams sh;
-            sh.kind = ParticleKind::Shard;
-            sh.blend = BlendMode::AlphaBlend;
-            sh.position = event.origin + along * (u * half_len) +
-                          across * pcg_range(rs, -half_wid, half_wid) * 2.5f;
-            sh.velocity = across * (-pcg_signed(rs) * 2.0f) + along * pcg_signed(rs) * 0.8f;
-            sh.color = mix4(pal.primary, pal.accent, pcg_f32(rs));
-            sh.size = pcg_range(rs, 0.18f, 0.34f);
-            sh.lifetime = pcg_range(rs, 0.35f, 0.65f);
-            sh.drag = 4.0f;
-            sh.rotation = std::atan2(along.y, along.x) + pcg_signed(rs) * 0.25f;
-            sh.spin = pcg_signed(rs) * 1.5f;
-            push(sh, pcg_range(rs, 0.0f, 0.12f));
+        // Where the collagen leaves from: the builder, which stands on (or
+        // near) the bar. Measured along the bar so a fibril never has to
+        // cross it to reach its spot.
+        const Vec2 from = event.secondary;
+        const f32 from_t = (from.x - event.origin.x) * along.x + (from.y - event.origin.y) * along.y;
+        const f32 kDrag = 2.6f;
+        const u32 fibrils = (built ? 10u : 5u) + static_cast<u32>(half_len * (built ? 1.6f : 0.8f));
+        for (u32 k = 0; k < fibrils; ++k) {
+            // Its landing spot: spread evenly along the bar (stratified, so
+            // the spray covers it end to end), a little off the centreline.
+            const f32 u = math::clamp((static_cast<f32>(k) + pcg_f32(rs)) / static_cast<f32>(fibrils) * 2.0f - 1.0f,
+                                      -1.0f, 1.0f);
+            const f32 land_t = u * half_len * 0.92f;
+            const f32 side = (pcg_f32(rs) * 2.0f - 1.0f) * half_wid * 0.55f;
+            const f32 heading = land_t >= from_t ? 1.0f : -1.0f;
+            ParticleSpawnParams f;
+            f.kind = ParticleKind::Fibril;
+            f.blend = BlendMode::AlphaBlend;
+            // Out of the pole on the side it is heading for.
+            f.position = from + along * (heading * half_wid * 0.9f);
+            const Vec2 land = event.origin + along * land_t + across * side;
+            f.velocity = (land - f.position) * kDrag;
+            f.drag = kDrag;
+            f.color = mix4(pal.primary, pal.accent, pcg_range(rs, 0.25f, 0.6f));
+            f.size = pcg_range(rs, 0.9f, 1.6f) * half_wid;
+            f.shape = 0.10f;
+            f.rotation = std::atan2(along.y, along.x) + pcg_signed(rs) * 0.12f;
+            f.spin = 0.0f;
+            f.lifetime = pcg_range(rs, 0.9f, 1.4f) * (0.75f + 0.35f * std::fabs(u));
+            push(f);
         }
-        for (u32 k = 0; k < 4; ++k) {
+        // A puff of matrix off each pole as the secretion starts.
+        for (u32 k = 0; k < 2; ++k) {
+            const f32 pole = k == 0 ? 1.0f : -1.0f;
             ParticleSpawnParams m;
             m.kind = ParticleKind::Mist;
             m.blend = BlendMode::AlphaBlend;
-            m.position = event.origin + along * pcg_range(rs, -half_len, half_len) * 0.8f;
-            m.velocity = across * pcg_signed(rs) * 0.6f;
-            m.color = Vec4{pal.primary.r, pal.primary.g, pal.primary.b, 0.22f};
-            m.size = half_wid * pcg_range(rs, 2.0f, 3.2f);
-            m.lifetime = pcg_range(rs, 0.5f, 0.9f);
+            m.position = from + along * (pole * half_wid * 1.1f);
+            m.velocity = along * (pole * 1.2f);
+            m.color = Vec4{pal.accent.r, pal.accent.g, pal.accent.b, 0.30f};
+            m.size = half_wid * pcg_range(rs, 1.6f, 2.2f);
+            m.lifetime = pcg_range(rs, 0.6f, 0.9f);
             m.drag = 2.0f;
-            push(m, 0.03f * static_cast<f32>(k));
+            push(m);
+        }
+        break;
+    }
+    case sim::CombatEventType::ScarChipped: {
+        // A piece off a face: a lump of cord and a frayed strand or two,
+        // thrown out from the face that lost them.
+        const Vec2 out = math::normalize_safe(event.direction);
+        const Vec2 along = perp(out);
+        const f32 half_wid = math::max(event.radius, 0.2f);
+        const u32 steps = math::clamp<u32>(static_cast<u32>(event.magnitude + 0.5f), 1u, 4u);
+        const Vec4 cord{0.29f, 0.55f, 0.96f, 1.0f};
+        for (u32 k = 0; k < steps; ++k) {
+            const Vec2 at = event.origin + along * (pcg_signed(rs) * half_wid * 0.8f);
+            ParticleSpawnParams g;
+            g.kind = ParticleKind::Globule;
+            g.blend = BlendMode::AlphaBlend;
+            g.position = at;
+            g.velocity = rotate_by(out, pcg_signed(rs) * 0.6f) * pcg_range(rs, 3.0f, 6.5f);
+            g.color = mix4(cord, pal.primary, pcg_f32(rs) * 0.5f);
+            g.size = half_wid * pcg_range(rs, 0.55f, 0.85f);
+            g.shape = 0.35f;
+            g.end_scale = 0.45f;
+            g.lifetime = pcg_range(rs, 0.45f, 0.75f);
+            g.drag = 4.5f;
+            g.rotation = pcg_range(rs, 0.0f, math::kTwoPi);
+            g.spin = pcg_signed(rs) * 3.0f;
+            push(g);
+            ParticleSpawnParams f;
+            f.kind = ParticleKind::Fibril;
+            f.blend = BlendMode::AlphaBlend;
+            f.position = at;
+            f.velocity = rotate_by(out, pcg_signed(rs) * 0.9f) * pcg_range(rs, 2.0f, 5.0f);
+            f.color = mix4(pal.primary, pal.accent, pcg_range(rs, 0.1f, 0.4f));
+            f.size = half_wid * pcg_range(rs, 0.7f, 1.2f);
+            f.shape = 0.11f;
+            f.lifetime = pcg_range(rs, 0.4f, 0.7f);
+            f.drag = 4.0f;
+            f.rotation = std::atan2(along.y, along.x) + pcg_signed(rs) * 0.8f;
+            f.spin = pcg_signed(rs) * 2.5f;
+            push(f);
         }
         break;
     }
@@ -1630,34 +1705,55 @@ void ParticleSystem::emit_for_event(const sim::CombatEvent& event) {
         const Vec2 across = perp(along);
         const f32 half_len = math::max(event.radius, 0.5f);
         const bool chewed = event.magnitude > 0.5f;
-        const u32 shards = 10u + static_cast<u32>(half_len * 3.0f);
-        for (u32 k = 0; k < shards; ++k) {
+        const Vec4 cord{0.29f, 0.55f, 0.96f, 1.0f};
+        const u32 lumps = 6u + static_cast<u32>(half_len * 1.5f);
+        for (u32 k = 0; k < lumps; ++k) {
             const f32 u = pcg_range(rs, -1.0f, 1.0f);
             const f32 side = pcg_signed(rs) >= 0.0f ? 1.0f : -1.0f;
-            ParticleSpawnParams sh;
-            sh.kind = ParticleKind::Shard;
-            sh.blend = BlendMode::AlphaBlend;
-            sh.position = event.origin + along * (u * half_len);
-            sh.velocity = across * (side * pcg_range(rs, chewed ? 5.0f : 1.5f, chewed ? 14.0f : 4.0f)) +
-                          along * pcg_signed(rs) * 2.0f;
-            sh.color = mix4(pal.primary, pal.accent, pcg_f32(rs));
-            sh.size = pcg_range(rs, 0.16f, 0.32f);
-            sh.lifetime = pcg_range(rs, 0.35f, 0.75f);
-            sh.drag = 3.5f;
-            sh.rotation = pcg_range(rs, 0.0f, math::kTwoPi);
-            sh.spin = pcg_signed(rs) * 5.0f;
-            push(sh, pcg_range(rs, 0.0f, 0.05f));
+            ParticleSpawnParams g;
+            g.kind = ParticleKind::Globule;
+            g.blend = BlendMode::AlphaBlend;
+            g.position = event.origin + along * (u * half_len) + across * (side * pcg_f32(rs) * 0.6f);
+            g.velocity = across * (side * pcg_range(rs, chewed ? 3.0f : 1.0f, chewed ? 8.0f : 2.5f)) +
+                         along * pcg_signed(rs) * 1.5f;
+            g.color = mix4(cord, pal.primary, pcg_f32(rs) * 0.5f);
+            g.size = pcg_range(rs, 0.5f, 0.9f);
+            g.shape = 0.35f;
+            g.end_scale = 0.35f;
+            g.lifetime = pcg_range(rs, 0.5f, 0.9f);
+            g.drag = 3.5f;
+            g.rotation = pcg_range(rs, 0.0f, math::kTwoPi);
+            g.spin = pcg_signed(rs) * 3.0f;
+            push(g);
         }
-        const u32 puffs = 3u + static_cast<u32>(half_len);
+        const u32 strands = 4u + static_cast<u32>(half_len);
+        for (u32 k = 0; k < strands; ++k) {
+            const f32 u = pcg_range(rs, -1.0f, 1.0f);
+            const f32 side = pcg_signed(rs) >= 0.0f ? 1.0f : -1.0f;
+            ParticleSpawnParams f;
+            f.kind = ParticleKind::Fibril;
+            f.blend = BlendMode::AlphaBlend;
+            f.position = event.origin + along * (u * half_len);
+            f.velocity = across * (side * pcg_range(rs, 1.5f, chewed ? 6.0f : 2.5f)) + along * pcg_signed(rs) * 1.5f;
+            f.color = mix4(pal.primary, pal.accent, pcg_range(rs, 0.1f, 0.4f));
+            f.size = pcg_range(rs, 1.0f, 1.8f);
+            f.shape = 0.10f;
+            f.lifetime = pcg_range(rs, 0.6f, 1.0f);
+            f.drag = 3.0f;
+            f.rotation = std::atan2(along.y, along.x) + pcg_signed(rs) * 0.5f;
+            f.spin = pcg_signed(rs) * 1.5f;
+            push(f);
+        }
+        const u32 puffs = 2u + static_cast<u32>(half_len * 0.5f);
         for (u32 k = 0; k < puffs; ++k) {
             ParticleSpawnParams m;
             m.kind = ParticleKind::Mist;
             m.blend = BlendMode::AlphaBlend;
             m.position = event.origin + along * pcg_range(rs, -half_len, half_len);
-            m.velocity = across * pcg_signed(rs) * 1.5f;
-            m.color = Vec4{pal.primary.r, pal.primary.g, pal.primary.b, 0.32f};
-            m.size = pcg_range(rs, 1.2f, 2.2f);
-            m.lifetime = pcg_range(rs, 0.6f, 1.1f);
+            m.velocity = across * pcg_signed(rs) * 1.2f;
+            m.color = Vec4{pal.primary.r, pal.primary.g, pal.primary.b, 0.26f};
+            m.size = pcg_range(rs, 1.4f, 2.4f);
+            m.lifetime = pcg_range(rs, 0.6f, 1.0f);
             m.drag = 1.5f;
             push(m, 0.03f * static_cast<f32>(k));
         }

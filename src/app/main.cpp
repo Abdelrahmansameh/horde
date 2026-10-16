@@ -4,6 +4,7 @@
 #include "app/LevelTools.h"
 #include "app/Modes.h"
 #include "core/Log.h"
+#include "platform/FileIO.h"
 
 #include <cstdio>
 
@@ -30,6 +31,17 @@ int main(int argc, char** argv) {
 
         case app::Mode::ListScenarios:
             return app::run_list_scenarios();
+
+        case app::Mode::Licenses: {
+            const auto notices = platform::read_text_file(
+                "immune-embedded:/licenses/THIRD_PARTY_NOTICES.txt");
+            if (!notices) {
+                std::fputs("Third-party notices are bundled in standalone publishing builds.\n", stderr);
+                return 1;
+            }
+            std::fwrite(notices->data(), 1, notices->size(), stdout);
+            return 0;
+        }
 
         case app::Mode::DumpConfig:
             return app::run_dump_config(options);

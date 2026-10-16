@@ -69,7 +69,7 @@ struct SwarmParams {
     f32 size = 1.5f;
     /// Spawn size variation, as a fraction of `size`: each released unit's
     /// body (drawn and collision) is rolled in [1 - this, 1 + this].
-    f32 size_jitter = 0.5f;
+    f32 size_jitter = 0.25f;
     /// Hit points a swarmer is released with. The horde spends them
     /// (sim/hostile: viruses latch on and drain, bacteria burn); at zero the
     /// unit dissolves without acting.
@@ -232,6 +232,19 @@ struct BuilderParams {
     /// through the horde as if it were matrix, 1 is pushed out of every
     /// pathogen like any other unit. Passengers still climb on either way.
     f32 crowd_push = 0.0f;
+    /// A deployed Fibroblast is not spent on its wall (sim/swarm/Swarmers.h,
+    /// FIBROSIS): it rests this many seconds, roaming, then builds again --
+    /// round its home, out to build_radius -- until the horde kills it.
+    f32 build_cooldown = 6.0f;
+    /// While resting it strolls between waypoints inside this radius of the
+    /// spot it was deployed at: the soft leash.
+    f32 leash_radius = 8.0f;
+    /// Roaming pace as a multiple of the cell's speed.
+    f32 roam_speed_mult = 0.4f;
+    /// The first this-many seconds of that rest it holds still where it laid
+    /// (or mended) the wall, turned to lie along it, secreting the collagen
+    /// the wall is drawn assembling from. Part of the rest, not added to it.
+    f32 secrete_seconds = 1.6f;
 };
 
 /// The per-unit Strengthen Immunity capstones (PROGRESSION.md §5). NOT part of
@@ -330,7 +343,7 @@ struct FamilyChaffParams {
     bool collides = true;
     /// Spawn size variation, as a fraction of the radius: each agent's body
     /// (drawn and collision) is rolled in [1 - this, 1 + this] when it spawns.
-    f32 size_jitter = 0.5f;
+    f32 size_jitter = 0.25f;
 };
 
 struct FamilyConfig {

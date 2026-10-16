@@ -767,6 +767,14 @@ int run_screenshot(const Options& opt) {
         if (!tuning.ok) return 1;
         game::apply_tower_config(towers, tuning.cfg.towers);
     }
+    if (opt.ui) {
+        u32 allowed = 0;
+        for (const std::string& name : level_def.allowed_towers) {
+            TowerType type{};
+            if (game::parse_tower_type(name, type)) allowed |= 1u << static_cast<u32>(type);
+        }
+        towers.set_allowed_towers(allowed);
+    }
     if (opt.place_towers) {
         TowerType only = TowerType::Count;
         if (!opt.tower_filter.empty()) {
@@ -812,7 +820,14 @@ int run_screenshot(const Options& opt) {
     {
         const HeadlessConfig tuning = load_headless_config(opt);
         exec_roster.load_defaults();
-        exec_economy.configure(tuning.cfg.economy);
+        game::EconomyConfig economy = tuning.cfg.economy;
+        if (opt.ui) {
+            if (level_def.economy.starting_atp != 0)
+                economy.starting_atp = level_def.economy.starting_atp;
+            economy.passive_income_per_second *= level_def.economy.income_multiplier;
+            economy.atp_per_density *= level_def.economy.income_multiplier;
+        }
+        exec_economy.configure(economy);
         exec_abilities.load_defaults();
         if (opt.ui) {
             game::apply_enemy_config(exec_roster, tuning.cfg.enemies);

@@ -142,6 +142,8 @@ ICON = {
     "fibroblast.build_radius": "stat_reach",
     "fibroblast.inflammation": "stat_fire",
     "fibroblast.tower_health": "stat_health",
+    "fibroblast.build_rate": "stat_cadence",
+    "fibroblast.scar_count": "stat_count",
     "fibroblast.capstone": "stat_fire",
 }
 

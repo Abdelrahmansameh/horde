@@ -26,6 +26,11 @@ Prefer writing new captures and temporary reports there.
 
 ## Runtime lookup
 
+The following lookup rules apply to development builds. The standalone publishing
+build embeds runtime assets in the executable and reads them directly from
+memory through the same platform helpers. See [Publishing](PUBLISHING.md) for
+build commands, read-only embedded paths, and license handling.
+
 [platform/FileIO.cpp](../src/platform/FileIO.cpp) resolves an asset root once per
 process. It first uses `IMMUNE_ASSET_ROOT` when nonempty, otherwise searches up
 to eight ancestor directories from the executable for an `assets` directory,

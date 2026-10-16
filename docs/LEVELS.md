@@ -8,15 +8,17 @@ The app scans the immediate `assets/levels` directory for `.json` files and skip
 
 The following is the catalog in the current checkout. Wave counts are authored array lengths, not a promise that every map remains at that length after tuning.
 
+See [Campaign design](CAMPAIGN_DESIGN.md) for the level review, biological design rules, and progression direction. Campaign entrance discs and organ footprints sit beyond the normal and ultrawide camera frame; explicit routes and homogeneous releases give each passage a traffic role.
+
 | Campaign file | Display name | Region | Waves |
 |---|---|---|---:|
-| [campaign_01_first_bend.json](../assets/levels/campaign_01_first_bend.json) | First Bend | capillary | 7 |
+| [campaign_01_first_bend.json](../assets/levels/campaign_01_first_bend.json) | First Bend | capillary | 6 |
 | [campaign_02_island_climb.json](../assets/levels/campaign_02_island_climb.json) | Island Climb | capillary | 6 |
-| [campaign_03_two_chambers.json](../assets/levels/campaign_03_two_chambers.json) | Two Chambers | lymphatic | 7 |
+| [campaign_03_two_chambers.json](../assets/levels/campaign_03_two_chambers.json) | Lymphatic Confluence | lymphatic | 7 |
 | [campaign_04_twin_channels.json](../assets/levels/campaign_04_twin_channels.json) | Twin Channels | capillary | 7 |
-| [campaign_05_ring_road.json](../assets/levels/campaign_05_ring_road.json) | Ring Road | organ_chamber | 8 |
-| [campaign_06_circuit_board.json](../assets/levels/campaign_06_circuit_board.json) | Circuit Board | lymphatic | 8 |
-| [campaign_07_chevron_sieve.json](../assets/levels/campaign_07_chevron_sieve.json) | Chevron Sieve | mucosal | 9 |
+| [campaign_05_ring_road.json](../assets/levels/campaign_05_ring_road.json) | Marrow Pools | marrow | 8 |
+| [campaign_06_circuit_board.json](../assets/levels/campaign_06_circuit_board.json) | Renal Lobes | capillary | 8 |
+| [campaign_07_chevron_sieve.json](../assets/levels/campaign_07_chevron_sieve.json) | Intestinal Battlefield | mucosal | 9 |
 | [campaign_08_blob_field.json](../assets/levels/campaign_08_blob_field.json) | Blob Field | floodplain | 9 |
 | [campaign_09_funnel_walls.json](../assets/levels/campaign_09_funnel_walls.json) | The Funnel | skin | 10 |
 | [campaign_10_core_breach.json](../assets/levels/campaign_10_core_breach.json) | Core Breach | organ_chamber | 10 |

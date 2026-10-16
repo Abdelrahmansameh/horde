@@ -14,7 +14,6 @@
 
 #include <cmath>
 #include <cstdio>
-#include <filesystem>
 #include <string>
 
 using namespace immune;
@@ -146,12 +145,10 @@ TEST_CASE("render sdf: the sim mask IS the drawn field on every shipped level",
     // this also pins the wall-protection by checking the stamped geometry
     // against the field before the write-back (walls never get thinner).
     const std::string dir = platform::asset_path("levels");
-    REQUIRE(std::filesystem::is_directory(dir));
+    REQUIRE(platform::directory_exists(dir));
 
     u32 checked = 0;
-    for (const auto& entry : std::filesystem::directory_iterator(dir)) {
-        if (!entry.is_regular_file() || entry.path().extension() != ".json") continue;
-        const std::string path = entry.path().string();
+    for (const std::string& path : platform::list_files(dir, ".json")) {
         INFO("level = " << path);
 
         LevelLoader loader;
@@ -193,9 +190,7 @@ TEST_CASE("render sdf: the closing never thins a wall a level authored", "[rende
     // sim cells deep must still be wall in the field.
     const std::string dir = platform::asset_path("levels");
     u32 checked = 0;
-    for (const auto& entry : std::filesystem::directory_iterator(dir)) {
-        if (!entry.is_regular_file() || entry.path().extension() != ".json") continue;
-        const std::string path = entry.path().string();
+    for (const std::string& path : platform::list_files(dir, ".json")) {
         INFO("level = " << path);
         LevelLoader loader;
         LevelDef def;

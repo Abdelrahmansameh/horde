@@ -1,5 +1,7 @@
 #include "platform/FileIO.h"
 
+#include "platform/EmbeddedAssets.h"
+
 #include "core/Log.h"
 
 #include <SDL.h>
@@ -14,6 +16,12 @@ namespace fs = std::filesystem;
 namespace immune::platform {
 
 std::optional<std::string> read_text_file(const std::string& path) {
+    if (is_embedded_path(path)) {
+        const auto data = embedded_asset_data(path);
+        if (!data) return std::nullopt;
+        if (data->empty()) return std::string{};
+        return std::string(reinterpret_cast<const char*>(data->data()), data->size());
+    }
     std::ifstream in(path, std::ios::binary);
     if (!in) return std::nullopt;
     std::string contents((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
@@ -21,6 +29,11 @@ std::optional<std::string> read_text_file(const std::string& path) {
 }
 
 std::optional<std::vector<u8>> read_binary_file(const std::string& path) {
+    if (is_embedded_path(path)) {
+        const auto data = embedded_asset_data(path);
+        if (!data) return std::nullopt;
+        return std::vector<u8>(data->begin(), data->end());
+    }
     std::ifstream in(path, std::ios::binary | std::ios::ate);
     if (!in) return std::nullopt;
     const auto size = static_cast<usize>(in.tellg());
@@ -31,6 +44,7 @@ std::optional<std::vector<u8>> read_binary_file(const std::string& path) {
 }
 
 bool write_text_file(const std::string& path, std::string_view contents) {
+    if (is_embedded_path(path)) return false;
     std::error_code ec;
     const fs::path p(path);
     if (p.has_parent_path()) fs::create_directories(p.parent_path(), ec);
@@ -41,6 +55,7 @@ bool write_text_file(const std::string& path, std::string_view contents) {
 }
 
 bool write_binary_file(const std::string& path, const void* data, usize bytes) {
+    if (is_embedded_path(path)) return false;
     std::error_code ec;
     const fs::path p(path);
     if (p.has_parent_path()) fs::create_directories(p.parent_path(), ec);
@@ -51,17 +66,26 @@ bool write_binary_file(const std::string& path, const void* data, usize bytes) {
 }
 
 bool file_exists(const std::string& path) {
+    if (is_embedded_path(path)) return embedded_asset_data(path).has_value();
     std::error_code ec;
     return fs::exists(path, ec) && !fs::is_directory(path, ec);
 }
 
+bool directory_exists(const std::string& path) {
+    if (is_embedded_path(path)) return embedded_directory_exists(path);
+    std::error_code ec;
+    return fs::is_directory(path, ec);
+}
+
 bool ensure_directory(const std::string& path) {
+    if (is_embedded_path(path)) return false;
     std::error_code ec;
     if (fs::exists(path, ec)) return fs::is_directory(path, ec);
     return fs::create_directories(path, ec);
 }
 
 std::vector<std::string> list_files(const std::string& dir, std::string_view extension) {
+    if (is_embedded_path(dir)) return list_embedded_files(dir, extension);
     std::vector<std::string> out;
     std::error_code ec;
     if (!fs::exists(dir, ec)) return out;
@@ -99,6 +123,9 @@ std::string executable_dir() {
 }
 
 const std::string& asset_root() {
+#ifdef IMMUNE_EMBEDDED_ASSETS
+    static const std::string root(kEmbeddedAssetRoot);
+#else
     static const std::string root = [] {
         if (const char* env = std::getenv("IMMUNE_ASSET_ROOT")) {
             if (env[0] != '\0') return std::string(env);
@@ -118,12 +145,19 @@ const std::string& asset_root() {
         }
         return fs::current_path(ec).string();
     }();
+#endif
     return root;
 }
 
 std::string asset_path(std::string_view relative) {
+#ifdef IMMUNE_EMBEDDED_ASSETS
+    std::string path = std::string(kEmbeddedAssetRoot) + "assets/" + std::string(relative);
+    std::replace(path.begin(), path.end(), '\\', '/');
+    return path;
+#else
     fs::path p = fs::path(asset_root()) / "assets" / fs::path(std::string(relative));
     return p.string();
+#endif
 }
 
 } // namespace immune::platform

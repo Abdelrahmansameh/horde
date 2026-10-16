@@ -159,7 +159,8 @@ void init_mechanics_once() {
         constexpr f32 kRecover = 0.080f;
         constexpr f32 kFakeMass = 0.60f;
         m.swarm = SwarmParams{kRelease, kLife, kSpeed, kSearch,
-                              kReach, 0.75f, kSize, kHealth};
+                              kReach, 0.75f, kSize};
+        m.swarm.max_health = kHealth;
         constexpr u32 kMaxCaptives = 3u;
         constexpr f32 kClusterRadius = 2.4f;
         m.arbor_grabber = ArborGrabberParams{kArms, kMaxCaptives,
@@ -207,7 +208,9 @@ void init_mechanics_once() {
     // collagen scar across the lane (sim/scar). search_radius doubles as
     // the build reach the HUD ring shows; attach_radius is how close to
     // its site a builder has to get. Tier buys longer, tougher walls and
-    // more of them, not more builders.
+    // more of them, not more builders. A deployed one is never spent: it
+    // rests build_cooldown seconds, roaming inside leash_radius of where
+    // it was put down, then builds again until the horde kills it.
     {
         TowerMechanics& m = g_mechanics[static_cast<u32>(TowerType::Fibroblast)];
         constexpr f32 kSpeed = 12.0f;
@@ -216,14 +219,19 @@ void init_mechanics_once() {
         // crowd to a site behind its front, with viruses climbing on the
         // whole way.
         constexpr f32 kUnitHealth = 60.0f;
-        m.swarm = SwarmParams{1u, 8.0f, kSpeed, kReach, 0.8f, 0.60f, 1.60f, kUnitHealth};
+        m.swarm = SwarmParams{1u, 8.0f, kSpeed, kReach, 0.8f, 0.60f, 1.60f};
+        m.swarm.max_health = kUnitHealth;
         constexpr f32 kHalfLength = 4.0f;
         constexpr f32 kHalfWidth = 0.8f;
         constexpr f32 kHealth = 220.0f;
         constexpr f32 kReinforce = 50.0f;
         constexpr u32 kMaxScars = 3u;
+        constexpr f32 kBuildCooldown = 6.0f;
+        constexpr f32 kLeash = 8.0f;
+        constexpr f32 kRoamPace = 0.4f;
         m.builder = BuilderParams{kReach, 4.0f, 1.0f, 12u, kHalfLength, kHalfWidth, 0.2f,
-                                  kHealth, kReinforce, 6.0f, kMaxScars, 0.0f, 0.0f};
+                                  kHealth, kReinforce, 6.0f, kMaxScars, 0.0f, 0.0f,
+                                  kBuildCooldown, kLeash, kRoamPace};
     }
     g_globals = TowerGlobals{0.7f, 16u};
 }
@@ -415,10 +423,37 @@ bool acquire_aim_point(TowerSystem& self, sim::SystemContext& ctx, Vec2 origin, 
 // With the owner at max_scars, or no site found and something to reinforce,
 // the builder is sent to a standing scar instead and lays collagen on it.
 // Nothing at all to do means no builder: the volley is skipped.
+//
+// `worn_only` is for a deployed Fibroblast coming back for more (FIBROSIS,
+// sim/swarm/Swarmers.h): it is sent only to the scar in reach that has lost
+// the most, and never on a trip to top up one the horde has barely touched.
 // ---------------------------------------------------------------------------
+
+/// The live scar within `radius` of `p` that has lost the largest share of
+/// its integrity, ignoring any missing less than `min_missing` hit points.
+/// Ties go to the lower entity, so the answer does not depend on pool order.
+EntityId most_worn_scar(const sim::SimWorld& world, Vec2 p, f32 radius, f32 min_missing) {
+    const entt::registry& registry = world.ecs().registry();
+    auto view = registry.view<const comp::Scar, const comp::Transform, const comp::Health>();
+    entt::entity best = entt::null;
+    f32 best_left = 1.0f;
+    for (auto e : view) {
+        const comp::Health& hp = view.get<const comp::Health>(e);
+        if (hp.dead() || hp.max <= 0.0f || hp.max - hp.current < min_missing) continue;
+        if (math::length_sq(view.get<const comp::Transform>(e).position - p) > radius * radius) continue;
+        const f32 left = hp.current / hp.max;
+        if (best == entt::null || left < best_left || (left == best_left && e < best)) {
+            best_left = left;
+            best = e;
+        }
+    }
+    return best == entt::null ? EntityId{} : world.ecs().to_id(best);
+}
+
 template <typename Draw>
 bool pick_scar_site(const sim::SimWorld& world, const std::vector<EntityId>& placed, EntityId owner,
-                    Vec2 tower_pos, const sim::SwarmerProfile& pr, Draw&& draw, Vec2& out) {
+                    Vec2 tower_pos, const sim::SwarmerProfile& pr, Draw&& draw, Vec2& out,
+                    bool worn_only = false) {
     const sim::ScarSystem& scars = world.scars();
     const sim::TissueMask& mask = world.tissue();
     const sim::FlowField& flow = world.flow();
@@ -427,7 +462,9 @@ bool pick_scar_site(const sim::SimWorld& world, const std::vector<EntityId>& pla
     const f32 reach = math::max(pr.build_radius, 0.0f);
     const auto send_to_reinforce = [&]() {
         if (pr.scar_reinforce <= 0.0f) return false;
-        const EntityId target = scars.nearest(world, tower_pos, reach, EntityId{});
+        const EntityId target = worn_only
+            ? most_worn_scar(world, tower_pos, reach, pr.scar_reinforce * 0.25f)
+            : scars.nearest(world, tower_pos, reach, EntityId{});
         if (!target.valid()) return false;
         const entt::entity e = world.ecs().from_id(target);
         if (!world.ecs().registry().valid(e)) return false;
@@ -551,7 +588,7 @@ void system_spawner(TowerSystem& self, sim::SystemContext& ctx) {
         } else {
             // Nothing in sight: face up the lane, where the horde comes from.
             // The flow points at the goal, so upstream is its opposite.
-            const Vec2 up = -ctx.world.flow().sample(tf.position);
+            const Vec2 up = -ctx.world.flow().sample_friendly(tf.position);
             if (math::length_sq(up) > math::kEpsilon) tf.rotation = std::atan2(up.y, up.x);
         }
         if (!self.releasing()) continue;
@@ -653,6 +690,42 @@ void system_spawner(TowerSystem& self, sim::SystemContext& ctx) {
         ctx.world.combat_events().push(fired);
 
         tw.cooldown = st.fire_interval;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// FIBROSIS (sim/swarm/Swarmers.h). A deployed Fibroblast that has rested
+// after its last wall is due another one. The kernel cannot pick a site, so
+// this does -- round the cell's HOME, where it was deployed, rather than
+// wherever its roaming has taken it: the build half of the soft leash. At
+// its scar cap, or with no new site in reach, it is sent to the most worn
+// scar in reach; with nothing worn either it roams on and asks again a
+// moment later, which keeps the sever test off the per-tick path.
+// ---------------------------------------------------------------------------
+constexpr f32 kSiteRetrySeconds = 1.0f;
+
+void system_builder_sites(TowerSystem& self, sim::SystemContext& ctx) {
+    ctx.world.swarmer_system().set_builders_active(self.releasing());
+    if (!self.releasing()) return;
+    sim::SwarmerBuffers& sw = ctx.world.swarmers();
+    for (usize i = 0; i < sw.count(); ++i) {
+        if (!sw.builder_due(i)) continue;
+        // The unit's id and the tick, never the shared sim Rng, for the
+        // same reason the spawner's draws are private.
+        u32 seed = (sw.generation[i] * 2654435761u) ^ (static_cast<u32>(ctx.tick) * 2246822519u);
+        seed |= 1u;
+        const auto draw = [&seed]() {
+            seed = seed * 1664525u + 1013904223u;
+            return static_cast<f32>((seed >> 8) & 0xFFFFu) / 65535.0f;   // [0,1]
+        };
+        const Vec2 home{sw.home_x[i], sw.home_y[i]};
+        Vec2 site;
+        if (pick_scar_site(ctx.world, self.placed_towers(), sw.owner[i], home, sw.profile_of(i), draw, site,
+                           /*worn_only=*/true)) {
+            sw.set_goal(i, site);
+        } else {
+            sw.set_rest(i, kSiteRetrySeconds);
+        }
     }
 }
 
@@ -953,13 +1026,7 @@ PlacementQuery TowerSystem::validate_deploy(const sim::SimWorld& world, TowerTyp
         sim::Bar bar{tf.position, b.half_extents, tf.rotation};
         if (bar.distance_sq(pos) < radius * radius) q.result = PlacementResult::Overlapping;
     }
-    const auto scars = registry.view<const comp::Scar, const comp::Transform>();
-    for (auto e : scars) {
-        const auto& sc = scars.get<const comp::Scar>(e);
-        const auto& tf = scars.get<const comp::Transform>(e);
-        sim::Bar bar{tf.position, sc.half_extents, tf.rotation};
-        if (bar.distance_sq(pos) < radius * radius) q.result = PlacementResult::Overlapping;
-    }
+    // Collagen is transparent to friendly cells, including direct deployment.
     // Friendly cells never reserve space. A full swarmer store is a separate
     // limit, not an overlap with the cells already at this location.
     if (world.swarmers().full()) q.result = PlacementResult::AtCapacity;
@@ -1160,6 +1227,9 @@ void TowerSystem::register_systems(sim::SimWorld& world) {
     // determinism requirement, not a preference.
     ecs.add_system(sim::SystemPhase::Combat, "tower_spawner", 0,
                    [this](sim::SystemContext& ctx) { system_spawner(*this, ctx); });
+    // Deployed Fibroblasts pick sites and work only during an active round.
+    ecs.add_system(sim::SystemPhase::Combat, "builder_sites", 1,
+                   [this](sim::SystemContext& ctx) { system_builder_sites(*this, ctx); });
     ecs.add_system(sim::SystemPhase::Combat, "marked_upkeep", 9, &system_marked_upkeep);
     ecs.add_system(sim::SystemPhase::Combat, "slowed_upkeep", 10, &system_slowed_upkeep);
 }
@@ -1275,6 +1345,10 @@ sim::SwarmerProfile swarmer_profile(TowerType type) {
     p.build_min_clearance = m.builder.build_min_clearance;
     p.build_candidates = m.builder.build_candidates;
     p.builder_crowd_push = m.builder.crowd_push;
+    p.build_cooldown = m.builder.build_cooldown;
+    p.leash_radius = m.builder.leash_radius;
+    p.roam_speed_mult = m.builder.roam_speed_mult;
+    p.secrete_seconds = m.builder.secrete_seconds;
 
     // Strengthen Immunity capstones. Off in every loaded config; only the
     // tree's run-start copy turns them on (GameConfig.h, CapstoneParams).

@@ -2,6 +2,7 @@
 #include "config/ConfigStore.h"
 
 #include "core/Log.h"
+#include "platform/EmbeddedAssets.h"
 #include "platform/FileIO.h"
 
 #include <algorithm>
@@ -105,6 +106,7 @@ bool ConfigStore::write_file(const std::string& dir, const std::string& name,
 
 bool ConfigStore::poll_changed(std::string& error_out) {
     if (!loaded_) return false;
+    if (platform::is_embedded_path(dir_)) return false;
 
     bool any_changed = false;
     for (const Entry& entry : entries_) {

@@ -6,13 +6,12 @@
 #include "gui/style/Theme.h"
 #include "gui/widgets/Builders.h"
 #include "gui/widgets/Widgets.h"
+#include "platform/FileIO.h"
 #include "ui/front/Backdrop.h"
 
 #include <nlohmann/json.hpp>
 
 #include <cmath>
-#include <fstream>
-#include <sstream>
 
 namespace immune::ui {
 
@@ -95,14 +94,12 @@ bool parse_tree_layout(const std::string& text, TreeLayout& out, std::string* er
 }
 
 bool load_tree_layout(const std::string& path, TreeLayout& out, std::string* error) {
-    std::ifstream f(path, std::ios::binary);
-    if (!f) {
+    const auto text = platform::read_text_file(path);
+    if (!text) {
         if (error) *error = "cannot open " + path;
         return false;
     }
-    std::stringstream ss;
-    ss << f.rdbuf();
-    return parse_tree_layout(ss.str(), out, error);
+    return parse_tree_layout(*text, out, error);
 }
 
 // ---- Nodes ---------------------------------------------------------------------------

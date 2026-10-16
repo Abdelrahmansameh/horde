@@ -3,10 +3,12 @@
 #include "ui/Fonts.h"
 
 #include "core/Types.h"
+#include "platform/FileIO.h"
 
 #include <imgui.h>
 
-#include <cstdio>
+#include <cstring>
+#include <limits>
 
 namespace immune::ui {
 namespace {
@@ -27,17 +29,9 @@ constexpr const char* kCandidates[] = {
     "/usr/share/fonts/TTF/DejaVuSansMono.ttf",
 };
 
-bool file_exists(const char* path) {
-    if (FILE* f = std::fopen(path, "rb")) {
-        std::fclose(f);
-        return true;
-    }
-    return false;
-}
-
 const char* find_system_font() {
     for (const char* path : kCandidates) {
-        if (file_exists(path)) return path;
+        if (platform::file_exists(path)) return path;
     }
     return nullptr;
 }
@@ -47,14 +41,24 @@ const char* find_system_font() {
 void load_system_fonts() {
     const char* path = find_system_font();
     if (!path) return; // no-op: keep ImGui's built-in font
+    const auto data = platform::read_binary_file(path);
+    if (!data || data->empty() || data->size() > static_cast<usize>(std::numeric_limits<int>::max())) return;
+
+    // ImGui keeps font source bytes until the atlas is destroyed. Allocate
+    // with its allocator and transfer ownership rather than retaining a
+    // pointer into the temporary file buffer.
+    void* font_data = ImGui::MemAlloc(data->size());
+    if (font_data == nullptr) return;
+    std::memcpy(font_data, data->data(), data->size());
 
     ImGuiIO& io = ImGui::GetIO();
     ImFontConfig cfg;
     cfg.OversampleH = 3;
     cfg.OversampleV = 3;
+    cfg.FontDataOwnedByAtlas = true;
 
     // The first font added becomes ImGui's default.
-    io.Fonts->AddFontFromFileTTF(path, kBodySize, &cfg);
+    io.Fonts->AddFontFromMemoryTTF(font_data, static_cast<int>(data->size()), kBodySize, &cfg);
 }
 
 } // namespace immune::ui
