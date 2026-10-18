@@ -58,7 +58,12 @@ void main() {
     // square). An arbor grabber's quad grows forward to contain the reach.
     uint kind = (i_flags >> 8u) & 15u;
     bool macrophage = kind == 2u || kind == 6u;
-    float world_per_local = 2.0 * i_radius * (macrophage ? 1.35 : 1.0);
+    // The builder is a spindle, far longer than it is wide, so drawn at the
+    // contact radius it covered half the disc the sim gives it and read as a
+    // splinter. Drawn 1.45x it covers about the same AREA as that disc --
+    // reaching past it nose and tail, inside it across the flanks -- which is
+    // as close to "what is drawn is what collides" as a spindle gets.
+    float world_per_local = 2.0 * i_radius * (macrophage ? 1.35 : (kind == 5u ? 1.45 : 1.0));
     float half_extent = macrophage ? 1.175 : 0.5 * kPad;
     if (kind == 6u) {
         float reach = max(i_arm0.x, max(i_arm1.x, i_arm2.x));

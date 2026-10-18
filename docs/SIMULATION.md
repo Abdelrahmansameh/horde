@@ -281,9 +281,13 @@ raw chaff indices. Tests: [test_damage_field.cpp](../tests/test_damage_field.cpp
 [test_towers.cpp](../tests/test_towers.cpp).
 
 Direct `deploy()` creates exactly one unit with `kPersistent`, which suppresses
-ordinary age-limit decay. It can still die from hostile damage or complete its
-contact/build behavior. It has no ECS tower owner: the high-range attribution
-ID groups its combat/scars only. Legacy `place()` creates an ECS spawner, whose
+ordinary age-limit decay. It can still die from hostile damage, or by
+completing a consuming contact (a Goblet Cell's splash). A persistent builder
+is not consumed by its build: it rests and roams near its spawn point, and the
+game layer's `builder_sites` system gives it its next site once it is due
+(`SwarmerBuffers::builder_due`, FIBROSIS in
+[Swarmers.h](../src/sim/swarm/Swarmers.h)). It has no ECS tower owner: the
+high-range attribution ID groups its combat/scars only. Legacy `place()` creates an ECS spawner, whose
 volleys normally have finite lifetime. Use `validate_deploy()` and
 `deploy_cells()` for new player/bot placement paths rather than reviving the
 legacy spawner assumptions.

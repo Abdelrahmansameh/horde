@@ -194,10 +194,12 @@ it does not restore the old permanent marked-target mechanic.
 
 | Line | Parent | Max | Effect per level |
 | --- | --- | ---: | --- |
-| Build Radius | Fibroblast root | 3 | +12% site search radius and display/search reach |
+| Territory | Fibroblast root | 3 | +12% site search radius, roaming leash radius, and display/search reach |
 | Scar Health | Fibroblast root | 5 | +20% scar HP |
 | Cell Resilience | Fibroblast root | 4 | +20% builder-cell HP |
-| Scar Size | Build Radius | 3 | +10% scar half-length and half-width |
+| Scar Size | Territory | 3 | +10% scar half-length and half-width |
+| Scar Network | Scar Size | 2 | +1 wall each Fibroblast keeps standing (`max_scars`); weight 150 |
+| Rapid Fibrosis | Cell Resilience | 4 | -12% rest between walls (`build_cooldown`) |
 | Reinforce Rate | Scar Health | 3 | +30% HP restored per completed reinforcement |
 | Inflammation | Scar Health | 3 | Scars create inflamed zones with radius `scar.half_extents.x + 8` (14 with the default half length); allied cell damage and shooter reload speed there gain +10%; weight 150 |
 
@@ -224,7 +226,8 @@ save or understand tree purchase UI.
 Persistent direct cells never expire merely because time passes. Save keys
 such as `neutrophil.squad_size`, `cytotoxic.tower_health`,
 `goblet.tower_health`, and `fibroblast.tower_health` retain old naming but now
-govern magazine capacity or the direct cell's health. Preserve stable keys
+govern magazine capacity or the direct cell's health; `fibroblast.build_radius`
+is shown as Territory. Preserve stable keys
 when relabeling a node unless an explicit migration is supplied.
 
 ## Respec and persistence

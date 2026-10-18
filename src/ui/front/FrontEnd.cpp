@@ -9,6 +9,7 @@
 #include "platform/FileIO.h"
 #include "ui/front/Backdrop.h"
 #include "ui/front/LevelCell.h"
+#include "ui/front/VirusSwipe.h"
 
 #include <array>
 #include <cmath>
@@ -178,7 +179,7 @@ const char* front_screen_name(FrontScreen s) {
     return "none";
 }
 
-FrontEnd::FrontEnd(Gui& gui, const std::string& tree_layout_path) : gui_(gui) {
+FrontEnd::FrontEnd(Gui& gui, const std::string& tree_layout_path, const std::string& swipe_config_path) : gui_(gui) {
     const std::string path = tree_layout_path.empty() ? platform::asset_path("ui/tree_layout.json") : tree_layout_path;
     std::string err;
     if (!load_tree_layout(path, tree_layout_, &err)) IMMUNE_LOG_ERROR("%s", err.c_str());
@@ -186,9 +187,13 @@ FrontEnd::FrontEnd(Gui& gui, const std::string& tree_layout_path) : gui_(gui) {
     layer_root_ = &gui_.layer(LayerId::Modal).emplace<Widget>();
     fill_parent(*layer_root_);
     layer_root_->layout.axis = Axis::Stack;
+    // A sibling of the screen container stays above incoming screens.
+    swipe_ = &gui_.layer(LayerId::Modal).emplace<VirusSwipe>();
+    swipe_config_path_ = swipe_config_path.empty() ? platform::asset_path("config/virus_swipe.json") : swipe_config_path;
 }
 
 FrontEnd::~FrontEnd() {
+    if (swipe_ != nullptr) gui_.layer(LayerId::Modal).remove(*swipe_);
     if (layer_root_ != nullptr) gui_.layer(LayerId::Modal).remove(*layer_root_);
 }
 
@@ -223,6 +228,16 @@ u64 FrontEnd::signature(FrontScreen s, const FrontModel& m) {
 }
 
 void FrontEnd::show(FrontScreen s, const FrontModel& m) {
+    if (!swipe_->active() && live_ != nullptr) live_->accepts_pointer = true;
+    const bool covered_handoff = swipe_handoff_ && swipe_->ready_to_reveal() &&
+                                 current_ == FrontScreen::MainMenu && s == FrontScreen::Tree;
+    if (s != current_ && swipe_->active() && !covered_handoff) {
+        // An external navigation (for example opening the editor) cancels
+        // this cosmetic effect and its queued navigation.
+        swipe_->finish();
+        swipe_handoff_ = false;
+        pending_ = MenuResult{};
+    }
     // Screens that finished fading out are dropped.
     for (usize i = 0; i < leaving_.size();) {
         if (leaving_[i]->gone()) {
@@ -273,24 +288,64 @@ void FrontEnd::show(FrontScreen s, const FrontModel& m) {
         }
     }
     live_ = &layer_root_->emplace<ScreenRoot>(id, s);
-    if (same_screen) live_->finish();
+    if (same_screen || covered_handoff) live_->finish();
     build(*live_, s, m);
+    if (covered_handoff) {
+        // The authored swap point is at peak swarm coverage. Replace both
+        // screens on this frame, rather than fading after the swarm clears.
+        for (ScreenRoot* r : leaving_) layer_root_->remove(*r);
+        leaving_.clear();
+        live_->accepts_pointer = false;
+        swipe_->reveal();
+    } else if (swipe_->active()) {
+        live_->accepts_pointer = false;
+    }
 }
 
 void FrontEnd::finish_transitions() {
+    if (swipe_->active()) {
+        if (current_ == FrontScreen::MainMenu && !swipe_handoff_) {
+            // Test/screenshot callers can skip the cover but still receive
+            // the single Play navigation on their next take_result().
+            swipe_->update(swipe_config_.duration_seconds);
+        } else {
+            swipe_->finish();
+            if (live_ != nullptr) live_->accepts_pointer = true;
+        }
+    }
     if (live_ != nullptr) live_->finish();
     for (ScreenRoot* r : leaving_) layer_root_->remove(*r);
     leaving_.clear();
 }
 
 MenuResult FrontEnd::take_result() {
+    if (swipe_->ready_to_reveal() && !swipe_handoff_) {
+        swipe_handoff_ = true;
+        pending_ = MenuResult{MenuAction::OpenImmunityTree};
+    }
     const MenuResult r = pending_;
     pending_ = MenuResult{};
     return r;
 }
 
 void FrontEnd::emit(MenuResult r) {
+    if (swipe_->active()) return;
     if (pending_.action == MenuAction::None) pending_ = r;
+}
+
+void FrontEnd::play_from_menu() {
+    if (swipe_->active() || pending_.action != MenuAction::None) return;
+    std::string error;
+    if (!load_virus_swipe_config(swipe_config_path_, swipe_config_, error)) {
+        IMMUNE_LOG_WARN("Virus swipe: %s; keeping the last valid settings", error.c_str());
+    }
+    if (!swipe_config_.enabled) {
+        emit(MenuResult{MenuAction::OpenImmunityTree});
+        return;
+    }
+    swipe_handoff_ = false;
+    swipe_->start(swipe_config_);
+    if (live_ != nullptr) live_->accepts_pointer = false;
 }
 
 void FrontEnd::build(ScreenRoot& root, FrontScreen s, const FrontModel& m) {
@@ -368,7 +423,7 @@ void FrontEnd::build_main(Widget& root) {
     Button& play = labelled_button(left, th, "play", "button.cta", Vec2{460, 120}, "Play Game", "menu_cta", false, 40.0f);
     place(play, Vec2{160.0f, 520.0f}, Vec2{0, 0});
     play.tooltip = "Strengthen your immunity, then pick a level";
-    play.on_click = [this] { emit(MenuResult{MenuAction::OpenImmunityTree}); };
+    play.on_click = [this] { play_from_menu(); };
     Button& quit = labelled_button(left, th, "quit", "button.flesh", Vec2{400, 86}, "Quit to Desktop", "menu_button");
     place(quit, Vec2{190.0f, 672.0f}, Vec2{0, 0});
     quit.on_click = [this] { emit(MenuResult{MenuAction::Quit}); };

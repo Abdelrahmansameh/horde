@@ -195,7 +195,11 @@ TEST_CASE("main menu: Play Game goes to Strengthen Immunity, Quit quits", "[ui][
     // Nothing clicked, nothing reported: a default of anything else would
     // fire a transition on its own.
     CHECK(h.front->take_result().action == MenuAction::None);
-    CHECK(h.click("menu/play").action == MenuAction::OpenImmunityTree);
+    CHECK(h.click("menu/play").action == MenuAction::None);
+    h.front->finish_transitions();
+    CHECK(h.front->take_result().action == MenuAction::OpenImmunityTree);
+    h.open(FrontScreen::Tree, FrontModel{});
+    h.open(FrontScreen::MainMenu, FrontModel{});
     CHECK(h.click("menu/quit").action == MenuAction::Quit);
 }
 

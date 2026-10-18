@@ -50,6 +50,7 @@ const char* usage_text() {
 "                                                      in play; `ui ...` gym commands\n"
 "  immune --level <f.json> --exec \"autoplay on; time 8\"  watch the bot play\n"
 "  immune --list-scenarios                             print available bench scenarios\n"
+"  immune --licenses                                   print bundled third-party notices\n"
 "  immune --editor [<f.json>]                          open the in-game level editor\n"
 "  immune --level-check <f.json|dir>                   validate levels, JSON report, exit 0/1\n"
 "  immune --level-fmt <f.json|dir> [--check]           canonical rewrite of level JSON\n"
@@ -87,6 +88,8 @@ Options parse_args(int argc, char** argv) {
             return o;
         } else if (a == "--list-scenarios") {
             o.mode = Mode::ListScenarios;
+        } else if (a == "--licenses") {
+            o.mode = Mode::Licenses;
         } else if (a == "--bench") {
             if (!next_value(argc, argv, i, a, o.scenario, o.error)) break;
             o.mode = Mode::Bench;

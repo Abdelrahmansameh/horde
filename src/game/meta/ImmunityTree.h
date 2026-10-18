@@ -130,6 +130,8 @@ enum class TreeNode : u16 {
     FibroblastBuildRadius,
     FibroblastInflammation,
     FibroblastHealth,
+    FibroblastBuildRate,
+    FibroblastScarNetwork,
     FibroblastCapstone,
     Count,
 };

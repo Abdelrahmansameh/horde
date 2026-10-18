@@ -12,7 +12,6 @@
 #include <algorithm>
 
 #include <cmath>
-#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -225,12 +224,10 @@ TEST_CASE("every level under assets/levels loads, validates, and authors waves",
     // content. Sweeping the directory is what makes that a build failure
     // rather than something the player finds.
     const std::string dir = platform::asset_path("levels");
-    REQUIRE(std::filesystem::is_directory(dir));
+    REQUIRE(platform::directory_exists(dir));
 
     u32 checked = 0;
-    for (const auto& entry : std::filesystem::directory_iterator(dir)) {
-        if (!entry.is_regular_file() || entry.path().extension() != ".json") continue;
-        const std::string path = entry.path().string();
+    for (const std::string& path : platform::list_files(dir, ".json")) {
         INFO("level = " << path);
 
         LevelLoader loader;

@@ -45,6 +45,18 @@
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "RelWithDebInfo"
       }
+    },
+    {
+      "name": "windows-standalone",
+      "displayName": "Windows x64 Standalone Publishing Build",
+      "inherits": "windows-base",
+      "generator": "Ninja",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "VCPKG_TARGET_TRIPLET": "x64-windows-static",
+        "IMMUNE_STANDALONE": "ON",
+        "CMAKE_MSVC_RUNTIME_LIBRARY": "MultiThreaded"
+      }
     }
   ],
   "buildPresets": [
@@ -55,6 +67,10 @@
     {
       "name": "windows-release",
       "configurePreset": "windows-release"
+    },
+    {
+      "name": "windows-standalone",
+      "configurePreset": "windows-standalone"
     }
   ],
   "testPresets": [
@@ -68,6 +84,13 @@
     {
       "name": "windows-release",
       "configurePreset": "windows-release",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "windows-standalone",
+      "configurePreset": "windows-standalone",
       "output": {
         "outputOnFailure": true
       }

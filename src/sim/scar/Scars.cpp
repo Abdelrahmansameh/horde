@@ -36,9 +36,17 @@ namespace {
 /// next runtime block along.
 constexpr u16 kScarShape = 6;
 
-/// Collagen: a pale, slightly warm rose, kept opaque so it reads as ground
-/// the horde cannot cross. The renderer spends the alpha on integrity.
-constexpr Vec4 kScarTint{0.98f, 0.82f, 0.78f, 1.0f};
+/// Collagen blue, the Fibroblast's identity hue. The renderer does not draw
+/// with it: it packs the wall's integrity and animation clocks into the
+/// instance tint instead (Renderer::submit_entities, entity.frag shape 6).
+constexpr Vec4 kScarTint{0.42f, 0.74f, 1.00f, 1.0f};
+
+/// The integrity step (of kScarChipSteps) a scar's health stands at: the
+/// top when whole, 0 only when gone.
+u8 integrity_step(const comp::Health& hp) {
+    const f32 frac = hp.max > 0.0f ? math::saturate(hp.current / hp.max) : 1.0f;
+    return static_cast<u8>(std::ceil(frac * static_cast<f32>(kScarChipSteps)));
+}
 
 CombatEvent scar_event(CombatEventType type, const comp::Scar& scar, Vec2 origin, f32 rotation) {
     CombatEvent e;
@@ -121,6 +129,51 @@ ScarDesc scar_desc_from_profile(const SwarmerProfile& pr) {
 
 void ScarSystem::reset() { stats_ = ScarStats{}; }
 
+void ScarSystem::raise_chips(SimWorld& world, CombatEventSink* events) {
+    // One event each time a standing scar's integrity falls past another
+    // step. The step only climbs back through a repair, so a scar nibbled
+    // and mended at the same rate does not spray debris. In sorted entity
+    // order, like the teardown, so the events do not depend on pool order.
+    entt::registry& registry = world.ecs().registry();
+    static thread_local std::vector<entt::entity> chipped;
+    chipped.clear();
+    auto view = registry.view<comp::Scar, const comp::Health, const comp::Transform>();
+    for (auto e : view) {
+        const comp::Health& hp = view.get<const comp::Health>(e);
+        if (hp.dead()) continue;
+        comp::Scar& sc = view.get<comp::Scar>(e);
+        const u8 step = integrity_step(hp);
+        if (step > sc.chip_step || sc.chip_step > kScarChipSteps) sc.chip_step = step;
+        else if (step < sc.chip_step) chipped.push_back(e);
+    }
+    std::sort(chipped.begin(), chipped.end());
+    for (entt::entity e : chipped) {
+        comp::Scar& sc = registry.get<comp::Scar>(e);
+        const comp::Transform& tf = registry.get<comp::Transform>(e);
+        const u8 step = integrity_step(registry.get<comp::Health>(e));
+        // Where the piece comes off: hashed off the scar and the step, a
+        // point on one of its long faces, nearer the ends more often than not
+        // -- where the renderer wears it first.
+        u32 h = static_cast<u32>(entt::to_integral(e)) * 0x9E3779B1u ^ (static_cast<u32>(step) * 0x85EBCA6Bu);
+        h ^= h >> 15;
+        h *= 0x2C1B3C6Du;
+        h ^= h >> 12;
+        const f32 u = static_cast<f32>(h & 0xFFFFu) * (2.0f / 65535.0f) - 1.0f;
+        const f32 along_t = (u < 0.0f ? -1.0f : 1.0f) * std::sqrt(std::fabs(u));
+        const f32 side = (h & 0x10000u) != 0u ? 1.0f : -1.0f;
+        const Vec2 along{std::cos(tf.rotation), std::sin(tf.rotation)};
+        const Vec2 across{-along.y, along.x};
+        CombatEvent ev = scar_event(CombatEventType::ScarChipped, sc, tf.position, tf.rotation);
+        ev.origin = tf.position + along * (along_t * sc.half_extents.x * 0.9f) + across * (side * sc.half_extents.y);
+        ev.secondary = tf.position;
+        ev.direction = across * side;
+        ev.radius = sc.half_extents.y;
+        ev.magnitude = static_cast<f32>(sc.chip_step - step);
+        if (events) events->push(ev);
+        sc.chip_step = step;
+    }
+}
+
 EntityId ScarSystem::nearest(const SimWorld& world, Vec2 p, f32 radius, EntityId owner) const {
     const entt::registry& registry = world.ecs().registry();
     auto view = registry.view<const comp::Scar, const comp::Transform, const comp::Health>();
@@ -179,14 +232,9 @@ EntityId ScarSystem::build(SimWorld& world, const ScarDesc& desc, ScarBuildResul
     // reinforced scar's ceiling is its own max: reinforcing never grows a
     // wall past what a fresh one stands with.
     const auto reinforce = [&](EntityId target) -> EntityId {
-        if (!target.valid() || desc.reinforce <= 0.0f) return finish(ScarBuildResult::Dropped, EntityId{});
-        const entt::entity e = world.ecs().from_id(target);
-        if (!registry.valid(e) || !registry.all_of<comp::Health>(e)) {
+        if (!this->reinforce(world, target, desc.reinforce, desc.center, events)) {
             return finish(ScarBuildResult::Dropped, EntityId{});
         }
-        comp::Health& hp = registry.get<comp::Health>(e);
-        hp.current = math::min(hp.max, hp.current + desc.reinforce);
-        ++stats_.reinforced_total;
         return finish(ScarBuildResult::Reinforced, target);
     };
 
@@ -263,6 +311,7 @@ EntityId ScarSystem::build(SimWorld& world, const ScarDesc& desc, ScarBuildResul
     scar.owner = desc.owner;
     scar.source = desc.source;
     scar.visual_id = desc.visual_id;
+    scar.chip_step = static_cast<u8>(kScarChipSteps);
     registry.emplace<comp::Scar>(e, scar);
     // Armor stays 0 for the same reason a tower's does: toughness is more
     // integrity, not a per-bite floor, so a lone virus still matters.
@@ -273,8 +322,43 @@ EntityId ScarSystem::build(SimWorld& world, const ScarDesc& desc, ScarBuildResul
     registry.emplace<priv::ScarFootprint>(e, std::move(fp));
 
     ++stats_.built_total;
-    if (events) events->push(scar_event(CombatEventType::ScarBuilt, scar, bar.center, bar.rotation));
+    if (events) {
+        CombatEvent ev = scar_event(CombatEventType::ScarBuilt, scar, bar.center, bar.rotation);
+        // Where the builder stood: the collagen is drawn leaving it.
+        ev.secondary = desc.center;
+        events->push(ev);
+    }
     return finish(ScarBuildResult::Built, world.ecs().to_id(e));
+}
+
+bool ScarSystem::reinforce(SimWorld& world, EntityId target, f32 amount, Vec2 from, CombatEventSink* events) {
+    if (!target.valid() || amount <= 0.0f) return false;
+    entt::registry& registry = world.ecs().registry();
+    const entt::entity e = world.ecs().from_id(target);
+    if (!registry.valid(e) || !registry.all_of<comp::Scar, comp::Health>(e)) return false;
+    comp::Health& hp = registry.get<comp::Health>(e);
+    if (hp.dead()) return false;
+    comp::Scar& sc = registry.get<comp::Scar>(e);
+    // The repair is drawn knitting in from what stood a moment ago. A second
+    // reinforce landing while one is still being drawn starts from the lower
+    // of the two, so the wall shown never jumps.
+    const f32 before = hp.max > 0.0f ? math::saturate(hp.current / hp.max) : 1.0f;
+    sc.repair_from = sc.repair_age < kScarRepairSeconds ? math::min(sc.repair_from, before) : before;
+    sc.repair_age = 0.0f;
+    hp.current = math::min(hp.max, hp.current + amount);
+    ++stats_.reinforced_total;
+    if (events) {
+        Vec2 origin{0.0f, 0.0f};
+        f32 rotation = 0.0f;
+        if (const auto* tf = registry.try_get<comp::Transform>(e)) {
+            origin = tf->position;
+            rotation = tf->rotation;
+        }
+        CombatEvent ev = scar_event(CombatEventType::ScarReinforced, sc, origin, rotation);
+        ev.secondary = from;
+        events->push(ev);
+    }
+    return true;
 }
 
 void ScarSystem::upkeep(SimWorld& world, f32 dt, CombatEventSink* events) {
@@ -293,9 +377,12 @@ void ScarSystem::upkeep(SimWorld& world, f32 dt, CombatEventSink* events) {
             gone.push_back(e);
         } else {
             ++live;
+            sc.age += dt;
+            sc.repair_age = math::min(sc.repair_age + dt, 1.0e6f);
         }
     }
     stats_.live = live;
+    raise_chips(world, events);
     if (gone.empty()) return;
 
     // Sorted so the restores, and the events they raise, come out in an

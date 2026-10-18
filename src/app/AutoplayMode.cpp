@@ -88,6 +88,7 @@ bool setup(Run& run, const Options& opt, const HeadlessConfig& tuning, std::stri
     desc.max_combat_events = tuning.cfg.sim.capacities.max_combat_events;
     desc.max_chaff_death_events = tuning.cfg.sim.capacities.max_chaff_death_events;
     desc.fluid_tuning = tuning.cfg.sim.fluid;
+    desc.squad_tuning = tuning.cfg.sim.squads;
     desc.swarmer_collision = tuning.cfg.sim.swarmer_collision;
     desc.hostile_tuning = game::hostile_tuning(tuning.cfg.sim.hostile);
     desc.burrow_tuning = game::burrow_tuning();
@@ -117,7 +118,20 @@ bool setup(Run& run, const Options& opt, const HeadlessConfig& tuning, std::stri
     run.enemies.register_systems(run.world);
     game::apply_tower_config(run.towers, tuning.cfg.towers);
     game::apply_ability_config(run.abilities, tuning.cfg.abilities);
-    run.economy.configure(tuning.cfg.economy);
+    // Use the same authored economy and cell restrictions as a campaign run.
+    // Tree bonuses remain outside this base-tuning balance comparison.
+    game::EconomyConfig economy = tuning.cfg.economy;
+    if (run.level.economy.starting_atp != 0)
+        economy.starting_atp = run.level.economy.starting_atp;
+    economy.passive_income_per_second *= run.level.economy.income_multiplier;
+    economy.atp_per_density *= run.level.economy.income_multiplier;
+    run.economy.configure(economy);
+    u32 allowed = 0;
+    for (const std::string& name : run.level.allowed_towers) {
+        TowerType type{};
+        if (game::parse_tower_type(name, type)) allowed |= 1u << static_cast<u32>(type);
+    }
+    run.towers.set_allowed_towers(allowed);
     run.economy.reset();
     run.waves.set_waves(run.level.waves);
     run.waves.start(run.world);

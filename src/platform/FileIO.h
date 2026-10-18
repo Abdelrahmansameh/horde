@@ -22,6 +22,7 @@ bool write_text_file(const std::string& path, std::string_view contents);
 bool write_binary_file(const std::string& path, const void* data, usize bytes);
 
 bool file_exists(const std::string& path);
+bool directory_exists(const std::string& path);
 bool ensure_directory(const std::string& path);
 
 /// Lists files directly inside `dir` whose name ends with `extension`
@@ -36,14 +37,17 @@ std::string executable_dir();
 /// executable's directory if the platform has none.
 std::string user_data_dir();
 
-/// Repository/asset root. Resolution order:
+/// Repository/asset root. Standalone builds always return "immune-embedded:/"
+/// and read the assets linked into the executable. Loose development builds:
 ///   1. $IMMUNE_ASSET_ROOT if set
 ///   2. the first ancestor of the executable directory containing "assets/"
 ///   3. the current working directory
 /// Deterministic modes print the resolved root so a failed lookup is obvious.
 const std::string& asset_root();
 
-/// Joins asset_root() with a relative path, e.g. asset_path("shaders/chaff.vert").
+/// Joins asset_root() with assets/ and a relative path, e.g. "shaders/chaff.vert".
+/// Treat the result as an opaque path: read/list it through these helpers so
+/// the same caller supports loose development files and embedded release data.
 std::string asset_path(std::string_view relative);
 
 } // namespace immune::platform

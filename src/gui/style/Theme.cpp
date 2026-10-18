@@ -1,10 +1,10 @@
 #include "gui/style/Theme.h"
 
+#include "platform/FileIO.h"
+
 #include <nlohmann/json.hpp>
 
 #include <cstdlib>
-#include <fstream>
-#include <sstream>
 
 namespace immune::gui {
 
@@ -196,14 +196,12 @@ bool Theme::parse(std::string_view text, std::string* error) {
 }
 
 bool Theme::load(const std::string& path, std::string* error) {
-    std::ifstream in(path);
-    if (!in) {
+    const auto text = platform::read_text_file(path);
+    if (!text) {
         if (error != nullptr) *error = "ui theme: cannot open " + path;
         return false;
     }
-    std::stringstream ss;
-    ss << in.rdbuf();
-    return parse(ss.str(), error);
+    return parse(*text, error);
 }
 
 Color Theme::color(std::string_view name) const {

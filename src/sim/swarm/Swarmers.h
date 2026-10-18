@@ -27,7 +27,8 @@
 //                              arrival, asks for a collagen SCAR there -- a
 //                              wall across the lane (sim/scar/Scars.h) -- and
 //                              is spent. A builder with no goal just drifts
-//                              and dissolves.
+//                              and dissolves. A PERSISTENT builder (a deployed
+//                              cell) is not spent: see FIBROSIS below.
 //   ArborGrabber Macrophage.   Up to three independent pseudopod trees grow
 //                              in any direction. Fine fingers latch one target
 //                              per tree, and all trees may pull at once. A
@@ -131,6 +132,28 @@
 // one host. Legacy volley latchers remain intangible. The pass costs each
 // solid swarmer one walk of each nearby-body hash, plus the named list.
 //
+// FIBROSIS. A deployed Fibroblast is one persistent builder that keeps
+// working until the horde kills it. It walks to its site and lays the wall
+// as any builder does, but then it RESTS: build_cooldown seconds of roaming,
+// strolling at roam_speed_mult of its speed between waypoints drawn inside
+// leash_radius of its HOME, the point it was deployed at. That is the soft
+// leash -- a build can take it out to build_radius, and the roam walks it
+// back. Once rested it is due another site, which this layer cannot pick
+// (the tissue, the scars and the sever test live elsewhere): the game layer
+// (game/towers) finds builders_due() and hands them one through set_goal(),
+// or puts them back to rest for a moment through set_rest() when there is
+// nowhere to build. The roam waypoint rides the goal streams while
+// kHasGoal is clear, and `chase` is its clock.
+//
+// The rest opens with a SECRETION HOLD (secrete_seconds of it, kSecreting):
+// the unit stands where it laid or mended the wall, eases to a stop and
+// turns to lie along it, which is what the renderer needs to draw collagen
+// leaving its two poles and the wall assembling out of it. The wall's axis
+// is not this layer's to know, so SimWorld writes it into the goal streams
+// once the scar system has answered (SimWorld::apply_swarmer_effects); the
+// hold reads it back from there. It changes where the unit is, never when it
+// builds next: the hold is part of the rest, not added to it.
+//
 // HEALTH. Swarmers can be killed. The horde fights back
 // (sim/hostile/HostileAttacks.h): a virus latches onto a unit and drains it,
 // a bacterium burns everything inside its aura. Every swarmer carries
@@ -193,6 +216,7 @@
 // here; they live in the renderer and vfx/Particles.h.
 #pragma once
 
+#include "core/Math.h"
 #include "core/Types.h"
 #include "sim/Attribution.h"
 #include "sim/Immunity.h"
@@ -219,6 +243,10 @@ inline constexpr u8 kAttached    = 1u << 2;
 /// nowhere to go and only drifts.
 inline constexpr u8 kHasGoal     = 1u << 3;
 inline constexpr u8 kPersistent  = 1u << 4; ///< Deployed cell has no age limit.
+/// Persistent builder in its secretion hold (FIBROSIS): it has just laid or
+/// mended a wall and stands along it. Cleared when the hold runs out or the
+/// unit is sent anywhere.
+inline constexpr u8 kSecreting   = 1u << 5;
 } // namespace swarmer_flags
 
 /// Set on the `visual_id` of every CombatEvent a swarmer raises, so the VFX
@@ -428,6 +456,17 @@ struct SwarmerProfile {
     /// by them), which is what lets it reach a site behind the horde's
     /// front instead of being carried off downstream with the crowd.
     f32 builder_crowd_push = 0.0f;
+    // FIBROSIS (file header): a persistent builder's rest between walls.
+    /// Seconds it roams after laying (or reinforcing) a wall before it is
+    /// due its next site.
+    f32 build_cooldown = 6.0f;
+    /// Its roam waypoints are drawn inside this radius of its home.
+    f32 leash_radius = 8.0f;
+    /// Roaming pace as a multiple of `speed`: a stroll, not a march.
+    f32 roam_speed_mult = 0.4f;
+    /// The first this-many seconds of the rest are a hold (FIBROSIS): still,
+    /// turning to lie along the wall it just laid or mended. 0 = no hold.
+    f32 secrete_seconds = 0.0f;
 
     // ---- Strengthen Immunity capstones (game/meta/ImmunityTree.h) ----
     // Every one of these is OFF at its default, so a profile built without
@@ -681,6 +720,11 @@ struct SwarmerShot {
 /// the profile the unit carried.
 struct SwarmerBuild {
     Vec2 origin{0.0f, 0.0f};   ///< The site it was sent to, not where it stopped.
+    /// The builder's slot this tick. Nothing compacts the store between the
+    /// update that records this and SimWorld resolving it, so it still
+    /// addresses the same unit there: a persistent builder is turned to lie
+    /// along the wall it just laid (see aim_secretion).
+    u32 slot = 0;
     u16 profile = 0;
     EntityId owner{};
     TowerType source = TowerType::Fibroblast;
@@ -726,7 +770,9 @@ public:
     std::vector<f32> vel_x;
     std::vector<f32> vel_y;
     std::vector<f32> life;              ///< Seconds remaining; <= 0 retires it.
-    std::vector<f32> chase;             ///< Bombers: seconds spent chasing the current target.
+    /// Bombers: seconds spent chasing the current target. A roaming
+    /// persistent builder: seconds left before it picks a new waypoint.
+    std::vector<f32> chase;
     /// Latch: seconds since it began entering its host, capped at the
     /// profile's attach_seconds. Reset to 0 whenever kAttached drops. The
     /// renderer reads it to shrink the body; the kernel gates the drain on it.
@@ -742,9 +788,15 @@ public:
     std::vector<EntityId> owner;
     std::vector<u32> group;   ///< Squad, with owner. Shooters only.
     std::vector<u16> slot;    ///< Rank order within the squad.
-    /// Builders: the site to walk to (valid when kHasGoal is set).
+    /// Builders: the site to walk to (valid when kHasGoal is set). With it
+    /// clear, a persistent builder's roam waypoint (FIBROSIS).
     std::vector<f32> goal_x;
     std::vector<f32> goal_y;
+    /// Where the unit was released: a persistent builder's leash anchor.
+    std::vector<f32> home_x;
+    std::vector<f32> home_y;
+    /// Persistent builders: seconds of rest left before the next site is due.
+    std::vector<f32> rest;
     /// Hit points left (see HEALTH in the file header). <= 0 retires the unit.
     std::vector<f32> health;
     /// Globally unique unit id, never reissued, same arrangement as
@@ -778,6 +830,34 @@ public:
     /// stay stable within a tick.
     void kill(usize index);
 
+    /// FIBROSIS (file header): a live persistent builder with no site and
+    /// no rest left, waiting for the game layer to send it somewhere.
+    bool builder_due(usize i) const {
+        if (i >= count_) return false;
+        const u8 f = flags[i];
+        return (f & swarmer_flags::kPersistent) != 0 &&
+               (f & (swarmer_flags::kHasGoal | swarmer_flags::kPendingKill)) == 0 &&
+               rest[i] <= 0.0f && profile_of(i).kind == SwarmerKind::Builder;
+    }
+    /// Sends builder `i` to lay (or reinforce) a wall at `site`.
+    void set_goal(usize i, Vec2 site);
+    /// Puts builder `i` back to roaming for `seconds` before it is due again.
+    void set_rest(usize i, f32 seconds);
+    /// FIBROSIS: how far through its secretion hold builder `i` is, 0..1, or
+    /// -1 when it is not holding. The renderer draws the secretion from it.
+    f32 secrete_progress(usize i) const {
+        if (i >= count_ || (flags[i] & swarmer_flags::kSecreting) == 0) return -1.0f;
+        const SwarmerProfile& pr = profile_of(i);
+        const f32 hold = secretion_hold(pr);
+        if (hold <= 0.0f) return -1.0f;
+        return math::saturate((pr.build_cooldown - rest[i]) / hold);
+    }
+    /// Seconds of a profile's rest spent holding still along the new wall:
+    /// secrete_seconds, but never more than the rest itself.
+    static f32 secretion_hold(const SwarmerProfile& pr) {
+        return math::min(math::max(pr.secrete_seconds, 0.0f), math::max(pr.build_cooldown, 0.0f));
+    }
+
     /// Swap-removes every kPendingKill swarmer. Returns the number removed.
     usize compact();
 
@@ -807,6 +887,8 @@ public:
     /// Unit i's actual body radius: its profile's size times its own spawn
     /// size scale. Every collision, contact and draw reads this, never the
     /// bare profile size, so what is drawn and what collides stay one size.
+    /// (The builder's spindle is drawn stretched to the same AREA as this
+    /// disc rather than inside it; swarmer.vert says why.)
     f32 body_size(usize i) const { return profile_of(i).size * size_scale[i]; }
 
 private:
@@ -848,6 +930,7 @@ struct SwarmerStats {
     u32 body_blocks = 0;       ///< Of those, the pathogens a body_block unit shoved back instead.
     u32 contact_detonations = 0; ///< Of `detonated`, the ones that went off on touching a non-target enemy.
     u32 built = 0;             ///< Builders that reached their site and asked for a scar.
+    u32 roaming = 0;           ///< Persistent builders resting between walls this tick.
     u32 kill_pulses = 0;       ///< Apoptosis bursts raised by latchers whose host died.
     f32 healed = 0.0f;         ///< Tower hit points queued by Phagocytic Sustain.
     f32 density_removed = 0.0f;
@@ -867,7 +950,8 @@ public:
     ///
     /// `sdf` is the level's clearance field, for the wall projection; null
     /// (or unbaked) means no walls, which is what a bare test wants. `flow`
-    /// is the level's flow field, which a kiting shooter reads to retreat
+    /// is the level's flow field, whose friendly guidance ignores runtime
+    /// walls and which a kiting shooter reads to retreat
     /// ahead of the horde; null means it backs straight away instead.
     ///
     /// `events` may be null. When present, latches, shots and detonations are
@@ -890,6 +974,10 @@ public:
                         CombatEventSink* events);
 
     const SwarmerStats& last_stats() const { return last_; }
+
+    /// Freeze fibroblast work outside an active round, retaining its goal and
+    /// rest clock so an in-flight build resumes when the next round starts.
+    void set_builders_active(bool active) { builders_active_ = active; }
 
     /// What the last update() asked for. Cleared at the start of every update.
     const SwarmerEffects& effects() const { return effects_; }
@@ -927,6 +1015,7 @@ private:
                    f32 hold, const FlowField* flow, const DistanceField* sdf, f32 dt) const;
 
     SwarmerStats last_{};
+    bool builders_active_ = true;
     DamageAttribution* attribution_ = nullptr;
     const std::vector<InflamedZone>* inflamed_zones_ = nullptr;
     f32 inflamed_mult_ = 1.0f;

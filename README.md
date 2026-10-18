@@ -8,6 +8,12 @@ pathogen families. The engine uses SDL2, OpenGL 4.5, and a fixed 60 Hz simulatio
 
 ## Start here
 
+- [Download the Windows game](https://github.com/Abdelrahmansameh/horde/releases/latest):
+  choose `IMMUNE.exe`, download it, and run it. Requires Windows x64 and an
+  OpenGL 4.5-capable graphics driver.
+- [Standalone publishing](docs/PUBLISHING.md): create the single executable while
+  keeping the normal development build and loose assets.
+
 - [Documentation index](docs/README.md): references for every major subsystem.
 - [Gameplay and controls](docs/GAMEPLAY.md): how a run works.
 - [Build and launch](docs/BUILDING.md): prerequisites, Windows setup, and commands.

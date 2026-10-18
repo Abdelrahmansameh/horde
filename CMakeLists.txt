@@ -1,6 +1,21 @@
 cmake_minimum_required(VERSION 3.21)
 project(immune LANGUAGES CXX)
 
+option(IMMUNE_STANDALONE "Embed assets and statically link the Windows publishing build" OFF)
+set(IMMUNE_THIRD_PARTY_NOTICES "" CACHE FILEPATH
+  "Optional third-party notice text to embed instead of collecting dependency licenses")
+if(IMMUNE_STANDALONE)
+  if(NOT WIN32 OR NOT MSVC)
+    message(FATAL_ERROR "IMMUNE_STANDALONE currently requires Windows and MSVC")
+  endif()
+  if(NOT VCPKG_TARGET_TRIPLET STREQUAL "x64-windows-static")
+    message(FATAL_ERROR "IMMUNE_STANDALONE requires the x64-windows-static vcpkg triplet")
+  endif()
+  # Keep this separate from development's /MD runtime and shared dependencies.
+  set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+  enable_language(RC)
+endif()
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -32,6 +47,43 @@ find_package(Catch2 3 CONFIG REQUIRED)
 # needed and the port's own library targets are not linked.
 find_path(NANOSVG_INCLUDE_DIR nanosvg.h PATH_SUFFIXES nanosvg REQUIRED)
 
+if(IMMUNE_STANDALONE)
+  find_package(Python3 3.10 COMPONENTS Interpreter REQUIRED)
+  set(IMMUNE_EMBEDDED_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/embedded_assets")
+  file(MAKE_DIRECTORY "${IMMUNE_EMBEDDED_DIR}")
+  if(NOT IMMUNE_THIRD_PARTY_NOTICES)
+    set(IMMUNE_THIRD_PARTY_NOTICES "${IMMUNE_EMBEDDED_DIR}/THIRD_PARTY_NOTICES.txt")
+    execute_process(
+      COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/collect_notices.py"
+        --vcpkg-root "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}"
+        --fonts "${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/OFL.txt"
+        --output "${IMMUNE_THIRD_PARTY_NOTICES}"
+      RESULT_VARIABLE IMMUNE_NOTICE_RESULT)
+    if(NOT IMMUNE_NOTICE_RESULT EQUAL 0)
+      message(FATAL_ERROR "Could not collect third-party notices for the standalone executable")
+    endif()
+  endif()
+  file(GLOB_RECURSE IMMUNE_EMBEDDED_INPUTS CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/*")
+  set(IMMUNE_EMBEDDED_HEADER "${IMMUNE_EMBEDDED_DIR}/EmbeddedAssetIndex.h")
+  set(IMMUNE_EMBEDDED_RESOURCE "${IMMUNE_EMBEDDED_DIR}/immune_assets.rc")
+  add_custom_command(
+    OUTPUT "${IMMUNE_EMBEDDED_HEADER}" "${IMMUNE_EMBEDDED_RESOURCE}"
+    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/embed_assets.py"
+      --root "${CMAKE_CURRENT_SOURCE_DIR}" --output "${IMMUNE_EMBEDDED_DIR}"
+      --notices "${IMMUNE_THIRD_PARTY_NOTICES}"
+    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/tools/embed_assets.py"
+      "${IMMUNE_THIRD_PARTY_NOTICES}" ${IMMUNE_EMBEDDED_INPUTS}
+    COMMENT "Embedding game assets and third-party notices"
+    VERBATIM)
+  add_custom_target(immune_embedded_assets
+    DEPENDS "${IMMUNE_EMBEDDED_HEADER}" "${IMMUNE_EMBEDDED_RESOURCE}")
+  # RC does not generate an asset depfile; rebuild its object when bytes change.
+  set_source_files_properties("${IMMUNE_EMBEDDED_RESOURCE}" PROPERTIES
+    GENERATED TRUE
+    OBJECT_DEPENDS "${IMMUNE_EMBEDDED_INPUTS};${IMMUNE_THIRD_PARTY_NOTICES}")
+endif()
+
 # ---------------------------------------------------------------------------
 # Shared settings target — every module links this for include paths and flags.
 # ---------------------------------------------------------------------------
@@ -56,15 +108,23 @@ add_library(immune_core STATIC
 target_link_libraries(immune_core PUBLIC immune_common)
 
 add_library(immune_platform STATIC
+  src/platform/EmbeddedAssets.cpp
   src/platform/FileIO.cpp
   src/platform/Input.cpp
   src/platform/Window.cpp)
-if(TARGET SDL2::SDL2)
+if(IMMUNE_STANDALONE)
+  set(IMMUNE_SDL2_TARGET SDL2::SDL2-static)
+elseif(TARGET SDL2::SDL2)
   set(IMMUNE_SDL2_TARGET SDL2::SDL2)
 else()
   set(IMMUNE_SDL2_TARGET SDL2::SDL2-static)
 endif()
 target_link_libraries(immune_platform PUBLIC immune_core glad::glad ${IMMUNE_SDL2_TARGET})
+if(IMMUNE_STANDALONE)
+  target_compile_definitions(immune_platform PUBLIC IMMUNE_EMBEDDED_ASSETS)
+  target_include_directories(immune_platform PRIVATE "${IMMUNE_EMBEDDED_DIR}")
+  add_dependencies(immune_platform immune_embedded_assets)
+endif()
 
 # Tuning config. Sits above platform and below sim so that sim never needs a
 # JSON dependency: the config produces plain structs, and game/ + app/ inject
@@ -163,6 +223,7 @@ add_library(immune_ui STATIC src/ui/DevUi.cpp src/ui/Fonts.cpp
   src/ui/hud/HudScreen.cpp
   src/ui/front/Backdrop.cpp src/ui/front/LevelCell.cpp src/ui/front/FrontEnd.cpp
   src/ui/front/TreeScreen.cpp
+  src/ui/front/VirusSwipe.cpp src/ui/front/VirusSwipeConfig.cpp
   src/ui/editor/EditorCanvas.cpp
   src/ui/editor/EditorGizmos.cpp
   src/ui/editor/EditorPanels.cpp)
@@ -191,13 +252,22 @@ target_link_libraries(immune_app PUBLIC
 add_executable(immune src/app/main.cpp)
 target_link_libraries(immune PRIVATE immune_app)
 
+if(IMMUNE_STANDALONE)
+  target_sources(immune PRIVATE "${IMMUNE_EMBEDDED_RESOURCE}")
+  add_dependencies(immune immune_embedded_assets)
+  # A normal double-click opens only the game. Retain main() and inherited
+  # redirected stdout/stderr for CLI checks and support diagnostics.
+  set_target_properties(immune PROPERTIES WIN32_EXECUTABLE TRUE)
+  target_link_options(immune PRIVATE /ENTRY:mainCRTStartup)
+endif()
+
 # SDL2 on Windows brings its own main(); we provide our own console entry point.
-if(TARGET SDL2::SDL2main)
+if(NOT IMMUNE_STANDALONE AND TARGET SDL2::SDL2main)
   target_link_libraries(immune PRIVATE SDL2::SDL2main)
 endif()
 
 # Copy runtime DLLs next to the executable so the binary runs from anywhere.
-if(WIN32)
+if(WIN32 AND NOT IMMUNE_STANDALONE)
   add_custom_command(TARGET immune POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
             $<TARGET_RUNTIME_DLLS:immune> $<TARGET_FILE_DIR:immune>
@@ -213,3 +283,7 @@ set_target_properties(immune PROPERTIES
 # ---------------------------------------------------------------------------
 enable_testing()
 add_subdirectory(tests)
+if(IMMUNE_STANDALONE)
+  target_sources(immune_tests PRIVATE "${IMMUNE_EMBEDDED_RESOURCE}")
+  add_dependencies(immune_tests immune_embedded_assets)
+endif()

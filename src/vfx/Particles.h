@@ -66,7 +66,12 @@ enum class ParticleKind : u8 {
     /// A soft-edged lump of cell matter -- a piece of nucleus, a granule.
     /// Irregular outline, opaque, no glow.
     Globule = 8,
-    Count = 9,
+    /// One collagen fibril: a thin crimped strand lying along `rotation`,
+    /// `size` long, `shape` its thickness as a fraction of that length. The
+    /// crimp relaxes over its life, so a spray of them settling reads as
+    /// threads being drawn straight. Matter: alpha-blended, no glow.
+    Fibril = 9,
+    Count = 10,
 };
 
 enum class BlendMode : u8 {

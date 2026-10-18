@@ -1804,11 +1804,11 @@ TEST_CASE("chaff spawn size jitter scales the collision body, not just the sprit
     REQUIRE(big > small * 1.15f);
 }
 
-TEST_CASE("the shipped config gives pathogens and swarmers 50% size jitter", "[chaff][size][config]") {
+TEST_CASE("the shipped config gives pathogens and swarmers 25% size jitter", "[chaff][size][config]") {
     config::ConfigStore store;
     game::GameConfig config;
     std::string error;
     REQUIRE(game::load_game_config(store, "assets/config", config, error));
-    for (const auto& fam : config.enemies.families) REQUIRE(fam.chaff.size_jitter == Catch::Approx(0.5f));
-    for (const auto& m : config.towers.mechanics) REQUIRE(m.swarm.size_jitter == Catch::Approx(0.5f));
+    for (const auto& fam : config.enemies.families) REQUIRE(fam.chaff.size_jitter == Catch::Approx(0.25f));
+    for (const auto& m : config.towers.mechanics) REQUIRE(m.swarm.size_jitter == Catch::Approx(0.25f));
 }

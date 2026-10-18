@@ -47,6 +47,10 @@ namespace immune::sim {
 
 namespace {
 
+/// The speed a builder in its secretion hold keeps, world units/sec: far too
+/// slow to see, only there so its velocity still names the way it faces.
+constexpr f32 kSecretionHeadingSpeed = 1.0e-3f;
+
 bool family_matches(u8 mask, u8 family) {
     return (mask & static_cast<u8>(1u << family)) != 0;
 }
@@ -233,6 +237,9 @@ void SwarmerBuffers::reserve(usize max_swarmers) {
     slot.assign(max_swarmers, 0u);
     goal_x.assign(max_swarmers, 0.0f);
     goal_y.assign(max_swarmers, 0.0f);
+    home_x.assign(max_swarmers, 0.0f);
+    home_y.assign(max_swarmers, 0.0f);
+    rest.assign(max_swarmers, 0.0f);
     health.assign(max_swarmers, 0.0f);
     generation.assign(max_swarmers, 0u);
     arbor_grabber.assign(max_swarmers, ArborGrabberState{});
@@ -277,6 +284,9 @@ bool SwarmerBuffers::spawn(const SwarmerSpawnParams& p) {
     if (p.persistent) flags[i] |= swarmer_flags::kPersistent;
     goal_x[i] = p.goal.x;
     goal_y[i] = p.goal.y;
+    home_x[i] = p.position.x;
+    home_y[i] = p.position.y;
+    rest[i] = 0.0f;
     visual_id[i] = p.visual_id;
     // Never zero: a zero state word makes the LCG produce a fixed sequence
     // shared by every swarmer that happened to get it.
@@ -297,6 +307,21 @@ bool SwarmerBuffers::spawn(const SwarmerSpawnParams& p) {
 void SwarmerBuffers::kill(usize index) {
     if (index >= count_) return;
     flags[index] |= swarmer_flags::kPendingKill;
+}
+
+void SwarmerBuffers::set_goal(usize i, Vec2 site) {
+    if (i >= count_) return;
+    goal_x[i] = site.x;
+    goal_y[i] = site.y;
+    flags[i] |= swarmer_flags::kHasGoal;
+    flags[i] &= static_cast<u8>(~swarmer_flags::kSecreting);
+    rest[i] = 0.0f;
+}
+
+void SwarmerBuffers::set_rest(usize i, f32 seconds) {
+    if (i >= count_) return;
+    rest[i] = math::max(seconds, 0.0f);
+    flags[i] &= static_cast<u8>(~swarmer_flags::kSecreting);
 }
 
 usize SwarmerBuffers::compact() {
@@ -326,6 +351,9 @@ usize SwarmerBuffers::compact() {
             slot[i] = slot[last];
             goal_x[i] = goal_x[last];
             goal_y[i] = goal_y[last];
+            home_x[i] = home_x[last];
+            home_y[i] = home_y[last];
+            rest[i] = rest[last];
             health[i] = health[last];
             generation[i] = generation[last];
             arbor_grabber[i] = arbor_grabber[last];
@@ -634,7 +662,7 @@ SwarmerStats SwarmerSystem::update(SwarmerBuffers& sw,
         // ahead -- gets a vote.
         Vec2 away = math::normalize_safe(p - threat_pos);
         if (away.x == 0.0f && away.y == 0.0f) away = -dir;
-        Vec2 downstream = flow != nullptr ? flow->sample(p) : Vec2{0.0f, 0.0f};
+        Vec2 downstream = flow != nullptr ? flow->sample_friendly(p) : Vec2{0.0f, 0.0f};
         const f32 into = downstream.x * away.x + downstream.y * away.y;
         if (into < 0.0f) downstream -= away * into;
         Vec2 retreat = math::normalize_safe(away + downstream * pr.kite_flow_weight);
@@ -862,8 +890,89 @@ SwarmerStats SwarmerSystem::update(SwarmerBuffers& sw,
         // the request names the SITE, not where the unit actually stopped,
         // so the wall lands where the tower's site picker already checked
         // it could. A builder released with no site (nowhere to build) just
-        // drifts and dissolves like a targetless latcher does.
+        // drifts and dissolves like a targetless latcher does. A persistent
+        // one is never spent: it rests and roams instead (FIBROSIS,
+        // Swarmers.h).
         if (pr.kind == SwarmerKind::Builder) {
+            if (!builders_active_) continue;
+            const bool persistent = (sw.flags[i] & swarmer_flags::kPersistent) != 0;
+            if ((sw.flags[i] & swarmer_flags::kHasGoal) == 0 && persistent) {
+                ++stats.roaming;
+                sw.rest[i] = math::max(sw.rest[i] - dt, 0.0f);
+                if ((sw.flags[i] & swarmer_flags::kSecreting) != 0) {
+                    if (sw.rest[i] > pr.build_cooldown - SwarmerBuffers::secretion_hold(pr)) {
+                        // SECRETION HOLD (FIBROSIS): ease to a stop where it
+                        // stands and turn to lie along the wall, whose axis
+                        // SimWorld left in the goal streams. A stream that
+                        // does not hold a unit axis (no SimWorld behind this
+                        // kernel) just keeps the heading it has.
+                        Vec2 axis{sw.goal_x[i], sw.goal_y[i]};
+                        const f32 axis_len = math::length(axis);
+                        const f32 speed = math::length(v);
+                        Vec2 dir = speed > 1.0e-6f ? v / speed : Vec2{1.0f, 0.0f};
+                        axis = (axis_len > 0.5f && axis_len < 1.5f) ? axis / axis_len : dir;
+                        if (axis.x * dir.x + axis.y * dir.y < 0.0f) axis = Vec2{-axis.x, -axis.y};
+                        const Vec2 turned = math::normalize_safe(dir + (axis - dir) * math::saturate(6.0f * dt));
+                        if (turned.x != 0.0f || turned.y != 0.0f) dir = turned;
+                        // The speed it keeps is only there to carry the
+                        // heading (the renderer faces the body along it); the
+                        // position is not integrated, so it does not drift.
+                        const f32 keep = math::max(speed / (1.0f + 8.0f * dt), kSecretionHeadingSpeed);
+                        sw.vel_x[i] = dir.x * keep;
+                        sw.vel_y[i] = dir.y * keep;
+                        continue;
+                    }
+                    sw.flags[i] &= static_cast<u8>(~swarmer_flags::kSecreting);
+                    sw.chase[i] = 0.0f;
+                }
+                sw.chase[i] -= dt;
+                const Vec2 home{sw.home_x[i], sw.home_y[i]};
+                const f32 body = sw.body_size(i);
+                const f32 pace = pr.speed * math::max(pr.roam_speed_mult, 0.0f);
+                u32 s = sw.seed[i];
+                Vec2 way{sw.goal_x[i], sw.goal_y[i]};
+                if (sw.chase[i] <= 0.0f) {
+                    // The next stroll: uniform over the leash disc round
+                    // home, on tissue with room for the body. Nowhere found
+                    // in a few tries means home itself, which is always good.
+                    const f32 leash = math::max(pr.leash_radius, 0.0f);
+                    way = home;
+                    for (u32 t = 0; t < 4; ++t) {
+                        const f32 r = leash * std::sqrt(0.5f * (signed_unit(s) + 1.0f));
+                        const f32 a = signed_unit(s) * math::kPi;
+                        const Vec2 c = home + Vec2{std::cos(a), std::sin(a)} * r;
+                        if (!world_bounds.contains(c)) continue;
+                        if (sdf != nullptr && sdf->width() > 0 &&
+                            sdf->sample(c) < body * kWallContactFraction) continue;
+                        way = c;
+                        break;
+                    }
+                    sw.goal_x[i] = way.x;
+                    sw.goal_y[i] = way.y;
+                    // Time to walk there with some slack, then a pause on
+                    // arrival before the next one. Also what unsticks a unit
+                    // whose waypoint sits behind a wall it cannot pass.
+                    const f32 walk = math::length(way - p) / math::max(pace, 0.01f);
+                    sw.chase[i] = walk * 1.3f + 0.4f + 0.6f * (signed_unit(s) + 1.0f);
+                }
+                const Vec2 to_way = way - p;
+                const f32 way_dist = math::length(to_way);
+                Vec2 desired{0.0f, 0.0f};
+                if (way_dist > body * 0.5f) {
+                    const Vec2 wander{signed_unit(s), signed_unit(s)};
+                    Vec2 want = math::normalize_safe(to_way / way_dist + wander * 0.35f);
+                    if (want.x == 0.0f && want.y == 0.0f) want = to_way / way_dist;
+                    const f32 arrive = math::min(1.0f, way_dist / math::max(body * 3.0f, 0.01f));
+                    desired = want * (pace * math::max(arrive, 0.25f));
+                }
+                sw.seed[i] = s;
+                const f32 turn = math::saturate(4.0f * dt);
+                sw.vel_x[i] += (desired.x - sw.vel_x[i]) * turn;
+                sw.vel_y[i] += (desired.y - sw.vel_y[i]) * turn;
+                sw.pos_x[i] = p.x + sw.vel_x[i] * dt;
+                sw.pos_y[i] = p.y + sw.vel_y[i] * dt;
+                continue;
+            }
             if ((sw.flags[i] & swarmer_flags::kHasGoal) == 0) {
                 const f32 damp = 1.0f / (1.0f + 1.5f * dt);
                 sw.vel_x[i] *= damp;
@@ -878,13 +987,13 @@ SwarmerStats SwarmerSystem::update(SwarmerBuffers& sw,
             if (goal_dist <= pr.attach_radius) {
                 SwarmerBuild b;
                 b.origin = goal;
+                b.slot = static_cast<u32>(i);
                 b.profile = sw.profile[i];
                 b.owner = sw.owner[i];
                 b.source = pr.source;
                 b.visual_id = sw.visual_id[i];
                 effects_.builds.push_back(b);
                 ++stats.built;
-                sw.flags[i] |= swarmer_flags::kPendingKill;
                 if (events) {
                     CombatEvent e = make_event(CombatEventType::ProjectileImpact, pr.source, goal, v,
                                                sw.visual_id[i]);
@@ -892,6 +1001,16 @@ SwarmerStats SwarmerSystem::update(SwarmerBuffers& sw,
                     e.magnitude = 0.0f;
                     events->push(e);
                 }
+                if (persistent) {
+                    // Not spent: rest, roaming from the next tick on -- or
+                    // from the end of the secretion hold, if it has one.
+                    sw.flags[i] &= static_cast<u8>(~swarmer_flags::kHasGoal);
+                    sw.rest[i] = math::max(pr.build_cooldown, 0.0f);
+                    sw.chase[i] = 0.0f;
+                    if (SwarmerBuffers::secretion_hold(pr) > 0.0f) sw.flags[i] |= swarmer_flags::kSecreting;
+                    continue;
+                }
+                sw.flags[i] |= swarmer_flags::kPendingKill;
                 raise_swarmer_death(sw, i, events);
                 continue;
             }
@@ -2039,7 +2158,7 @@ Vec2 SwarmerSystem::wall_slot(const SwarmerBuffers& sw, usize i, const SwarmerPr
                               Vec2 target_pos, f32 hold, const FlowField* flow,
                               const DistanceField* sdf, f32 dt) const {
     Vec2 centroid{squad_cx_[i], squad_cy_[i]};
-    Vec2 along = flow != nullptr ? math::normalize_safe(flow->sample(centroid)) : Vec2{0.0f, 0.0f};
+    Vec2 along = flow != nullptr ? math::normalize_safe(flow->sample_friendly(centroid)) : Vec2{0.0f, 0.0f};
     if (along.x == 0.0f && along.y == 0.0f) {
         along = math::normalize_safe(target_pos - centroid);
         if (along.x == 0.0f && along.y == 0.0f) {

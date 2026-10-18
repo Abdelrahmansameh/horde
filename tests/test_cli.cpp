@@ -25,6 +25,12 @@ TEST_CASE("no arguments means interactive play", "[app][cli]") {
     REQUIRE(o.error.empty());
 }
 
+TEST_CASE("cli can print bundled license notices", "[app][cli]") {
+    const auto o = parse({"--licenses"});
+    REQUIRE(o.mode == Mode::Licenses);
+    REQUIRE(o.error.empty());
+}
+
 TEST_CASE("cli bench parses scenario and ticks", "[app][cli][bench]") {
     const auto o = parse({"--bench", "chaff10k", "--ticks", "600"});
     REQUIRE(o.mode == Mode::Bench);

@@ -19,7 +19,6 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <algorithm>
-#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -29,13 +28,9 @@ using namespace immune::game;
 namespace {
 
 std::vector<std::string> shipped_levels() {
-    std::vector<std::string> out;
     const std::string dir = platform::asset_path("levels");
-    REQUIRE(std::filesystem::is_directory(dir));
-    for (const auto& e : std::filesystem::directory_iterator(dir)) {
-        if (e.is_regular_file() && e.path().extension() == ".json") out.push_back(e.path().string());
-    }
-    return out;
+    REQUIRE(platform::directory_exists(dir));
+    return platform::list_files(dir, ".json");
 }
 
 /// parse(text) or a hard test failure with the loader's message.

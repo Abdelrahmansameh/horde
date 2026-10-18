@@ -343,6 +343,18 @@
    "size": 62,
    "icon": "stat_health"
   },
+  "fibroblast.build_rate": {
+   "x": -574.6,
+   "y": 354.2,
+   "size": 62,
+   "icon": "stat_cadence"
+  },
+  "fibroblast.scar_count": {
+   "x": -424.4,
+   "y": 724.9,
+   "size": 62,
+   "icon": "stat_count"
+  },
   "fibroblast.capstone": {
    "x": -634.1,
    "y": 550.9,

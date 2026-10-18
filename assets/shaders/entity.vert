@@ -45,7 +45,11 @@ void main() {
     vec2 corner = a_corner * (macrophage ? 1.9 : kPad);
     vec2 local = vec2(corner.x * c - corner.y * s,
                       corner.x * s + corner.y * c) * visual_scale;
-    vec2 center_world = i_position + vec2(0.0, kHeightFrac * visual_scale);
+    // The bars (5 the clot, 6 a scar) are ground, not bodies standing on it,
+    // and their quad is sized to their LENGTH: lifted by kHeightFrac of that,
+    // a twelve-unit wall was drawn well clear of the cells it actually blocks.
+    bool bar = i_shape_id == 5u || i_shape_id == 6u;
+    vec2 center_world = i_position + vec2(0.0, bar ? 0.0 : kHeightFrac * visual_scale);
 
     v_local = corner;
     v_tint = i_tint;

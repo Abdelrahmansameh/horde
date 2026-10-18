@@ -15,12 +15,15 @@
 // Switching screens crossfades: the old screen fades out while the new one
 // buds in (fades up from 97% scale). Each fades as a group through an
 // offscreen layer, so a button does not show its panel through itself.
+// Main-menu Play waits for the virus swarm to span the screen before emitting
+// navigation, then swaps screens at the authored point in peak coverage.
 #pragma once
 
 #include "core/Types.h"
 #include "ui/Menu.h"
 #include "ui/front/FrontModel.h"
 #include "ui/front/TreeScreen.h"
+#include "ui/front/VirusSwipeConfig.h"
 
 #include <memory>
 #include <optional>
@@ -32,6 +35,7 @@ namespace immune::gui { class Gui; class Widget; }
 namespace immune::ui {
 
 class LevelCell;
+class VirusSwipe;
 
 enum class FrontScreen : u8 {
     None = 0,     ///< Nothing (in a live match, in the editor).
@@ -48,7 +52,8 @@ const char* front_screen_name(FrontScreen s);
 class FrontEnd {
 public:
     /// `tree_layout_path` is assets/ui/tree_layout.json (empty: the default).
-    explicit FrontEnd(gui::Gui& gui, const std::string& tree_layout_path = {});
+    explicit FrontEnd(gui::Gui& gui, const std::string& tree_layout_path = {},
+                      const std::string& swipe_config_path = {});
     ~FrontEnd();
     FrontEnd(const FrontEnd&) = delete;
     FrontEnd& operator=(const FrontEnd&) = delete;
@@ -72,6 +77,7 @@ public:
 
     /// The tree screen while it is showing (null otherwise).
     TreeScreen* tree() { return tree_.get(); }
+    VirusSwipe* virus_swipe() { return swipe_; }
 
 private:
     class ScreenRoot;
@@ -84,6 +90,7 @@ private:
     void build_results(gui::Widget& root, const FrontModel& m, bool victory);
     void sync_selection();
     void emit(MenuResult r);
+    void play_from_menu();
     static u64 signature(FrontScreen s, const FrontModel& m);
 
     gui::Gui& gui_;
@@ -93,6 +100,10 @@ private:
     FrontScreen current_ = FrontScreen::None;
     u64 signature_ = 0;
     MenuResult pending_{};
+    VirusSwipe* swipe_ = nullptr;
+    VirusSwipeConfig swipe_config_;
+    std::string swipe_config_path_;
+    bool swipe_handoff_ = false;
 
     // Level select state.
     std::vector<CampaignLevel> campaign_;

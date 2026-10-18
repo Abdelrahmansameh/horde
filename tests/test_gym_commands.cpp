@@ -15,6 +15,8 @@
 #include "game/wave/WaveDirector.h"
 #include "platform/FileIO.h"
 #include "sim/SimWorld.h"
+#include "sim/ecs/Components.h"
+#include "sim/swarm/Swarmers.h"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -483,4 +485,52 @@ TEST_CASE("the gym level's wave table exercises every family and modifier",
     }
     for (bool f : family_seen) CHECK(f);
     for (bool m : modifier_seen) CHECK(m);
+}
+
+TEST_CASE("cell deploys a persistent cell the way the deck does", "[gym][towers]") {
+    Harness h;
+    h.step(5);
+    const usize before = h.world.swarmers().count();
+    REQUIRE(h.run("cell fibroblast at 230,396").ok);
+    REQUIRE(h.world.swarmers().count() == before + 1);
+    const sim::SwarmerBuffers& sw = h.world.swarmers();
+    CHECK((sw.flags[before] & sim::swarmer_flags::kPersistent) != 0);
+    CHECK(sw.profile_of(before).kind == sim::SwarmerKind::Builder);
+    CHECK(h.towers.placed_towers().empty());   // no legacy emitter
+
+    REQUIRE_FALSE(h.run("cell toaster").ok);
+    REQUIRE_FALSE(h.run("cell").ok);
+    const GymResult r = h.run("cell fibroblast at -500,-500");
+    CHECK_FALSE(r.ok);
+    CHECK(r.message.find("cannot deploy") != std::string::npos);
+}
+
+TEST_CASE("scar lays a wall, wears it down and mends it", "[gym][scar]") {
+    Harness h;
+    h.step(30);
+    REQUIRE_FALSE(h.run("scar integrity 50").ok);   // nothing standing yet
+    REQUIRE(h.run("scar at 230,396").ok);
+    entt::registry& reg = h.world.ecs().registry();
+    std::vector<entt::entity> walls;
+    for (auto e : reg.view<sim::comp::Scar>()) walls.push_back(e);
+    REQUIRE(walls.size() == 1);
+    sim::comp::Health& hp = reg.get<sim::comp::Health>(walls[0]);
+    CHECK(hp.current == hp.max);
+
+    REQUIRE(h.run("scar integrity 40").ok);
+    CHECK(hp.current == hp.max * 0.4f);
+    h.world.combat_events().clear();
+    REQUIRE(h.run("scar mend 30").ok);
+    CHECK(hp.current == hp.max * 0.4f + 30.0f);
+    CHECK(reg.get<sim::comp::Scar>(walls[0]).repair_age == 0.0f);
+    CHECK(h.world.combat_events().size() == 1);
+    REQUIRE(h.run("scar list").ok);
+    REQUIRE(h.run("scar").ok);   // list is the default
+
+    const char* kJunk[] = {"scar integrity 0", "scar integrity 250", "scar integrity", "scar mend -3",
+                           "scar mend", "scar at -500,-500", "scar sideways"};
+    for (const char* line : kJunk) {
+        INFO("line: " << line);
+        CHECK_FALSE(h.run(line).ok);
+    }
 }

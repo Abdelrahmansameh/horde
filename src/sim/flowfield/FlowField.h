@@ -88,7 +88,7 @@ private:
     std::vector<f32> cost_;
 };
 
-/// Signed distance to the nearest non-walkable cell, in world units.
+/// Signed distance to the nearest authored wall, in world units.
 /// Positive inside tissue. Used for vessel-hugging steering, placement
 /// validation ("tower must sit on tissue with clearance >= r"), and the
 /// blob-LOD shader's vessel silhouette.
@@ -190,11 +190,16 @@ public:
 
     // ---- Sampling (hot path) ----------------------------------------------
 
-    /// Unit direction toward the goal at `world_pos`, bilinearly interpolated
+    /// Hostile direction toward the goal at `world_pos`, bilinearly interpolated
     /// across the four surrounding cells. Returns (0,0) outside the field or in
     /// an unreachable pocket — callers must treat zero as "no guidance", NOT as
     /// "move nowhere is fine".
     Vec2 sample(Vec2 world_pos) const;
+
+    /// Guidance through the authored lane, ignoring player-built blocks.
+    /// Friendly cells use this for formations and retreat; hostile rebakes
+    /// must never bend their movement around collagen or erase their guidance.
+    Vec2 sample_friendly(Vec2 world_pos) const;
 
     /// Cost-to-goal at `world_pos`. Infinity for unreachable cells. Used by the
     /// wave director for lane threat estimates and by UI threat overlays.
@@ -256,12 +261,14 @@ private:
     void compute_directions(const TissueMask& mask, i32 x0, i32 y0, i32 x1, i32 y1);
     void smooth_directions(const TissueMask& mask, i32 x0, i32 y0, i32 x1, i32 y1);
     void rebake_region(const TissueMask& mask, const Rect& world_region);
+    Vec2 sample_directions(Vec2 world_pos, f32& support, const std::vector<Vec2>& directions) const;
 
     i32 width_ = 0, height_ = 0;
     f32 cell_size_ = 1.0f;
     Vec2 origin_{0.0f, 0.0f};
     std::vector<f32> cost_;
     std::vector<Vec2> direction_;
+    std::vector<Vec2> friendly_direction_;
     /// Unsmoothed negative gradient, kept alongside the published field.
     /// Smoothing is a fixed function of the *raw* neighbourhood, so an
     /// incremental rebake can reproduce a full bake's smoothed result exactly

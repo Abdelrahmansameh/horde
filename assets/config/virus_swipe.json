@@ -1,0 +1,20 @@
+{
+  "enabled": true,
+  "virus_count": 24000,
+  "density": 1.0,
+  "duration_seconds": 1.095,
+  "cover_fraction": 0.52,
+  "hold_seconds": 0.015,
+  "switch_fraction": 0.5,
+  "min_size": 32,
+  "max_size": 70,
+  "edge_irregularity": 100,
+  "drift": 22,
+  "stagger_seconds": 0.14,
+  "speed_variation": 0.35,
+  "path_spread": 90,
+  "spin": 1.8,
+  "seed": 1337,
+  "from_left": true,
+  "tint": "#FFFFFF"
+}

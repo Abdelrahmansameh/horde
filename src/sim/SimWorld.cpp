@@ -126,6 +126,7 @@ void SimWorld::init(const SimDesc& desc, JobSystem* jobs) {
     projectiles_.reserve(desc.max_projectiles);
     swarmers_.reserve(desc.max_swarmers);
     swarmer_system_.effects().reserve(1024);
+    swarmer_system_.set_builders_active(true);
     swarmer_system_.set_collision(desc.swarmer_collision);
     {
         f32 radii[kFamilyCount];
@@ -736,7 +737,23 @@ void SimWorld::apply_swarmer_effects() {
         d.owner = b.owner;
         d.source = b.source;
         d.visual_id = b.visual_id;
-        scars_.build(*this, d, nullptr, &combat_events_);
+        const EntityId scar = scars_.build(*this, d, nullptr, &combat_events_);
+
+        // A persistent builder now holds still to secrete (sim/swarm,
+        // FIBROSIS) and turns to lie along the wall it laid or mended. Its
+        // goal streams are free for the hold, so the wall's axis goes there.
+        // Nothing was laid: it keeps facing the way it came in.
+        if (b.slot >= swarmers_.count()) continue;
+        if ((swarmers_.flags[b.slot] & swarmer_flags::kSecreting) == 0) continue;
+        Vec2 axis{swarmers_.vel_x[b.slot], swarmers_.vel_y[b.slot]};
+        if (const comp::Transform* tf = scar.valid() ? registry.try_get<comp::Transform>(ecs_.from_id(scar))
+                                                     : nullptr) {
+            axis = Vec2{std::cos(tf->rotation), std::sin(tf->rotation)};
+        }
+        axis = math::normalize_safe(axis);
+        if (axis.x == 0.0f && axis.y == 0.0f) axis = Vec2{1.0f, 0.0f};
+        swarmers_.goal_x[b.slot] = axis.x;
+        swarmers_.goal_y[b.slot] = axis.y;
     }
 
     // ---- Rounds: straight into the projectile store. They integrate from

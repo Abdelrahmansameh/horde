@@ -14,11 +14,16 @@ The [vcpkg manifest](../vcpkg.json) pins a baseline and declares SDL2, glad, GLM
 
 ## Supported presets
 
+For a single downloadable Windows executable, see [Publishing](PUBLISHING.md).
+The separate `windows-standalone` preset embeds assets and uses static libraries;
+the existing development presets continue to use loose files.
+
 The names and paths below come from [CMakePresets.json](../CMakePresets.json).
 
 | Preset | Generator | Build configuration | Build directory |
 |---|---|---|---|
 | `windows-release` | Ninja | `RelWithDebInfo` | `%LOCALAPPDATA%\horde-build\windows-release` |
+| `windows-standalone` | Ninja | `Release`, embedded assets and static runtime | `%LOCALAPPDATA%\horde-build\windows-standalone` |
 | `windows-debug` | Visual Studio 17 2022 | Multi-configuration; request `Debug` explicitly | `%LOCALAPPDATA%\horde-build\windows-debug` |
 
 `windows-release` is optimized and retains debugging information; its name does not mean the CMake `Release` configuration. The shared base sets `x64-windows`, C++20, the vcpkg toolchain, and the local triplet overlay. The Visual Studio generator ignores `CMAKE_BUILD_TYPE`; the debug build/test presets do not specify a configuration, so use `--config Debug` and `-C Debug` explicitly when invoking them directly.

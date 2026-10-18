@@ -95,13 +95,13 @@ Damage attribution uses owner handles carried by simulation damage events throug
 The headless loop calls the shared `step_level()`, but [AutoplayMode.cpp](../src/app/AutoplayMode.cpp) assembles its own setup. At present:
 
 - It uses base tuning without player progression effects.
-- It does not call interactive `App::apply_level_rules()`, so per-level `economy.starting_atp`, `income_multiplier`, and `allowed_towers` are not installed there. Interactive bot runs do apply them.
+- It applies authored `economy.starting_atp`, `income_multiplier`, and `allowed_towers`, matching a campaign run before tree bonuses.
 - It passes `win.survive_seconds`, authored waves, placement zones, enemy/tower/ability tuning, and geometry to the session.
 - Horde capacity is fixed at 32,768, rather than the interactive configured capacity.
-- It does not assign the loaded `sim.squads` block to its `SimDesc`, so that layer uses its constructor defaults.
+- It assigns the loaded `sim.squads` block to its `SimDesc`.
 - Abilities are configured and their cooldowns tick, but the bot does not cast them; this setup does not install the extra ability ECS cleanup system.
 
-Screenshot `--ui` similarly has its own setup and is not a full campaign/progression replay. Keep these scope differences with any balance conclusion about schema-2 maps. Do not use a headless win rate alone to claim the player's exact campaign experience.
+Screenshot `--ui` applies authored economy and cell restrictions but is not a full campaign/progression replay. Keep these scope differences with any balance conclusion about schema-2 maps. Do not use a headless win rate alone to claim the player's exact campaign experience. See [Campaign design](CAMPAIGN_DESIGN.md) for the progression curve and review.
 
 Inputs should include revision, level, config, seed, profile, and thread count. The bot itself uses no wall clock or RNG, but the surrounding sim's flow rebake has a wall-clock budget. Repeated runs with geometry-changing behavior can vary; prefer serial runs and repeated baselines rather than promising exact replay from the seed alone.
 

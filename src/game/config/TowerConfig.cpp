@@ -153,6 +153,10 @@ constexpr Field kBuilderFields[] = {
     IMMUNE_CONFIG_FIELD(BuilderParams, max_scars, FieldKind::U32, "Live scars one tower may own; 0 = unlimited; at the cap builders reinforce"),
     IMMUNE_CONFIG_FIELD(BuilderParams, scar_lifetime, FieldKind::F32, "Seconds a scar stands before dissolving on its own; 0 = permanent"),
     IMMUNE_CONFIG_FIELD(BuilderParams, crowd_push, FieldKind::F32, "Share of the crowd's shove a walking builder takes, 0..1; 0 crawls through the horde untouched"),
+    IMMUNE_CONFIG_FIELD(BuilderParams, build_cooldown, FieldKind::F32, "Seconds a deployed Fibroblast roams after a wall before it builds again"),
+    IMMUNE_CONFIG_FIELD(BuilderParams, leash_radius, FieldKind::F32, "How far from where it was deployed a resting Fibroblast roams"),
+    IMMUNE_CONFIG_FIELD(BuilderParams, roam_speed_mult, FieldKind::F32, "Roaming pace as a multiple of the cell's speed"),
+    IMMUNE_CONFIG_FIELD(BuilderParams, secrete_seconds, FieldKind::F32, "Seconds of that rest a Fibroblast holds still along its new wall, secreting; part of the rest, not added to it"),
 };
 constexpr Schema kBuilderSchema{"builder", kBuilderFields};
 

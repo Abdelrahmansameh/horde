@@ -42,6 +42,9 @@ Point-taking commands accept `at x,y`, `at x y`, `at <spawn-id>`, `at cursor`, `
 | `flood [count]` | Request each family from every spawn marker; count is per family per marker |
 | `kill [family\|all]` | Flag ordinary agents for next-tick removal with accounting; does not kill every named elite |
 | `tower <type\|all\|list> [at target]` | Place stationary legacy emitter(s) for free; type names below |
+| `cell <type> [at target]` | Deploy one persistent cell for free through `TowerSystem::deploy()`, the deck's path; nudges along Y like `tower` |
+| `scar [at target]` | Lay a Fibroblast wall with the shipped scar numbers, across the flow there, owned by no cell (needs a baked flow: `step` first at tick 0) |
+| `scar integrity <1-100>` / `scar mend <hp>` / `scar list` | Set every standing wall's integrity, reinforce every standing wall the way a builder does (plays the repair), or list them |
 | `sell [all]` | Sell last/all legacy emitters; credit refund if an economy is supplied |
 | `fire` | Clear legacy emitter cooldowns so they can release on the next tick |
 | `cast <complement\|histamine\|fever\|clot> [at target]` | Cast a player ability subject to unlocks/cooldown and placement constraints |
@@ -53,7 +56,7 @@ Current type names are `neutrophil`, `macrophage`, `cytotoxic_t`, `goblet_cell`,
 
 **The gym `tower` command uses the retained stationary `TowerSystem::place()` path.** It creates an ECS emitter and is distinct from the player deck's directly deployed mobile cells. Free placement bypasses ATP payment, but still checks geometry, zones, type allowlists, and unlocks. It searches a few nearby Y offsets when the requested point is invalid. `tower all` spreads types across the world width at the requested row; it can place fewer than all types.
 
-Screenshot `--towers`/`--tower` and simulation action `place_swarm`/`place_tower` instead call direct deployment. These cells are not in `placed_towers()`, so gym `sell`/`fire` and `ui select` do not operate on them. Use the appropriate path for the behavior under test.
+Screenshot `--towers`/`--tower`, the gym `cell` command and simulation action `place_swarm`/`place_tower` instead call direct deployment. These cells are not in `placed_towers()`, so gym `sell`/`fire` and `ui select` do not operate on them. Use the appropriate path for the behavior under test.
 
 Large gym spawns use tissue-aware burst capacity, place what fits immediately, and queue the rest for deterministic release on later ticks when a spawn queue is supplied. Counts in the result distinguish immediate and queued population. Grouped spawns may use squad paths; explicit targets retain the requested location. A tick-0 capture can show only the first released portion. `radius` is a spawn parameter rather than a guarantee that every requested agent fits in that disc.
 

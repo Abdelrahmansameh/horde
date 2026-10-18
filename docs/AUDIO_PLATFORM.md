@@ -71,7 +71,12 @@ listing. Text/binary writes create parent directories and truncate their target;
 they are not an atomic save-transaction primitive. Game save/config/editor code
 adds its own policy above them.
 
-`asset_root()` is cached on its first call. Actual resolution is:
+In standalone publishing builds, the same helpers read embedded resources from
+memory. Their `immune-embedded:/` paths are read-only, and directory listings
+come from the embedded index. Explicit external files retain normal filesystem
+behavior. See [Publishing](PUBLISHING.md) for the separate build mode.
+
+In development builds, `asset_root()` is cached on its first call. Resolution is:
 
 1. A non-empty `IMMUNE_ASSET_ROOT` environment value.
 2. The first executable-directory ancestor containing `assets`, searching up to

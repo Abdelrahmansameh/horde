@@ -6,6 +6,7 @@
 #include "render/Shader.h"
 
 #include "core/Log.h"
+#include "platform/EmbeddedAssets.h"
 #include "platform/FileIO.h"
 
 #include <glad/glad.h>
@@ -176,6 +177,7 @@ ShaderProgram ShaderManager::get(const std::string& name) const {
 }
 
 u32 ShaderManager::poll_reload() {
+    if (platform::is_embedded_path(platform::asset_root())) return 0;
     u32 reloaded = 0;
     for (Entry* e : entries_) {
         if (e == nullptr) continue;

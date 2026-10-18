@@ -2,12 +2,12 @@
 
 #include "core/Math.h"
 #include "gui/widgets/Widgets.h"
+#include "platform/EmbeddedAssets.h"
+#include "platform/FileIO.h"
 
 #include <cmath>
 #include <cstdio>
-#include <fstream>
 #include <functional>
-#include <iterator>
 
 namespace immune::gui {
 
@@ -44,8 +44,7 @@ bool Gui::init(const Assets& assets) {
     icons_.load_dir(assets.icons_dir);
     if (!assets.theme_path.empty()) {
         if (!theme_.load(assets.theme_path, &error_)) return false;
-        std::ifstream in(assets.theme_path);
-        theme_text_.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+        theme_text_ = platform::read_text_file(assets.theme_path).value_or(std::string{});
     }
 
     // The tooltip: one shared bubble in the Tooltip layer.
@@ -79,12 +78,11 @@ bool Gui::reload_theme(std::string* error) {
 }
 
 bool Gui::reload_theme_if_changed(std::string* error) {
-    if (assets_.theme_path.empty()) return false;
-    std::ifstream in(assets_.theme_path);
-    if (!in) return false;
-    std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-    if (text == theme_text_) return false;
-    theme_text_ = std::move(text);
+    // Published assets are immutable; keep the development reload path cheap.
+    if (assets_.theme_path.empty() || platform::is_embedded_path(assets_.theme_path)) return false;
+    auto text = platform::read_text_file(assets_.theme_path);
+    if (!text || *text == theme_text_) return false;
+    theme_text_ = std::move(*text);
     return theme_.parse(theme_text_, error);
 }
 

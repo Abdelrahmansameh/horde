@@ -154,6 +154,17 @@ struct Scar {
     EntityId owner{};
     TowerType source = TowerType::Fibroblast;
     u16 visual_id = 0;      ///< The owner's tier visual, for the events it raises.
+    /// Cosmetic clocks, kept by ScarSystem::upkeep for the renderer and read
+    /// by nothing in the sim: seconds since the scar went down (the wall is
+    /// drawn assembling over the first stretch), seconds since it was last
+    /// reinforced, and the integrity fraction it had just before that, so a
+    /// repair is drawn knitting back in rather than popping.
+    f32 age = 0.0f;
+    f32 repair_age = 1.0e6f;
+    f32 repair_from = 1.0f;
+    /// Integrity step (of sim::kScarChipSteps) the last ScarChipped event
+    /// announced; build() starts it at the top.
+    u8 chip_step = 255;
 };
 
 /// Renderable tag: the ECS render pass draws entities carrying this.

@@ -1,6 +1,6 @@
 // gui/draw/DrawList.h — the per-frame draw stream every widget records into.
 //
-// ONE VERTEX FORMAT, ONE PROGRAM
+// ONE VERTEX FORMAT
 // Shapes, stroked curves, text and icons all go through the same 24-byte
 // vertex and the same uber-shader (assets/shaders/gui.{vert,frag}); each
 // vertex carries its mode. A shape's parameters live in `records` (uploaded
@@ -8,6 +8,7 @@
 // it, the icon beside the text and the curve behind it all batch into one
 // draw call, and the only things that split a draw are a change of scissor
 // clip, a stencil clip push/pop, or an offscreen layer.
+// Gameplay viruses reuse chaff.frag through a separate batched draw command.
 //
 // Coordinates are LOGICAL pixels (the 1920x1080 reference the design canvas
 // is drawn at). The backend scales to the framebuffer; `device_px` (logical
@@ -32,6 +33,7 @@ enum class VertexMode : u32 {
     Image = 3,  ///< Premultiplied RGBA from the icon atlas, tinted by colour.
     Layer = 4,  ///< Composite of an offscreen layer, tinted by colour.
     ImageGray = 5,  ///< Icon-atlas quad desaturated (an unaffordable card's icon).
+    GameplayVirus = 6, ///< Same procedural material as the gameplay chaff pass.
 };
 
 struct Vertex {
@@ -52,6 +54,7 @@ enum class CmdKind : u8 {
     StencilPop,   ///< Remove it again (decrement).
     LayerBegin,   ///< Start drawing into offscreen layer `layer_depth`.
     LayerEnd,     ///< Composite it (the cmd's indices are the composite quad).
+    GameplayVirus, ///< Draw with the gameplay chaff fragment shader.
 };
 
 struct DrawCmd {
@@ -144,6 +147,9 @@ public:
     void glyph(Rect dst, Vec2 uv0, Vec2 uv1, Color color, u32 style_record);
     /// One icon-atlas quad; `grayscale` desaturates it.
     void image(Rect dst, Vec2 uv0, Vec2 uv1, Color tint, bool grayscale = false);
+    /// Gameplay virus, with transparent surroundings. `dst` is the visible
+    /// receptor-to-receptor footprint; shader padding is added around it.
+    void gameplay_virus(Rect dst, Color tint, f32 phase, f32 wobble);
 
     /// Appends tessellated geometry recorded earlier (a SolidMesh), through
     /// the current transform and alpha. Static strokes (vessels) are
@@ -162,7 +168,7 @@ public:
     const ShapeRecord& record(u32 i) const { return records_[i]; }
 
 private:
-    void ensure_draw_cmd();
+    void ensure_draw_cmd(CmdKind kind = CmdKind::Draw);
     void fill_polygon_impl(std::span<const Vec2> points, Color color, bool convex);
     void quad(Vec2 p0, Vec2 p1, Vec2 p2, Vec2 p3, Vec2 uv0, Vec2 uv1, Vec2 uv2, Vec2 uv3,
               u32 color, u32 mode_record);

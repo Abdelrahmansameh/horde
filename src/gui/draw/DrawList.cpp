@@ -171,18 +171,18 @@ void DrawList::pop_layer() {
     cmds_.back().index_count = static_cast<u32>(indices_.size()) - cmd.first_index;
 }
 
-void DrawList::ensure_draw_cmd() {
+void DrawList::ensure_draw_cmd(CmdKind kind) {
     const u32 depth = stencil_depth_stack_.back();
     const u32 layer = static_cast<u32>(layer_opacity_.size());
     if (!cmds_.empty()) {
         const DrawCmd& b = cmds_.back();
-        if (b.kind == CmdKind::Draw && same_rect(b.clip, clips_.back()) && b.stencil_depth == depth &&
+        if (b.kind == kind && same_rect(b.clip, clips_.back()) && b.stencil_depth == depth &&
             b.layer_depth == layer) {
             return;
         }
     }
     DrawCmd cmd;
-    cmd.kind = CmdKind::Draw;
+    cmd.kind = kind;
     cmd.first_index = static_cast<u32>(indices_.size());
     cmd.clip = clips_.back();
     cmd.stencil_depth = depth;
@@ -285,6 +285,25 @@ void DrawList::image(Rect dst, Vec2 uv0, Vec2 uv1, Color tint, bool grayscale) {
          t.apply(Vec2{dst.min.x, dst.max.y}), uv0, Vec2{uv1.x, uv0.y}, uv1, Vec2{uv0.x, uv1.y},
          pack_premul(with_alpha(tint, tint.a * alphas_.back())),
          pack_mode(grayscale ? VertexMode::ImageGray : VertexMode::Image, 0));
+    cmds_.back().index_count = static_cast<u32>(indices_.size()) - cmds_.back().first_index;
+}
+
+void DrawList::gameplay_virus(Rect dst, Color tint, f32 phase, f32 wobble) {
+    ensure_draw_cmd(CmdKind::GameplayVirus);
+    const Affine2& t = transform();
+    ShapeRecord material{};
+    material.geom[0] = phase;
+    material.geom[1] = -t.rotation(); // gameplay local Y points up
+    material.geom[2] = wobble;
+    const u32 record = push_record(material);
+    // chaff.vert spans +/-0.95; the capsid's receptor tips reach +/-0.555.
+    const Vec2 half = dst.size() * (0.95f / 1.11f);
+    const Vec2 center = dst.center();
+    const Rect padded{center - half, center + half};
+    quad(t.apply(padded.min), t.apply(Vec2{padded.max.x, padded.min.y}), t.apply(padded.max),
+         t.apply(Vec2{padded.min.x, padded.max.y}), Vec2{-0.95f, 0.95f}, Vec2{0.95f, 0.95f},
+         Vec2{0.95f, -0.95f}, Vec2{-0.95f, -0.95f},
+         pack_premul(with_alpha(tint, tint.a * alphas_.back())), pack_mode(VertexMode::GameplayVirus, record));
     cmds_.back().index_count = static_cast<u32>(indices_.size()) - cmds_.back().first_index;
 }
 

@@ -101,30 +101,73 @@ world's finite fluid capacity. Weakening Mucus makes slowed targets take more
 damage; Anaphylactic Shock spreads a dying slowed target's slow to nearby
 chaff. Pair baseline Goblet Cells with actual damage sources.
 
-## Fibroblast: a consumed builder and persistent scar
+## Fibroblast: a persistent builder on a soft leash
 
-Placement chooses a nearby build goal immediately. The cell walks there, then
-consumes itself while submitting a scar build or reinforcement request. It
-does not repeatedly construct walls from its original position. The site
-picker searches 12 candidates in an annulus from 4 to 18 world units, requires
-walkable tissue and usable flow, avoids existing/planned wall overlaps, and
-refuses a wall that would seal the local lane. If no new site fits, it can
-choose a nearby damaged scar to reinforce; with nothing useful to do the
-deployment fails as `NoBuildSite`.
+Fibroblasts work only during an active round (Spawning or Clearing). Prep and
+Complete pause movement, site selection, construction, repairs, and the rest
+clock. An unfinished trip resumes when the next round starts; deployment in
+Prep chooses a goal but lays no wall until the round begins.
+
+Placement chooses a nearby build goal immediately. The cell walks there and
+submits a scar build or reinforcement request, but it is not consumed: it
+keeps building until the horde kills it. After each wall it rests for
+`build_cooldown` (6 seconds). The first `secrete_seconds` (1.6) of that rest
+it holds still where it laid or mended the wall, turned to lie along it,
+secreting: the wall is drawn assembling out of the collagen it releases over
+the same stretch (the bar blocks the horde from the tick it is laid; only the
+drawing takes time). The hold is part of the rest, not added to it, so it
+never delays the next wall. For the remainder it strolls at `roam_speed_mult` (0.4) of its
+speed between waypoints inside `leash_radius` (8 world units) of the spot it
+was deployed at. Then it builds again. New sites are always picked around
+that deploy spot, not around wherever the cell has wandered, so it walks out
+to build and drifts back home between walls.
+
+The site picker searches 12 candidates in an annulus from 4 to 18 world units
+around the deploy spot. It requires walkable tissue and usable flow, avoids
+existing and planned wall overlaps, and refuses a wall that would seal the
+local lane. With no site in reach, a deployment fails as `NoBuildSite`
+(any scar in reach still counts as something to reinforce).
+
+`max_scars: 3` caps how many walls one cell keeps standing. Each direct cell
+has its own owner, so this is a per-cell cap, not a board-wide one. At the cap,
+or when no new site fits, a rested cell goes to the most worn scar in reach
+(any owner's) that is missing at least a quarter of one reinforcement. If
+every scar is close to whole, it keeps roaming and asks again a second later.
+When the horde destroys one of its walls, the cell is under its cap again and
+builds a replacement on its next trip.
 
 The baseline scar has half-length 6, half-width 1, 220 HP, spacing 6, and
-reinforcement of 50 HP per consumed builder. Rotation follows local flow with
-configured tilt, and the scar is trimmed to fit the tissue. Build-time
-validation runs again: a site taken while the builder travels can become
-reinforcement instead. `max_scars: 3` is a per-owner limit; direct deployment
-gives each individual cell its own attribution owner, so this is not a global
-three-scar cap for the player's board.
+reinforcement of 50 HP per visit. Rotation follows local flow with configured
+tilt, and the scar is trimmed to fit the tissue. Build-time validation runs
+again: a site taken while the builder travels can become reinforcement
+instead. The cell has 60 HP and takes no crowd shove (`crowd_push: 0`), so it
+walks through the horde to its sites, and viruses and bacteria can kill it on
+the way.
+
+How it reads on screen: the Fibroblast and its walls are collagen blue (the
+colour a trichrome stain turns collagen, and a hue nothing else on the board
+uses). The cell is a spindle of fused lobes that crawls -- its leading lamella
+reaches, the body stretches after it and a swell rolls down it as it
+contracts -- and carries pale procollagen vesicles that it spends on each wall
+and refills over its rest. A wall is a rope of three collagen cords made of
+segments ([entity.frag](../assets/shaders/entity.frag), shape 6): it assembles
+middle-out from threads the cell spins along it, loses whole segments as the
+horde chews it (outer cords and ends first, the middle cord last; nothing
+darkens), and grows them back, bright while fresh, when a builder mends it.
+The swarmer itself is drawn 1.45x its contact radius so the spindle covers
+about the disc's area ([swarmer.vert](../assets/shaders/swarmer.vert)).
 
 [Scars.cpp](../src/sim/scar/Scars.cpp) carves a solid bar from the tissue mask,
 marks flow for rebake, and gives the wall a Health component. Baseline lifetime
 zero means no timed expiration. Hostile damage can destroy it, after which
 its carved cells are restored. Inflammation buffs nearby allied cells and
 shooter reloads; Inflammatory Scarring adds contact damage around the wall.
+
+Collagen blocks only enemies. Friendly cells can deploy inside it, acquire and
+attack enemies across it, and pass through it with their projectiles. Their
+formation and retreat guidance follows the authored lane rather than the
+enemy flow rerouted around walls. Rebuilding the clearance field also ignores
+collagen, so a standing wall never becomes a friendly movement obstacle.
 
 ## Ownership, capacity, and legacy APIs
 
@@ -147,6 +190,7 @@ action sells a direct cell or buys an in-run upgrade.
   mapping, plus explicitly legacy spawner behavior.
 - [Swarmer tests](../tests/test_swarmers.cpp): magazines, attachment, captives,
   direct-cell bodies, retirement, and mucus delivery.
-- [Scar tests](../tests/test_scars.cpp): build/refuse/reinforce and restore.
+- [Scar tests](../tests/test_scars.cpp): build/refuse/reinforce and restore,
+  and a deployed Fibroblast's build, rest, roam, and rebuild loop.
 - [Immunity tree tests](../tests/test_immunity_tree.cpp): upgrade effects and
   capstones, including direct shooter reload near inflamed scars.

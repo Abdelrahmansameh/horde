@@ -105,13 +105,15 @@ constexpr TreeNodeDef kCatalog[] = {
     node("goblet.tower_health", "Cell Resilience", "+20% cell health", K::Stat, B::GobletCell, 4),
     node("goblet.capstone", "Anaphylactic Shock", "A slowed target's death spreads the slow to nearby chaff", K::Capstone, B::GobletCell, 1),
     // ---- Fibroblast ----
-    node("fibroblast.unlock", "Fibroblast", "Unlock: builders that lay collagen scars across the lane", K::TowerRoot, B::Fibroblast, 1),
+    node("fibroblast.unlock", "Fibroblast", "Unlock: a builder that keeps walling the lane near its post until the horde kills it", K::TowerRoot, B::Fibroblast, 1),
     node("fibroblast.scar_health", "Scar Health", "+20% scar integrity", K::Stat, B::Fibroblast, 5),
-    node("fibroblast.reinforce", "Reinforce Rate", "+30% repair per builder", K::Stat, B::Fibroblast, 3),
+    node("fibroblast.reinforce", "Reinforce Rate", "+30% repair per visit to a worn scar", K::Stat, B::Fibroblast, 3),
     node("fibroblast.scar_size", "Scar Size", "+10% scar length and width", K::Stat, B::Fibroblast, 3),
-    node("fibroblast.build_radius", "Build Radius", "+12% reach for a build site", K::Stat, B::Fibroblast, 3),
+    node("fibroblast.build_radius", "Territory", "+12% build reach and roaming range", K::Stat, B::Fibroblast, 3),
     node("fibroblast.inflammation", "Inflammation", "Scars inflame the tissue around them: allied cells there deal +10% damage, shooters reload 10% faster", K::Stat, B::Fibroblast, 3, 150),
     node("fibroblast.tower_health", "Cell Resilience", "+20% cell health", K::Stat, B::Fibroblast, 4),
+    node("fibroblast.build_rate", "Rapid Fibrosis", "-12% rest between walls", K::Stat, B::Fibroblast, 4),
+    node("fibroblast.scar_count", "Scar Network", "+1 wall each Fibroblast keeps standing", K::Stat, B::Fibroblast, 2, 150),
     node("fibroblast.capstone", "Inflammatory Scarring", "Scars burn whatever presses against them", K::Capstone, B::Fibroblast, 1),
 };
 static_assert(sizeof(kCatalog) / sizeof(kCatalog[0]) == kTreeNodeCount,
@@ -195,9 +197,11 @@ constexpr Edge kEdges[] = {
     {N::FibroblastScarHealth, N::FibroblastRoot},
     {N::FibroblastHealth, N::FibroblastRoot},
     {N::FibroblastScarSize, N::FibroblastBuildRadius},
+    {N::FibroblastScarNetwork, N::FibroblastScarSize},
     {N::FibroblastReinforce, N::FibroblastScarHealth},
     {N::FibroblastInflammation, N::FibroblastScarHealth},
     {N::FibroblastCapstone, N::FibroblastInflammation},
+    {N::FibroblastBuildRate, N::FibroblastHealth},
     // Goblet Cell.
     {N::GobletSplashRadius, N::GobletRoot},
     {N::GobletSlowStrength, N::GobletRoot},
@@ -360,11 +364,17 @@ void apply_tower_lines(const TreeLevels& lv, TowerType type, TowerMechanics& m) 
         m.builder.scar_reinforce *= grow(lv[N::FibroblastReinforce], 0.30f);
         m.builder.scar_half_length *= grow(lv[N::FibroblastScarSize], 0.10f);
         m.builder.scar_half_width *= grow(lv[N::FibroblastScarSize], 0.10f);
-        m.builder.build_radius *= grow(lv[N::FibroblastBuildRadius], 0.12f);
+        // Territory: the site annulus and the roaming leash grow together,
+        // so a cell that builds further out also wanders further. And
         // search_radius doubles as the builder's reach (TowerSystem.cpp), so
-        // the ring the HUD draws grows with the site annulus.
+        // the ring the HUD draws grows with them.
+        m.builder.build_radius *= grow(lv[N::FibroblastBuildRadius], 0.12f);
+        m.builder.leash_radius *= grow(lv[N::FibroblastBuildRadius], 0.12f);
         m.swarm.search_radius *= grow(lv[N::FibroblastBuildRadius], 0.12f);
         m.swarm.max_health *= grow(lv[N::FibroblastHealth], kTowerHealthPerLevel);
+        m.builder.build_cooldown *= shrink(lv[N::FibroblastBuildRate], 0.12f);
+        // 0 is "unlimited", which one more wall must not turn into a cap.
+        if (m.builder.max_scars > 0) m.builder.max_scars += lv[N::FibroblastScarNetwork];
         break;
     case TowerType::Count:
         break;

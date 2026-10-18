@@ -14,6 +14,8 @@
 
 #include "game/towers/TowerSystem.h"
 #include "game/towers/TowerMechanics.h"
+#include "game/session/LevelSession.h"
+#include "game/wave/WaveDirector.h"
 
 #include "core/Math.h"
 #include "core/Rng.h"
@@ -225,6 +227,60 @@ TEST_CASE("a builder walks to its site and lays a scar across the flow there", "
     REQUIRE(f.world.flow().sample(Vec2{28.5f, 13.0f}).y > 0.3f);
 }
 
+TEST_CASE("a persistent builder is not spent on its wall: it rests, roaming on its leash",
+          "[sim][scar][swarm]") {
+    Field f(16, kH, /*hostile_on=*/false);
+    f.builder.build_cooldown = 3.0f;
+    f.builder.leash_radius = 5.0f;
+    f.builder.roam_speed_mult = 0.4f;
+    f.world.swarmers().set_profile(kBuilderSlot, f.builder);
+    const Vec2 home{18.0f, 10.0f};
+    SwarmerSpawnParams p;
+    p.position = home;
+    p.profile = kBuilderSlot;
+    p.owner = EntityId{7u};
+    p.seed = 0x51u;
+    p.goal = Vec2{30.0f, 10.0f};
+    p.has_goal = true;
+    p.persistent = true;
+    REQUIRE(f.world.swarmers().spawn(p));
+
+    u32 ticks = 0;
+    while (f.scar_count() == 0 && ticks < 240) {
+        f.world.tick();
+        ++ticks;
+    }
+    REQUIRE(f.scar_count() == 1);
+    // Still standing, resting, and with nowhere to go yet.
+    const SwarmerBuffers& sw = f.world.swarmers();
+    REQUIRE(sw.count() == 1);
+    REQUIRE((sw.flags[0] & swarmer_flags::kHasGoal) == 0);
+    REQUIRE(sw.rest[0] == Catch::Approx(f.builder.build_cooldown).margin(2.0f * kDt));
+    REQUIRE_FALSE(sw.builder_due(0));
+    REQUIRE(sw.home_x[0] == Catch::Approx(home.x));
+    REQUIRE(sw.home_y[0] == Catch::Approx(home.y));
+
+    // It strolls back toward home and then wanders round it, never far: the
+    // site was 12 out, the leash is 5. Nothing here hands it a new site (no
+    // game layer), so once rested it stays due and keeps roaming.
+    f32 travelled = 0.0f;
+    f32 worst = 0.0f;
+    Vec2 last{sw.pos_x[0], sw.pos_y[0]};
+    for (int k = 0; k < 60 * 20; ++k) {
+        f.world.tick();
+        REQUIRE(sw.count() == 1);
+        const Vec2 now{sw.pos_x[0], sw.pos_y[0]};
+        travelled += math::length(now - last);
+        last = now;
+        if (k >= 60 * 8) worst = math::max(worst, math::length(now - home));
+    }
+    REQUIRE(travelled > 8.0f);
+    REQUIRE(worst <= f.builder.leash_radius + f.builder.size);
+    REQUIRE(sw.builder_due(0));
+    REQUIRE(f.scar_count() == 1);
+    REQUIRE(f.world.scars().stats().built_total == 1);
+}
+
 TEST_CASE("a builder released with no site drifts and dissolves without building", "[sim][scar][swarm]") {
     Field f(2);
     f.builder.lifetime = 1.0f;
@@ -295,6 +351,107 @@ TEST_CASE("a scar is solid ground to the horde and nothing to the player's units
         REQUIRE_FALSE(mask.authored_wall(c.x, c.y));
         REQUIRE(mask.authored_wall(c.x, -1));
     }
+}
+
+TEST_CASE("collagen changes hostile flow but never friendly guidance or clearance", "[sim][scar][flow]") {
+    Field open(31, kH, false);
+    Field walled(31, kH, false);
+    REQUIRE(walled.world.scars().build(walled.world, walled.desc_at(Vec2{30.0f, 10.0f}), nullptr, nullptr).valid());
+    SECTION("incremental rebake") {
+        walled.world.flow().rebake_pending(walled.world.tissue());
+    }
+    SECTION("full rebake with a standing wall") {
+        FlowFieldBakeDesc desc;
+        desc.goals = {FlowGoal{walled.world.tissue().world_to_cell(kGoal)}};
+        walled.world.flow().bake(walled.world.tissue(), desc);
+    }
+    walled.world.sdf().bake(walled.world.tissue());
+    u32 changed = 0;
+    for (i32 y = 0; y < kH; ++y) {
+        for (i32 x = 0; x < kW; ++x) {
+            const Vec2 p = open.world.tissue().cell_to_world(x, y);
+            const Vec2 before = open.world.flow().sample(p);
+            const Vec2 friendly = walled.world.flow().sample_friendly(p);
+            REQUIRE(friendly.x == before.x);
+            REQUIRE(friendly.y == before.y);
+            REQUIRE(walled.world.sdf().sample(p) == open.world.sdf().sample(p));
+            if (math::length_sq(walled.world.flow().sample(p) - before) > 0.01f) ++changed;
+        }
+    }
+    REQUIRE(changed > 0);
+}
+
+TEST_CASE("friendly cells acquire and attack across collagen with unchanged movement", "[sim][scar][swarm]") {
+    for (TowerType type : {TowerType::CytotoxicT, TowerType::Macrophage,
+                           TowerType::Neutrophil, TowerType::GobletCell}) {
+        DYNAMIC_SECTION(game::tower_type_name(type)) {
+            Field open(32, kH, false);
+            Field walled(32, kH, false);
+            REQUIRE(walled.world.scars().build(walled.world, walled.desc_at(Vec2{30.0f, 10.0f}), nullptr, nullptr).valid());
+            walled.world.flow().rebake_pending(walled.world.tissue());
+            SwarmerProfile profile = game::swarmer_profile(type);
+            profile.search_radius = 30.0f;
+            profile.lifetime = 30.0f;
+            u32 attacks = 0;
+            for (Field* f : {&open, &walled}) {
+                f->world.swarmers().set_profile(0, profile);
+                SwarmerSpawnParams spawn;
+                spawn.position = Vec2{27.0f, 10.0f};
+                spawn.profile = 0;
+                spawn.family_mask = 0xFF;
+                spawn.seed = 51;
+                REQUIRE(f->world.swarmers().spawn(spawn));
+                f->spawn_chaff(Vec2{33.0f, 10.0f}, PathogenFamily::Bacteria);
+                f->world.chaff().density[0] = 1000.0f;
+                f->world.spatial().rebuild(f->world.chaff().pos_x.data(), f->world.chaff().pos_y.data(), 1);
+            }
+            NamedTargetList named_open, named_walled;
+            for (int tick = 0; tick < 240; ++tick) {
+                const auto update = [](Field& f, NamedTargetList& named) {
+                    return f.world.swarmer_system().update(f.world.swarmers(), f.world.chaff(),
+                        f.world.spatial(), named, &f.world.sdf(), &f.world.flow(),
+                        f.world.desc().sim_bounds, f.world.rng(), kDt, nullptr);
+                };
+                const SwarmerStats a = update(open, named_open);
+                const SwarmerStats b = update(walled, named_walled);
+                attacks += b.shots_fired + b.detonated + b.arms_launched;
+                if (b.density_removed > 0.0f) ++attacks;
+                REQUIRE(a.shots_fired == b.shots_fired);
+                REQUIRE(a.detonated == b.detonated);
+                REQUIRE(a.arms_launched == b.arms_launched);
+                REQUIRE(a.density_removed == b.density_removed);
+                const SwarmerBuffers& left = open.world.swarmers();
+                const SwarmerBuffers& right = walled.world.swarmers();
+                REQUIRE(left.count() == right.count());
+                for (usize i = 0; i < left.count(); ++i) {
+                    REQUIRE(left.pos_x[i] == right.pos_x[i]);
+                    REQUIRE(left.pos_y[i] == right.pos_y[i]);
+                    REQUIRE(left.vel_x[i] == right.vel_x[i]);
+                    REQUIRE(left.vel_y[i] == right.vel_y[i]);
+                    REQUIRE(left.target_generation[i] == right.target_generation[i]);
+                }
+                const auto& shots_a = open.world.swarmer_system().effects().shots;
+                const auto& shots_b = walled.world.swarmer_system().effects().shots;
+                REQUIRE(shots_a.size() == shots_b.size());
+                for (usize i = 0; i < shots_a.size(); ++i) {
+                    REQUIRE(shots_a[i].origin.x == shots_b[i].origin.x);
+                    REQUIRE(shots_a[i].origin.y == shots_b[i].origin.y);
+                    REQUIRE(shots_a[i].velocity.x == shots_b[i].velocity.x);
+                    REQUIRE(shots_a[i].velocity.y == shots_b[i].velocity.y);
+                }
+            }
+            REQUIRE(attacks > 0);
+        }
+    }
+}
+
+TEST_CASE("friendly cells can deploy inside a collagen wall", "[game][scar][deployment]") {
+    Field f(33, kH, false);
+    game::TowerSystem towers;
+    towers.register_systems(f.world);
+    REQUIRE(f.world.scars().build(f.world, f.desc_at(Vec2{30.0f, 10.0f}), nullptr, nullptr).valid());
+    REQUIRE(towers.deploy(f.world, TowerType::CytotoxicT, Vec2{30.0f, 10.0f}));
+    REQUIRE(f.world.swarmers().count() == 1);
 }
 
 TEST_CASE("the shared containment holds a walker at a block's face and keeps its slide",
@@ -753,6 +910,166 @@ TEST_CASE("a Fibroblast with nowhere to build releases nothing", "[game][towers]
     REQUIRE(count_events(f.world.combat_events(), CombatEventType::MuzzleFlash) == 0);
 }
 
+TEST_CASE("a deployed Fibroblast keeps walling round its post until the horde kills it",
+          "[game][towers][scar]") {
+    Field f(17, kH, /*hostile_on=*/false);
+    game::TowerSystem towers;
+    towers.register_systems(f.world);
+    const Vec2 home{24.0f, 10.0f};
+    REQUIRE(towers.deploy(f.world, TowerType::Fibroblast, home));
+    const sim::SwarmerProfile pr = game::swarmer_profile(TowerType::Fibroblast);
+    REQUIRE(pr.max_scars >= 2);
+    REQUIRE(pr.build_cooldown > 0.0f);
+    const SwarmerBuffers& sw = f.world.swarmers();
+    REQUIRE(sw.count() == 1);
+
+    // Walls go up one at a time, a rest apart, until the cell's cap -- and
+    // the one cell lays every one of them.
+    std::vector<int> built_at;
+    f32 widest = 0.0f;
+    for (int k = 0; k < 60 * 45; ++k) {
+        const u64 before = f.world.scars().stats().built_total;
+        f.world.tick();
+        REQUIRE(sw.count() == 1);
+        if (f.world.scars().stats().built_total > before) built_at.push_back(k);
+        widest = math::max(widest, math::length(Vec2{sw.pos_x[0], sw.pos_y[0]} - home));
+    }
+    REQUIRE(built_at.size() == pr.max_scars);
+    REQUIRE(f.scar_count() == pr.max_scars);
+    for (usize n = 1; n < built_at.size(); ++n) {
+        REQUIRE(built_at[n] - built_at[n - 1] >= static_cast<int>(pr.build_cooldown * 60.0f));
+    }
+    // Every wall is the cell's, inside its reach of where it was deployed,
+    // and the cell never strayed past that reach.
+    for (auto e : f.world.ecs().registry().view<comp::Scar>()) {
+        REQUIRE(f.world.ecs().registry().get<comp::Scar>(e).owner == towers.last_deployment_id());
+        REQUIRE(math::length(f.bar_of(e).center - home) <= pr.build_radius + pr.scar_half_length + 0.01f);
+    }
+    REQUIRE(widest <= pr.build_radius + pr.size);
+    // At the cap with every wall whole it has nothing to fix, so it roams
+    // near home instead of making trips.
+    REQUIRE(f.world.scars().stats().reinforced_total == 0);
+    REQUIRE(math::length(Vec2{sw.pos_x[0], sw.pos_y[0]} - home) <= pr.leash_radius + pr.size);
+
+    // A worn wall gets collagen.
+    const entt::entity worn = f.first_scar();
+    comp::Health& hp = f.world.ecs().registry().get<comp::Health>(worn);
+    hp.current = hp.max * 0.25f;
+    for (int k = 0; k < 60 * 12 && f.world.scars().stats().reinforced_total == 0; ++k) f.world.tick();
+    REQUIRE(f.world.scars().stats().reinforced_total > 0);
+    REQUIRE(hp.current > hp.max * 0.25f);
+
+    // A wall the horde chewed down is replaced.
+    hp.current = 0.0f;
+    for (int k = 0; k < 60 * 20 && f.world.scars().stats().built_total == pr.max_scars; ++k) f.world.tick();
+    REQUIRE(f.world.scars().stats().built_total == pr.max_scars + 1);
+    REQUIRE(f.scar_count() == pr.max_scars);
+
+    // Killed, it builds no more, even with a wall down to replace. (`hp`
+    // went with the wall it belonged to.)
+    f.world.ecs().registry().get<comp::Health>(f.first_scar()).current = 0.0f;
+    f.world.swarmers().kill(0);
+    for (int k = 0; k < 60 * 20; ++k) f.world.tick();
+    REQUIRE(sw.count() == 0);
+    REQUIRE(f.world.scars().stats().built_total == pr.max_scars + 1);
+}
+
+TEST_CASE("fibroblasts pause in-flight builds, rest, and repairs between rounds", "[game][scar][swarm]") {
+    Field f(34, kH, false);
+    game::TowerSystem towers;
+    towers.register_systems(f.world);
+    towers.set_releasing(false);
+    REQUIRE(towers.deploy(f.world, TowerType::Fibroblast, Vec2{24.0f, 10.0f}));
+    SwarmerBuffers& sw = f.world.swarmers();
+    REQUIRE((sw.flags[0] & swarmer_flags::kHasGoal) != 0);
+    const Vec2 goal{sw.goal_x[0], sw.goal_y[0]};
+    for (int tick = 0; tick < 300; ++tick) f.world.tick();
+    REQUIRE(f.world.scars().stats().built_total == 0);
+    REQUIRE(sw.pos_x[0] == 24.0f);
+    REQUIRE(sw.pos_y[0] == 10.0f);
+    REQUIRE(sw.goal_x[0] == goal.x);
+    REQUIRE(sw.goal_y[0] == goal.y);
+
+    towers.set_releasing(true);
+    for (int tick = 0; tick < 600 && f.scar_count() == 0; ++tick) f.world.tick();
+    REQUIRE(f.scar_count() == 1);
+    towers.set_releasing(false);
+    const f32 rest = sw.rest[0];
+    REQUIRE(rest > 0.0f);
+    for (int tick = 0; tick < 600; ++tick) f.world.tick();
+    REQUIRE(sw.rest[0] == rest);
+    REQUIRE(f.world.scars().stats().built_total == 1);
+
+    // An already-assigned repair at its destination cannot land during Prep.
+    const entt::entity scar = f.first_scar();
+    comp::Health& hp = f.world.ecs().registry().get<comp::Health>(scar);
+    hp.current = hp.max * 0.25f;
+    const Vec2 site = f.bar_of(scar).center;
+    sw.set_goal(0, site);
+    sw.pos_x[0] = site.x;
+    sw.pos_y[0] = site.y;
+    for (int tick = 0; tick < 300; ++tick) f.world.tick();
+    REQUIRE(f.world.scars().stats().reinforced_total == 0);
+    REQUIRE(hp.current == hp.max * 0.25f);
+    towers.set_releasing(true);
+    f.world.tick();
+    REQUIRE(f.world.scars().stats().reinforced_total == 1);
+    REQUIRE(hp.current > hp.max * 0.25f);
+
+    // A rested cell cannot receive a new site during Prep either.
+    towers.set_releasing(false);
+    sw.set_rest(0, 0.0f);
+    for (int tick = 0; tick < 300; ++tick) f.world.tick();
+    REQUIRE((sw.flags[0] & swarmer_flags::kHasGoal) == 0);
+    REQUIRE(f.world.scars().stats().built_total == 1);
+}
+
+TEST_CASE("the level session activates fibroblasts only in Spawning and Clearing", "[game][scar][session]") {
+    Field f(35, kH, false);
+    game::TowerSystem towers;
+    towers.register_systems(f.world);
+    game::WaveDirector waves;
+    game::WaveDef first, second;
+    first.prep_time = second.prep_time = 100.0f;
+    waves.set_waves({first, second});
+    waves.set_auto_start(false);
+    waves.start(f.world);
+    game::LevelSystems systems;
+    systems.world = &f.world;
+    systems.towers = &towers;
+    systems.waves = &waves;
+    REQUIRE(towers.deploy(f.world, TowerType::Fibroblast, Vec2{24.0f, 10.0f}));
+    SwarmerBuffers& sw = f.world.swarmers();
+    // Place the cell right at its build site: active work is immediately observable.
+    sw.pos_x[0] = sw.goal_x[0];
+    sw.pos_y[0] = sw.goal_y[0];
+    for (int tick = 0; tick < 300; ++tick) game::step_level(systems);
+    REQUIRE(waves.status().phase == game::WavePhase::Prep);
+    REQUIRE(f.world.scars().stats().built_total == 0);
+    waves.request_early_start();
+    game::step_level(systems);
+    REQUIRE(waves.status().phase == game::WavePhase::Spawning);
+    REQUIRE(f.world.scars().stats().built_total == 1);
+    game::step_level(systems);
+    REQUIRE(waves.status().phase == game::WavePhase::Clearing);
+    REQUIRE(towers.releasing());
+    game::step_level(systems);
+    REQUIRE(waves.status().phase == game::WavePhase::Prep);
+    REQUIRE_FALSE(towers.releasing());
+    const f32 rest = sw.rest[0];
+    for (int tick = 0; tick < 300; ++tick) game::step_level(systems);
+    REQUIRE(sw.rest[0] == rest);
+    waves.request_early_start();
+    for (int tick = 0; tick < 3; ++tick) game::step_level(systems);
+    REQUIRE(waves.status().phase == game::WavePhase::Complete);
+    REQUIRE_FALSE(towers.releasing());
+    sw.set_goal(0, Vec2{42.0f, 10.0f});
+    sw.pos_x[0] = 42.0f;
+    sw.pos_y[0] = 10.0f;
+    for (int tick = 0; tick < 300; ++tick) game::step_level(systems);
+    REQUIRE(f.world.scars().stats().built_total == 1);
+}
+
 TEST_CASE("scars are deterministic and part of what the state hash sees", "[sim][scar][determinism]") {
     auto run = [](bool with_tower) {
         Field f(11);
@@ -777,4 +1094,170 @@ TEST_CASE("scars are deterministic and part of what the state hash sees", "[sim]
     // from one without.
     const std::vector<u64> c = run(false);
     REQUIRE(a.back() != c.back());
+}
+
+// ---------------------------------------------------------------------------
+// What the renderer draws the wall and its builder from: the cosmetic clocks,
+// the repair and chip announcements, and the builder's secretion hold.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("a reinforce starts the scar's repair clock and says where the builder stood",
+          "[sim][scar]") {
+    Field f(21, kH, false);
+    CombatEventSink sink;
+    sink.reserve(64);
+    ScarBuildResult r;
+    const ScarDesc first = f.desc_at(Vec2{30.0f, 10.0f});
+    const EntityId id = f.world.scars().build(f.world, first, &r, &sink);
+    REQUIRE(r == ScarBuildResult::Built);
+    REQUIRE(count_events(sink, CombatEventType::ScarBuilt) == 1);
+    REQUIRE(sink.events()[0].secondary.x == Catch::Approx(first.center.x));
+    REQUIRE(sink.events()[0].secondary.y == Catch::Approx(first.center.y));
+
+    entt::registry& reg = f.world.ecs().registry();
+    const entt::entity e = f.world.ecs().from_id(id);
+    comp::Scar& sc = reg.get<comp::Scar>(e);
+    comp::Health& hp = reg.get<comp::Health>(e);
+    REQUIRE(sc.age == 0.0f);
+    REQUIRE(sc.repair_age >= kScarRepairSeconds);
+    REQUIRE(sc.chip_step == kScarChipSteps);
+
+    // Its clocks run in upkeep.
+    f.world.scars().upkeep(f.world, 0.5f, &sink);
+    REQUIRE(sc.age == Catch::Approx(0.5f));
+
+    // A builder arriving inside the spacing mends it: the clock restarts from
+    // what was standing, and the event carries where the builder was.
+    hp.current = 30.0f;
+    sink.clear();
+    const ScarDesc mend = f.desc_at(Vec2{33.0f, 11.0f});
+    REQUIRE(f.world.scars().build(f.world, mend, &r, &sink) == id);
+    REQUIRE(r == ScarBuildResult::Reinforced);
+    REQUIRE(hp.current == Catch::Approx(70.0f));
+    REQUIRE(sc.repair_age == 0.0f);
+    REQUIRE(sc.repair_from == Catch::Approx(0.30f));
+    REQUIRE(count_events(sink, CombatEventType::ScarReinforced) == 1);
+    const CombatEvent& ev = sink.events()[0];
+    REQUIRE(ev.secondary.x == Catch::Approx(mend.center.x));
+    REQUIRE(ev.secondary.y == Catch::Approx(mend.center.y));
+    REQUIRE(ev.radius == Catch::Approx(sc.half_extents.x));
+
+    // A second mend while the first is still being drawn starts from the
+    // lower of the two, so the wall shown never jumps.
+    f.world.scars().upkeep(f.world, 0.2f, nullptr);
+    REQUIRE(f.world.scars().reinforce(f.world, id, 10.0f, mend.center, nullptr));
+    REQUIRE(sc.repair_from == Catch::Approx(0.30f));
+    REQUIRE(hp.current == Catch::Approx(80.0f));
+
+    // Nothing to mend, or nothing to mend it with.
+    REQUIRE_FALSE(f.world.scars().reinforce(f.world, EntityId{}, 10.0f, mend.center, nullptr));
+    REQUIRE_FALSE(f.world.scars().reinforce(f.world, id, 0.0f, mend.center, nullptr));
+    REQUIRE(f.world.scars().stats().reinforced_total == 2);
+}
+
+TEST_CASE("each step of integrity a scar loses raises one chip, and a repair raises none",
+          "[sim][scar]") {
+    Field f(22, kH, false);
+    CombatEventSink sink;
+    sink.reserve(64);
+    ScarBuildResult r;
+    const EntityId id = f.world.scars().build(f.world, f.desc_at(Vec2{30.0f, 10.0f}), &r, &sink);
+    REQUIRE(r == ScarBuildResult::Built);
+    entt::registry& reg = f.world.ecs().registry();
+    const entt::entity e = f.world.ecs().from_id(id);
+    comp::Health& hp = reg.get<comp::Health>(e);
+    const comp::Scar& sc = reg.get<comp::Scar>(e);
+    const comp::Transform& tf = reg.get<comp::Transform>(e);
+    const f32 step_hp = hp.max / static_cast<f32>(kScarChipSteps);
+
+    // Whole: nothing.
+    sink.clear();
+    f.world.scars().upkeep(f.world, kDt, &sink);
+    REQUIRE(count_events(sink, CombatEventType::ScarChipped) == 0);
+
+    // Three steps lost in one go: one event, magnitude three, thrown off one
+    // of the long faces.
+    hp.current = hp.max - 3.5f * step_hp;
+    f.world.scars().upkeep(f.world, kDt, &sink);
+    REQUIRE(count_events(sink, CombatEventType::ScarChipped) == 1);
+    const CombatEvent& chip = sink.events().back();
+    REQUIRE(chip.magnitude == Catch::Approx(3.0f));
+    const Vec2 along{std::cos(tf.rotation), std::sin(tf.rotation)};
+    const Vec2 off = chip.origin - tf.position;
+    REQUIRE(std::fabs(off.x * along.y - off.y * along.x) == Catch::Approx(sc.half_extents.y).margin(1e-3f));
+    REQUIRE(std::fabs(off.x * along.x + off.y * along.y) <= sc.half_extents.x);
+    REQUIRE(math::length(chip.direction) == Catch::Approx(1.0f));
+    REQUIRE(sc.chip_step == kScarChipSteps - 3);
+
+    // The same integrity again: no repeat.
+    sink.clear();
+    f.world.scars().upkeep(f.world, kDt, &sink);
+    REQUIRE(count_events(sink, CombatEventType::ScarChipped) == 0);
+
+    // A repair climbs the step back without a chip ...
+    REQUIRE(f.world.scars().reinforce(f.world, id, hp.max, tf.position, &sink));
+    f.world.scars().upkeep(f.world, kDt, &sink);
+    REQUIRE(count_events(sink, CombatEventType::ScarChipped) == 0);
+    REQUIRE(sc.chip_step == kScarChipSteps);
+
+    // ... and with no sink the steps are still kept, so attaching one later
+    // does not dump the backlog.
+    hp.current = hp.max * 0.5f;
+    f.world.scars().upkeep(f.world, kDt, nullptr);
+    sink.clear();
+    f.world.scars().upkeep(f.world, kDt, &sink);
+    REQUIRE(count_events(sink, CombatEventType::ScarChipped) == 0);
+}
+
+TEST_CASE("a persistent builder holds still along its new wall while it secretes, then roams",
+          "[sim][scar][swarm]") {
+    Field f(23, kH, /*hostile_on=*/false);
+    f.builder.build_cooldown = 3.0f;
+    f.builder.secrete_seconds = 1.0f;
+    f.builder.leash_radius = 5.0f;
+    f.builder.roam_speed_mult = 0.4f;
+    f.world.swarmers().set_profile(kBuilderSlot, f.builder);
+    SwarmerSpawnParams p;
+    p.position = Vec2{18.0f, 10.0f};
+    p.profile = kBuilderSlot;
+    p.owner = EntityId{7u};
+    p.seed = 0x51u;
+    p.goal = Vec2{30.0f, 10.0f};
+    p.has_goal = true;
+    p.persistent = true;
+    REQUIRE(f.world.swarmers().spawn(p));
+    const SwarmerBuffers& sw = f.world.swarmers();
+    // Walking to its site it is not secreting.
+    f.world.tick();
+    REQUIRE(sw.secrete_progress(0) < 0.0f);
+
+    u32 ticks = 0;
+    while (f.scar_count() == 0 && ticks < 240) {
+        f.world.tick();
+        ++ticks;
+    }
+    REQUIRE(f.scar_count() == 1);
+    REQUIRE((sw.flags[0] & swarmer_flags::kSecreting) != 0);
+    REQUIRE(sw.secrete_progress(0) >= 0.0f);
+    REQUIRE(sw.secrete_progress(0) < 0.1f);
+    const Bar bar = f.bar_of(f.first_scar());
+    const Vec2 axis{bar.cs(), bar.sn()};
+
+    // Most of a second later it has not moved, and lies along the wall.
+    const Vec2 at{sw.pos_x[0], sw.pos_y[0]};
+    for (int k = 0; k < 50; ++k) f.world.tick();
+    REQUIRE(math::length(Vec2{sw.pos_x[0], sw.pos_y[0]} - at) < 1.0e-3f);
+    const Vec2 heading = math::normalize_safe(Vec2{sw.vel_x[0], sw.vel_y[0]});
+    REQUIRE(std::fabs(heading.x * axis.x + heading.y * axis.y) > 0.97f);
+    REQUIRE(sw.secrete_progress(0) == Catch::Approx(50.0f / 60.0f).margin(0.03f));
+
+    // The hold is part of the rest, not added to it: it lets go after a
+    // second and roams for the rest of the three, then is due.
+    for (int k = 0; k < 15; ++k) f.world.tick();
+    REQUIRE((sw.flags[0] & swarmer_flags::kSecreting) == 0);
+    REQUIRE(sw.secrete_progress(0) < 0.0f);
+    for (int k = 0; k < 90; ++k) f.world.tick();
+    REQUIRE(math::length(Vec2{sw.pos_x[0], sw.pos_y[0]} - at) > 1.0f);
+    for (int k = 0; k < 60; ++k) f.world.tick();
+    REQUIRE(sw.builder_due(0));
 }

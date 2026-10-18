@@ -10,17 +10,18 @@
 // its face), and
 // the Goblet Cell's are the neutrophil body again in its own jade — so a
 // cloud reads as "which tower" by colour and "what kind" by silhouette,
-// exactly as the tower bodies do. The Fibroblast's builders are
-// little fibroblasts: a spindle (sdf_fibroblast_unit below, a cut-down
-// version of entity.frag's sdf_fibroblast) crawling heading-first toward
-// the site it will wall off.
+// exactly as the tower bodies do. The Fibroblast's builder is a
+// fibroblast (sdf_fibroblast_cell below): a liquid spindle that crawls
+// heading-first to its site, then lies along the wall it lays and spins the
+// collagen out of both poles.
 //
 // The SDFs below are copied from entity.frag rather than shared, because GLSL
 // has no include and the two passes have different instance layouts. If you
-// retouch a body there, retouch it here. The noise is one octave shorter
-// (three, not four): at a couple of world units across the fourth octave is
-// sub-pixel, and this pass draws hundreds of bodies to the entity pass's
-// dozens.
+// retouch a body there, retouch it here (the fibroblast's block is the same
+// text in both; entity.frag only spells tapered_segment with an sdf_). The
+// noise is one octave shorter (three, not four): at a couple of world units
+// across the fourth octave is sub-pixel, and this pass draws hundreds of
+// bodies to the entity pass's dozens.
 //
 // Kind arrives in bits 8..11 of the flags (sim::SwarmerKind), the tower's
 // tier in bits 12..15, tint is the releasing tower's hue
@@ -439,29 +440,196 @@ float sdf_macrophage(vec2 p, float phase, float tier, bool hide_pincers,
 const vec2 kEntityShadowDir = vec2(0.085, -0.070);
 
 // ---------------------------------------------------------------------------
-// BUILDER — a small fibroblast. A fusiform body drawn to points at both
-// ends, an oval nucleus in the waist, one trailing process. The tower's body
-// in entity.frag has the full version with the tier's worth of processes;
-// at unit size one is all that reads.
+// BUILDER -- a fibroblast, crawling.
+//
+// Same spindle as ever -- a body drawn out along the heading with a process
+// off each end -- but built the way the other cells here are built: a chain
+// of soft lobes fused with smin() under a domain-warped membrane, so it reads
+// as a sac of liquid rather than a cut-out. Local +x is the heading.
+//
+// THE CRAWL. A migrating fibroblast inches: the leading lamella reaches out
+// and sticks, the body stretches after it, then contracts and drags its tail
+// up. One stroke per cycle (fibro_stroke: +1 reach, -1 contract) drives the
+// stretch, the lamella's reach and the tail, and a swell rolls down the lobe
+// chain front to back once a stroke -- the peristaltic wave that makes it
+// look like it is pulling itself along. `move` (0..1, its speed over its
+// profile speed) scales all of it, so a cell standing still only breathes.
+//
+// SECRETION (`secrete` 0..1 while it lays or mends a wall; it has turned to
+// lie along the wall by then): it draws out long and thin, its vesicles run
+// to the two poles, and each pole spins out a crimped collagen thread. The
+// particle layer carries the threads on from there to the wall.
 // ---------------------------------------------------------------------------
-float sdf_fibroblast_unit(vec2 p, float phase, out float nucleus_d) {
-    float wx = fbm(p * 5.0 + vec2(phase * 0.08, 0.0)) - 0.5;
-    float wy = fbm(p * 5.0 + vec2(3.1, -phase * 0.07)) - 0.5;
-    vec2 wp = p + vec2(wx, wy) * 0.035;
-    float taper = 2.3 + 3.2 * smoothstep(0.16, 0.44, abs(wp.x));
-    float body = length(vec2(wp.x, wp.y * taper)) - 0.44;
-    body += 0.010 * sin(wp.x * 5.0 + phase * 0.3) * (1.0 - abs(wp.x) * 1.4);
-    // One trailing process off the back tip, waving with the crawl.
-    vec2 root = vec2(-0.41, 0.0);
-    vec2 tip = root + vec2(-0.17, 0.06 * sin(phase * 0.6));
-    vec2 pa = p - root, ba = tip - root;
-    float h = clamp(dot(pa, ba) / max(dot(ba, ba), 1e-8), 0.0, 1.0);
-    float proc = length(pa - ba * h) - (0.014 - 0.006 * h);
-    body = smin(body, proc, 0.03);
-    nucleus_d = length(vec2(p.x, p.y * 1.9)) - 0.115;
+// The lobe chain, nose to tail: centre x and radius.
+const float kFibroLobeX[6] = float[6](0.255, 0.115, -0.035, -0.180, -0.300, -0.385);
+const float kFibroLobeR[6] = float[6](0.122, 0.166, 0.182, 0.150, 0.100, 0.058);
+
+// The crawl stroke: +1 the reach, -1 the contraction. Two sines so the stride
+// never quite repeats.
+float fibro_stroke(float c) { return 0.82 * sin(c) + 0.18 * sin(2.0 * c + 0.9); }
+
+float sdf_fibroblast_cell(vec2 p, float phase, float move, float secrete, float load,
+                          out float nucleus_d, out float nucleolus, out float vesicle,
+                          out float lamella, out float thread_d, out float pole_glow) {
+    float c = phase * 1.15;
+    float stroke = fibro_stroke(c) * move;
+    float pull = sin(3.14159 * clamp(secrete, 0.0, 1.0));
+
+    float wx = fbm(p * 4.0 + vec2(phase * 0.10, 0.0)) - 0.5;
+    float wy = fbm(p * 4.0 + vec2(3.1, -phase * 0.09)) - 0.5;
+    vec2 wp = p + vec2(wx, wy) * 0.050;
+
+    // Stretch on the reach, bunch on the contraction, long and thin while it
+    // secretes; volume kept, so longer is thinner.
+    float sx = 1.0 + 0.09 * stroke + 0.16 * pull;
+    vec2 bp = vec2(wp.x / sx, wp.y * sx);
+    bp.x += 0.020 * min(stroke, 0.0);
+
+    // The lobe chain, with the crawl's swell rolling down it.
+    float roll = fract(c / 6.2831853);
+    float body = kFar;
+    for (int k = 0; k < 6; ++k) {
+        float fk = float(k);
+        float wave = pow(max(cos(6.2831853 * (roll - fk / 6.0)), 0.0), 3.0);
+        float r = kFibroLobeR[k] * (1.0 - 0.10 * pull) + (0.006 + 0.024 * move) * wave;
+        vec2 lc = vec2(kFibroLobeX[k], 0.014 * sin(phase * 0.31 + fk * 0.9));
+        body = smin(body, length((bp - lc) * vec2(0.78, 1.0)) - r, 0.11);
+    }
+
+    // Leading lamella: a flat fan on the nose, its edge ruffling. Reaches on
+    // the stroke, pulls in on the contraction.
+    float reach = 0.032 * max(stroke, 0.0);
+    vec2 fc = vec2(0.345 + reach, 0.0);
+    float lam = length((bp - fc) * vec2(1.9, 1.10)) - 0.120;
+    for (int k = 0; k < 4; ++k) {
+        float fk = float(k);
+        float a = (fk - 1.5) * 0.44;
+        float ruff = 0.5 + 0.5 * sin(phase * 1.9 - fk * 1.4);
+        vec2 rc = fc + vec2(cos(a) * 0.070, sin(a) * 0.105) * (1.0 + 0.18 * ruff);
+        lam = smin(lam, length(bp - rc) - (0.034 + 0.010 * ruff), 0.045);
+    }
+    body = smin(body, lam, 0.08);
+    lamella = smoothstep(0.26, 0.42, bp.x);
+
+    // Two filopodia off the lamella's corners, flicking.
+    for (int k = 0; k < 2; ++k) {
+        float side = k == 0 ? 1.0 : -1.0;
+        float a = side * (0.62 + 0.10 * sin(phase * 1.3 + side));
+        vec2 root = fc + vec2(cos(a) * 0.07, sin(a) * 0.12);
+        vec2 tip = root + vec2(cos(a * 0.6), sin(a * 0.6)) * (0.075 + 0.03 * sin(phase * 1.7 + side * 2.0));
+        body = smin(body, tapered_segment(bp, root, tip, 0.013, 0.004), 0.02);
+    }
+
+    // Trailing tail: dragged out on the reach, snapped up on the contraction.
+    float tail_len = (0.16 + 0.05 * stroke) * (1.0 - 0.7 * pull);
+    vec2 t0 = vec2(-0.40, 0.0);
+    vec2 t1 = t0 + vec2(-tail_len, 0.05 * sin(phase * 0.6) + 0.015 * stroke);
+    body = smin(body, tapered_segment(bp, t0, t1, 0.034, 0.008), 0.035);
+
+    // Secretion threads, crimped, out of both poles.
+    thread_d = kFar;
+    pole_glow = 0.0;
+    if (secrete > 0.0) {
+        float out_t = smoothstep(0.0, 0.55, secrete) * (1.0 - smoothstep(0.82, 1.0, secrete));
+        for (int k = 0; k < 2; ++k) {
+            float side = k == 0 ? 1.0 : -1.0;
+            vec2 root = vec2(side * 0.38, 0.0);
+            float len = 0.38 * out_t;
+            float x = (bp.x - root.x) * side;
+            float crimp = 0.020 * sin(x * 40.0 - phase * 4.0) * clamp(x / 0.08, 0.0, 1.0);
+            float th = mix(0.028, 0.009, clamp(x / max(len, 1e-3), 0.0, 1.0));
+            float d = length(vec2(max(abs(x - 0.5 * len) - 0.5 * len, 0.0), bp.y - crimp)) - th;
+            thread_d = min(thread_d, d);
+            pole_glow = max(pole_glow, out_t * exp(-dot(bp - root, bp - root) / 0.003));
+        }
+        body = smin(body, thread_d, 0.03);
+    }
+
+    // Nucleus: an ellipsoid in the waist, lagging the crawl a beat.
+    vec2 nc = vec2(-0.040 - 0.028 * stroke, 0.006 * sin(phase * 0.5));
+    vec2 np = (bp - nc);
+    nucleus_d = (length(np * vec2(1.0 / 0.130, 1.0 / 0.085)) - 1.0) * 0.085;
+    nucleolus = 0.0;
+    for (int k = 0; k < 2; ++k) {
+        vec2 oc = nc + vec2(0.032 - 0.066 * float(k), 0.014 - 0.030 * float(k));
+        nucleolus = max(nucleolus, 1.0 - smoothstep(0.011, 0.020, length(bp - oc)));
+    }
+
+    // Procollagen vesicles -- the wall it carries. They stream back down the
+    // cell as it crawls, refill while it rests, and on secretion run out to
+    // the poles and go.
+    float vd = kFar;
+    for (int k = 0; k < 9; ++k) {
+        float fk = float(k);
+        if (fk >= load * 9.0) break;
+        float h1 = fract(sin(fk * 12.9898) * 43758.5453);
+        float h2 = fract(sin(fk * 78.233) * 43758.5453);
+        float x = mix(0.27, -0.27, fract(h1 + phase * 0.030 * (0.35 + move)));
+        float half_w = 0.13 * (1.0 - smoothstep(0.10, 0.30, abs(x)));
+        vec2 vc = vec2(x, (h2 * 2.0 - 1.0) * half_w);
+        // Kept off the nucleus.
+        vec2 off = vc - nc;
+        float in_n = length(off * vec2(1.0 / 0.15, 1.0 / 0.10));
+        if (in_n < 1.0) vc = nc + off / max(in_n, 0.2);
+        float r = 0.017 + 0.008 * h1;
+        if (secrete > 0.0) {
+            float side = vc.x >= nc.x ? 1.0 : -1.0;
+            float go = smoothstep(h1 * 0.25, 0.40 + h1 * 0.25, secrete);
+            vc = mix(vc, vec2(side * 0.38, 0.0), go);
+            r *= 1.0 - go;
+        }
+        vd = min(vd, length(bp - vc) - r);
+    }
+    vesicle = 1.0 - smoothstep(-0.006, 0.004, vd);
     return body;
 }
 
+// Shades the cell. Straight-alpha colour for the body; `shadow` separately.
+vec4 shade_fibroblast_cell(vec2 p, float phase, float move, float secrete, float load, float engaged_rim,
+                           vec3 hue, out float shadow) {
+    float nucleus_d, nucleolus, vesicle, lamella, thread_d, pole_glow;
+    float body_d = sdf_fibroblast_cell(p, phase, move, secrete, load, nucleus_d, nucleolus,
+                                       vesicle, lamella, thread_d, pole_glow);
+    float a = 1.0 - smoothstep(-0.022, 0.008, body_d);
+    vec2 sp = p - vec2(0.070, -0.060);
+    float sd = length(vec2(sp.x * 0.92, sp.y * 2.0)) - 0.40;
+    shadow = (1.0 - smoothstep(-0.12, 0.05, sd)) * 0.34;
+
+    // Wet: pale and thin at the rim and over the lamella, a deep clear blue
+    // where the cell is thick -- the subsurface ramp every body here uses.
+    float depth = clamp(-body_d * 5.6, 0.0, 1.0) * (1.0 - 0.25 * lamella);
+    vec3 cyto = mix(vec3(0.50, 0.76, 1.00), vec3(0.14, 0.35, 0.80), depth);
+    cyto = mix(cyto, hue, 0.22);
+    // Rough ER: a fine streaky grain along the long axis.
+    float er = smoothstep(0.55, 0.80, fbm(vec2(p.x * 9.0 + phase * 0.03, p.y * 24.0)));
+    float in_cyto = smoothstep(0.0, 0.030, nucleus_d);
+    vec3 rgb = mix(cyto, vec3(0.74, 0.89, 1.00), er * in_cyto * 0.32 * depth);
+
+    // Vesicles: pearly beads.
+    rgb = mix(rgb, vec3(0.84, 0.95, 1.00), vesicle * in_cyto * 0.70);
+
+    // Nucleus: deep indigo, chromatin mottle, a pale envelope, nucleoli.
+    float nuc = 1.0 - smoothstep(-0.010, 0.010, nucleus_d);
+    float chromatin = fbm(p * 15.0 + vec2(phase * 0.03, 0.0));
+    rgb = mix(rgb, mix(vec3(0.10, 0.14, 0.40), vec3(0.27, 0.35, 0.70), chromatin), nuc * 0.92);
+    rgb = mix(rgb, vec3(0.56, 0.71, 0.98), (1.0 - smoothstep(0.0, 0.016, abs(nucleus_d))) * 0.50);
+    rgb = mix(rgb, vec3(0.05, 0.07, 0.25), nucleolus * nuc * 0.70);
+
+    // The threads it spins and the hot poles they leave from.
+    float thread = 1.0 - smoothstep(-0.004, 0.008, thread_d);
+    rgb = mix(rgb, vec3(0.90, 0.97, 1.00), thread * 0.85);
+    rgb = mix(rgb, vec3(0.86, 0.96, 1.00), clamp(pole_glow, 0.0, 1.0) * 0.35);
+
+    // Membrane rim, and a soft wet highlight off the key light.
+    float rim = 1.0 - smoothstep(0.0, 0.032, abs(body_d));
+    rgb = mix(rgb, vec3(0.74, 0.90, 1.00), rim * (0.45 + engaged_rim));
+    vec2 hl = p - vec2(-0.05, 0.075);
+    rgb = mix(rgb, vec3(1.0), exp(-dot(hl, hl) / 0.008) * smoothstep(0.0, -0.05, body_d) * 0.22);
+
+    // The lamella is a thin sheet: a little of the ground shows through it.
+    float alpha = a;
+    return vec4(rgb, alpha);
+}
 // ---------------------------------------------------------------------------
 // LATCHER — a small Cytotoxic T, drawn to the silhouette of its HUD icon
 // (assets/ui/icons/tower_cytotoxic_t.svg): a round cell with a gently
@@ -649,33 +817,14 @@ void main() {
     }
 
     if (kind == 5u) {
-        // BUILDER: a small fibroblast, salmon, spindle along the heading.
-        float nucleus_d;
-        float body_d = sdf_fibroblast_unit(p, phase, nucleus_d);
-
-        float a = 1.0 - smoothstep(-0.026, 0.010, body_d);
-        vec2 sp = p - vec2(0.085, -0.070);
-        float sd = length(vec2(sp.x, sp.y * 2.4)) - 0.42;
-        float sh = (1.0 - smoothstep(-0.10, 0.03, sd)) * 0.42;
-        if (a <= 0.0 && sh <= 0.0) discard;
-
-        float depth = clamp(-body_d * 5.0, 0.0, 1.0);
-        vec3 hue = v_tint.rgb;
-        vec3 cytoplasm = mix(vec3(1.00, 0.92, 0.88), vec3(0.82, 0.48, 0.44), depth);
-        cytoplasm = mix(cytoplasm, hue, 0.30);
-        // Collagen streaks along the long axis.
-        float fibre = smoothstep(0.42, 0.62, vnoise(vec2(p.x * 12.0 + phase * 0.02, p.y * 60.0)));
-        float in_cyto = smoothstep(0.0, 0.04, nucleus_d);
-        vec3 rgb = mix(cytoplasm, vec3(1.00, 0.86, 0.80), fibre * in_cyto * 0.45 * depth);
-
-        float nuc = 1.0 - smoothstep(-0.010, 0.010, nucleus_d);
-        rgb = mix(rgb, vec3(0.46, 0.22, 0.32), nuc * 0.88);
-        rgb = mix(rgb, vec3(0.92, 0.70, 0.72), (1.0 - smoothstep(0.0, 0.016, abs(nucleus_d))) * 0.45);
-
-        float rim = 1.0 - smoothstep(0.0, 0.040, abs(body_d));
-        rgb = mix(rgb, vec3(1.00, 0.96, 0.94), rim * (0.60 + engaged_rim));
-
-        frag_color = over_shadow(rgb, a * v_tint.a, sh * v_tint.a);
+        // BUILDER: a fibroblast, crawling heading-first, or secreting along
+        // the wall it is laying. See sdf_fibroblast_cell above; the crawl
+        // pace, the secretion and the procollagen load arrive in arm row 0
+        // (Renderer.cpp, submit_swarmers).
+        float sh;
+        vec4 cell = shade_fibroblast_cell(p, phase, clamp(v_arm0.x, 0.0, 1.0), max(v_arm0.y, 0.0),
+                                          clamp(v_arm0.z, 0.0, 1.0), engaged_rim, v_tint.rgb, sh);
+        frag_color = over_shadow(cell.rgb, cell.a * v_tint.a, sh * v_tint.a);
         if (frag_color.a <= 0.001) discard;
         return;
     }

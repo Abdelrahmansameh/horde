@@ -5,6 +5,7 @@
 #include "gui/draw/DrawList.h"
 #include "render/Gl.h"
 #include "render/Shader.h"
+#include "render/Renderer.h"
 
 #include <cmath>
 #include <cstddef>
@@ -104,6 +105,7 @@ struct LayerTarget {
 struct GlBackend::Impl {
     render::ShaderManager shaders;
     render::ShaderProgram program;
+    render::ShaderProgram virus_program;
     gl::VertexArray vao;
     StreamBuffer vbo, ibo, ssbo;
     AtlasTexture font_tex, icon_tex;
@@ -119,6 +121,12 @@ bool GlBackend::init() {
     impl_->program = impl_->shaders.load_graphics("gui", "gui.vert", "gui.frag");
     if (!impl_->program.valid()) {
         error_ = "gui shader: " + impl_->shaders.last_error();
+        impl_.reset();
+        return false;
+    }
+    impl_->virus_program = impl_->shaders.load_graphics("gui_virus", "gui_virus.vert", "chaff.frag");
+    if (!impl_->virus_program.valid()) {
+        error_ = "gameplay virus shader: " + impl_->shaders.last_error();
         impl_.reset();
         return false;
     }
@@ -161,7 +169,10 @@ void GlBackend::shutdown() {
 
 void GlBackend::poll_shader_reload() {
     if (!impl_) return;
-    if (impl_->shaders.poll_reload() > 0) impl_->program = impl_->shaders.get("gui");
+    if (impl_->shaders.poll_reload() > 0) {
+        impl_->program = impl_->shaders.get("gui");
+        impl_->virus_program = impl_->shaders.get("gui_virus");
+    }
 }
 
 void GlBackend::render(const DrawList& dl, const Atlas* fonts, const Atlas* icons, i32 fb_width,
@@ -258,6 +269,19 @@ void GlBackend::render(const DrawList& dl, const Atlas* fonts, const Atlas* icon
 
     for (const DrawCmd& c : dl.commands()) {
         switch (c.kind) {
+            case CmdKind::GameplayVirus:
+                glUseProgram(im.virus_program.gl_id);
+                glUniform4f(0, sx, sy, -1.0f, 1.0f);
+                glUniform1f(17, render::kShadowsEnabled ? 1.0f : 0.0f);
+                // chaff.frag emits straight alpha; GUI emits premultiplied.
+                glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+                set_scissor(c.clip);
+                glStencilFunc(GL_EQUAL, static_cast<GLint>(c.stencil_depth), 0xFF);
+                glStencilOp(GL_KEEP, GL_KEEP, GL_KEEP);
+                draw_range(c);
+                glBlendFuncSeparate(GL_ONE, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+                glUseProgram(im.program.gl_id);
+                break;
             case CmdKind::Draw:
                 set_scissor(c.clip);
                 glStencilFunc(GL_EQUAL, static_cast<GLint>(c.stencil_depth), 0xFF);

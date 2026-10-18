@@ -118,7 +118,17 @@ enum class CombatEventType : u8 {
     /// A scar came down. Same fields as ScarBuilt; `magnitude` is 1 when the
     /// horde chewed it through and 0 when it ran out its own lifetime.
     ScarDestroyed = 16,
-    Count = 17,
+    /// A builder laid its collagen on a standing scar instead of starting a
+    /// new one (ScarSystem::reinforce). Same fields as ScarBuilt, plus
+    /// `secondary` = where the builder stood, which ScarBuilt also carries.
+    ScarReinforced = 17,
+    /// The horde knocked a piece out of a scar: its integrity fell another
+    /// step of sim::kScarChipSteps. `origin` = a point on one of its long
+    /// faces, `direction` = outward from that face, `secondary` = the scar's
+    /// centre, `radius` = its half-width, `magnitude` = the steps it fell
+    /// this tick. Purely a cue for the debris; the sim reads nothing back.
+    ScarChipped = 18,
+    Count = 19,
 };
 
 /// One instantaneous combat happening. Trivially copyable, kept small and flat

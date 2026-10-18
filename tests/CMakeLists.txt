@@ -4,6 +4,7 @@
 file(GLOB IMMUNE_TEST_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/test_*.cpp")
 
 add_executable(immune_tests ${IMMUNE_TEST_SOURCES})
+add_dependencies(immune_tests immune) # CLI integration checks launch the game executable.
 
 target_link_libraries(immune_tests PRIVATE
   immune_app
@@ -14,7 +15,7 @@ catch_discover_tests(immune_tests
   DISCOVERY_MODE PRE_TEST
   WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/..")
 
-if(WIN32)
+if(WIN32 AND NOT IMMUNE_STANDALONE)
   add_custom_command(TARGET immune_tests POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
             $<TARGET_RUNTIME_DLLS:immune_tests> $<TARGET_FILE_DIR:immune_tests>

@@ -67,6 +67,7 @@ const uint kBeam   = 5u;
 const uint kBolt   = 6u;
 const uint kFragment = 7u;
 const uint kGlobule  = 8u;
+const uint kFibril   = 9u;
 
 // Soft glow needs to bleed past the shape's true edge, so the quad is a little
 // larger than the shape it holds — same trick chaff.vert/field.vert use.
@@ -135,8 +136,14 @@ void main() {
         // piece contracts toward the quad's centre, which is the cell's old
         // centre, so it draws in on itself rather than sliding over the gap.
         half_l = half_w = 0.5 * i_size * mix(1.0, i_end_scale, age);
+    } else if (kind == kFibril) {
+        // A strand along i_rotation, i_size long. The quad is three strand
+        // thicknesses wide so the crimp (particle.frag) has room to swing.
+        half_l = 0.5 * i_size;
+        half_w = 1.5 * i_size * clamp(i_shape > 0.0 ? i_shape : 0.10, 0.02, 0.30);
     }
-    // kShard, kFragment and kGlobule turn with i_rotation (CPU-integrated spin).
+    // kShard, kFragment, kGlobule and kFibril turn with i_rotation
+    // (CPU-integrated spin).
 
     float aspect = half_l / max(half_w, 1e-6);
 

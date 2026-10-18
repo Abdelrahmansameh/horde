@@ -14,6 +14,33 @@ using namespace immune;
 using namespace immune::gui;
 using Catch::Approx;
 
+TEST_CASE("Gameplay virus batches preserve GUI draw order and clipping", "[gui][draw][virus_swipe]") {
+    DrawList dl;
+    dl.reset(Vec2{400, 300}, 1.0f, 0.0f);
+    ShapeDesc panel;
+    panel.center = Vec2{100, 100};
+    panel.half_size = Vec2{30, 30};
+    panel.fill = kWhite;
+    dl.shape(panel);
+    dl.push_clip_rect(Rect{Vec2{10, 20}, Vec2{300, 200}});
+    dl.push_alpha(0.5f);
+    const Rect box{Vec2{40, 40}, Vec2{80, 80}};
+    dl.gameplay_virus(box, rgb(0x33EF61), 2.5f, 0.0f);
+    dl.gameplay_virus(box, rgb(0x33EF61), 1.0f, 0.0f);
+    dl.pop_alpha();
+    dl.pop_clip_rect();
+    dl.shape(panel);
+    REQUIRE(dl.commands().size() == 3);
+    CHECK(dl.commands()[0].kind == CmdKind::Draw);
+    CHECK(dl.commands()[1].kind == CmdKind::GameplayVirus);
+    CHECK(dl.commands()[1].index_count == 12);
+    CHECK(dl.commands()[1].clip.min.x == 10);
+    CHECK(dl.commands()[1].clip.min.y == 20);
+    CHECK(dl.commands()[2].kind == CmdKind::Draw);
+    CHECK(dl.records()[1].geom[0] == 2.5f);
+    CHECK((dl.vertices()[4].color >> 24) == 128);
+}
+
 TEST_CASE("Colours pack premultiplied and parse from hex", "[gui][draw]") {
     CHECK(pack_premul(rgb(0xFF0000)) == 0xFF0000FFu);
     // Half-transparent white: every channel halves.

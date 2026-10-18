@@ -53,6 +53,21 @@ class DistanceField;
 struct SwarmerProfile;
 struct Bar;
 
+/// How many pieces a scar comes apart in, as far as the debris goes: each
+/// time its integrity falls past another 1/kScarChipSteps, upkeep() raises a
+/// ScarChipped event. Cosmetic; the wall itself is drawn from its integrity.
+constexpr u32 kScarChipSteps = 14;
+
+/// How long a reinforce is drawn knitting in (comp::Scar::repair_age runs
+/// against it). The renderer reads the same number.
+constexpr f32 kScarRepairSeconds = 1.2f;
+
+/// How long a new scar is drawn assembling (comp::Scar::age runs against
+/// it). Matches the builder's shipped secrete_seconds (towers.json), so the
+/// wall finishes knitting as the cell lets go of it. Drawn only: the bar
+/// blocks the horde from the tick it is laid.
+constexpr f32 kScarAssembleSeconds = 1.6f;
+
 /// One request to lay a scar. The bar's orientation is not part of it: it is
 /// read off the flow field at the site when the scar goes down -- across the
 /// local arrows, plus a random tilt of up to `tilt` (scar_rotation below).
@@ -133,6 +148,13 @@ public:
     EntityId build(SimWorld& world, const ScarDesc& desc, ScarBuildResult* result,
                    CombatEventSink* events);
 
+    /// Lays `amount` hit points of collagen on the live scar `target`, capped
+    /// at its max, starts its repair clock and raises ScarReinforced (with
+    /// `from`, where the builder stood). What build() does with a request
+    /// that lands on a standing scar. False, doing nothing, if `target` is
+    /// not a live scar or `amount` is not positive.
+    bool reinforce(SimWorld& world, EntityId target, f32 amount, Vec2 from, CombatEventSink* events);
+
     /// Nearest live scar whose centre is within `radius` of `p`, optionally
     /// only those `owner` laid. Invalid if none.
     EntityId nearest(const SimWorld& world, Vec2 p, f32 radius, EntityId owner = EntityId{}) const;
@@ -152,12 +174,19 @@ public:
 
     /// Tears down every scar at zero integrity or past its lifetime: cells
     /// back to the mask, flow marked dirty, entity destroyed, one event
-    /// raised. Run once per tick after the hostile damage has landed.
+    /// raised. Also keeps the live scars' cosmetic clocks (comp::Scar) and
+    /// raises ScarChipped as their integrity steps down. Run once per tick
+    /// after the hostile damage has landed.
     void upkeep(SimWorld& world, f32 dt, CombatEventSink* events);
 
     const ScarStats& stats() const { return stats_; }
 
 private:
+    /// upkeep()'s debris pass: ScarChipped for every standing scar whose
+    /// integrity fell past another step since it last announced one. With
+    /// no sink the steps are still kept, so attaching one later is quiet.
+    void raise_chips(SimWorld& world, CombatEventSink* events);
+
     ScarStats stats_{};
 };
 
