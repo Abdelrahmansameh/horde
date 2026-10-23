@@ -38,7 +38,7 @@
 #pragma once
 
 #include "core/Types.h"
-#include "sim/Attribution.h"
+#include "sim/CombatMetrics.h"
 
 #include <vector>
 
@@ -57,17 +57,7 @@ inline constexpr u8 kPendingKill = 1u << 1; ///< Retire in the next compact().
 /// Passes through its first victim and keeps flying (pierce upgrades). Without
 /// this a round retires on its first hit.
 inline constexpr u8 kPiercing    = 1u << 2;
-/// Incendiary Rounds (sim/Immunity.h): where this round lands is logged for
-/// SimWorld to set alight. Only rounds carrying it are logged at all.
-inline constexpr u8 kIncendiary  = 1u << 3;
 } // namespace projectile_flags
-
-/// One incendiary round that landed on an agent this tick.
-struct ProjectileImpactRecord {
-    Vec2 position{0.0f, 0.0f};
-    EntityId owner{};
-    u16 visual_id = 0;
-};
 
 /// How the renderer sizes one round; the sim never reads it. A round's age is
 /// born_life - life, so nothing here needs ticking.
@@ -102,8 +92,9 @@ struct ProjectileSpawnParams {
     /// Bitmask of PathogenFamily bits this round may damage. 0xFF = all.
     u8 family_mask = 0xFF;
     u8 flags = 0;
-    /// Owning tower, for kill attribution back to the economy.
+    /// Owning tower or direct-cell handle, retained for combat attribution.
     EntityId owner{};
+    TowerType source = TowerType::Count;
     /// Purely cosmetic: lets the VFX layer pick a tracer look per tower tier
     /// without the sim knowing anything about rendering.
     u16 visual_id = 0;
@@ -132,6 +123,7 @@ public:
     std::vector<u8>  flags;
     std::vector<u16> visual_id;
     std::vector<EntityId> owner;
+    std::vector<TowerType> source;
 
     /// Reserves every stream. Call once at level load. Sized generously — the
     /// Gunner is expected to keep thousands of rounds live at high tiers.
@@ -144,6 +136,20 @@ public:
     /// Appends one round. Silently drops (returns false) when full: a missing
     /// tracer is invisible, a reallocation mid-tick is not acceptable.
     bool spawn(const ProjectileSpawnParams& params);
+    void set_combat_metrics(CombatMetrics* metrics) {
+        combat_metrics_ = metrics;
+        if (metrics) {
+            metric_hit_seen_.assign(capacity_, 0);
+            metrics->observe_pool(CombatSpawnPool::Projectiles, count_);
+        }
+    }
+    CombatMetrics* combat_metrics() const { return combat_metrics_; }
+    void observe_hit(usize index, bool retires) {
+        if (!combat_metrics_ || index >= count_) return;
+        combat_metrics_->record_projectile_outcome({owner[index], source[index], CombatDamageSource::Projectile},
+            ProjectileOutcome::AgentHit, retires, metric_hit_seen_[index] == 0);
+        metric_hit_seen_[index] = 1;
+    }
 
     /// Flags a round for removal. Removal happens in compact(), so indices stay
     /// stable within a tick.
@@ -155,6 +161,8 @@ public:
     void clear();
 
 private:
+    CombatMetrics* combat_metrics_ = nullptr;
+    std::vector<u8> metric_hit_seen_;
     void assert_invariants() const;
 
     usize count_ = 0;
@@ -193,28 +201,8 @@ public:
 
     const ProjectileStats& last_stats() const { return last_; }
 
-    /// Attaches (or detaches, with null) the per-owner accounting sink, exactly
-    /// as DamageSystem does -- the Gunner is the one tower whose entire output
-    /// arrives through this path, so a sink that skipped it would rank it at
-    /// zero. Null by default; see sim/Attribution.h.
-    void set_attribution(DamageAttribution* sink) { attribution_ = sink; }
-    DamageAttribution* attribution() const { return attribution_; }
-
-    /// Where kIncendiary rounds landed on the last update(), for SimWorld to
-    /// turn into burning patches. Cleared at the start of every update() and
-    /// never grown past `max_impact_log` (set it before the first tick), so a
-    /// busy board drops the excess rather than allocating mid-tick.
-    const std::vector<ProjectileImpactRecord>& impact_log() const { return impact_log_; }
-    void set_max_impact_log(usize n) {
-        max_impact_log_ = n;
-        impact_log_.reserve(n);
-    }
-
 private:
     ProjectileStats last_{};
-    DamageAttribution* attribution_ = nullptr;
-    std::vector<ProjectileImpactRecord> impact_log_;
-    usize max_impact_log_ = 0;
 };
 
 } // namespace immune::sim

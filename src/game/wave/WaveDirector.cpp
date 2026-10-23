@@ -67,6 +67,7 @@ void WaveDirector::start(sim::SimWorld& world) {
     // or the player restarted between the clear and the next tick) is not this
     // run's ATP.
     pending_atp_reward_ = 0;
+    metrics_.assign(waves_.size(), WaveMetrics{});
 }
 
 void WaveDirector::request_early_start() { early_start_requested_ = true; }
@@ -89,6 +90,7 @@ void WaveDirector::tick(sim::SimWorld& world, Rng& rng, f32 dt) {
         return;
     }
     const WaveDef& wave = waves_[status_.wave_index];
+    WaveMetrics& metrics = metrics_[status_.wave_index];
 
     switch (status_.phase) {
         case WavePhase::Prep: {
@@ -127,6 +129,8 @@ void WaveDirector::tick(sim::SimWorld& world, Rng& rng, f32 dt) {
                     // to spawn from; count this entry done so the wave can't
                     // stall waiting for spawns that will never happen.
                     const u32 remaining_here = e.count - spawned_so_far_[i];
+                    metrics.requested += remaining_here;
+                    metrics.denied += remaining_here;
                     spawned_so_far_[i] = e.count;
                     status_.remaining_to_spawn -=
                         math::min(remaining_here, status_.remaining_to_spawn);
@@ -242,8 +246,11 @@ void WaveDirector::tick(sim::SimWorld& world, Rng& rng, f32 dt) {
                     }
 
                     spawned_so_far_[i] += spawned;
+                    metrics.requested += to_spawn;
+                    metrics.spawned += spawned;
+                    metrics.denied += to_spawn - spawned;
                     status_.remaining_to_spawn -=
-                        math::min(spawned, status_.remaining_to_spawn);
+                        math::min(to_spawn, status_.remaining_to_spawn);
                     // spawn_burst may spawn fewer than asked (capacity). Count
                     // the shortfall as done too, so a full chaff buffer can't
                     // stall the wave forever waiting for room that never frees.
@@ -256,6 +263,9 @@ void WaveDirector::tick(sim::SimWorld& world, Rng& rng, f32 dt) {
                         const sim::named::SpawnParams params{e.elite_id, spawn_point->position + jitter,
                                                               1.0f, 0.0f};
                         const EntityId id = sim::named::spawn(world, params);
+                        ++metrics.requested;
+                        if (id.valid()) ++metrics.spawned;
+                        else ++metrics.denied;
                         ++spawned_so_far_[i];
                         if (status_.remaining_to_spawn > 0) --status_.remaining_to_spawn;
                         if (!id.valid()) break; // named-agent cap reached; stop trying this tick
@@ -278,6 +288,9 @@ void WaveDirector::tick(sim::SimWorld& world, Rng& rng, f32 dt) {
             const bool horde_gone = world.chaff().total_density() <= 0.0f;
             constexpr f32 kClearingTimeout = 60.0f;
             if (horde_gone || clearing_elapsed_ >= kClearingTimeout) {
+                metrics.completed = true;
+                metrics.clearing_timeout = !horde_gone;
+                metrics.survivors_on_completion = world.chaff().count();
                 pending_atp_reward_ += wave.atp_reward;
                 const usize next_index = static_cast<usize>(status_.wave_index) + 1u;
                 if (next_index < waves_.size()) {

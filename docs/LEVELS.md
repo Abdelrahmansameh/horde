@@ -38,7 +38,7 @@ Non-campaign content remains reachable with `--level`, the gym's `level` command
 | [organ_chamber_1_lymph_node_core.json](../assets/levels/organ_chamber_1_lymph_node_core.json), [organ_chamber_1b_infected.json](../assets/levels/organ_chamber_1b_infected.json) | Five-spawn organ-chamber maps |
 | [skin_1_breach.json](../assets/levels/skin_1_breach.json) | Skin content map |
 
-The built-in `LevelLoader::default_test_level()` is a code fixture, not a JSON catalog entry. Benchmark/script/screenshot setup can fall back to it when a requested file is missing or malformed; autoplay fails instead. Check stderr before trusting a report about a supplied level.
+The built-in `LevelLoader::default_test_level()` is a code fixture, not a JSON catalog entry. Benchmark/script/screenshot setup can fall back to it when a requested file is missing or malformed. Check stderr before trusting a report about a supplied level.
 
 ## Schema and coordinates
 
@@ -77,7 +77,7 @@ This illustrates the data shape. Validate and playtest a newly authored file bef
 | `vessels[]` | Required for a valid level: unique `id`, at least two Catmull-Rom `points` with `p` and positive `w`; optional `lane_id`, `vessel_type`, `children[]` |
 | `spawn_points[]` | Unique `id`, `pos`, positive `radius` (default 3), optional `lane_id` |
 | `objectives[]` | Unique `id`, `pos`, positive `half_extents`, optional `rotation`, positive `integrity` (default 100) |
-| `placement_zones[]` | Optional rectangles with `min`, `max`; optional `concentrated: false` and `priority: 1` planning hints |
+| `placement_zones[]` | Optional rectangles with `min`, `max`; optional compatibility fields `concentrated` (default false) and `priority` (default 1) |
 | `squad_paths[]` | Optional unique `id`, `lane_id`, at least two `[x,y]` polyline points, positive `half_width` (default 6) |
 | `ambient_drift` | Optional `[x,y]`; a nonzero level value overrides global ambient drift |
 
@@ -134,12 +134,12 @@ Wave index is derived from array order and is not an independent authored field.
 | `camera.center`, `view_height` | Starting play framing; zero view height derives from bounds |
 | `camera.min_view_height`, `max_view_height` | Optional zoom limits; zero leaves a limit unspecified |
 | `economy.starting_atp` | Nonzero overrides the opening bankroll; 0 uses the global value |
-| `economy.income_multiplier` | Multiplies passive income and density income; default 1 |
+| `economy.income_multiplier` | Multiplies ATP earned per density removed; default 1 |
 | `allowed_towers[]` | Type-name allowlist; empty means all types |
 | `win.survive_seconds` | Positive survival duration is an alternative win condition; 0 uses wave clearing |
 | `editor.grid_size`, `camera_center`, `camera_view_height`, `notes` | Persisted authoring annotations; separate from game-camera framing |
 
-Interactive `App::apply_level_rules()` combines economy overrides with progression effects and installs the allowlist. Both stationary placement and direct-cell deployment can enforce an installed allowlist and authored zones. Zone checks require the unit footprint to fit in one zone; empty zones mean anywhere on valid tissue within the play bounds. The current headless autoplay/screenshot setup does not install every interactive schema-2 rule; see [Balance](BALANCE.md) before interpreting those runs as full campaign parity.
+Interactive `App::apply_level_rules()` combines economy overrides with progression effects and installs the allowlist. Both stationary placement and direct-cell deployment can enforce an installed allowlist and authored zones. Zone checks require the unit footprint to fit in one zone; empty zones mean anywhere on valid tissue within the play bounds. Screenshot setup does not install every interactive schema-2 rule and is not a full campaign/progression replay; see [Testing](TESTING.md) for capture scope.
 
 ## Geometry bake and off-screen approaches
 
@@ -171,5 +171,5 @@ Formatting compares the exact file text with `level_to_json()`. It writes stable
 3. Inspect validation and the baked picture. Test all approaches and any deliberate off-screen entries.
 4. Play the in-memory document, including later waves. Test with the relevant unlock/economy assumptions.
 5. Save, check the actual file with `--level-check`, and check canonical formatting.
-6. Run relevant level/editor/system tests. Use comparative autoplay reports for additional evidence, with the harness limitations recorded.
+6. Run relevant level/editor/system tests.
 7. Update this catalog and any campaign-facing documentation when adding/removing/renaming content.

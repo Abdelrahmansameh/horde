@@ -1,9 +1,9 @@
 {
   "ability_unlock_antibodies": 1,
-  "base_run_reward": 10,
+  "base_run_reward": 30,
   "capstone_antibodies": 1,
-  "capstone_memory_cells": 150,
-  "capstone_threshold": 6,
+  "capstone_memory_cells": 0,
+  "capstone_threshold": 0,
   "chaff_per_point": 200,
   "first_clear_antibodies": 1,
   "per_boss_reward": 50,

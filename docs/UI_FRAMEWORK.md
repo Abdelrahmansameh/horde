@@ -95,7 +95,11 @@ The HUD shows integrity, ATP/income, current/next wave composition, preparation
 and critical banners, unlocked deployment cards, ability cooldown cells, speed,
 pause, auto-start, and menu controls. Cell cards respect both permanent unlocks
 and a level's allowed types. World overlays include placement range/ghosts,
-target reticles, and preparation spawn composition.
+target reticles, and count-free enemy entrance markers at every spawn point.
+Entrance chevrons follow the lane direction during preparation and hide when
+the round starts. Distinct heart badges mark the organs to defend and remain
+visible during combat. Both avoid HUD panels and stay on screen for offscreen
+locations. Enemy composition and counts belong to the top-right wave panel.
 
 Number keys follow **dock order**, not `TowerType` enum order: Neutrophil,
 Cytotoxic T, Macrophage, Goblet Cell, Fibroblast. Q/W/E/R select the four
@@ -114,7 +118,8 @@ The title's Play action opens Strengthen Immunity, then Campaign. Campaign
 files are discovered by filename and sorted; clearing the previous level opens
 the next. Thumbnails are sampled from actual level vessels/obstacles/spawns,
 normalized with world Y flipped and clipped to the level cell membrane.
-Pause offers resume/restart/menu; results distinguish campaign payouts from
+Pause offers Resume, Restart, and Abandon; Abandon ends the run and returns to
+Strengthen Immunity. Results distinguish campaign payouts from
 sandbox and editor playtest. F4 opens the editor from title or live play.
 
 ## Strengthen Immunity view
@@ -124,6 +129,12 @@ sandbox and editor playtest. F4 opens the editor from title or live play.
 and branch points. `TreeModel::revealed` shows the root, owned nodes, their
 ancestors, and children whose parent is owned. The screen does not invent
 purchase eligibility.
+
+Affordable upgrades have a bright fill and white halo. Upgrades whose next
+level is unaffordable have a darker fill, muted rim, and dimmed icon, including
+partially purchased nodes; their level pips still show purchased progress.
+Hover cards identify which currency is short. Maxed nodes retain their
+completed purple appearance, and missing prerequisites retain the locked state.
 
 [tree_layout.json](../assets/ui/tree_layout.json) stores coordinates and glyphs.
 [gen_tree_layout.py](../tools/gen_tree_layout.py) derives radial wedges and ring

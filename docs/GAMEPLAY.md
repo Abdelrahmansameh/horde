@@ -81,7 +81,7 @@ entries, and ATP reward. The director does not generate region-based waves.
 
 | Phase | Behavior |
 | --- | --- |
-| Prep | Deploy and inspect the preview. Passive ATP income is stopped. Normal App starts with Auto disabled; Send now/Space starts the wave, or Auto starts it after its timer. |
+| Prep | Deploy and inspect the preview. Normal App starts with Auto disabled; Send now/Space starts the wave, or Auto starts it after its timer. |
 | Spawning | Each entry releases its count over its authored start time and duration. Entries may overlap. |
 | Clearing | Spawning has finished; wait until total chaff density reaches zero or a 60-second clearing timeout expires. |
 | Complete | The table has finished. |

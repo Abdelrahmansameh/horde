@@ -62,7 +62,9 @@
     "tree_fill_maxed": "#A58DF2",
     "tree_fill_owned": "#DCD2FD",
     "tree_fill_open": "#F7F3FF",
-    "tree_rim_short": "#BDB3CE",
+    "tree_fill_short": "#A698AC",
+    "tree_rim_short": "#7E6D89",
+    "tree_icon_short": "#B3A8BC",
     "vein_off": "#CFC7D6",
     "antibody_bg": "#FFF2D2"
   },
@@ -173,7 +175,7 @@
       "color": "ink",
       "tabular": true
     },
-    "atp_rate": {
+    "atp_label": {
       "font": "nunito-900",
       "size": 13,
       "color": "atp_ink"
@@ -672,6 +674,30 @@
       "base": "pill",
       "fill": "#FFF6D9",
       "stroke": "gold"
+    },
+    "spawn.entry": {
+      "base": "membrane.host",
+      "kind": "ellipse",
+      "fill": "gold",
+      "fill2": "#FFF6D9",
+      "band": 4,
+      "stroke_width": 2.5,
+      "rim_width": 1.5,
+      "bulge": 0,
+      "wobble_amp": 0.4,
+      "decor_count": 0,
+      "shadow_offset": [0, 3]
+    },
+    "organ.destination": {
+      "base": "membrane.player",
+      "radius": 20,
+      "band": 5,
+      "stroke_width": 2.5,
+      "rim_width": 1.5,
+      "bulge": 1,
+      "wobble_amp": 0.4,
+      "decor_count": 0,
+      "shadow_offset": [0, 3]
     },
     "pill.elite": {
       "kind": "box",

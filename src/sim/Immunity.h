@@ -6,9 +6,9 @@
 // towers.json / economy.json / abilities.json, and the game layer folds them
 // into the config it hands every other system -- the sim never hears about
 // them. What is left over is the handful of purchases that are NOT a number
-// any existing system already reads: a rule about what happens when a round
-// lands, when a slowed agent dies, when something presses against a scar, how
-// hard an elite is hit, how much a leak costs. Those live here, as one flat
+// any existing system already reads: a rule about what happens when a slowed
+// agent dies, when something presses against a scar, how hard an elite is hit,
+// or how much a leak costs. Those live here, as one flat
 // record the game layer sets on the world at level load.
 //
 // The per-unit capstones (a Cytotoxic T latcher's kill pulse, a Macrophage
@@ -42,18 +42,6 @@ struct ImmunityTuning {
     /// config's sim.globals.objective_damage_per_leak, scaled by Homeostasis.
     f32 leak_damage = 1.0f;
 
-    /// Incendiary Rounds (Neutrophil capstone). Every round that lands leaves
-    /// a burning patch: a timed damage field of this radius that takes
-    /// `incendiary_damage` density off an agent at its centre over
-    /// `incendiary_seconds`. Radius 0 is off.
-    f32 incendiary_radius = 0.0f;
-    f32 incendiary_damage = 0.0f;
-    f32 incendiary_seconds = 1.0f;
-    /// Patches laid per tick at most. A full Neutrophil board lands hundreds
-    /// of rounds a second; past this the extra rounds simply do not ignite,
-    /// which keeps the damage-field budget for everything else.
-    u32 max_incendiary_per_tick = 48;
-
     /// Anaphylactic Shock (Goblet Cell capstone). A slowed agent that dies
     /// passes its slow on to every chaff agent within this radius, for this
     /// many seconds, at the dying agent's own slow factor. Radius 0 is off.
@@ -84,7 +72,7 @@ struct ImmunityTuning {
 
     /// True when anything here differs from "off" (tests, debug readouts).
     bool any_active() const {
-        return incendiary_radius > 0.0f || contagion_radius > 0.0f || scar_contact_rate > 0.0f ||
+        return contagion_radius > 0.0f || scar_contact_rate > 0.0f ||
                slowed_damage_mult != 1.0f || inflammation_radius > 0.0f;
     }
 };

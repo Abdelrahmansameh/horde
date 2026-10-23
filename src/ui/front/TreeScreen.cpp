@@ -147,6 +147,7 @@ public:
         const f32 u = size().x / 100.0f;
         const f32 t = dl.time();
         const bool locked = view.state == TreeNodeState::Locked;
+        const bool short_funds = view.state == TreeNodeState::Short;
         const bool capstone = view.role == TreeNodeRole::Capstone;
         const bool owned = view.level > 0;
 
@@ -183,11 +184,12 @@ public:
             gold.half_size = body.half_size * 1.12f;
             gold.wobble_amp = body.wobble_amp * 1.12f;
             gold.wobble_wavelength = body.wobble_wavelength * 1.12f;
-            gold.stroke = th.color("gold");
+            gold.stroke = th.color(short_funds ? "tree_rim_short" : "gold");
             gold.stroke_width = 5.0f * u;
             dl.shape(gold);
         }
         body.fill = th.color(view.state == TreeNodeState::Maxed ? "tree_fill_maxed"
+                             : short_funds                       ? "tree_fill_short"
                              : owned                             ? "tree_fill_owned"
                              : locked                            ? "locked"
                                                                  : "tree_fill_open");
@@ -199,9 +201,10 @@ public:
         rim.wobble_amp = body.wobble_amp * 0.83f;
         rim.wobble_wavelength = body.wobble_wavelength * 0.83f;
         rim.fill = kTransparent;
-        rim.stroke = th.color(owned                                       ? "lavender_deep"
+        // Affordability applies to the next level, even on an owned node.
+        rim.stroke = th.color(short_funds                                ? "tree_rim_short"
+                              : owned                                  ? "lavender_deep"
                               : view.state == TreeNodeState::Available ? "lavender"
-                              : view.state == TreeNodeState::Short     ? "tree_rim_short"
                                                                        : "level_ring_locked");
         dl.shape(rim);
 
@@ -209,7 +212,8 @@ public:
                           : view.role == TreeNodeRole::AbilityRoot ? 49.5f
                                                                    : 60.8f;
         const Vec2 gh = Vec2{glyph, glyph} * (0.5f * u);
-        gui_.icons().draw_zoomable(dl, icon_, Rect{c - gh, c + gh}, kWhite, gui_.scale());
+        const Color glyph_tint = short_funds ? th.color("tree_icon_short") : kWhite;
+        gui_.icons().draw_zoomable(dl, icon_, Rect{c - gh, c + gh}, glyph_tint, gui_.scale());
 
         // Level pips: 23 degrees apart round the bottom, filled from the right.
         if (view.role == TreeNodeRole::Stat) {
@@ -279,7 +283,9 @@ public:
         const f32 len = math::length(b - a);
         const Vec2 dir = math::normalize_safe(b - a);
         const auto g = index_.find(grandparent);
-        const Vec2 trunk = g == index_.end() ? dir : math::normalize_safe(a - nodes_[g->second].at);
+        // Spokes leave the centre radially.
+        const Vec2 trunk = g == index_.end() || math::length_sq(a) < 1e-4f
+                               ? dir : math::normalize_safe(a - nodes_[g->second].at);
         const Vec2 leave = math::normalize_safe(trunk * 0.45f + dir);
         e.path.move_to(a);
         e.path.cubic_to(a + leave * (len * 0.38f), b - dir * (len * 0.30f), b);
@@ -600,14 +606,15 @@ TreeScreen::TreeScreen(Gui& gui, Widget& root, const TreeLayout& layout, const T
     std::vector<std::pair<Panel*, std::string>> pills;
     for (const TreeNodeView& n : model.nodes) {
         if (layout.nodes.count(n.key) == 0) continue;
-        if (n.role != TreeNodeRole::TowerRoot && n.role != TreeNodeRole::AbilityRoot) continue;
-        Panel& p = canvas_->emplace<Panel>(std::string(), th.shape("level.pill"));
+        const bool economy = n.key == "hub.bone_marrow_reserve";
+        if (n.role != TreeNodeRole::TowerRoot && n.role != TreeNodeRole::AbilityRoot && !economy) continue;
+        Panel& p = canvas_->emplace<Panel>(economy ? "economy_label" : std::string(), th.shape("level.pill"));
         p.blocks_pointer = false;
         p.visible = false;
         p.layout.axis = Axis::Stack;
         p.layout.align = Align::Center;
         p.layout.padding = Insets{12, 5, 12, 5};
-        text(p, "text", n.name, th.text(n.role == TreeNodeRole::TowerRoot ? "level_pill" : "tree_pill_small"),
+        text(p, "text", economy ? "Economy" : n.name, th.text(n.role == TreeNodeRole::TowerRoot ? "level_pill" : "tree_pill_small"),
              TextAlign::Center);
         pills.emplace_back(&p, n.key);
     }
@@ -650,12 +657,12 @@ TreeScreen::TreeScreen(Gui& gui, Widget& root, const TreeLayout& layout, const T
     mc.layout.gap = 6.0f;
     mc.layout.height = Size::px(52.0f);
     mc.layout.padding = Insets{8, 0, 16, 0};
-    mc.tooltip = "Memory Cells: every run earns them; they buy levels";
+    mc.tooltip = "Memory Cells";
     icon(mc, "icon", "memory_cell", 32.0f);
     memory_value_ = &text(mc, "value", "0", th.text("wallet"));
     Panel& ab = purses.emplace<Panel>("antibodies", th.shape("pill.wallet.ab"));
     ab.layout = mc.layout;
-    ab.tooltip = "Antibodies: a level's first clear earns one; they buy towers, abilities and capstones";
+    ab.tooltip = "Antibodies";
     icon(ab, "icon", "antibody", 32.0f);
     antibody_value_ = &text(ab, "value", "0", th.text("wallet"));
     respec_ = &wallet.emplace<Button>("respec", th.shape("button.soft"));
@@ -772,14 +779,17 @@ void TreeScreen::sync(const TreeModel& m) {
         b.view = m.nodes[i];
         revealed += shown[i] ? 1u : 0u;
     }
-    // A respec took nodes off the map: look at what is left.
-    if (!first && revealed < revealed_count_) canvas_->frame_revealed(true);
+    // Show the full first ring when Round Damage opens its spokes. A respec
+    // also reframes the smaller tree; later purchases preserve the player's view.
+    if (!first && (revealed < revealed_count_ || (revealed_count_ == 1 && revealed > 1))) {
+        canvas_->frame_revealed(true);
+    }
     revealed_count_ = revealed;
 
     memory_value_->set_text(std::to_string(m.memory_cells));
     antibody_value_->set_text(std::to_string(m.antibodies));
     respec_->enabled = m.can_respec;
-    respec_->tooltip = "Refund every purchase except the Neutrophil. Costs " + std::to_string(m.respec_cost) +
+    respec_->tooltip = "Refund every purchase. Costs " + std::to_string(m.respec_cost) +
                        " Memory Cells.";
     sync_card();
 }
@@ -836,7 +846,7 @@ void TreeScreen::sync_card() {
 
     std::string hint;
     switch (n->state) {
-        case TreeNodeState::Available: hint = "Click to grow"; break;
+        case TreeNodeState::Available: hint = n->role == TreeNodeRole::Stat ? "Click to grow" : "Click to unlock"; break;
         case TreeNodeState::Short: hint = short_ab ? "Not enough Antibodies" : "Not enough Memory Cells"; break;
         case TreeNodeState::Maxed: hint = n->max_level > 1 ? "Fully grown" : "Owned"; break;
         case TreeNodeState::Locked: break;

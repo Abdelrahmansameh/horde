@@ -1,0 +1,315 @@
+{
+  "schema": 2,
+  "region": "capillary",
+  "world": {
+    "min": [
+      0,
+      0
+    ],
+    "max": [
+      240,
+      180
+    ],
+    "cell_size": 1
+  },
+  "economy": {
+    "starting_atp": 300
+  },
+  "name": "balance_two_fronts",
+  "display_name": "Balance Lab: Two Fronts",
+  "description": "Two simultaneous fronts converge before one objective; controlled diagnostic.",
+  "vessels": [
+    {
+      "id": "upper",
+      "points": [
+        {
+          "p": [
+            0,
+            135
+          ],
+          "w": 44
+        },
+        {
+          "p": [
+            130,
+            135
+          ],
+          "w": 44
+        },
+        {
+          "p": [
+            195,
+            90
+          ],
+          "w": 44
+        },
+        {
+          "p": [
+            240,
+            90
+          ],
+          "w": 44
+        }
+      ]
+    },
+    {
+      "id": "lower",
+      "points": [
+        {
+          "p": [
+            0,
+            45
+          ],
+          "w": 44
+        },
+        {
+          "p": [
+            130,
+            45
+          ],
+          "w": 44
+        },
+        {
+          "p": [
+            195,
+            90
+          ],
+          "w": 44
+        },
+        {
+          "p": [
+            240,
+            90
+          ],
+          "w": 44
+        }
+      ]
+    }
+  ],
+  "spawn_points": [
+    {
+      "id": "northwest",
+      "pos": [
+        15,
+        135
+      ],
+      "radius": 7,
+      "lane_id": "upper"
+    },
+    {
+      "id": "southwest",
+      "pos": [
+        15,
+        45
+      ],
+      "radius": 7,
+      "lane_id": "lower"
+    }
+  ],
+  "objectives": [
+    {
+      "id": "organ",
+      "pos": [
+        225,
+        90
+      ],
+      "half_extents": [
+        7,
+        18
+      ]
+    }
+  ],
+  "placement_zones": [
+    {
+      "min": [
+        45,
+        25
+      ],
+      "max": [
+        210,
+        155
+      ]
+    },
+    {
+      "min": [
+        120,
+        65
+      ],
+      "max": [
+        200,
+        115
+      ],
+      "concentrated": true,
+      "priority": 2
+    }
+  ],
+  "squad_paths": [
+    {
+      "id": "upper_route",
+      "lane_id": "upper",
+      "points": [
+        [
+          15,
+          135
+        ],
+        [
+          80,
+          135
+        ],
+        [
+          130,
+          135
+        ],
+        [
+          170,
+          108
+        ],
+        [
+          195,
+          90
+        ],
+        [
+          225,
+          90
+        ]
+      ],
+      "half_width": 4
+    },
+    {
+      "id": "lower_route",
+      "lane_id": "lower",
+      "points": [
+        [
+          15,
+          45
+        ],
+        [
+          80,
+          45
+        ],
+        [
+          130,
+          45
+        ],
+        [
+          170,
+          72
+        ],
+        [
+          195,
+          90
+        ],
+        [
+          225,
+          90
+        ]
+      ],
+      "half_width": 4
+    }
+  ],
+  "waves": [
+    {
+      "name": "virus_column",
+      "prep_time": 4,
+      "atp_reward": 35,
+      "spawns": [
+        {
+          "family": "virus",
+          "count": 50,
+          "duration": 6,
+          "spawn_point_id": "northwest",
+          "squad_size": 40,
+          "squad_paths": [
+            "upper_route"
+          ]
+        },
+        {
+          "family": "virus",
+          "count": 50,
+          "duration": 6,
+          "spawn_point_id": "southwest",
+          "squad_size": 40,
+          "squad_paths": [
+            "lower_route"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "bacterial_column",
+      "prep_time": 4,
+      "atp_reward": 45,
+      "spawns": [
+        {
+          "family": "bacteria",
+          "count": 65,
+          "duration": 6,
+          "spawn_point_id": "northwest",
+          "squad_size": 40,
+          "squad_paths": [
+            "upper_route"
+          ]
+        },
+        {
+          "family": "bacteria",
+          "count": 65,
+          "duration": 6,
+          "spawn_point_id": "southwest",
+          "squad_size": 40,
+          "squad_paths": [
+            "lower_route"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "mixed_pressure",
+      "prep_time": 4,
+      "atp_reward": 55,
+      "spawns": [
+        {
+          "family": "parasite",
+          "count": 25,
+          "duration": 5,
+          "spawn_point_id": "northwest",
+          "squad_size": 25,
+          "squad_paths": [
+            "upper_route"
+          ]
+        },
+        {
+          "family": "parasite",
+          "count": 25,
+          "duration": 5,
+          "spawn_point_id": "southwest",
+          "squad_size": 25,
+          "squad_paths": [
+            "lower_route"
+          ]
+        },
+        {
+          "family": "virus",
+          "count": 90,
+          "start_time": 6.5,
+          "duration": 6,
+          "spawn_point_id": "northwest",
+          "squad_size": 40,
+          "squad_paths": [
+            "upper_route"
+          ]
+        },
+        {
+          "family": "virus",
+          "count": 90,
+          "start_time": 6.5,
+          "duration": 6,
+          "spawn_point_id": "southwest",
+          "squad_size": 40,
+          "squad_paths": [
+            "lower_route"
+          ]
+        }
+      ]
+    }
+  ]
+}

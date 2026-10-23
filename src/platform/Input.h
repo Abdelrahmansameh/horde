@@ -30,6 +30,7 @@ enum class Action : u8 {
     /// header's whole rule is that game code never names physical keys, and
     /// modifier chords are not part of the abstraction.
     OpenEditor,
+    ToggleProgressionCheats,
     SelectTower1, SelectTower2, SelectTower3, SelectTower4,
     SelectTower5, SelectTower6, SelectTower7, SelectTower8,
     /// The four active abilities, in game::AbilityId order (the HUD's

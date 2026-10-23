@@ -92,6 +92,7 @@ void SimWorld::init(const SimDesc& desc, JobSystem* jobs) {
     placement_zones_.clear();
     last_damage_stats_ = DamageStats{};
 
+    enable_combat_metrics(false);
     chaff_.reserve(desc.max_chaff);
     for (u32 f = 0; f < kFamilyCount; ++f) {
         chaff_.set_size_jitter(static_cast<PathogenFamily>(f), desc.chaff_tuning.family[f].size_jitter);
@@ -165,10 +166,19 @@ void SimWorld::init(const SimDesc& desc, JobSystem* jobs) {
 }
 
 void SimWorld::tick(Profiler* profiler) {
+    combat_metrics_.set_tick(tick_);
     // Retirements this tick that were NOT the player's doing. Filled by the
     // chaff pass below and consumed at compaction, where the only thing known
     // about a retiring agent is that it is retiring.
     u64 not_killed_this_tick[kFamilyCount] = {};
+
+    if (combat_metrics_.enabled()) {
+        for (usize i = 0; i < swarmers_.count(); ++i)
+            combat_metrics_.register_owner(swarmers_.owner[i], swarmers_.profile_of(i).source);
+        const auto towers = ecs_.registry().view<const comp::Tower>();
+        for (auto entity : towers)
+            combat_metrics_.register_owner(ecs_.to_id(entity), towers.get<const comp::Tower>(entity).type);
+    }
 
     // 1. Spatial hash rebuild.
     {
@@ -249,10 +259,6 @@ void SimWorld::tick(Profiler* profiler) {
     const ProjectileStats projectile_stats =
         projectile_system_.update(projectiles_, chaff_, spatial_, tissue_, desc_.sim_bounds,
                                   rng_, kFixedDt, &combat_events_);
-    // Incendiary Rounds (sim/Immunity.h): the rounds that just landed set the
-    // ground alight. Timed fields, so they burn from the next tick's apply.
-    ignite_impacts();
-
     // 4c. Swarmers. Same placement rule and the same reason as projectiles
     // above: after the ECS tick so this tick's newly released units exist,
     // and before the single chaff compaction so a swarmer's drain and a field's
@@ -286,6 +292,9 @@ void SimWorld::tick(Profiler* profiler) {
         const HostileStats hostile_stats = hostile_.update(
             chaff_, spatial_, swarmers_, friendly_towers_, tissue_, kFixedDt, &combat_events_);
         swarmers_killed_total_ += hostile_stats.swarmers_killed;
+        combat_metrics_.record_hostile(hostile_stats.swarmer_damage, hostile_stats.tower_damage,
+            hostile_stats.swarmers_killed, hostile_stats.toxin_fired, hostile_stats.toxin_hits,
+            hostile_stats.latches_new);
         apply_hostile_effects();
         // Scars the pass just emptied come down now, in the same tick, so
         // the tissue is handed back before the flow pump below and the
@@ -377,20 +386,39 @@ void SimWorld::tick(Profiler* profiler) {
     }
     damage_.clear_transient(kFixedDt);
 
-    // Every damage source for this tick has now run, so the per-owner sink can
-    // close the tick out. Null in normal play (sim/Attribution.h).
-    if (DamageAttribution* attribution = damage_.attribution()) attribution->mark_tick();
-
     // 6. Budgeted incremental flow-field rebake.
     if (flow_.has_pending_rebake()) {
-        flow_.pump_rebake(tissue_, desc_.flow_rebake_budget_ms);
+        if (desc_.deterministic_rebakes) flow_.rebake_pending(tissue_);
+        else flow_.pump_rebake(tissue_, desc_.flow_rebake_budget_ms);
     }
 
     ++tick_;
+    combat_metrics_.set_tick(tick_);
 }
 
 void SimWorld::run_ticks(u64 n, Profiler* profiler) {
     for (u64 i = 0; i < n; ++i) tick(profiler);
+}
+
+void SimWorld::enable_combat_metrics(bool enabled, usize bucket_capacity) {
+    combat_metrics_.enable(enabled, bucket_capacity);
+    combat_metrics_.set_tick(tick_);
+    chaff_.set_combat_metrics(enabled ? &combat_metrics_ : nullptr);
+    swarmers_.set_combat_metrics(enabled ? &combat_metrics_ : nullptr);
+    projectiles_.set_combat_metrics(enabled ? &combat_metrics_ : nullptr);
+    fluid_.set_combat_metrics(enabled ? &combat_metrics_ : nullptr);
+    if (enabled) fluid_system_.prepare_combat_metrics(fluid_.capacity());
+}
+
+void SimWorld::reset_combat_metrics() {
+    combat_metrics_.reset();
+    combat_metrics_.set_tick(tick_);
+    if (combat_metrics_.enabled()) {
+        chaff_.set_combat_metrics(&combat_metrics_);
+        swarmers_.set_combat_metrics(&combat_metrics_);
+        projectiles_.set_combat_metrics(&combat_metrics_);
+        fluid_.set_combat_metrics(&combat_metrics_);
+    }
 }
 
 SimSnapshot SimWorld::snapshot() const {
@@ -656,10 +684,9 @@ void SimWorld::build_named_targets() {
 void SimWorld::apply_swarmer_effects() {
     entt::registry& registry = ecs_.registry();
     SwarmerEffects& fx = swarmer_system_.effects();
-    DamageAttribution* attribution = damage_.attribution();
 
     // ---- Named-agent hit points the kernel accumulated (latch drains, shooter
-    // rounds). Already armor-adjusted, marked-multiplied and attributed; just
+    // rounds). Already armor-adjusted and marked-multiplied; just
     // land them.
     for (usize k = 0; k < named_targets_.items.size(); ++k) {
         const f32 amount = named_targets_.damage[k];
@@ -682,8 +709,13 @@ void SimWorld::apply_swarmer_effects() {
         field.falloff = b.falloff;
         field.family_mask = b.family_mask;
         field.marked_multiplier = chaff_flags::kMarkedDamageMultiplier;
-        field.lifetime = math::max(b.seconds, kFixedDt);
+        // Swarmers emit after this tick's field application. The end-of-tick
+        // upkeep still ages every field, so retain that unspent first tick;
+        // otherwise a one-tick apoptosis pulse expires without ever applying.
+        field.lifetime = math::max(b.seconds, kFixedDt) + kFixedDt;
         field.owner = b.owner;
+        field.source_type = b.source;
+        field.metric_source = CombatDamageSource::Burst;
         damage_.submit(field);
 
         if (b.named_damage <= 0.0f) continue;
@@ -703,11 +735,7 @@ void SimWorld::apply_swarmer_effects() {
             if (registry.all_of<comp::Slowed>(e)) amount *= immunity_.slowed_damage_mult;
             amount *= immunity_.named_damage_mult;
             if (amount <= 0.0f) continue;
-            const bool was_alive = !hp.dead();
             hp.current -= amount;
-            if (attribution && b.owner.valid()) {
-                attribution->record_named(b.owner, amount, was_alive && hp.dead());
-            }
         }
     }
 
@@ -719,10 +747,11 @@ void SimWorld::apply_swarmer_effects() {
         jet.slow_duration = s.slow_duration;
         jet.slow_factor = s.slow_factor;
         jet.family_mask = s.family_mask;
-        jet.owner = s.owner;
         jet.visual_id = s.visual_id;
         jet.burst_id = static_cast<u16>(s.seed & 0xFFFFu);
         jet.seed = s.seed;
+        jet.owner = s.owner;
+        jet.source = s.source;
         fluid_system_.splash(fluid_, jet, s.origin, s.radius, s.speed, s.droplets);
 
     }
@@ -771,8 +800,8 @@ void SimWorld::apply_swarmer_effects() {
         round.draw_grow_seconds = sh.draw_grow_seconds;
         round.family_mask = sh.family_mask;
         round.owner = sh.owner;
+        round.source = sh.source;
         round.visual_id = sh.visual_id;
-        if (immunity_.incendiary_radius > 0.0f) round.flags |= projectile_flags::kIncendiary;
         projectiles_.spawn(round);
     }
 
@@ -799,25 +828,6 @@ void SimWorld::set_immunity(const ImmunityTuning& t) {
     chaff_.set_slowed_damage_multiplier(immunity_.slowed_damage_mult);
     swarmer_system_.set_inflamed_zones(&inflamed_zones_, immunity_.inflammation_damage_mult,
                                        immunity_.inflammation_reload_mult);
-    projectile_system_.set_max_impact_log(
-        immunity_.incendiary_radius > 0.0f ? immunity_.max_incendiary_per_tick : 0u);
-}
-
-void SimWorld::ignite_impacts() {
-    if (immunity_.incendiary_radius <= 0.0f) return;
-    const f32 seconds = math::max(immunity_.incendiary_seconds, kFixedDt);
-    for (const ProjectileImpactRecord& r : projectile_system_.impact_log()) {
-        DamageField field;
-        field.shape = FieldShape::Circle;
-        field.origin = r.position;
-        field.radius = immunity_.incendiary_radius;
-        field.kill_rate = immunity_.incendiary_damage / seconds;
-        field.falloff = 0.5f;
-        field.marked_multiplier = chaff_flags::kMarkedDamageMultiplier;
-        field.lifetime = seconds;
-        field.owner = r.owner;
-        damage_.submit(field);
-    }
 }
 
 f32 SimWorld::apply_scar_contact() {
@@ -856,7 +866,8 @@ f32 SimWorld::apply_scar_contact() {
             const f32 ly = -dx * s + dy * c;
             if (std::fabs(lx) > he.x || std::fabs(ly) > he.y) continue;
             const f32 before = chaff_.density[idx];
-            chaff_.apply_density_loss(idx, bite);
+            chaff_.apply_density_loss(idx, bite,
+                {sc->owner, sc->source, CombatDamageSource::ScarContact});
             removed_total += before - chaff_.density[idx];
         }
     }

@@ -57,7 +57,7 @@ for authoring and playtesting levels.
 | `assets/shaders/` | World and UI shaders |
 | `assets/ui/`, `assets/fonts/` | SVG icons, tree layout, and licensed UI fonts |
 | `tests/` | Catch2 tests and scripted simulation scenarios |
-| `tools/` | Build, tuning, level preview, balance, and asset generation helpers |
+| `tools/` | Build, level preview, performance reporting, and asset generation helpers |
 | `docs/` | Maintainer documentation and UI design snapshots |
 
 [DESIGN.md](DESIGN.md) describes the current design;

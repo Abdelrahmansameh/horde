@@ -1,0 +1,4114 @@
+{
+  "config_dir": "assets/config",
+  "controller": {
+    "policy": "none"
+  },
+  "level": "assets/balance/levels/campaign_final_first_wave_reference.json",
+  "level_document": {
+    "camera": {
+      "center": [
+        240,
+        160
+      ],
+      "max_view_height": 320,
+      "min_view_height": 243.2,
+      "view_height": 320
+    },
+    "description": "Controller qualification reference only. Exact L10 geometry, earned profile, income and authored wave0; later waves omitted. A clear is not a full L10 campaign victory.",
+    "difficulty": 10,
+    "display_name": "Diagnostic: L10 first authored wave only",
+    "economy": {
+      "income_multiplier": 0.262144,
+      "starting_atp": 750
+    },
+    "name": "diagnostic_l10_first_authored_wave_only",
+    "objectives": [
+      {
+        "half_extents": [
+          110,
+          5
+        ],
+        "id": "organ",
+        "pos": [
+          240,
+          -35
+        ]
+      }
+    ],
+    "obstacles": [
+      {
+        "id": "nw",
+        "inflate": 22,
+        "points": [
+          [
+            75,
+            280
+          ],
+          [
+            130,
+            265
+          ],
+          [
+            150,
+            230
+          ],
+          [
+            100,
+            220
+          ],
+          [
+            70,
+            235
+          ]
+        ],
+        "shape": "polygon"
+      },
+      {
+        "id": "sw",
+        "inflate": 21,
+        "points": [
+          [
+            60,
+            110
+          ],
+          [
+            125,
+            95
+          ],
+          [
+            135,
+            55
+          ],
+          [
+            90,
+            40
+          ],
+          [
+            65,
+            65
+          ]
+        ],
+        "shape": "polygon"
+      },
+      {
+        "id": "w_core",
+        "inflate": 19,
+        "points": [
+          [
+            175,
+            150
+          ],
+          [
+            195,
+            165
+          ]
+        ],
+        "shape": "polygon"
+      },
+      {
+        "id": "n",
+        "inflate": 21,
+        "points": [
+          [
+            215,
+            300
+          ],
+          [
+            280,
+            290
+          ],
+          [
+            280,
+            250
+          ],
+          [
+            235,
+            260
+          ]
+        ],
+        "shape": "polygon"
+      },
+      {
+        "id": "s",
+        "inflate": 20,
+        "points": [
+          [
+            205,
+            30
+          ],
+          [
+            270,
+            25
+          ],
+          [
+            280,
+            70
+          ],
+          [
+            230,
+            65
+          ]
+        ],
+        "shape": "polygon"
+      },
+      {
+        "id": "e_core",
+        "inflate": 20,
+        "points": [
+          [
+            292.5,
+            145
+          ],
+          [
+            310,
+            165
+          ]
+        ],
+        "shape": "polygon"
+      },
+      {
+        "id": "ne",
+        "inflate": 22,
+        "points": [
+          [
+            350,
+            280
+          ],
+          [
+            415,
+            270
+          ],
+          [
+            430,
+            225
+          ],
+          [
+            380,
+            225
+          ]
+        ],
+        "shape": "polygon"
+      },
+      {
+        "id": "se",
+        "inflate": 21,
+        "points": [
+          [
+            350,
+            40
+          ],
+          [
+            415,
+            45
+          ],
+          [
+            430,
+            100
+          ],
+          [
+            380,
+            85
+          ]
+        ],
+        "shape": "polygon"
+      },
+      {
+        "id": "pebble_1",
+        "pos": [
+          150,
+          300
+        ],
+        "radius": 12.5,
+        "shape": "disc"
+      },
+      {
+        "id": "pebble_3",
+        "pos": [
+          165,
+          100
+        ],
+        "radius": 11,
+        "shape": "disc"
+      },
+      {
+        "id": "pebble_4",
+        "pos": [
+          310,
+          220
+        ],
+        "radius": 10,
+        "shape": "disc"
+      }
+    ],
+    "placement_zones": [
+      {
+        "max": [
+          480,
+          320
+        ],
+        "min": [
+          0,
+          0
+        ]
+      },
+      {
+        "concentrated": true,
+        "max": [
+          227.5,
+          190
+        ],
+        "min": [
+          140,
+          85
+        ],
+        "priority": 3
+      },
+      {
+        "concentrated": true,
+        "max": [
+          377.5,
+          190
+        ],
+        "min": [
+          305,
+          85
+        ],
+        "priority": 3
+      },
+      {
+        "concentrated": true,
+        "max": [
+          327.5,
+          80
+        ],
+        "min": [
+          147.5,
+          10
+        ],
+        "priority": 1.5
+      }
+    ],
+    "region": "organ_chamber",
+    "schema": 2,
+    "spawn_points": [
+      {
+        "id": "p_w",
+        "lane_id": "in_w",
+        "pos": [
+          -175,
+          160
+        ],
+        "radius": 17
+      },
+      {
+        "id": "p_e",
+        "lane_id": "in_e",
+        "pos": [
+          660,
+          160
+        ],
+        "radius": 17
+      },
+      {
+        "id": "p_superior_left",
+        "lane_id": "superior_left",
+        "pos": [
+          180,
+          357.5
+        ],
+        "radius": 14
+      },
+      {
+        "id": "p_superior_right",
+        "lane_id": "superior_right",
+        "pos": [
+          314,
+          357.5
+        ],
+        "radius": 14
+      }
+    ],
+    "squad_paths": [
+      {
+        "half_width": 3,
+        "id": "west_capsule_lower",
+        "lane_id": "in_w",
+        "points": [
+          [
+            -175,
+            160
+          ],
+          [
+            45,
+            160
+          ],
+          [
+            110,
+            160
+          ],
+          [
+            135,
+            140
+          ],
+          [
+            145,
+            117.5
+          ],
+          [
+            182.5,
+            112.5
+          ],
+          [
+            185,
+            80
+          ],
+          [
+            175,
+            55
+          ],
+          [
+            167.5,
+            22.5
+          ],
+          [
+            160,
+            -35
+          ]
+        ]
+      },
+      {
+        "half_width": 3,
+        "id": "west_capsule_upper",
+        "lane_id": "in_w",
+        "points": [
+          [
+            -175,
+            160
+          ],
+          [
+            45,
+            160
+          ],
+          [
+            110,
+            160
+          ],
+          [
+            135,
+            195
+          ],
+          [
+            187.5,
+            215
+          ],
+          [
+            215,
+            195
+          ],
+          [
+            225,
+            160
+          ],
+          [
+            225,
+            125
+          ],
+          [
+            195,
+            105
+          ],
+          [
+            185,
+            80
+          ],
+          [
+            175,
+            55
+          ],
+          [
+            167.5,
+            22.5
+          ],
+          [
+            160,
+            -35
+          ]
+        ]
+      },
+      {
+        "half_width": 3,
+        "id": "east_capsule_route",
+        "lane_id": "in_e",
+        "points": [
+          [
+            660,
+            160
+          ],
+          [
+            435,
+            160
+          ],
+          [
+            380,
+            150
+          ],
+          [
+            352.5,
+            150
+          ],
+          [
+            345,
+            130
+          ],
+          [
+            332.5,
+            107.5
+          ],
+          [
+            317.5,
+            80
+          ],
+          [
+            310,
+            50
+          ],
+          [
+            305,
+            20
+          ],
+          [
+            310,
+            -35
+          ]
+        ]
+      },
+      {
+        "half_width": 3,
+        "id": "superior_left_route",
+        "lane_id": "superior_left",
+        "points": [
+          [
+            180,
+            357.5
+          ],
+          [
+            180,
+            305
+          ],
+          [
+            180,
+            245
+          ],
+          [
+            197.5,
+            225
+          ],
+          [
+            210,
+            202.5
+          ],
+          [
+            227.5,
+            175
+          ],
+          [
+            225,
+            135
+          ],
+          [
+            195,
+            105
+          ],
+          [
+            185,
+            80
+          ],
+          [
+            175,
+            55
+          ],
+          [
+            167.5,
+            22.5
+          ],
+          [
+            160,
+            -35
+          ]
+        ]
+      },
+      {
+        "half_width": 3,
+        "id": "superior_right_route",
+        "lane_id": "superior_right",
+        "points": [
+          [
+            314,
+            357.5
+          ],
+          [
+            314,
+            295
+          ],
+          [
+            315,
+            240
+          ],
+          [
+            337.5,
+            220
+          ],
+          [
+            337.5,
+            195
+          ],
+          [
+            350,
+            160
+          ],
+          [
+            345,
+            130
+          ],
+          [
+            332.5,
+            107.5
+          ],
+          [
+            317.5,
+            80
+          ],
+          [
+            310,
+            50
+          ],
+          [
+            305,
+            20
+          ],
+          [
+            310,
+            -35
+          ]
+        ]
+      }
+    ],
+    "tags": [
+      "campaign"
+    ],
+    "vessels": [
+      {
+        "id": "in_w",
+        "points": [
+          {
+            "p": [
+              -200,
+              160
+            ],
+            "w": 45
+          },
+          {
+            "p": [
+              20,
+              160
+            ],
+            "w": 45
+          },
+          {
+            "p": [
+              45,
+              160
+            ],
+            "w": 45
+          }
+        ],
+        "vessel_type": "vein"
+      },
+      {
+        "id": "in_e",
+        "points": [
+          {
+            "p": [
+              680,
+              160
+            ],
+            "w": 45
+          },
+          {
+            "p": [
+              460,
+              160
+            ],
+            "w": 45
+          },
+          {
+            "p": [
+              435,
+              160
+            ],
+            "w": 45
+          }
+        ]
+      },
+      {
+        "id": "field_0",
+        "lane_id": "in_w",
+        "points": [
+          {
+            "p": [
+              40,
+              50
+            ],
+            "w": 85
+          },
+          {
+            "p": [
+              240,
+              50
+            ],
+            "w": 85
+          },
+          {
+            "p": [
+              440,
+              50
+            ],
+            "w": 85
+          }
+        ],
+        "vessel_type": "vein"
+      },
+      {
+        "id": "field_1",
+        "lane_id": "in_w",
+        "points": [
+          {
+            "p": [
+              40,
+              120
+            ],
+            "w": 85
+          },
+          {
+            "p": [
+              240,
+              120
+            ],
+            "w": 85
+          },
+          {
+            "p": [
+              440,
+              120
+            ],
+            "w": 85
+          }
+        ],
+        "vessel_type": "vein"
+      },
+      {
+        "id": "field_2",
+        "lane_id": "in_w",
+        "points": [
+          {
+            "p": [
+              40,
+              190
+            ],
+            "w": 85
+          },
+          {
+            "p": [
+              240,
+              190
+            ],
+            "w": 85
+          },
+          {
+            "p": [
+              440,
+              190
+            ],
+            "w": 85
+          }
+        ],
+        "vessel_type": "vein"
+      },
+      {
+        "id": "field_3",
+        "lane_id": "in_w",
+        "points": [
+          {
+            "p": [
+              40,
+              260
+            ],
+            "w": 85
+          },
+          {
+            "p": [
+              240,
+              260
+            ],
+            "w": 85
+          },
+          {
+            "p": [
+              440,
+              260
+            ],
+            "w": 85
+          }
+        ],
+        "vessel_type": "vein"
+      },
+      {
+        "id": "superior_left",
+        "points": [
+          {
+            "p": [
+              180,
+              380
+            ],
+            "w": 37.5
+          },
+          {
+            "p": [
+              180,
+              305
+            ],
+            "w": 37.5
+          },
+          {
+            "p": [
+              180,
+              245
+            ],
+            "w": 37.5
+          },
+          {
+            "p": [
+              197.5,
+              225
+            ],
+            "w": 37.5
+          }
+        ],
+        "vessel_type": "vein"
+      },
+      {
+        "id": "superior_right",
+        "points": [
+          {
+            "p": [
+              314,
+              380
+            ],
+            "w": 37.5
+          },
+          {
+            "p": [
+              314,
+              295
+            ],
+            "w": 37.5
+          },
+          {
+            "p": [
+              315,
+              240
+            ],
+            "w": 37.5
+          },
+          {
+            "p": [
+              337.5,
+              220
+            ],
+            "w": 37.5
+          }
+        ]
+      },
+      {
+        "id": "left_drain",
+        "lane_id": "in_w",
+        "points": [
+          {
+            "p": [
+              185,
+              112.5
+            ],
+            "w": 40
+          },
+          {
+            "p": [
+              177.5,
+              75
+            ],
+            "w": 40
+          },
+          {
+            "p": [
+              160,
+              30
+            ],
+            "w": 40
+          },
+          {
+            "p": [
+              160,
+              -50
+            ],
+            "w": 40
+          }
+        ],
+        "vessel_type": "vein"
+      },
+      {
+        "id": "right_drain",
+        "lane_id": "in_e",
+        "points": [
+          {
+            "p": [
+              345,
+              130
+            ],
+            "w": 40
+          },
+          {
+            "p": [
+              317.5,
+              80
+            ],
+            "w": 40
+          },
+          {
+            "p": [
+              310,
+              30
+            ],
+            "w": 40
+          },
+          {
+            "p": [
+              310,
+              -50
+            ],
+            "w": 40
+          }
+        ]
+      },
+      {
+        "id": "hidden_organ_bed",
+        "lane_id": "in_w",
+        "points": [
+          {
+            "p": [
+              160,
+              -35
+            ],
+            "w": 30
+          },
+          {
+            "p": [
+              240,
+              -35
+            ],
+            "w": 30
+          },
+          {
+            "p": [
+              310,
+              -35
+            ],
+            "w": 30
+          }
+        ],
+        "vessel_type": "vein"
+      }
+    ],
+    "waves": [
+      {
+        "atp_reward": 90,
+        "name": "campaign_10_core_breach_wave_1",
+        "prep_time": 10,
+        "spawns": [
+          {
+            "count": 155,
+            "duration": 1.2385,
+            "family": "virus",
+            "spawn_point_id": "p_w",
+            "squad_paths": [
+              "west_capsule_lower"
+            ],
+            "squad_size": 60
+          },
+          {
+            "count": 70,
+            "duration": 1.2385,
+            "family": "bacteria",
+            "spawn_point_id": "p_e",
+            "squad_paths": [
+              "east_capsule_route"
+            ],
+            "squad_size": 60,
+            "start_time": 0.2996
+          },
+          {
+            "count": 155,
+            "duration": 1.2385,
+            "family": "virus",
+            "spawn_point_id": "p_superior_left",
+            "squad_paths": [
+              "superior_left_route"
+            ],
+            "squad_size": 60,
+            "start_time": 0.5993
+          },
+          {
+            "count": 70,
+            "duration": 1.2385,
+            "family": "bacteria",
+            "spawn_point_id": "p_superior_right",
+            "squad_paths": [
+              "superior_right_route"
+            ],
+            "squad_size": 60,
+            "start_time": 0.899
+          },
+          {
+            "count": 70,
+            "duration": 1.2385,
+            "family": "bacteria",
+            "spawn_point_id": "p_w",
+            "squad_paths": [
+              "west_capsule_upper"
+            ],
+            "squad_size": 60,
+            "start_time": 2.4885
+          },
+          {
+            "count": 155,
+            "duration": 1.2385,
+            "family": "virus",
+            "spawn_point_id": "p_e",
+            "squad_paths": [
+              "east_capsule_route"
+            ],
+            "squad_size": 60,
+            "start_time": 2.7881
+          },
+          {
+            "count": 70,
+            "duration": 1.2385,
+            "family": "bacteria",
+            "spawn_point_id": "p_superior_left",
+            "squad_paths": [
+              "superior_left_route"
+            ],
+            "squad_size": 60,
+            "start_time": 3.0878
+          },
+          {
+            "count": 155,
+            "duration": 1.2385,
+            "family": "virus",
+            "spawn_point_id": "p_superior_right",
+            "squad_paths": [
+              "superior_right_route"
+            ],
+            "squad_size": 60,
+            "start_time": 3.3875
+          }
+        ]
+      }
+    ],
+    "world": {
+      "cell_size": 1.25,
+      "max": [
+        480,
+        320
+      ],
+      "min": [
+        0,
+        0
+      ]
+    }
+  },
+  "max_ticks": 3614,
+  "progression": {
+    "profile": "campaign"
+  },
+  "progression_snapshot": {
+    "antibodies": 0,
+    "memory_cells": 2,
+    "progress": {
+      "completed_level_ids": [
+        "campaign_01_first_bend",
+        "campaign_02_island_climb",
+        "campaign_03_two_chambers",
+        "campaign_04_twin_channels",
+        "campaign_05_ring_road",
+        "campaign_06_circuit_board",
+        "campaign_07_chevron_sieve",
+        "campaign_08_blob_field",
+        "campaign_09_funnel_walls"
+      ],
+      "levels_completed": 9,
+      "unlocked_regions": []
+    },
+    "spent_antibodies": 9,
+    "spent_memory_cells": 3262,
+    "tree": {
+      "ability.clot.unlock": 1,
+      "ability.complement.cooldown": 1,
+      "ability.complement.unlock": 1,
+      "ability.fever.unlock": 1,
+      "ability.histamine.unlock": 1,
+      "cytotoxic.attach_speed": 1,
+      "cytotoxic.drain": 1,
+      "cytotoxic.search": 1,
+      "cytotoxic.stamina": 1,
+      "cytotoxic.tower_health": 1,
+      "cytotoxic.unlock": 1,
+      "fibroblast.build_radius": 1,
+      "fibroblast.inflammation": 1,
+      "fibroblast.reinforce": 1,
+      "fibroblast.scar_health": 1,
+      "fibroblast.tower_health": 1,
+      "fibroblast.unlock": 1,
+      "goblet.slow_duration": 1,
+      "goblet.slow_strength": 1,
+      "goblet.splash_radius": 1,
+      "goblet.tower_health": 1,
+      "goblet.unlock": 1,
+      "goblet.weakness": 1,
+      "hub.bone_marrow_reserve": 5,
+      "hub.efficient_clearance": 5,
+      "hub.elite_response": 4,
+      "hub.field_requisition": 3,
+      "hub.homeostasis": 4,
+      "hub.membrane_resilience": 4,
+      "hub.systemic_potency": 3,
+      "macrophage.arms": 1,
+      "macrophage.captives": 3,
+      "macrophage.grab_speed": 4,
+      "macrophage.health": 4,
+      "macrophage.search": 2,
+      "macrophage.unlock": 1,
+      "macrophage.wall": 2,
+      "neutrophil.accuracy": 3,
+      "neutrophil.aggro_range": 3,
+      "neutrophil.capstone": 1,
+      "neutrophil.round_damage": 5,
+      "neutrophil.squad_size": 3,
+      "neutrophil.trigger_rate": 4,
+      "neutrophil.vitality": 4
+    },
+    "version": 3
+  },
+  "sample_ticks": 60,
+  "schema": 1,
+  "seed": 31031,
+  "actions": [
+    {
+      "tick": 0,
+      "kind": "deploy",
+      "tower": "macrophage",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": true
+    },
+    {
+      "tick": 11,
+      "kind": "deploy",
+      "tower": "macrophage",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": true
+    },
+    {
+      "tick": 22,
+      "kind": "deploy",
+      "tower": "macrophage",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": true
+    },
+    {
+      "tick": 33,
+      "kind": "deploy",
+      "tower": "macrophage",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": true
+    },
+    {
+      "tick": 44,
+      "kind": "deploy",
+      "tower": "macrophage",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": true
+    },
+    {
+      "tick": 55,
+      "kind": "deploy",
+      "tower": "macrophage",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": true
+    },
+    {
+      "tick": 66,
+      "kind": "deploy",
+      "tower": "macrophage",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": true
+    },
+    {
+      "tick": 77,
+      "kind": "deploy",
+      "tower": "macrophage",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": true
+    },
+    {
+      "tick": 88,
+      "kind": "deploy",
+      "tower": "macrophage",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": true
+    },
+    {
+      "tick": 99,
+      "kind": "deploy",
+      "tower": "macrophage",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": true
+    },
+    {
+      "tick": 110,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": true
+    },
+    {
+      "tick": 121,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": true
+    },
+    {
+      "tick": 132,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": true
+    },
+    {
+      "tick": 143,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": true
+    },
+    {
+      "tick": 154,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": true
+    },
+    {
+      "tick": 165,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": true
+    },
+    {
+      "tick": 176,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": true
+    },
+    {
+      "tick": 187,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": true
+    },
+    {
+      "tick": 198,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": true
+    },
+    {
+      "tick": 209,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": true
+    },
+    {
+      "tick": 220,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": true
+    },
+    {
+      "tick": 231,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": true
+    },
+    {
+      "tick": 242,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": true
+    },
+    {
+      "tick": 253,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": true
+    },
+    {
+      "tick": 264,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": true
+    },
+    {
+      "tick": 275,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": true
+    },
+    {
+      "tick": 286,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": true
+    },
+    {
+      "tick": 297,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": true
+    },
+    {
+      "tick": 308,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": true
+    },
+    {
+      "tick": 319,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": true
+    },
+    {
+      "tick": 330,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": true
+    },
+    {
+      "tick": 341,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": true
+    },
+    {
+      "tick": 352,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": true
+    },
+    {
+      "tick": 363,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": true
+    },
+    {
+      "tick": 374,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": true
+    },
+    {
+      "tick": 385,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": true
+    },
+    {
+      "tick": 396,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": true
+    },
+    {
+      "tick": 407,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": true
+    },
+    {
+      "tick": 418,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": true
+    },
+    {
+      "tick": 429,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": true
+    },
+    {
+      "tick": 440,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": true
+    },
+    {
+      "tick": 451,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": true
+    },
+    {
+      "tick": 462,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": true
+    },
+    {
+      "tick": 473,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": true
+    },
+    {
+      "tick": 484,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": true
+    },
+    {
+      "tick": 495,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": true
+    },
+    {
+      "tick": 506,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": true
+    },
+    {
+      "tick": 517,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": true
+    },
+    {
+      "tick": 528,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": true
+    },
+    {
+      "tick": 539,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": true
+    },
+    {
+      "tick": 550,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": true
+    },
+    {
+      "tick": 561,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": true
+    },
+    {
+      "tick": 572,
+      "kind": "deploy",
+      "tower": "fibroblast",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": true
+    },
+    {
+      "tick": 583,
+      "kind": "deploy",
+      "tower": "fibroblast",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": true
+    },
+    {
+      "tick": 594,
+      "kind": "deploy",
+      "tower": "cytotoxic_t",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": true
+    },
+    {
+      "tick": 605,
+      "kind": "deploy",
+      "tower": "cytotoxic_t",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": true
+    },
+    {
+      "tick": 616,
+      "kind": "deploy",
+      "tower": "cytotoxic_t",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": true
+    },
+    {
+      "tick": 627,
+      "kind": "deploy",
+      "tower": "cytotoxic_t",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": true
+    },
+    {
+      "tick": 638,
+      "kind": "deploy",
+      "tower": "goblet_cell",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": true
+    },
+    {
+      "tick": 649,
+      "kind": "deploy",
+      "tower": "goblet_cell",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": true
+    },
+    {
+      "tick": 660,
+      "kind": "deploy",
+      "tower": "goblet_cell",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": true
+    },
+    {
+      "tick": 671,
+      "kind": "deploy",
+      "tower": "goblet_cell",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": true
+    },
+    {
+      "tick": 704,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 715,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 726,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 737,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 748,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 759,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 770,
+      "kind": "deploy",
+      "tower": "macrophage",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 781,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 792,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 803,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 814,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 825,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 836,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 847,
+      "kind": "deploy",
+      "tower": "macrophage",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 858,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 869,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 880,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 891,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 902,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 913,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 924,
+      "kind": "deploy",
+      "tower": "macrophage",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 935,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 946,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 957,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 968,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 979,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 990,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1001,
+      "kind": "deploy",
+      "tower": "macrophage",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1012,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1023,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1034,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1045,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1056,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1067,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1078,
+      "kind": "deploy",
+      "tower": "macrophage",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1089,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1100,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1111,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1122,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1133,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1144,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1155,
+      "kind": "deploy",
+      "tower": "macrophage",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1166,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1177,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1188,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1199,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1210,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1221,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1232,
+      "kind": "deploy",
+      "tower": "macrophage",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1243,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1254,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1265,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1276,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1287,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1298,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1309,
+      "kind": "deploy",
+      "tower": "macrophage",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1320,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1331,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1342,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1353,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1364,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1375,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1386,
+      "kind": "deploy",
+      "tower": "macrophage",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1397,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1408,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1419,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1430,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1441,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1452,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1463,
+      "kind": "deploy",
+      "tower": "macrophage",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1474,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1485,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1496,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1507,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1518,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1529,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1540,
+      "kind": "deploy",
+      "tower": "macrophage",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1551,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1562,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1573,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1584,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1595,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1600,
+      "kind": "cast",
+      "ability": "fever",
+      "required": false
+    },
+    {
+      "tick": 1606,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1617,
+      "kind": "deploy",
+      "tower": "macrophage",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1628,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1639,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1650,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1661,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1672,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1683,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1694,
+      "kind": "deploy",
+      "tower": "macrophage",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1705,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1716,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1727,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1738,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1749,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1760,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1771,
+      "kind": "deploy",
+      "tower": "macrophage",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1782,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1793,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1804,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1815,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1826,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1837,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1848,
+      "kind": "deploy",
+      "tower": "macrophage",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1859,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1870,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1881,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1892,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1903,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1914,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1925,
+      "kind": "deploy",
+      "tower": "macrophage",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1936,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1947,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1958,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1969,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1980,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 1991,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2002,
+      "kind": "deploy",
+      "tower": "macrophage",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2013,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2024,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2035,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2046,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2057,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2068,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2079,
+      "kind": "deploy",
+      "tower": "macrophage",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2090,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2101,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2112,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2123,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2134,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2145,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2156,
+      "kind": "deploy",
+      "tower": "macrophage",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2167,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2178,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2189,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2200,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2211,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2222,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2233,
+      "kind": "deploy",
+      "tower": "macrophage",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2244,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2255,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2266,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2277,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2288,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2299,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2310,
+      "kind": "deploy",
+      "tower": "macrophage",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2321,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2332,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2343,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2354,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2365,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2376,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2387,
+      "kind": "deploy",
+      "tower": "macrophage",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2398,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2409,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2420,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2431,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2442,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2453,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2464,
+      "kind": "deploy",
+      "tower": "macrophage",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2475,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2486,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2497,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2508,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2519,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2530,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2541,
+      "kind": "deploy",
+      "tower": "macrophage",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2552,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2563,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2574,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2585,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2596,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2607,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2618,
+      "kind": "deploy",
+      "tower": "macrophage",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2629,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2640,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2651,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2662,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2673,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2684,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2695,
+      "kind": "deploy",
+      "tower": "macrophage",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2706,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2717,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2728,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2739,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2750,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2761,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2772,
+      "kind": "deploy",
+      "tower": "macrophage",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2783,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2794,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2805,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2816,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2827,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2838,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2849,
+      "kind": "deploy",
+      "tower": "macrophage",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2860,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2871,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2882,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2893,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2904,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2915,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2926,
+      "kind": "deploy",
+      "tower": "macrophage",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2937,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2948,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2959,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2970,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2981,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 2992,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        160,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    },
+    {
+      "tick": 3003,
+      "kind": "deploy",
+      "tower": "macrophage",
+      "position": [
+        310,
+        35
+      ],
+      "quantity": 1,
+      "required": false
+    }
+  ],
+  "auto_start": true
+}

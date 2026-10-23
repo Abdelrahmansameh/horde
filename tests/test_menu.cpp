@@ -1,4 +1,4 @@
-// tests/test_menu.cpp — the out-of-match screens (ui/front/FrontEnd): main
+// tests/test_menu.cpp â€” the out-of-match screens (ui/front/FrontEnd): main
 // menu, the Strengthen Immunity tree, campaign level select, pause and
 // results, from hand-built models (the tree from a real MetaProgression).
 //
@@ -195,9 +195,7 @@ TEST_CASE("main menu: Play Game goes to Strengthen Immunity, Quit quits", "[ui][
     // Nothing clicked, nothing reported: a default of anything else would
     // fire a transition on its own.
     CHECK(h.front->take_result().action == MenuAction::None);
-    CHECK(h.click("menu/play").action == MenuAction::None);
-    h.front->finish_transitions();
-    CHECK(h.front->take_result().action == MenuAction::OpenImmunityTree);
+    CHECK(h.click("menu/play").action == MenuAction::OpenImmunityTree);
     h.open(FrontScreen::Tree, FrontModel{});
     h.open(FrontScreen::MainMenu, FrontModel{});
     CHECK(h.click("menu/quit").action == MenuAction::Quit);
@@ -227,13 +225,21 @@ TEST_CASE("level select: picks up at the frontier; locked levels refuse; Play st
     // A cleared level selects on the first click and starts on the second.
     CHECK(h.click("levels/cell2").action == MenuAction::None);
     CHECK(h.front->selected_level() == 1);
-    const MenuResult again = h.click("levels/cell2");
+    CHECK(h.click("levels/cell2").action == MenuAction::None);
+    h.front->finish_transitions();
+    const MenuResult again = h.front->take_result();
     CHECK(again.action == MenuAction::StartLevel);
     CHECK(again.level_index == m.campaign[1].level_index);
 
-    const MenuResult play = h.click("levels/play");
+    h.open(FrontScreen::None, m);
+    h.open(FrontScreen::LevelSelect, m);
+    CHECK(h.click("levels/play").action == MenuAction::None);
+    h.front->finish_transitions();
+    const MenuResult play = h.front->take_result();
     CHECK(play.action == MenuAction::StartLevel);
     CHECK(play.level_index == m.campaign[1].level_index);
+    h.open(FrontScreen::None, m);
+    h.open(FrontScreen::LevelSelect, m);
     CHECK(h.click("levels/back").action == MenuAction::OpenImmunityTree);
 
     // The gym's `ui level <n>` path.
@@ -260,10 +266,13 @@ TEST_CASE("results: level cleared pays out and offers the next level", "[ui][men
     m.run.memory_cells = 203;
     m.run.antibodies = 1;
     m.run.first_clear = true;
+    m.discovery_choices = 5;
     h.open(FrontScreen::Victory, m);
     CHECK(h.shown("victory/panel/rewards/memory"));
     CHECK(h.shown("victory/panel/rewards/antibody"));
     CHECK(h.shown("victory/panel/rewards/unlocked"));
+    CHECK_FALSE(h.shown("victory/panel/rewards/discovery"));
+    CHECK(h.label("victory/panel/buttons/tree/label") == "Strengthen Immunity");
     auto* unlocked = dynamic_cast<gui::Label*>(h.gui.find("victory/panel/rewards/unlocked/name"));
     REQUIRE(unlocked != nullptr);
     CHECK(unlocked->text() == "Island Climb unlocked");
@@ -276,11 +285,14 @@ TEST_CASE("results: level cleared pays out and offers the next level", "[ui][men
 
     // A replay of a cleared level: no Antibody row, no unlock row.
     m.run.antibodies = 0;
+    m.run.first_clear = false;
+    m.discovery_choices = 0;
     m.unlocked_next = false;
     h.open(FrontScreen::Victory, m);
     CHECK(h.shown("victory/panel/rewards/memory"));
     CHECK_FALSE(h.shown("victory/panel/rewards/antibody"));
     CHECK_FALSE(h.shown("victory/panel/rewards/unlocked"));
+    CHECK_FALSE(h.shown("victory/panel/rewards/discovery"));
 
     // The last campaign level has no next one: Levels instead.
     FrontModel last = campaign(10);
@@ -303,6 +315,8 @@ TEST_CASE("results: level failed still pays, and offers retry", "[ui][menu]") {
     REQUIRE(title != nullptr);
     CHECK(title->text() == "Level failed");
     CHECK(h.shown("defeat/panel/rewards/memory"));
+    CHECK(h.label("defeat/panel/rewards/memory/name") == "Memory Cells");
+    CHECK_FALSE(h.shown("defeat/panel/rewards/growth_hint"));
     CHECK(h.click("defeat/panel/buttons/tree").action == MenuAction::OpenImmunityTree);
     CHECK(h.click("defeat/panel/buttons/retry").action == MenuAction::RestartLevel);
     CHECK(h.click("defeat/panel/buttons/levels").action == MenuAction::OpenLevelSelect);
@@ -337,7 +351,9 @@ TEST_CASE("pause: resume, restart, abandon", "[ui][menu]") {
     h.open(FrontScreen::Pause, m);
     CHECK(h.click("pause/panel/buttons/resume").action == MenuAction::Resume);
     CHECK(h.click("pause/panel/buttons/restart").action == MenuAction::RestartLevel);
-    CHECK(h.click("pause/panel/buttons/menu").action == MenuAction::Back);
+    CHECK(h.label("pause/panel/buttons/abandon/label") == "Abandon");
+    CHECK_FALSE(h.shown("pause/panel/buttons/menu"));
+    CHECK(h.click("pause/panel/buttons/abandon").action == MenuAction::AbandonRun);
 }
 
 TEST_CASE("screens crossfade; a screen on its way out takes no clicks", "[ui][menu]") {
@@ -441,21 +457,27 @@ TEST_CASE("tree layout: radial, every subject growing out in its own wedge", "[u
             CAPTURE(other);
             CHECK(math::length(n.at - it->second.at) > (n.size + it->second.size) * 0.5f + 10.0f);
         }
-        // Every node sits further out than the node it grows from.
-        const game::TreeNode parent = game::tree_node(static_cast<game::TreeNode>(i)).parent;
-        if (parent != game::TreeNode::Count) CHECK(math::length(it->second.at) > math::length(at(parent)) + 100.0f);
+        // Every branch grows outward from Round Damage.
+        const game::TreeNode n = static_cast<game::TreeNode>(i);
+        const game::TreeNode parent = game::tree_node(n).parent;
+        if (n != game::kTreeHub && parent != game::TreeNode::Count) {
+            CHECK(math::length(it->second.at - at(game::kTreeHub)) >
+                  math::length(at(parent) - at(game::kTreeHub)) + 100.0f);
+        }
     }
-    // The Neutrophil is the centre.
-    CHECK(math::length(at(game::kTreeRoot)) < 1.0f);
-    // Each subject (a subtree two steps out from the centre) keeps to one
+    // Round Damage is the root and visual hub, with no separate starter node.
+    CHECK(math::length(at(game::kTreeHub)) < 1.0f);
+    CHECK(game::kTreeRoot == game::kTreeHub);
+    CHECK(layout.nodes.count("neutrophil.unlock") == 0);
+    // Each subject (a direct branch off Round Damage) keeps to one
     // wedge: going round the circle, its nodes come in one unbroken run.
     std::vector<std::pair<f32, u32>> round;   // angle, subject
     for (u32 i = 0; i < game::kTreeNodeCount; ++i) {
         std::vector<game::TreeNode> path{static_cast<game::TreeNode>(i)};
         while (path.back() != game::kTreeRoot) path.push_back(game::tree_node(path.back()).parent);
-        if (path.size() < 3) continue;   // the centre and the three cores
-        const Vec2 p = layout.nodes.at(key_of(i)).at;
-        round.emplace_back(std::atan2(p.y, p.x), static_cast<u32>(path[path.size() - 3]));
+        if (path.size() < 2) continue;   // the central Round Damage node
+        const Vec2 p = layout.nodes.at(key_of(i)).at - at(game::kTreeHub);
+        round.emplace_back(std::atan2(p.y, p.x), static_cast<u32>(path[path.size() - 2]));
     }
     std::sort(round.begin(), round.end());
     std::set<u32> subjects;
@@ -464,11 +486,24 @@ TEST_CASE("tree layout: radial, every subject growing out in its own wedge", "[u
         subjects.insert(round[k].second);
         if (round[k].second != round[(k + 1) % round.size()].second) ++runs;
     }
-    CHECK(subjects.size() == 8);
+    CHECK(subjects.size() == game::kTreeHubMaxChildren);
     CHECK(runs == subjects.size());
-    // The Neutrophil's own lines grow straight up from the centre.
-    CHECK(std::fabs(at(game::TreeNode::NeutrophilRoundDamage).x) < 1.0f);
-    CHECK(at(game::TreeNode::NeutrophilRoundDamage).y < 0.0f);
+    // Weighted sectors give larger branches room while keeping all seven
+    // first-layer choices distinct around the hub.
+    std::vector<f32> first_angles;
+    for (u32 i = 0; i < game::kTreeNodeCount; ++i) {
+        const auto n = static_cast<game::TreeNode>(i);
+        if (game::tree_node(n).parent != game::kTreeHub) continue;
+        CHECK(math::length(at(n) - at(game::kTreeRoot)) > 250.0f);
+        first_angles.push_back(std::atan2(at(n).y, at(n).x));
+    }
+    std::sort(first_angles.begin(), first_angles.end());
+    REQUIRE(first_angles.size() == game::kTreeHubMaxChildren);
+    for (usize i = 0; i < first_angles.size(); ++i) {
+        f32 gap = first_angles[(i + 1) % first_angles.size()] - first_angles[i];
+        if (gap <= 0.0f) gap += math::kTwoPi;
+        CHECK(gap > 0.25f);
+    }
 }
 
 TEST_CASE("tree model: the tree uncovers as it grows", "[ui][menu][meta]") {
@@ -476,24 +511,41 @@ TEST_CASE("tree model: the tree uncovers as it grows", "[ui][menu][meta]") {
     game::MetaProgression meta;
     meta.reset_to_new_game();
     TreeModel t = app::make_tree_model(meta, cfg);
-    // A new campaign sees the Neutrophil and the three cores round it.
+    // A new campaign sees only Round Damage.
     std::vector<std::string> shown;
     for (const TreeNodeView& n : t.nodes) {
         if (t.revealed(n.key)) shown.push_back(n.key);
     }
     std::sort(shown.begin(), shown.end());
-    CHECK(shown == std::vector<std::string>{"hub.bone_marrow_reserve", "hub.efficient_clearance",
-                                            "hub.rapid_metabolism", "neutrophil.unlock"});
+    CHECK(shown == std::vector<std::string>{"neutrophil.round_damage"});
+    CHECK(t.find("neutrophil.unlock") == nullptr);
     // One purchase shows that node's children, and nothing past them.
     meta.credit(1000);
-    REQUIRE(meta.purchase(game::TreeNode::BoneMarrowReserve, cfg) == game::MetaProgression::PurchaseResult::Ok);
+    REQUIRE(meta.purchase(game::TreeNode::NeutrophilRoundDamage, cfg) == game::MetaProgression::PurchaseResult::Ok);
     t = app::make_tree_model(meta, cfg);
-    CHECK(t.revealed("neutrophil.round_damage"));
+    CHECK(t.revealed("hub.bone_marrow_reserve"));
+    CHECK_FALSE(t.revealed("hub.efficient_clearance"));
+    CHECK_FALSE(t.revealed("hub.field_requisition"));
+    CHECK_FALSE(t.revealed("hub.rapid_metabolism"));
+    CHECK(t.revealed("neutrophil.squad_size"));
+    CHECK(t.revealed("neutrophil.capstone"));
     CHECK(t.revealed("cytotoxic.unlock"));
     CHECK(t.revealed("macrophage.unlock"));
     CHECK_FALSE(t.revealed("cytotoxic.drain"));
-    CHECK_FALSE(t.revealed("goblet.unlock"));
+    CHECK(t.revealed("goblet.unlock"));
+    CHECK(t.revealed("fibroblast.unlock"));
+    for (game::AbilityId id : {game::AbilityId::ComplementCascadeBurst, game::AbilityId::HistamineFlare,
+                                game::AbilityId::FeverResponse, game::AbilityId::FibrinClot}) {
+        CHECK_FALSE(t.revealed(game::tree_node(game::ability_root(id)).key));
+    }
     CHECK_FALSE(t.revealed("hub.homeostasis"));
+    REQUIRE(meta.purchase(game::TreeNode::BoneMarrowReserve, cfg) == game::MetaProgression::PurchaseResult::Ok);
+    t = app::make_tree_model(meta, cfg);
+    CHECK(t.revealed("hub.efficient_clearance"));
+    CHECK(t.revealed("hub.field_requisition"));
+    CHECK_FALSE(t.revealed("hub.systemic_potency"));
+    CHECK_FALSE(t.revealed("hub.elite_response"));
+    CHECK(t.revealed("neutrophil.accuracy"));
     // A node owned under older rules still shows, with the way to it and
     // the next thing on offer past it, but not its unowned siblings.
     for (TreeNodeView& n : t.nodes) {
@@ -502,8 +554,18 @@ TEST_CASE("tree model: the tree uncovers as it grows", "[ui][menu][meta]") {
     CHECK(t.revealed("goblet.slow_duration"));
     CHECK(t.revealed("goblet.slow_strength"));
     CHECK(t.revealed("goblet.unlock"));
-    CHECK(t.revealed("goblet.capstone"));
+    CHECK_FALSE(t.revealed("goblet.capstone"));
     CHECK_FALSE(t.revealed("goblet.splash_radius"));
+    // An ability imported from the earlier tree still reveals its new path,
+    // while unrelated siblings in that cell branch remain hidden.
+    for (TreeNodeView& n : t.nodes) {
+        if (n.key == "ability.histamine.unlock") n.level = 1;
+    }
+    CHECK(t.revealed("ability.histamine.unlock"));
+    CHECK_FALSE(t.revealed("goblet.splash_radius"));
+    CHECK(t.revealed("goblet.unlock"));
+    CHECK(t.revealed("ability.histamine.cooldown"));
+    CHECK_FALSE(t.revealed("goblet.weakness"));
 }
 
 TEST_CASE("tree: hidden until revealed, a card on hover, a click buys", "[ui][menu][meta]") {
@@ -519,63 +581,83 @@ TEST_CASE("tree: hidden until revealed, a card on hover, a click buys", "[ui][me
     REQUIRE(tree != nullptr);
     // No top bar: a node's details are its card.
     CHECK(h.gui.find("tree/info") == nullptr);
-    CHECK(h.shown("tree/neutrophil.unlock"));
-    CHECK(h.shown("tree/hub.bone_marrow_reserve"));
-    CHECK(h.shown("tree/hub.efficient_clearance"));
-    CHECK(h.shown("tree/hub.rapid_metabolism"));
-    CHECK_FALSE(h.shown("tree/neutrophil.round_damage"));
+    CHECK(h.gui.find("tree/neutrophil.unlock") == nullptr);
+    CHECK_FALSE(h.shown("tree/hub.bone_marrow_reserve"));
+    CHECK_FALSE(h.shown("tree/hub.efficient_clearance"));
+    CHECK_FALSE(h.shown("tree/hub.field_requisition"));
+    CHECK_FALSE(h.shown("tree/hub.rapid_metabolism"));
+    CHECK_FALSE(h.shown("tree/economy_label"));
+    CHECK(h.shown("tree/neutrophil.round_damage"));
     CHECK_FALSE(h.shown("tree/cytotoxic.unlock"));
     CHECK_FALSE(h.shown("tree/card"));
     // Hidden nodes cannot be clicked.
     CHECK_FALSE(h.gui.click("tree/cytotoxic.unlock"));
 
     // Hovering a node opens its card beside it.
-    REQUIRE(h.gui.hover("tree/hub.bone_marrow_reserve"));
+    REQUIRE(h.gui.hover("tree/neutrophil.round_damage"));
     h.frame(FrontScreen::Tree, m);
-    CHECK(tree->hovered() == "hub.bone_marrow_reserve");
+    CHECK(tree->hovered() == "neutrophil.round_damage");
     CHECK(h.shown("tree/card"));
-    CHECK(h.label("tree/card/head/title/name") == "Bone Marrow Reserve");
+    CHECK(h.label("tree/card/head/title/name") == "Degranulation Cycle");
     CHECK(h.label("tree/card/head/title/level") == "0/5");
-    CHECK(h.label("tree/card/desc") == "+40 starting ATP");
-    CHECK(h.label("tree/card/foot/cost_mc/value") == "20");
+    CHECK(h.label("tree/card/desc") == "-14% granule regrowth time, -6% gathering and release time");
+    CHECK(h.label("tree/card/foot/cost_mc/value") == "30");
     CHECK(h.label("tree/card/foot/hint") == "Click to grow");
     CHECK_FALSE(h.shown("tree/card/req"));
-    const Rect node = h.gui.find("tree/hub.bone_marrow_reserve")->rect();
+    const Rect node = h.gui.find("tree/neutrophil.round_damage")->rect();
     const Rect card = h.gui.find("tree/card")->rect();
     CHECK((card.min.x >= node.max.x || card.max.x <= node.min.x));
 
     // A click on a node that can be bought buys it ...
-    const MenuResult buy = h.click("tree/hub.bone_marrow_reserve");
+    const MenuResult buy = h.click("tree/neutrophil.round_damage");
     CHECK(buy.action == MenuAction::PurchaseNode);
-    CHECK(buy.node == static_cast<u32>(game::TreeNode::BoneMarrowReserve));
-    // ... and on one that cannot (the root is owned) it only shakes.
-    CHECK(h.click("tree/neutrophil.unlock").action == MenuAction::None);
+    CHECK(buy.node == static_cast<u32>(game::TreeNode::NeutrophilRoundDamage));
 
     // app/ buys it; the screen updates in place and its children bud in.
-    REQUIRE(meta.purchase(game::TreeNode::BoneMarrowReserve, cfg) == game::MetaProgression::PurchaseResult::Ok);
+    REQUIRE(meta.purchase(game::TreeNode::NeutrophilRoundDamage, cfg) == game::MetaProgression::PurchaseResult::Ok);
     m.tree = app::make_tree_model(meta, cfg);
     h.frame(FrontScreen::Tree, m);
     CHECK(tree == h.front->tree());
-    CHECK(h.shown("tree/neutrophil.round_damage"));
+    CHECK(h.shown("tree/hub.bone_marrow_reserve"));
+    CHECK_FALSE(h.shown("tree/hub.efficient_clearance"));
+    CHECK_FALSE(h.shown("tree/hub.field_requisition"));
     CHECK(h.shown("tree/cytotoxic.unlock"));
     CHECK(h.shown("tree/macrophage.unlock"));
-    CHECK_FALSE(h.shown("tree/goblet.unlock"));
+    CHECK(h.shown("tree/goblet.unlock"));
+    for (const char* ability : {"complement", "histamine", "fever", "clot"}) {
+        CHECK_FALSE(h.shown(std::string("tree/ability.") + ability + ".unlock"));
+    }
     CHECK(h.label("tree/card/head/title/level") == "1/5");
-    CHECK(h.label("tree/card/foot/cost_mc/value") == "35");
+    CHECK(h.label("tree/card/foot/cost_mc/value") == "53");
+    // The first purchase opens a whole radial ring. Its camera adjustment
+    // keeps every new branch on screen, below the top controls.
+    tree->finish_animation();
+    h.frame(FrontScreen::Tree, m);
+    CHECK(h.shown("tree/economy_label"));
+    CHECK(h.label("tree/economy_label/text") == "Economy");
+    for (const TreeNodeView& n : m.tree.nodes) {
+        if (n.parent != "neutrophil.round_damage") continue;
+        CAPTURE(n.key);
+        const Rect branch = h.gui.find("tree/" + n.key)->rect();
+        CHECK(branch.min.x >= 28.0f);
+        CHECK(branch.max.x <= 1892.0f);
+        CHECK(branch.min.y >= 120.0f);
+        CHECK(branch.max.y <= 1052.0f);
+    }
 
-    // A capstone shows once the node it grows from is owned, and says what
-    // it still needs.
-    for (game::TreeNode n : {game::TreeNode::NeutrophilRoundDamage, game::TreeNode::NeutrophilAccuracy,
-                             game::TreeNode::NeutrophilTriggerRate}) {
+    // The starter capstone is a discovery choice. Extra MC stats are optional.
+    for (game::TreeNode n : {game::TreeNode::NeutrophilSquadSize, game::TreeNode::NeutrophilAccuracy}) {
         REQUIRE(meta.purchase(n, cfg) == game::MetaProgression::PurchaseResult::Ok);
     }
     m.tree = app::make_tree_model(meta, cfg);
     h.frame(FrontScreen::Tree, m);
     REQUIRE(h.gui.hover("tree/neutrophil.capstone"));
     h.frame(FrontScreen::Tree, m);
-    CHECK(h.shown("tree/card/req"));
-    CHECK(h.label("tree/card/req") == "Needs 6 points in Neutrophil (3/6)");
-    CHECK(h.click("tree/neutrophil.capstone").action == MenuAction::None);
+    CHECK_FALSE(h.shown("tree/card/req"));
+    CHECK_FALSE(h.shown("tree/card/foot/cost_mc"));
+    CHECK(h.label("tree/card/foot/cost_ab/value") == "1");
+    CHECK(h.label("tree/card/foot/hint") == "Click to unlock");
+    CHECK(h.click("tree/neutrophil.capstone").action == MenuAction::PurchaseNode);
 
     CHECK(h.click("tree/play").action == MenuAction::OpenLevelSelect);
     CHECK(h.click("tree/back").action == MenuAction::Back);
@@ -609,7 +691,7 @@ TEST_CASE("tree: drag pans, the wheel zooms about the pointer, the buttons zoom 
     // A drag that starts on a node pans too, and does not buy it.
     tree->finish_animation();
     h.frame(FrontScreen::Tree, m);
-    const Vec2 node = h.gui.find("tree/hub.bone_marrow_reserve")->center();
+    const Vec2 node = h.gui.find("tree/neutrophil.round_damage")->center();
     h.pointer(FrontScreen::Tree, m, node, true);
     h.pointer(FrontScreen::Tree, m, node + Vec2{0.0f, 90.0f}, true);
     h.pointer(FrontScreen::Tree, m, node + Vec2{0.0f, 90.0f}, false);
@@ -659,10 +741,7 @@ TEST_CASE("tree model: the game's rules, as the screen shows them", "[ui][menu][
     meta.reset_to_new_game();
     TreeModel t = app::make_tree_model(meta, cfg);
     REQUIRE(t.nodes.size() == game::kTreeNodeCount);
-    const TreeNodeView* neutrophil = t.find("neutrophil.unlock");
-    REQUIRE(neutrophil != nullptr);
-    CHECK(neutrophil->state == TreeNodeState::Maxed);
-    CHECK(neutrophil->parent.empty());
+    CHECK(t.find("neutrophil.unlock") == nullptr);
     const TreeNodeView* drain = t.find("cytotoxic.drain");
     REQUIRE(drain != nullptr);
     CHECK(drain->state == TreeNodeState::Locked);
@@ -670,10 +749,49 @@ TEST_CASE("tree model: the game's rules, as the screen shows them", "[ui][menu][
     CHECK(drain->requirement == "Needs Cytotoxic T");
     const TreeNodeView* marrow = t.find("hub.bone_marrow_reserve");
     REQUIRE(marrow != nullptr);
-    CHECK(marrow->parent == "neutrophil.unlock");
-    CHECK(marrow->state == TreeNodeState::Short);  // a new save has no Memory Cells
+    CHECK(marrow->parent == "neutrophil.round_damage");
+    CHECK(marrow->state == TreeNodeState::Locked);
+    CHECK(marrow->requirement == "Needs Degranulation Cycle");
     CHECK(marrow->cost_memory > 0);
+    const TreeNodeView* round_damage = t.find("neutrophil.round_damage");
+    REQUIRE(round_damage != nullptr);
+    CHECK(round_damage->parent.empty());
+    CHECK(round_damage->state == TreeNodeState::Short);  // a new save has no Memory Cells
+    CHECK(t.find("hub.rapid_metabolism") == nullptr);
     CHECK(t.branch_points[0] == 0);
+}
+
+TEST_CASE("tree keeps discovery requirements without explanatory UI copy", "[ui][menu][meta][discovery]") {
+    Harness h;
+    const game::MetaConfig cfg;
+    game::MetaProgression meta;
+    meta.reset_to_new_game();
+    game::RunResult won;
+    won.won = true;
+    meta.record_run("first", won, cfg);
+    FrontModel m;
+    m.tree = app::make_tree_model(meta, cfg);
+    CHECK(m.tree.discovery_choices == 5);
+    CHECK(m.tree.discovery_needs_starter);
+    CHECK(m.tree.discovery_starter_cost == meta.next_cost(game::kTreeRoot, cfg).memory_cells);
+    const auto* fever = m.tree.find("ability.fever.unlock");
+    REQUIRE(fever != nullptr);
+    CHECK(fever->requirement == "Needs Macrophage");
+    CHECK(fever->parent == "macrophage.unlock");
+    h.open(FrontScreen::Tree, m);
+    CHECK_FALSE(h.shown("tree/wallet/discovery_hint"));
+    REQUIRE(meta.purchase(game::kTreeRoot, cfg) == game::MetaProgression::PurchaseResult::Ok);
+    m.tree = app::make_tree_model(meta, cfg);
+    h.frame(FrontScreen::Tree, m);
+    CHECK_FALSE(m.tree.discovery_needs_starter);
+    CHECK_FALSE(h.shown("tree/wallet/discovery_hint"));
+    CHECK(m.tree.find("neutrophil.capstone")->state == TreeNodeState::Available);
+    REQUIRE(meta.purchase(game::TreeNode::MacrophageRoot, cfg) == game::MetaProgression::PurchaseResult::Ok);
+    m.tree = app::make_tree_model(meta, cfg);
+    CHECK(m.tree.find("ability.fever.unlock")->requirement.empty());
+    CHECK(m.tree.find("ability.fever.unlock")->state == TreeNodeState::Short);
+    CHECK(m.tree.find("ability.fever.unlock")->cost_memory == 0);
+    CHECK(m.tree.find("ability.fever.unlock")->cost_antibodies == 1);
 }
 
 TEST_CASE("front-end screens: CPU cost per frame", "[ui][menu][perf]") {

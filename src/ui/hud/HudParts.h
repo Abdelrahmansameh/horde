@@ -108,6 +108,28 @@ private:
 
 // ---- World overlays -----------------------------------------------------------
 
+/// A count-free enemy entrance, with chevrons following the lane into the map.
+class SpawnMarker : public gui::Panel {
+public:
+    SpawnMarker(gui::Gui& g, std::string id);
+    Vec2 direction{1.0f, 0.0f}; ///< Projected inward direction, in screen space.
+    bool preparing = false;
+    void draw_self(gui::DrawList& dl) override;
+
+private:
+    gui::Gui& gui_;
+};
+
+/// The organ to defend, distinct from the enemy entrance chevrons.
+class OrganMarker : public gui::Panel {
+public:
+    OrganMarker(gui::Gui& g, std::string id);
+    void draw_self(gui::DrawList& dl) override;
+
+private:
+    gui::Gui& gui_;
+};
+
 /// A world-space circle (a tower's reach, the placement ring) drawn through
 /// the camera projection, so the tilted view shows it as the ellipse it is.
 class RangeRing : public gui::Widget {

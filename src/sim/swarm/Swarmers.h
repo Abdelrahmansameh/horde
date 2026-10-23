@@ -218,7 +218,7 @@
 
 #include "core/Math.h"
 #include "core/Types.h"
-#include "sim/Attribution.h"
+#include "sim/CombatMetrics.h"
 #include "sim/Immunity.h"
 #include "sim/chaff/ChaffBuffers.h"
 #include "sim/spatial/SpatialHash.h"
@@ -555,7 +555,7 @@ struct SwarmerSpawnParams {
     /// Index into SwarmerBuffers' profile table.
     u16 profile = 0;
     u8 family_mask = 0xFF;
-    /// Owning tower, for kill attribution back to the economy.
+    /// Owning tower or direct-cell handle, used by squads, scars, and healing.
     EntityId owner{};
     /// Cosmetic tier selector, passed through to the renderer untouched.
     u16 visual_id = 0;
@@ -596,8 +596,8 @@ struct NamedTargetList {
     /// Hit points to take off items[i] this tick, already armor-adjusted and
     /// marked-multiplied. SimWorld applies it after update().
     std::vector<f32> damage;
-    /// items[i].health less the damage queued so far this tick -- what the
-    /// kernel uses to tell "this hit was the kill" for attribution.
+    /// items[i].health less the damage queued so far this tick, so the kernel
+    /// can stop acquiring targets already killed by an earlier hit.
     std::vector<f32> health_left;
 
     static constexpr usize npos = static_cast<usize>(-1);
@@ -662,6 +662,9 @@ struct ShooterMagazine {
     /// Firing: rounds already released this volley.
     u32 fired = 0;
     f32 timer = 0.0f;
+    /// Cosmetic shot clock, independent of the magazine phase/reload rate.
+    /// Starts settled and caps at one second; only a real round resets it.
+    f32 seconds_since_shot = 1.0f;
     /// Centre of the volley's cone, world space. Tracks the target through
     /// Gathering and is frozen from the first round on.
     Vec2 aim{1.0f, 0.0f};
@@ -828,7 +831,11 @@ public:
 
     /// Flags a swarmer for removal. Removal happens in compact(), so indices
     /// stay stable within a tick.
-    void kill(usize index);
+    void kill(usize index, CombatRetirement reason = CombatRetirement::Unknown);
+    void set_combat_metrics(CombatMetrics* metrics);
+    /// Observes a hostile health decrement without changing that decrement.
+    void observe_hostile_damage(usize index, f32 health_before, f32 requested);
+    void observe_activity(usize index, bool builders_active);
 
     /// FIBROSIS (file header): a live persistent builder with no site and
     /// no rest left, waiting for the game layer to send it somewhere.
@@ -879,9 +886,9 @@ public:
     /// The profile table. Slots are stable for the life of the store; a
     /// tower re-registers its slot whenever it releases a volley, so a config
     /// hot-reload reaches the units already in flight.
-    void set_profile(u16 slot, const SwarmerProfile& p);
-    const SwarmerProfile& profile_at(u16 slot) const {
-        return profiles_[slot < kSwarmerProfileSlots ? slot : 0u];
+    void set_profile(u16 profile_slot, const SwarmerProfile& p);
+    const SwarmerProfile& profile_at(u16 profile_slot) const {
+        return profiles_[profile_slot < kSwarmerProfileSlots ? profile_slot : 0u];
     }
     const SwarmerProfile& profile_of(usize i) const { return profile_at(profile[i]); }
     /// Unit i's actual body radius: its profile's size times its own spawn
@@ -892,6 +899,11 @@ public:
     f32 body_size(usize i) const { return profile_of(i).size * size_scale[i]; }
 
 private:
+    CombatMetrics* combat_metrics_ = nullptr;
+    std::vector<Tick> metric_birth_tick_;
+    std::vector<Tick> metric_first_hit_tick_;
+    std::vector<CombatRetirement> metric_retirement_;
+    std::vector<u8> metric_retired_;
     usize count_ = 0;
     usize capacity_ = 0;
     /// Next `generation` to hand out. Monotonic and never 0, so 0 can serve
@@ -983,9 +995,6 @@ public:
     const SwarmerEffects& effects() const { return effects_; }
     SwarmerEffects& effects() { return effects_; }
 
-    /// Per-owner accounting sink, null by default. See sim/Attribution.h.
-    void set_attribution(DamageAttribution* sink) { attribution_ = sink; }
-
     /// Inflammation (sim/Immunity.h): a unit standing in any of `zones` deals
     /// `damage_mult` times its latch drain and round damage, and its magazine
     /// reloads `reload_mult` times as fast. The list is the
@@ -1016,7 +1025,6 @@ private:
 
     SwarmerStats last_{};
     bool builders_active_ = true;
-    DamageAttribution* attribution_ = nullptr;
     const std::vector<InflamedZone>* inflamed_zones_ = nullptr;
     f32 inflamed_mult_ = 1.0f;
     f32 inflamed_reload_mult_ = 1.0f;

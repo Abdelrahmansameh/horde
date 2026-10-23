@@ -427,7 +427,7 @@ def pod(key, atp, state="idle", hk=1):
             f'<div style="position: relative; box-sizing: border-box; width: {w}px; height: {h}px; padding: 12px 14px">{inner}</div>{growth}{chip}</button>')
 
 
-def build_tray(atp, income=4.0, armed=None, x=360):
+def build_tray(atp, armed=None, x=360):
     groups = {}
     for i, t in enumerate(TOWERS):
         groups.setdefault(t[4], []).append((i + 1, t[0]))
@@ -439,7 +439,7 @@ def build_tray(atp, income=4.0, armed=None, x=360):
     atp_block = (f'<div style="width: 160px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0">'
                  f'<div class="anim-beat" style="width: 110px; height: 70px; display: flex; align-items: center; justify-content: center">{svgwrap(mito_inner(32, 32, 1.15, -12), 104)}</div>'
                  f'<span style="font-family: {DISPLAY}; font-weight: 600; font-size: 46px; line-height: 1; color: {INK}">{atp}</span>'
-                 f'<span style="font-family: {TEXTF}; font-size: 15px; font-weight: 900; color: {ATP_D}">ATP · +{income:.1f}/s</span></div>')
+                 f'<span style="font-family: {TEXTF}; font-size: 15px; font-weight: 900; color: {ATP_D}">ATP</span></div>')
     inner = f'<div style="display: flex; align-items: flex-end; gap: 18px; height: 100%">{atp_block}{gh}</div>'
     return cell_panel(x, H - 16 - 232, 1000, 232, inner, "immune", seed=77, pad="16px 22px 18px", amp=3.5, n_exp=6)
 

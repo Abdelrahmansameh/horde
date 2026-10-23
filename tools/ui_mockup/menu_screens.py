@@ -119,7 +119,7 @@ def parse_tree():
 
 GLYPH_RULES = [
     ("health", ["scar_health", "membrane", "resilience", "homeostasis", "health", "vitality", "body_mass"]),
-    ("atp", ["reserve", "clearance", "requisition", "deployment", "metabolism"]),
+    ("atp", ["reserve", "clearance", "requisition", "deployment"]),
     ("time", ["duration", "stamina", "slow_strength"]),
     ("wall", ["wall", "scar_size", "width"]),
     ("fire", ["weakness", "inflammation"]),
@@ -295,7 +295,7 @@ def lymph_node_hub(x, y):
 
 
 INIT_LV = {"neutrophil_unlock": 1, "neutrophil_round_damage": 3, "neutrophil_volley_cadence": 2, "neutrophil_aggro_range": 1, "neutrophil_tower_health": 2,
-           "cytotoxic_unlock": 1, "cytotoxic_drain": 1, "hub_bone_marrow_reserve": 2, "hub_rapid_metabolism": 1, "hub_cellular_resilience": 1,
+           "cytotoxic_unlock": 1, "cytotoxic_drain": 1, "hub_bone_marrow_reserve": 2, "hub_cellular_resilience": 1,
            "ability_histamine_unlock": 1, "ability_histamine_cooldown": 1}
 
 TREE_JS = r"""

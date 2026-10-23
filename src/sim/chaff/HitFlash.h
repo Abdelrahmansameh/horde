@@ -127,19 +127,9 @@ struct HitFlashParams {
     /// and drifting on the velocity it died with -- after the sim has already
     /// removed it. 0 draws nothing and leaves death entirely to the burst.
     ///
-    /// WHY THIS EXISTS AT ALL, AND WHY IT IS NOT OPTIONAL POLISH
-    /// Measured on a bot-played run of skin_1_breach: 94,245 agent-frames were
-    /// drawn and 29 of them -- 0.03% -- were an agent that was damaged and
-    /// still alive. Chaff has essentially no wounded state. A Macrophage at
-    /// tier 1 removes 1.03 density per tick and a virus carries 0.6, so an
-    /// agent goes from untouched to gone inside a single 1/60 s tick and no
-    /// frame is ever drawn in between. Every knob above can be cranked to
-    /// absurdity and the screen does not change by more than one 255th.
-    ///
-    /// So for the overwhelming majority of enemies, THE KILLING BLOW IS THE
-    /// ONLY HIT THEY EVER TAKE, and hit feedback on the body can only exist if
-    /// the body outlives the agent. That is what this is: the flash keeps being
-    /// drawn for a few frames after its owner is gone.
+    /// An agent can be killed and retired in a single simulation tick, before
+    /// a frame shows its hit flash. The body lingers briefly so that killing
+    /// blow remains visible after the agent is gone.
     ///
     /// It is a RENDER-side effect only. sim/ knows nothing about it; the
     /// renderer builds these instances from the CombatEventType::ChaffDeath

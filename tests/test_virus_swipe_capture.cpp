@@ -1,4 +1,4 @@
-// Explicit visual-evidence capture of the actual menu Play transition.
+// Explicit visual-evidence capture of the level-selector entry transition.
 // Run [virus_swipe_capture] with IMMUNE_SWIPE_CAPTURE_DIR set, then encode
 // frame_%04d.png at 60 fps. No desktop input or visible window is used.
 #include "app/UiBridge.h"
@@ -101,7 +101,7 @@ struct SwipeCaptureUi {
 
 } // namespace
 
-TEST_CASE("capture main-menu Play virus swipe at 60 fps",
+TEST_CASE("capture level-selector entry virus swipe at 60 fps",
           "[.][ui][virus_swipe_capture][gl]") {
     const char* capture_env = std::getenv("IMMUNE_SWIPE_CAPTURE_DIR");
     if (capture_env == nullptr || capture_env[0] == '\0') {
@@ -127,31 +127,32 @@ TEST_CASE("capture main-menu Play virus swipe at 60 fps",
     gui::PointerInput pointer;
     pointer.pos = Vec2{-100.0f, -100.0f};
     ui::FrontModel menu_model;
+    menu_model.campaign.push_back(ui::CampaignLevel{1, "First Bend", 0, false, false});
     ui::FrontModel tree_model;
     tree_model.tree = app::make_screenshot_tree_model(app::ScreenshotTree::New);
 
     // Settle the opening menu and fill its real icon atlas before recording.
     for (int warmup = 0; warmup < 45; ++warmup) {
-        capture.front->show(ui::FrontScreen::MainMenu, menu_model);
+        capture.front->show(ui::FrontScreen::LevelSelect, menu_model);
         capture.gui.frame(pointer, dt);
         REQUIRE(capture.front->take_result().action == ui::MenuAction::None);
         capture.render();
     }
 
-    ui::FrontScreen screen = ui::FrontScreen::MainMenu;
+    ui::FrontScreen screen = ui::FrontScreen::LevelSelect;
     int navigations = 0;
     std::vector<u8> pixels;
     for (int frame = 0; frame < 240; ++frame) {
         CAPTURE(frame);
-        const ui::FrontModel& model = screen == ui::FrontScreen::Tree ? tree_model : menu_model;
+        const ui::FrontModel& model = screen == ui::FrontScreen::None ? tree_model : menu_model;
         capture.front->show(screen, model);
-        if (frame == 60) REQUIRE(capture.gui.click("menu/play"));
+        if (frame == 60) REQUIRE(capture.gui.click("levels/play"));
         capture.gui.frame(pointer, dt);
         const ui::MenuResult result = capture.front->take_result();
         if (result.action != ui::MenuAction::None) {
-            REQUIRE(result.action == ui::MenuAction::OpenImmunityTree);
+            REQUIRE(result.action == ui::MenuAction::StartLevel);
             ++navigations;
-            screen = ui::FrontScreen::Tree; // Installed by show() on the next frame.
+            screen = ui::FrontScreen::None; // Installed by show() on the next frame.
         }
         capture.render();
         REQUIRE(render::read_framebuffer_rgba(pixels, 1600, 900));
@@ -167,7 +168,7 @@ TEST_CASE("capture main-menu Play virus swipe at 60 fps",
     }
 
     CHECK(navigations == 1);
-    CHECK(capture.front->current() == ui::FrontScreen::Tree);
+    CHECK(capture.front->current() == ui::FrontScreen::None);
     REQUIRE(capture.front->virus_swipe() != nullptr);
     CHECK_FALSE(capture.front->virus_swipe()->active());
 }

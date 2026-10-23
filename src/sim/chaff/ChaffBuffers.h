@@ -55,6 +55,7 @@
 #pragma once
 
 #include "core/Types.h"
+#include "sim/CombatMetrics.h"
 #include "sim/chaff/HitFlash.h"  // the per-family table apply_density_loss reads
 #include "sim/squad/Squads.h"    // kNoSquad, the default for the squad_id stream
 
@@ -327,7 +328,7 @@ public:
 
     /// Flags an agent for removal. Does not move anything — removal happens in
     /// compact(), once per tick, so indices are stable within a tick.
-    void kill(usize index);
+    void kill(usize index, CombatRetirement reason = CombatRetirement::Unknown);
 
     /// Subtracts from density and flags kPendingKill when it reaches zero.
     /// This is the ONLY way chaff takes damage; there is no per-unit hit path.
@@ -344,7 +345,9 @@ public:
     /// A burrowed agent (burrow_state != kSurface) takes nothing: it is under
     /// the tissue. Every caller measures what it removed as density before
     /// minus density after, so a no-op here books no damage and no kill.
-    void apply_density_loss(usize index, f32 amount);
+    void apply_density_loss(usize index, f32 amount, DamageAttribution attribution = {});
+    void set_combat_metrics(CombatMetrics* metrics);
+    CombatMetrics* combat_metrics() const { return combat_metrics_; }
 
     /// Weakening Mucus (sim/Immunity.h): every density loss on a kSlowed agent
     /// is multiplied by this. apply_density_loss() is the one path all chaff
@@ -374,8 +377,7 @@ public:
     ///
     /// `removed_by_family`, when non-null, points at kFamilyCount counters that
     /// are ADDED to (never cleared) with this pass's removals. Compaction is the
-    /// one place that sees every retirement regardless of cause, which is what
-    /// makes it the honest denominator for the balance report: SimWorld
+    /// one place that sees every retirement regardless of cause. SimWorld
     /// subtracts the leak/out-of-bounds tallies ChaffSystem hands it to recover
     /// "killed by the player's towers" exactly, rather than inferring it.
     usize compact(u32* removed_by_family = nullptr);
@@ -389,8 +391,7 @@ public:
     u32 family_count(PathogenFamily f) const { return family_counts_[static_cast<u32>(f)]; }
 
     /// Lifetime spawn tally per family, including replication. Survives
-    /// compact(); reset by reserve()/clear(). The balance report's "how much
-    /// did this level actually throw at the player" denominator.
+    /// compact(); reset by reserve()/clear(). Used by simulation diagnostics.
     const u64* spawned_by_family() const { return spawned_by_family_; }
 
     /// Sum of `density` over all live agents — the "how big is the horde really"
@@ -410,6 +411,10 @@ public:
     void clear();
 
 private:
+    CombatMetrics* combat_metrics_ = nullptr;
+    std::vector<Tick> metric_birth_tick_;
+    std::vector<Tick> metric_first_hit_tick_;
+    std::vector<CombatRetirement> metric_retirement_;
     /// Debug-only check of I1-I4. Compiles to nothing under NDEBUG.
     void assert_invariants() const;
 

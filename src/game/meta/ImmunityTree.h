@@ -5,16 +5,17 @@
 //  - One connected tree bought between runs with two currencies: Memory Cells
 //    (every run pays some) fund every leveled node; Antibodies (a level's first
 //    clear) fund the milestones -- tower unlocks, ability unlocks, capstones.
-//  - It is a real tree (PROGRESSION.md §4): the Neutrophil, owned from the
-//    start, is the root, every other node hangs off exactly one parent, no
-//    node has more than three children, and a node can be bought once its
-//    parent is owned. The path to every tower and ability unlock runs through
-//    Memory Cell nodes only, so the order milestones are unlocked in is still
-//    the player's.
+//  - It is a real tree: Degranulation Cycle is the root and first
+//    purchase, every other node hangs off exactly one parent, no
+//    ordinary node has more than five children, and a node can be bought
+//    once its parent is owned. Degranulation Cycle is the radial hub, with
+//    seven spokes. Abilities and capstones are discoveries directly under
+//    their related cell unlock. Cell unlocks need only the starter purchase,
+//    so their unlock order is still the player's.
 //  - The tree is a fixed CATALOG compiled in here, not data. Its shape and
 //    content are the design (PROGRESSION.md §5/§6 name every line); only the
-//    pacing -- what a level costs, what a run pays -- is a balance knob, and
-//    that lives in meta.json (game/config/GameConfig.h's MetaConfig).
+//    ordinary Memory Cell prices and run rewards live in meta.json. Each
+//    discovery costs one first-clear Antibody and no Memory Cells.
 //  - What a node DOES is expressed as an edit to the tuning config: a run
 //    starts from the loaded config, apply_immunity_tree() folds the player's
 //    purchases into a copy of it, and every system is configured from that
@@ -56,7 +57,7 @@ inline constexpr u32 kTreeBranchCount = static_cast<u32>(TreeBranch::Count);
 enum class TreeNodeKind : u8 {
     TowerRoot = 0,   ///< Unlocks a tower. Antibodies.
     Stat,            ///< A tower's leveled line. Memory Cells.
-    Capstone,        ///< A branch's unique effect. Both currencies, and a branch-point threshold.
+    Capstone,        ///< A branch's unique effect, discovered with one Antibody.
     Economy,         ///< A hub line. Memory Cells.
     AbilityRoot,     ///< Unlocks an active ability. Antibodies.
     AbilityStat,     ///< An ability's leveled line. Memory Cells.
@@ -68,7 +69,6 @@ enum class TreeNodeKind : u8 {
 enum class TreeNode : u16 {
     // ---- Hub: economy lines (§6) ----
     BoneMarrowReserve = 0,
-    RapidMetabolism,
     EfficientClearance,
     FieldRequisition,
     SystemicPotency,
@@ -89,9 +89,7 @@ enum class TreeNode : u16 {
     ClotCooldown,
     ClotDuration,
     // ---- Neutrophil (§5.1) ----
-    NeutrophilRoot,
     NeutrophilRoundDamage,
-    NeutrophilTriggerRate,
     NeutrophilAggroRange,
     NeutrophilSquadSize,
     NeutrophilAccuracy,
@@ -137,17 +135,20 @@ enum class TreeNode : u16 {
 };
 inline constexpr u32 kTreeNodeCount = static_cast<u32>(TreeNode::Count);
 
-/// The tree's root: owned from the start, the one node with no parent.
-inline constexpr TreeNode kTreeRoot = TreeNode::NeutrophilRoot;
-/// No node has more children than this.
-inline constexpr u32 kTreeMaxChildren = 3;
+/// The root has no parent and starts unbought, ready for the first purchase.
+inline constexpr TreeNode kTreeRoot = TreeNode::NeutrophilRoundDamage;
+/// The stable legacy RoundDamage identifier is also the radial hub.
+inline constexpr TreeNode kTreeHub = kTreeRoot;
+/// Ordinary branches stay small; the hub has one child per subject.
+inline constexpr u32 kTreeMaxChildren = 5;
+inline constexpr u32 kTreeHubMaxChildren = 9;
 
 struct TreeNodeDef {
     /// Stable identifier: save files, the console, and tests speak this, so
     /// renaming or reordering nodes never breaks a save.
     const char* key = "";
     const char* name = "";
-    /// What ONE level does, in the player's words ("+15% round damage").
+    /// What ONE level does, in the player's words ("+10 base cell health").
     const char* effect = "";
     TreeNodeKind kind = TreeNodeKind::Stat;
     TreeBranch branch = TreeBranch::Hub;
@@ -168,13 +169,14 @@ bool find_tree_node(std::string_view key, TreeNode& out);
 /// The tower a branch is about; TowerType::Count for the hub.
 TowerType branch_tower(TreeBranch branch);
 TreeBranch tower_branch(TowerType type);
-/// The root node that unlocks a tower / an ability, and a branch's capstone.
+/// The node that unlocks a tower / an ability, and a branch's capstone.
+/// Neutrophil is innate and has no unlock node (TreeNode::Count).
 TreeNode tower_root(TowerType type);
 TreeNode ability_root(AbilityId id);
 TreeNode branch_capstone(TreeBranch branch);
 const char* branch_name(TreeBranch branch);
 
-/// Levels bought, indexed by TreeNode. A root or capstone is level 0 or 1.
+/// Levels bought, indexed by TreeNode. Unlocks and capstones are level 0 or 1.
 struct TreeLevels {
     u8 level[kTreeNodeCount] = {};
 

@@ -1,5 +1,5 @@
 #include "app/App.h"
-#include "app/AutoplayMode.h"
+#include "app/BalanceMode.h"
 #include "app/Cli.h"
 #include "app/LevelTools.h"
 #include "app/Modes.h"
@@ -57,12 +57,15 @@ int main(int argc, char** argv) {
 
         case app::Mode::SimTest:
             return app::run_sim_test(options);
+        case app::Mode::BalanceRun:
+            return app::run_balance(options);
+        case app::Mode::BalanceReplay:
+            return app::run_balance_replay(options);
+        case app::Mode::BalanceCatalog:
+            return app::run_balance_catalog(options);
 
         case app::Mode::Screenshot:
             return app::run_screenshot(options);
-
-        case app::Mode::Autoplay:
-            return app::run_autoplay(options);
 
         // The editor is an interactive App state, not a headless mode: it needs
         // the window, the renderer and the real level-load path.

@@ -5,11 +5,14 @@
 
 #include <catch2/catch_test_macros.hpp>
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <filesystem>
+#include <map>
 #include <set>
 #include <string>
 #include <vector>
+#include <nlohmann/json.hpp>
 
 using namespace immune;
 using namespace immune::game;
@@ -32,32 +35,50 @@ std::vector<LevelDef> campaign_levels() {
     return levels;
 }
 
-u32 population(const WaveDef& wave) {
-    u32 total = 0;
-    for (const auto& spawn : wave.spawns) total += spawn.count;
-    return total;
-}
-
 bool outside(const Rect& frame, Vec2 p, Vec2 half) {
     return p.x + half.x < frame.min.x || p.x - half.x > frame.max.x ||
            p.y + half.y < frame.min.y || p.y - half.y > frame.max.y;
+}
+
+std::array<f64, kFamilyCount> campaign_densities() {
+    const auto text = platform::read_text_file(platform::asset_path("config/enemies.json"));
+    REQUIRE(text.has_value());
+    const auto families = nlohmann::json::parse(*text).at("families");
+    std::array<f64, kFamilyCount> result{};
+    result[static_cast<usize>(PathogenFamily::Virus)] = families.at("virus").at("behavior").at("base_density").get<f64>();
+    result[static_cast<usize>(PathogenFamily::Bacteria)] = families.at("bacteria").at("behavior").at("base_density").get<f64>();
+    result[static_cast<usize>(PathogenFamily::Parasite)] = families.at("parasite").at("behavior").at("base_density").get<f64>();
+    return result;
+}
+
+f64 release_density_peak(const WaveDef& wave, const std::array<f64, kFamilyCount>& densities) {
+    std::map<f64, f64> changes;
+    for (const auto& cohort : wave.spawns) {
+        REQUIRE(cohort.duration > 0);
+        const f64 rate = cohort.count * densities[static_cast<usize>(cohort.family)] / cohort.duration;
+        const f64 start = cohort.start_time;
+        changes[start] += rate;
+        changes[start + cohort.duration] -= rate;
+    }
+    f64 rate = 0, peak = 0;
+    for (const auto& [time, change] : changes) {
+        (void)time;
+        rate += change;
+        peak = std::max(peak, rate);
+    }
+    return peak;
 }
 }
 
 TEST_CASE("campaign ports release distinct bursts and use every entrance and authored route",
           "[level][content][campaign]") {
-    u32 previous_opening = 0, previous_final = 0, previous_total = 0;
-    usize previous_wave_count = 0;
     for (const auto& level : campaign_levels()) {
         INFO(level.name);
+        REQUIRE_FALSE(level.waves.empty());
         std::set<std::string> used_ports, used_paths;
-        u32 total = 0, previous_wave = 0;
         for (const auto& wave : level.waves) {
             INFO(wave.name);
-            const u32 count = population(wave);
-            REQUIRE(count >= previous_wave);
-            previous_wave = count;
-            total += count;
+            REQUIRE_FALSE(wave.spawns.empty());
             for (usize i = 0; i < wave.spawns.size(); ++i) {
                 const auto& entry = wave.spawns[i];
                 REQUIRE(entry.count > 0);
@@ -73,28 +94,43 @@ TEST_CASE("campaign ports release distinct bursts and use every entrance and aut
                     REQUIRE(path->lane_id == port->lane_id);
                     used_paths.insert(id);
                 }
-                // A fresh silhouette gets at least one second without another
+                // A fresh silhouette gets at least 1.25 seconds without another
                 // release from this port, including repeats of the same type.
                 for (usize j = i + 1; j < wave.spawns.size(); ++j) {
                     const auto& other = wave.spawns[j];
                     if (other.spawn_point_id != entry.spawn_point_id) continue;
                     const f32 end = entry.start_time + entry.duration;
                     const f32 other_end = other.start_time + other.duration;
-                    REQUIRE((end + 1.0f <= other.start_time + 0.001f ||
-                             other_end + 1.0f <= entry.start_time + 0.001f));
+                    REQUIRE((end + 1.25f <= other.start_time + 0.001f ||
+                             other_end + 1.25f <= entry.start_time + 0.001f));
                 }
             }
         }
         for (const auto& port : level.spawn_points) REQUIRE(used_ports.contains(port.id));
         for (const auto& path : level.squad_paths) REQUIRE(used_paths.contains(path.id));
-        REQUIRE(population(level.waves.front()) > previous_opening);
-        REQUIRE(population(level.waves.back()) > previous_final);
-        REQUIRE(total > previous_total);
-        REQUIRE(level.waves.size() >= previous_wave_count);
-        previous_opening = population(level.waves.front());
-        previous_final = population(level.waves.back());
-        previous_total = total;
-        previous_wave_count = level.waves.size();
+    }
+}
+
+TEST_CASE("campaign release pressure rises through waves and successive levels",
+          "[level][content][campaign][progression]") {
+    const auto densities = campaign_densities();
+    f64 previous_level = 0;
+    for (const auto& level : campaign_levels()) {
+        INFO(level.name);
+        f64 previous_wave = 0;
+        for (const auto& wave : level.waves) {
+            INFO(wave.name);
+            const f64 peak = release_density_peak(wave, densities);
+            REQUIRE(peak > previous_wave);
+            previous_wave = peak;
+        }
+        if (previous_level > 0) {
+            // The authored 1.32x hypothesis allows geometry-specific anchors;
+            // inspect the machine-readable curve before changing this range.
+            REQUIRE(previous_wave / previous_level >= 1.30);
+            REQUIRE(previous_wave / previous_level <= 1.35);
+        }
+        previous_level = previous_wave;
     }
 }
 

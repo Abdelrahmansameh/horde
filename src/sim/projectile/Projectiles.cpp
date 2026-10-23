@@ -157,7 +157,9 @@ void ProjectileBuffers::reserve(usize max_projectiles) {
     flags.assign(max_projectiles, 0u);
     visual_id.assign(max_projectiles, 0u);
     owner.assign(max_projectiles, EntityId{});
+    source.assign(max_projectiles, TowerType::Count);
     clear();
+    if (combat_metrics_) set_combat_metrics(combat_metrics_);
 }
 
 void ProjectileBuffers::clear() {
@@ -167,6 +169,9 @@ void ProjectileBuffers::clear() {
 }
 
 bool ProjectileBuffers::spawn(const ProjectileSpawnParams& p) {
+    if (combat_metrics_) combat_metrics_->record_spawn(CombatSpawnPool::Projectiles,
+        {p.owner, p.source, CombatDamageSource::Projectile}, 1, count_ < capacity_ ? 1 : 0,
+        count_ < capacity_ ? count_ + 1 : count_);
     if (count_ >= capacity_) return false;   // P3: never grows.
     const usize i = count_++;
     pos_x[i] = p.position.x;
@@ -182,6 +187,8 @@ bool ProjectileBuffers::spawn(const ProjectileSpawnParams& p) {
                                ~projectile_flags::kPendingKill);
     visual_id[i] = p.visual_id;
     owner[i] = p.owner;
+    source[i] = p.source;
+    if (combat_metrics_) metric_hit_seen_[i] = 0;
     return true;
 }
 
@@ -209,6 +216,8 @@ usize ProjectileBuffers::compact() {
             flags[i] = flags[last];
             visual_id[i] = visual_id[last];
             owner[i] = owner[last];
+            source[i] = source[last];
+            if (combat_metrics_) metric_hit_seen_[i] = metric_hit_seen_[last];
         }
         --count_;
         flags[count_] = 0;
@@ -246,8 +255,6 @@ ProjectileStats ProjectileSystem::update(ProjectileBuffers& projectiles,
     (void)rng;
 
     ProjectileStats stats;
-    impact_log_.clear();
-
     // Rounds the towers appended since the previous update(). The system has no
     // spawn entry point of its own -- callers push straight into the store --
     // so "spawned this tick" is the growth of count() since we last looked.
@@ -296,6 +303,8 @@ ProjectileStats ProjectileSystem::update(ProjectileBuffers& projectiles,
         // Timeout retires before collision: a round with no life left cannot
         // land a hit on the same tick.
         if (life[i] <= 0.0f) {
+            if (auto* metrics = projectiles.combat_metrics()) metrics->record_projectile_outcome(
+                {powner[i], projectiles.source[i], CombatDamageSource::Projectile}, ProjectileOutcome::Expired);
             pflags[i] |= projectile_flags::kPendingKill;
             ++stats.expired;
             if (events) {
@@ -314,6 +323,8 @@ ProjectileStats ProjectileSystem::update(ProjectileBuffers& projectiles,
         Vec2 wall_hit;
         const Vec2 previous = p - Vec2{vx[i], vy[i]} * dt;
         if (first_wall_hit(tissue, previous, p, wall_hit)) {
+            if (auto* metrics = projectiles.combat_metrics()) metrics->record_projectile_outcome(
+                {powner[i], projectiles.source[i], CombatDamageSource::Projectile}, ProjectileOutcome::WallImpact);
             pflags[i] |= projectile_flags::kPendingKill;
             ++stats.wall_impacts;
             if (events) {
@@ -328,6 +339,8 @@ ProjectileStats ProjectileSystem::update(ProjectileBuffers& projectiles,
         // Leaving the simulation rectangle is still an expiry, unless the
         // swept path met a tissue wall first (handled above).
         if (!world_bounds.contains(p)) {
+            if (auto* metrics = projectiles.combat_metrics()) metrics->record_projectile_outcome(
+                {powner[i], projectiles.source[i], CombatDamageSource::Projectile}, ProjectileOutcome::Expired);
             pflags[i] |= projectile_flags::kPendingKill;
             ++stats.expired;
             if (events) {
@@ -373,25 +386,13 @@ ProjectileStats ProjectileSystem::update(ProjectileBuffers& projectiles,
                                 ? pdamage[i] * chaff_flags::kMarkedDamageMultiplier
                                 : pdamage[i];
             const f32 before = chaff.density[idx];
-            chaff.apply_density_loss(idx, dmg);
+            chaff.apply_density_loss(idx, dmg, {powner[i], projectiles.source[i], CombatDamageSource::Projectile});
             const f32 removed = before - chaff.density[idx];
             if (removed <= 0.0f) continue;   // nothing left to take; keep looking
 
             ++stats.impacts;
+            projectiles.observe_hit(i, (pflags[i] & projectile_flags::kPiercing) == 0);
             stats.density_removed += removed;
-
-            if ((pflags[i] & projectile_flags::kIncendiary) != 0 &&
-                impact_log_.size() < max_impact_log_) {
-                impact_log_.push_back(ProjectileImpactRecord{p, powner[i], pvisual[i]});
-            }
-
-            // Off by default; see sim/Attribution.h. `removed` is the clamped
-            // effect, not the nominal damage, so an over-killing round is not
-            // credited with density that was never there.
-            if (attribution_ != nullptr && powner[i].valid()) {
-                const bool killed = (chaff.flags[idx] & chaff_flags::kPendingKill) != 0;
-                attribution_->record_chaff(powner[i], cfamily[idx], removed, killed);
-            }
 
             if (events) {
                 CombatEvent e = make_event(CombatEventType::ProjectileImpact, p,

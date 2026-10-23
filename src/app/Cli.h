@@ -9,7 +9,6 @@
 //   immune --sim-test <script.json>            Scripted scenario, exit 0 pass / 1 fail.
 //   immune --screenshot <level> --tick N --out <file.png>
 //   immune --dump-config <dir>                 Write the live tuning values as JSON.
-//   immune --autoplay --level <f.json>         Bot-played balance run, JSON report.
 //   immune --editor [<f.json>]                 In-game level editor (docs/LEVEL_EDITOR.md).
 //   immune --level-check <f.json|dir>          Validate levels; JSON report; exit 0/1.
 //   immune --level-fmt <f.json|dir> [--check]  Canonical rewrite through LevelWriter.
@@ -34,7 +33,6 @@ enum class Mode : u8 {
     Bench,
     SimTest,
     Screenshot,
-    Autoplay,
     ListScenarios,
     DumpConfig,
     Editor,         ///< --editor [level]: open the in-game level editor.
@@ -43,10 +41,18 @@ enum class Mode : u8 {
     Help,
     Invalid,
     Licenses,       ///< --licenses: bundled third-party license notices on stdout.
+    BalanceRun,
+    BalanceReplay,
+    BalanceCatalog,
 };
 
 struct Options {
     Mode mode = Mode::Play;
+    std::string executable_path;
+    std::string balance_path;
+    std::string record_balance_dir;
+    bool output_explicit = false;
+    bool ticks_explicit = false;
 
     std::string scenario;       ///< --bench <scenario> / --scenario <scenario> (screenshot-only)
     std::string script_path;    ///< --sim-test <script.json>
@@ -81,10 +87,9 @@ struct Options {
 
     /// --exec "<gym commands>": semicolon-separated game/gym commands, run
     /// once against the world at startup -- before --screenshot advances any
-    /// ticks, and just after the level loads in interactive play (which is what
-    /// makes `--exec "autoplay on; time 8"` a way to watch the balance bot). The
-    /// point is that a visual bug found by typing into the console can be
-    /// reproduced by a command line, and captured in a regression shot, without
+    /// ticks, and just after the level loads in interactive play. A visual bug
+    /// found through the console can be reproduced by a command line and
+    /// captured in a regression shot, without
     /// anyone first inventing a bespoke CLI flag for it.
     std::string exec;
 
@@ -107,23 +112,13 @@ struct Options {
     /// not already canonical, instead of writing. The gate form.
     bool check_only = false;
 
-    // --- --autoplay (app/AutoplayMode.h) -----------------------------------
-    /// --profile <name>: which strategy the bot plays. Empty means the
-    /// default, "greedy-cheapest". See game/autoplay/AutoPlayer.h.
-    std::string profile;
-    /// --report PATH: where the balance report JSON goes. Empty means stdout.
-    std::string report_path;
-    /// --max-ticks N: give up and report "tick_limit" after this many ticks.
-    /// 0 means the harness default (30 simulated minutes).
-    u64 max_ticks = 0;
-
     /// --save PATH: the Strengthen Immunity save file (game/meta). Empty means
     /// the per-user default (platform::user_data_dir()/save.json).
     std::string save_path;
     /// --sandbox: interactive play without meta-progression -- every tower and
     /// ability unlocked, the tree's bonuses off, no payout, nothing saved. The
     /// editor's playtests and the gym level are always sandboxed; this makes
-    /// any `--level` run one too (e.g. to watch the balance bot).
+    /// any `--level` run one too.
     bool sandbox = false;
 
     u64 ticks = 600;            ///< --ticks / --tick

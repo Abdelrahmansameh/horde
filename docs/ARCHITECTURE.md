@@ -25,7 +25,7 @@ and GLM. The remaining libraries are:
 | `immune_sim` / `src/sim` | World, chaff, ECS, flow, squads, combat, fluid, scars | core |
 | `immune_vfx` / `src/vfx` | Cosmetic particles and family death-effect tables | core, sim |
 | `immune_render` / `src/render` | Camera, GL wrappers, shaders, world passes, PNG capture | core, platform, sim, vfx |
-| `immune_game` / `src/game` | Levels, waves, deployed cells, abilities, economy, progression, editor, gym, autoplay, telemetry, config adapters | core, config, sim, render |
+| `immune_game` / `src/game` | Levels, waves, deployed cells, abilities, economy, progression, editor, gym, config adapters | core, config, sim, render |
 | `immune_gui` / `src/gui` | Retained widgets, layout, hit testing, SDF drawing, text/icons | core, platform, render |
 | `immune_ui` / `src/ui` | Player screens and developer panels | core, platform, render, game, gui |
 | `immune_audio` / `src/audio` | Procedural synthesis and mixing | core |
@@ -78,7 +78,7 @@ persistent immune cell in the swarmer store, with no ECS tower/spawner entity.
 creates a spawner tower for compatibility/debug uses, and its release systems
 remain installed. Do not infer current player behavior from older spawner
 comments in public headers. A direct deployment's high-range owner ID groups
-attribution/scars; it is not an ECS entity to dereference.
+combat/scar ownership; it is not an ECS entity to dereference.
 
 The editor owns a `LevelDoc` and separate baked preview. It does not reinitialize
 the active world on every gesture. `LevelLoader::bake_geometry()` is shared by
@@ -96,16 +96,28 @@ wave scheduling, ATP, ability cooldowns, or level outcomes.
 1. Apply queued gym spawns, then advance the authored wave director.
 2. Enable legacy tower release outside Prep; with no director, release continuously.
 3. Tick the world, then apply gym toggles before checking outcomes.
-4. Accrue passive ATP outside Prep, credit removed density, and credit pending
-   wave rewards.
+4. Credit ATP for removed density and pending wave rewards.
 5. Advance active-ability timers.
 6. Check objective destruction first, then the survival deadline or wave clear.
 
-App and autoplay call this function. New headless gameplay runners should use
+App calls this function. New headless gameplay runners should use
 it rather than duplicate the order. Focused engine tests/benchmarks may tick
 SimWorld directly, which intentionally represents a smaller workload.
+
+`game/session/RunSetup` also shares run-start config folding, level world
+description, unlocks, economy and terminal result collection with
+`game/balance/BalanceRun`. Balance controllers return paid player action intents;
+the runner uses normal deployment/cast APIs and `step_level`. It owns an isolated
+progression copy and never writes the player's save. Optional `CombatMetrics`
+observes kernel events without controlling simulation. See [Balance lab](BALANCE_LAB.md).
 `LevelSystems` contains non-owning pointers, skips absent optional systems, and
 carries the level's `survive_seconds` setting.
+
+The shared `game::apply_level_rules()` applies authored starting ATP, income
+multipliers, and cell restrictions for App and HUD captures. App supplies the
+player's starting-ATP bonus when the level overrides its opening amount.
+[Session tests](../tests/test_level_session.cpp) cover these rules, paid
+deployment, family accounting, and serial replay without a rendering window.
 
 ## Data and determinism
 

@@ -10,20 +10,27 @@
 #include "core/Math.h"
 #include "game/level/Level.h"
 #include "game/session/LevelSession.h"
+#include "game/session/RunSetup.h"
+#include "game/balance/BalanceRun.h"
 #include "platform/FileIO.h"
 #include "render/Screenshot.h"
 
+#include <imgui.h>
+
 #include <algorithm>
 #include <cmath>
+#include <chrono>
+#include <limits>
 
 namespace immune::app {
 
 bool App::init(const Options& options) {
     options_ = options;
+    if (!options_.record_balance_dir.empty()) options_.config_pinned = true;
     // Rounds wait for the player unless they turn the HUD's auto-start on.
     waves_.set_auto_start(false);
 
-    if (options.threads == 1) jobs_ = std::make_unique<JobSystem>(0u);
+    if (options.threads == 1 || !options.record_balance_dir.empty()) jobs_ = std::make_unique<JobSystem>(0u);
     else if (options.threads > 1) jobs_ = std::make_unique<JobSystem>(static_cast<u32>(options.threads - 1));
     else jobs_ = std::make_unique<JobSystem>();
 
@@ -118,12 +125,8 @@ bool App::init(const Options& options) {
     }
     state_.apply_pending();
 
-    // --exec at launch. It already worked for --screenshot; doing it here too
-    // is what makes "watch the balance bot play" a command line rather than a
-    // sequence of keystrokes into the gym panel:
-    //     immune --level <f> --exec "autoplay on; time 8"
-    // Runs after the level is loaded and the state has settled, so a command
-    // that needs a world (which is most of them) has one.
+    // Run startup console commands after the level is loaded and the state
+    // has settled, so commands that need a world have one.
     if (!options_.exec.empty()) {
         game::GymContext ctx = make_gym_context();
         const game::GymResult r = game::gym_execute_script(ctx, options_.exec);
@@ -208,6 +211,7 @@ ui::FrontModel App::front_model() {
         if (levels_[campaign_[i].level_index].path == current_level_path_) m.campaign_slot = static_cast<i32>(i);
     }
     m.unlocked_next = last_run_.first_clear;
+    m.discovery_choices = static_cast<u32>(meta_.discovery_offers(config_.meta).size());
     if (state_.current() == GameStateId::StrengthenImmunity) m.tree = make_tree_model(meta_, config_.meta);
     return m;
 }
@@ -246,7 +250,7 @@ void App::apply_menu_result(const ui::MenuResult& r) {
         }
         break;
     case ui::MenuAction::OpenEditor:
-        enter_editor({});
+        if (options_.record_balance_dir.empty()) enter_editor({});
         break;
     case ui::MenuAction::Resume:
         state_.request(GameStateId::InLevel);
@@ -254,9 +258,12 @@ void App::apply_menu_result(const ui::MenuResult& r) {
     case ui::MenuAction::BackToEditor:
         editor_stop();
         break;
+    case ui::MenuAction::AbandonRun:
+        state_.set_outcome(LevelOutcome::Aborted);
+        state_.request(GameStateId::StrengthenImmunity);
+        break;
     case ui::MenuAction::Back:
-        // Leaving a live/paused run from the pause menu abandons it, same as
-        // Escape does from InLevel directly.
+        // Retain the generic back action's handling for a paused run.
         if (state_.current() == GameStateId::Paused) {
             state_.set_outcome(LevelOutcome::Aborted);
         }
@@ -275,7 +282,10 @@ void App::apply_menu_result(const ui::MenuResult& r) {
                 // the level list rather than dropping into a half-built world.
                 IMMUNE_LOG_ERROR("could not start level '%s'",
                                  levels_[r.level_index].path.c_str());
+                front_->finish_transitions();
             }
+        } else {
+            front_->finish_transitions();
         }
         break;
     case ui::MenuAction::RestartLevel:
@@ -324,35 +334,11 @@ void App::apply_tuning_config() {
     // lines applied -- and the rest of the tree (unlocks, capstones with no
     // config home) goes on alongside. Re-folded from the file's values every
     // time, so a hot reload or a purchase can never compound.
-    run_config_ = config_;
-    game::TreeEffects tree;
     const bool sandbox = sandbox_run();
-    if (!sandbox) tree = meta_.apply_to(run_config_);
-    tree.immunity.leak_damage = sandbox ? config_.sim.globals.objective_damage_per_leak
-                                        : tree.immunity.leak_damage;
-
-    game::apply_tower_config(towers_, run_config_.towers);
-    game::apply_enemy_config(enemies_, config_.enemies);
-    economy_.configure(run_config_.economy);
-    game::apply_ability_config(abilities_, run_config_.abilities);
-    towers_.set_unlocked_towers(sandbox ? game::TowerSystem::kAllTowersMask : tree.tower_mask);
-    abilities_.set_unlocked(sandbox ? game::ActiveAbilitySystem::kAllAbilitiesMask
-                                    : tree.ability_mask);
-    // The hostile pass reads its tuning off the world, not off a SimDesc, so
-    // a reload of a family's latch, toxin shot, or aura reaches the running level too.
-    sim::HostileTuning hostile = game::hostile_tuning(config_.sim.hostile);
-    hostile.damage_taken_mult = tree.hostile_damage_taken_mult;
-    sim_.hostile().set_tuning(hostile);
-    sim_.burrow().set_tuning(game::burrow_tuning());
-    sim_.set_immunity(tree.immunity);
-
-    // The loaded level gets the LAST word. Folded in here rather than called
-    // beside every apply_tuning_config() site, because there are five of them
-    // (init, level load, and three gym/hot-reload paths) and a level's own
-    // economy override silently reverting on a config reload would be a very
-    // hard bug to see. Inert before any level is loaded, and for any level that
-    // authors no schema-2 rules.
-    apply_level_rules(current_level_def_);
+    auto run = game::make_run_tuning(config_, meta_, sandbox);
+    run_config_ = run.config;
+    game::apply_run_tuning(config_, run, current_level_def_, sim_, towers_,
+                           enemies_, economy_, abilities_, sandbox);
 }
 
 void App::poll_config_reload(f32 dt) {
@@ -423,48 +409,13 @@ bool App::load_level(const std::string& path) {
 }
 
 bool App::load_level_def(const game::LevelDef& level, const std::string& source_path) {
+    save_balance_recording();
     game::LevelLoader loader;
     const std::string& path = source_path;
     last_level_load_error_.clear();
 
-    sim::SimDesc desc;
-    desc.seed = options_.seed;
-    desc.world_bounds = level.world_bounds;
-    // Grown to cover any spawn point the level puts outside the play area,
-    // so the horde that walks in from off-screen is on the grid.
-    desc.sim_bounds = game::level_sim_bounds(level);
-    // Capacities and the spatial grid are fixed at init() and cannot change
-    // without rebuilding the world, which is exactly why they are read here
-    // rather than applied by a hot reload.
-    desc.max_chaff = config_.sim.capacities.max_chaff;
-    desc.max_damage_fields = config_.sim.capacities.max_damage_fields;
-    desc.max_projectiles = config_.sim.capacities.max_projectiles;
-    desc.max_swarmers = config_.sim.capacities.max_swarmers;
-    desc.max_fluid_particles = config_.sim.capacities.max_fluid_particles;
-    desc.max_combat_events = config_.sim.capacities.max_combat_events;
-    desc.max_chaff_death_events = config_.sim.capacities.max_chaff_death_events;
-    desc.fluid_tuning = config_.sim.fluid;
-    desc.squad_tuning = config_.sim.squads;
-    desc.swarmer_collision = config_.sim.swarmer_collision;
-    desc.hostile_tuning = game::hostile_tuning(config_.sim.hostile);
-    desc.burrow_tuning = game::burrow_tuning();
-    desc.spatial_cell_size = config_.sim.globals.spatial_cell_size;
-    desc.flow_rebake_budget_ms = config_.sim.globals.flow_rebake_budget_ms;
-    desc.flow_smoothing_radius = config_.sim.globals.flow_smoothing_radius;
-    desc.flow_wall_cost = config_.sim.globals.flow_wall_cost;
-    desc.flow_wall_falloff = config_.sim.globals.flow_wall_falloff;
-    desc.flow_wall_exponent = config_.sim.globals.flow_wall_exponent;
-    enemies_.apply_to_tuning(desc.chaff_tuning);
-    desc.chaff_tuning.max_replications_per_tick = config_.sim.globals.max_replications_per_tick;
-    desc.chaff_tuning.max_neighbors_sampled = config_.sim.globals.max_neighbors_sampled;
-    desc.chaff_tuning.ambient_drift = config_.sim.globals.ambient_drift;
-    // The level gets the last word on drift: sim.json supplies the default and
-    // a level that authors `ambient_drift` overrides it. That field has been
-    // parsed and then ignored since the schema was written, because
-    // apply_to_tuning() unconditionally stamped a global value over it.
-    if (level.ambient_drift != Vec2{0.0f, 0.0f}) {
-        desc.chaff_tuning.ambient_drift = level.ambient_drift;
-    }
+    sim::SimDesc desc = game::make_level_sim_desc(config_, enemies_, level, options_.seed);
+    desc.deterministic_rebakes = !options_.record_balance_dir.empty();
     sim_.init(desc, jobs_.get());
 
     const auto res = loader.instantiate(level, sim_, &render_sdf_);
@@ -478,10 +429,8 @@ bool App::load_level_def(const game::LevelDef& level, const std::string& source_
     // now so whichever wave implements per-lane hue/threat readout doesn't
     // need to re-derive it.
     lane_map_ = loader.build_lane_ownership_map(level);
-    // The bot plans against geometry, so the level it planned for has to
-    // outlive load_level(). Any bot running for the previous level stops here.
+    // Keep authored rules and geometry available to the session, HUD, and editor.
     current_level_def_ = level;
-    autoplay_enabled_ = false;
 
     towers_.register_systems(sim_);
     enemies_.register_systems(sim_);
@@ -557,40 +506,28 @@ bool App::load_level_def(const game::LevelDef& level, const std::string& source_
 
     level_loaded_ = true;
     current_level_path_ = path;
+    if (!options_.record_balance_dir.empty() && !editor_playtest_ && level.name != "gym") {
+        const auto document = platform::read_text_file(source_path);
+        try {
+            if (document) {
+                const auto original = config::Json::parse(*document);
+                sim_.enable_combat_metrics(true,32768);
+                balance_recording_.begin(level,config_,meta_,sandbox_run(),original);
+                balance_recording_.sample(sim_,economy_,waves_);
+            } else IMMUNE_LOG_WARN("balance recording needs an original level file");
+        } catch (const std::exception& error) {
+            IMMUNE_LOG_WARN("balance recording setup failed: %s",error.what());
+        }
+    }
     return true;
 }
 
 void App::apply_level_rules(const game::LevelDef& level) {
-    // Economy. 0 / 1.0 mean "use the global", so a level that authors neither
-    // behaves exactly as it did before schema 2 existed. The base is the
-    // tree-applied economy; a level that overrides its starting ATP still
-    // gets the player's Bone Marrow Reserve on top, since that bonus is the
-    // player's, not the level's (DESIGN.md §7.1).
-    game::EconomyConfig eco = run_config_.economy;
-    if (level.economy.starting_atp != 0) {
-        const u32 tree_bonus = run_config_.economy.starting_atp > config_.economy.starting_atp
-                                   ? run_config_.economy.starting_atp - config_.economy.starting_atp
-                                   : 0u;
-        eco.starting_atp = level.economy.starting_atp + tree_bonus;
-    }
-    if (level.economy.income_multiplier != 1.0f) {
-        eco.passive_income_per_second *= level.economy.income_multiplier;
-        eco.atp_per_density *= level.economy.income_multiplier;
-    }
-    economy_.configure(eco);
-
-    // Buildable tower types. An empty list means "all", which is a zero mask.
-    u32 mask = 0;
-    for (const std::string& name : level.allowed_towers) {
-        TowerType t{};
-        if (!game::parse_tower_type(name, t)) {
-            IMMUNE_LOG_WARN("level '%s' allows unknown tower '%s'", level.name.c_str(),
-                            name.c_str());
-            continue;
-        }
-        mask |= 1u << static_cast<u32>(t);
-    }
-    towers_.set_allowed_towers(mask);
+    // A level opening override still receives the player's starting-ATP bonus.
+    const u32 tree_bonus = run_config_.economy.starting_atp > config_.economy.starting_atp
+                               ? run_config_.economy.starting_atp - config_.economy.starting_atp
+                               : 0u;
+    game::apply_level_rules(level, run_config_.economy, economy_, towers_, tree_bonus);
 }
 
 void App::enter_editor(const std::string& path) {
@@ -755,6 +692,7 @@ void App::build_editor() {
 }
 
 void App::shutdown() {
+    save_balance_recording();
     front_.reset();
     hud_screen_.reset();
     gui_.shutdown();
@@ -772,19 +710,26 @@ void App::handle_input() {
         state_.request(GameStateId::Quitting);
         running_ = false;
     }
-    // The gym panel eats Escape first: with it open, Escape means "close the
-    // panel", not "abandon the run". Nothing else in the app can express that,
-    // since the panel is not a GameStateId.
-    if (gym_panel_.visible() && input_.action_pressed(platform::Action::CancelPlacement)) {
-        gym_panel_.set_visible(false);
-        return;
-    }
     // Screenshot is checked before the UI-capture guard below: capturing the
     // frame is never a gameplay action, and the one frame you most want to
     // capture is often the one with a console or panel open on top of it.
     if (input_.action_pressed(platform::Action::Screenshot)) {
         render::capture_framebuffer_png("shot.png", window_.width(), window_.height());
         IMMUNE_LOG_INFO("wrote shot.png");
+    }
+    if (options_.record_balance_dir.empty() && input_.action_pressed(platform::Action::ToggleProgressionCheats)) {
+        progression_cheats_visible_ = !progression_cheats_visible_;
+    }
+    if (progression_cheats_visible_) {
+        if (input_.action_pressed(platform::Action::CancelPlacement)) progression_cheats_visible_ = false;
+        return;
+    }
+    // The gym panel eats Escape first: with it open, Escape means "close the
+    // panel", not "abandon the run". Nothing else in the app can express that,
+    // since the panel is not a GameStateId.
+    if (gym_panel_.visible() && input_.action_pressed(platform::Action::CancelPlacement)) {
+        gym_panel_.set_visible(false);
+        return;
     }
     // Typing a command must not also drive the game. ui_capture_keyboard is set
     // from the previous frame's ImGui state (DevUi::begin_frame), which is exactly
@@ -793,14 +738,12 @@ void App::handle_input() {
 
     // F4 on the title screen opens the editor on a blank level (the menu
     // itself is the player's, and has no editor button).
-    if (state_.current() == GameStateId::MainMenu && input_.action_pressed(platform::Action::OpenEditor)) {
+    if (options_.record_balance_dir.empty() && state_.current() == GameStateId::MainMenu && input_.action_pressed(platform::Action::OpenEditor)) {
         enter_editor({});
         return;
     }
-    // F4 from a live level opens the editor on the level being played.
-    // current_level_def_ is already kept alive for the balance bot, so this
-    // costs a state request and nothing else.
-    if (state_.current() == GameStateId::InLevel && !editor_playtest_ &&
+    // F4 from a live level opens the editor on the retained level document.
+    if (options_.record_balance_dir.empty() && state_.current() == GameStateId::InLevel && !editor_playtest_ &&
         input_.action_pressed(platform::Action::OpenEditor)) {
         game::GeometryBakeDesc bd;
         bd.flow_smoothing_radius = config_.sim.globals.flow_smoothing_radius;
@@ -819,7 +762,7 @@ void App::handle_input() {
 
     // Escape backs out one level of the front end. From inside a level it
     // opens the pause menu rather than immediately abandoning the run; the
-    // pause menu itself offers resume/restart/main-menu.
+    // pause menu itself offers resume/restart/abandon to the skill tree.
     if (input_.action_pressed(platform::Action::CancelPlacement)) {
         switch (state_.current()) {
         // The front end is a chain: menu -> Strengthen Immunity -> levels.
@@ -936,13 +879,26 @@ void App::apply_intents(const std::vector<ui::Intent>& intents) {
             case ui::IntentKind::PlaceTower: {
                 const u32 count = game::deploy_cells(towers_, sim_, economy_, in.tower_type,
                                                      in.world_position, in.quantity);
+                if (count && balance_recording_.active()) {
+                    game::balance::Action action;
+                    action.tick = sim_.tick_index(); action.kind = game::balance::ActionKind::Deploy;
+                    action.tower = in.tower_type; action.position = in.world_position; action.quantity = count;
+                    balance_recording_.append(action);
+                }
                 audio_.post(audio::AudioEvent{count > 0 ? audio::SoundId::TowerPlace
                                                        : audio::SoundId::UiInvalid,
                                                in.world_position});
                 break;
             }
             case ui::IntentKind::CastAbility: {
-                if (!abilities_.cast(sim_, in.ability_id, in.world_position)) {
+                const bool cast = abilities_.cast(sim_, in.ability_id, in.world_position);
+                if (cast && balance_recording_.active()) {
+                    game::balance::Action action;
+                    action.tick = sim_.tick_index(); action.kind = game::balance::ActionKind::CastAbility;
+                    action.ability = in.ability_id; action.position = in.world_position;
+                    balance_recording_.append(action);
+                }
+                if (!cast) {
                     audio_.post(audio::AudioEvent{audio::SoundId::UiInvalid, in.world_position});
                 }
                 break;
@@ -961,9 +917,7 @@ void App::apply_intents(const std::vector<ui::Intent>& intents) {
 }
 
 void App::tick_sim() {
-    // The order of operations lives in game/session/LevelSession.h so the
-    // balance harness runs the same game this does rather than a headless
-    // imitation of it. Everything App-specific stays here: the state machine,
+    // The shared session step owns system order. App owns state transitions
     // and the logging that names the tick a run ended on.
     game::LevelSystems systems;
     systems.world = &sim_;
@@ -978,13 +932,17 @@ void App::tick_sim() {
     // none, which is the wave-clear rule.
     systems.survive_seconds = current_level_def_.win.survive_seconds;
 
-    // The bot buys between ticks, in the same place apply_intents() puts a
-    // player's clicks -- it has no path into the sim that a player lacks.
-    if (autoplay_enabled_) {
-        bot_.tick(sim_, towers_, economy_, sim_.snapshot().tick);
-    }
-
+    const auto previous_wave = waves_.status();
+    const Tick previous_tick = sim_.tick_index();
     const game::SessionOutcome outcome = game::step_level(systems, &profiler_);
+    if (balance_recording_.active()) {
+        if (previous_wave.phase == game::WavePhase::Prep && waves_.status().phase == game::WavePhase::Spawning) {
+            game::balance::Action start;
+            start.tick = previous_tick; start.kind = game::balance::ActionKind::StartWave;
+            balance_recording_.append(start);
+        }
+        if (sim_.tick_index()%60 == 0) balance_recording_.sample(sim_,economy_,waves_);
+    }
     // A transition is applied at the top of the NEXT frame, so the remaining
     // ticks of this frame still see InLevel. Without the pending check, a
     // fast-forwarded frame (say `time 12`, twelve ticks deep) logs "level
@@ -1099,30 +1057,6 @@ game::GymContext App::make_gym_context() {
         enter_state(GameStateId::InLevel);
         return true;
     };
-    ctx.set_autoplay = [this](bool enable, const std::string& profile, std::string& err) {
-        if (!enable) {
-            autoplay_enabled_ = false;
-            return true;
-        }
-        if (!level_loaded_) {
-            err = "no level loaded";
-            return false;
-        }
-        game::AutoPlayConfig cfg;
-        if (!game::parse_autoplay_profile(profile, cfg.profile, cfg.single_type)) {
-            err = "unknown profile '" + profile +
-                  "' (greedy-cheapest | spread-coverage | single-type:<tower>)";
-            return false;
-        }
-        bot_.configure(cfg);
-        bot_.plan(current_level_def_, lane_map_, sim_, towers_, waves_);
-        if (bot_.sites().empty()) {
-            err = "the planner found nowhere to build on this level";
-            return false;
-        }
-        autoplay_enabled_ = true;
-        return true;
-    };
     ctx.ui = [this](const std::vector<std::string>& tokens) {
         UiDriver d;
         d.gui = &gui_;
@@ -1191,6 +1125,7 @@ void App::render_frame() {
         // by the time the canvas reads it next frame.
         editor_canvas_.build(editor_, camera_, input_);
         build_editor();
+        build_progression_cheats();
         dev_ui_.render();
         window_.swap();
         return;
@@ -1211,8 +1146,9 @@ void App::render_frame() {
         // and a panel that vanished with the world would be useless exactly
         // when a level failed to load.
         game::GymContext gym = make_gym_context();
-        gym_panel_.build(gym);
+        if (options_.record_balance_dir.empty()) gym_panel_.build(gym);
         gui_.render(window_.width(), window_.height());
+        build_progression_cheats();
         dev_ui_.render();
         window_.swap();
         return;
@@ -1304,7 +1240,7 @@ void App::render_frame() {
     // decides whether this frame's click belongs to the HUD.
     const bool imgui_pointer = input_.ui_capture_mouse();
     run_gui_frame();
-    if (hud_live) {
+    if (hud_live && !progression_cheats_visible_) {
         hud_screen_->handle_input(input_, world_cursor, gui_.wants_pointer() || imgui_pointer, intents_);
         apply_intents(intents_);
     }
@@ -1313,9 +1249,10 @@ void App::render_frame() {
     // Drawn last so it sits above the HUD and the pause/results screens, and
     // outside the state switch above so it stays usable while paused.
     game::GymContext gym = make_gym_context();
-    gym_panel_.build(gym);
+    if (options_.record_balance_dir.empty()) gym_panel_.build(gym);
 
     gui_.render(window_.width(), window_.height());
+    build_progression_cheats();
     dev_ui_.render();
     window_.swap();
 }
@@ -1335,7 +1272,7 @@ void App::run_gui_frame() {
     p.wheel = input_.wheel();
     // ImGui's windows (the gym panel) draw on top of the game UI, so while
     // the pointer is on one of them the gui does not see it at all.
-    p.present = !input_.ui_capture_mouse();
+    p.present = !progression_cheats_visible_ && !input_.ui_capture_mouse();
     gui_.frame(p, static_cast<f32>(clock_.frame_delta()));
     input_.set_ui_capture(input_.ui_capture_mouse() || gui_.wants_pointer(), input_.ui_capture_keyboard());
 }
@@ -1370,13 +1307,14 @@ int App::run() {
             const GameStateId now = state_.current();
             if (now == GameStateId::MainMenu || now == GameStateId::LevelSelect ||
                 now == GameStateId::StrengthenImmunity) {
+                save_balance_recording();
                 level_loaded_ = false;
                 particles_.clear();
                 clock_.set_time_scale(1.0f);
             }
         }
 
-        if (state_.sim_running()) {
+        if (state_.sim_running() && !progression_cheats_visible_) {
             while (clock_.consume_tick()) tick_sim();
         } else {
             // Stopped means stopped. begin_frame() accumulates in EVERY state,
@@ -1412,23 +1350,11 @@ bool App::sandbox_run() const {
 }
 
 game::RunResult App::current_run_result(bool won) const {
-    const game::WaveStatus st = waves_.status();
-    game::RunResult r;
-    // Waves fully behind the player: every one before the current index, or
-    // all of them once the table is done.
-    r.waves_cleared = st.all_waves_complete ? static_cast<u32>(waves_.waves().size())
-                                            : st.wave_index;
-    // Killed by the player, not leaked or wandered off (SimSnapshot's
-    // per-family tallies separate the three; chaff_killed_total does not).
-    const sim::SimSnapshot snap = sim_.snapshot();
-    for (u32 f = 0; f < kFamilyCount; ++f) r.chaff_killed_total += snap.chaff_killed_by_family[f];
-    // No elite or boss kills yet: the roster ships none, and nothing counts
-    // named kills for the game layer. RunResult keeps the fields for when it does.
-    r.won = won;
-    return r;
+    return game::collect_run_result(sim_, waves_, won);
 }
 
 void App::finish_run(bool won) {
+    save_balance_recording(won ? game::SessionOutcome::Cleared : game::SessionOutcome::ObjectiveDestroyed);
     last_run_ = ui::RunSummary{};
     last_run_.valid = true;
     last_run_.sandbox = sandbox_run();
@@ -1446,6 +1372,23 @@ void App::finish_run(bool won) {
                     reward.memory_cells, reward.antibodies,
                     static_cast<unsigned long long>(meta_.memory_cells()), meta_.antibodies());
     save_meta();
+}
+
+void App::save_balance_recording(game::SessionOutcome outcome) {
+    if (!balance_recording_.active()) return;
+    auto recording = balance_recording_.finish(sim_,economy_,waves_,outcome);
+    recording["provenance"]["build_stamp"] = std::string(__DATE__)+" "+__TIME__;
+    recording["provenance"]["executable"] = options_.executable_path;
+    const auto executable = platform::read_binary_file(options_.executable_path);
+    if (executable) recording["provenance"]["executable_hash"] = game::balance::fingerprint(
+        std::string_view(reinterpret_cast<const char*>(executable->data()),executable->size()));
+    const auto timestamp = std::chrono::system_clock::now().time_since_epoch().count();
+    const std::string path = options_.record_balance_dir+"/player-"+std::to_string(timestamp)+"-"+
+                             std::to_string(++balance_recording_sequence_)+".json";
+    if (!platform::ensure_directory(options_.record_balance_dir) ||
+        !platform::write_text_file(path,recording.dump(2)+"\n"))
+        IMMUNE_LOG_ERROR("could not save player balance recording: %s",path.c_str());
+    else IMMUNE_LOG_INFO("player balance recording saved: %s",path.c_str());
 }
 
 void App::load_meta() {
@@ -1473,6 +1416,97 @@ void App::load_meta() {
     IMMUNE_LOG_INFO("loaded save %s: %llu Memory Cells, %u Antibodies, %u level(s) cleared",
                     save_path_.c_str(), static_cast<unsigned long long>(meta_.memory_cells()),
                     meta_.antibodies(), meta_.progress().levels_completed);
+}
+
+void App::build_progression_cheats() {
+    if (!progression_cheats_visible_) return;
+    ImGui::SetNextWindowSize(ImVec2(620, 680), ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("Progression cheats [F3]", &progression_cheats_visible_)) {
+        ImGui::End();
+        return;
+    }
+    ImGui::TextWrapped("F3 / Escape closes. Simulation is frozen while open. Changes save immediately. Skill effects apply on the next run or restart.");
+    ImGui::TextWrapped("Save: %s", save_path_.c_str());
+    ImGui::BeginDisabled(!save_ok_);
+    bool changed = false;
+    if (ImGui::CollapsingHeader("Currencies", ImGuiTreeNodeFlags_DefaultOpen)) {
+        u64 mc = meta_.memory_cells();
+        u32 ab = meta_.antibodies();
+        bool edited = ImGui::InputScalar("Memory Cells", ImGuiDataType_U64, &mc);
+        edited |= ImGui::InputScalar("Antibodies", ImGuiDataType_U32, &ab);
+        if (edited) { meta_.debug_set_currencies(mc, ab); changed = true; }
+        if (ImGui::Button("Grant 100,000 MC + 100 antibodies")) {
+            meta_.debug_set_currencies(std::min(meta_.memory_cells(), std::numeric_limits<u64>::max() - 100000) + 100000,
+                                      std::min(meta_.antibodies(), std::numeric_limits<u32>::max() - 100) + 100);
+            changed = true;
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Zero currencies")) { meta_.debug_set_currencies(0, 0); changed = true; }
+    }
+    if (ImGui::CollapsingHeader("Campaign levels", ImGuiTreeNodeFlags_DefaultOpen)) {
+        if (ImGui::Button("Clear all / unlock all levels")) {
+            for (const auto& slot : campaign_) meta_.debug_set_level_cleared(levels_[slot.level_index].level_id, true);
+            changed = true;
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Reset campaign")) { meta_.debug_reset_campaign(); changed = true; }
+        ImGui::TextWrapped("Clears grant no rewards. Unchecking a level restores its first-clear reward.");
+        for (const auto& slot : campaign_) {
+            const auto& entry = levels_[slot.level_index];
+            bool cleared = meta_.level_cleared(entry.level_id);
+            ImGui::PushID(entry.level_id.c_str());
+            if (ImGui::Checkbox(entry.display_name.c_str(), &cleared)) {
+                meta_.debug_set_level_cleared(entry.level_id, cleared); changed = true;
+            }
+            ImGui::PopID();
+        }
+    }
+    if (ImGui::CollapsingHeader("Skills, towers and abilities")) {
+        if (ImGui::Button("Max all skills / unlock everything")) { meta_.debug_set_all_skills(true); changed = true; }
+        if (ImGui::Button("Reset all skills")) { meta_.debug_set_all_skills(false); changed = true; }
+        ImGui::TextWrapped("Free edits bypass prerequisites and clear the respec refund ledger. Starting tower stays unlocked.");
+        for (u32 i = 0; i < game::kTreeNodeCount; ++i) {
+            const auto node = static_cast<game::TreeNode>(i);
+            const auto& def = game::tree_node(node);
+            int level = meta_.level(node);
+            ImGui::PushID(static_cast<int>(i));
+            if (ImGui::SliderInt(def.name, &level, 0, def.max_level)) {
+                meta_.debug_set_skill(node, static_cast<u32>(level)); changed = true;
+            }
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", def.effect);
+            ImGui::PopID();
+        }
+    }
+    if (level_loaded_ && ImGui::CollapsingHeader("Current run ATP")) {
+        ImGui::TextUnformatted("Run currency only; does not persist between runs.");
+        int atp = static_cast<int>(std::min(economy_.atp(), u32{1000000}));
+        if (ImGui::InputInt("ATP (0 - 1,000,000)", &atp)) {
+            const u32 target = static_cast<u32>(std::clamp(atp, 0, 1000000));
+            if (target > economy_.atp()) economy_.credit_bounty(target - economy_.atp());
+            else economy_.spend(economy_.atp() - target);
+        }
+        if (ImGui::Button("Grant 10,000 ATP")) {
+            const u32 target = std::min(economy_.atp(), u32{990000}) + 10000;
+            if (target > economy_.atp()) economy_.credit_bounty(target - economy_.atp());
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Zero ATP")) economy_.spend(economy_.atp());
+    }
+    ImGui::Separator();
+    if (ImGui::Button("Reset ALL progression...")) ImGui::OpenPopup("Reset all progression?");
+    if (ImGui::BeginPopupModal("Reset all progression?", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::TextUnformatted("Erase currencies, skills and campaign clears in this save?");
+        if (ImGui::Button("Reset everything")) {
+            meta_.reset_to_new_game(); changed = true; ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel")) ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+    }
+    ImGui::EndDisabled();
+    if (!save_ok_) ImGui::TextWrapped("Edits disabled because the save could not be loaded safely.");
+    if (changed) save_meta();
+    ImGui::End();
 }
 
 void App::save_meta() {

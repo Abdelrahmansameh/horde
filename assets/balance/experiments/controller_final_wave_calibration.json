@@ -1,0 +1,1183 @@
+{
+  "schema": 1,
+  "name": "Automatic late earned final-map first-wave calibration",
+  "kind": "paired",
+  "baseline": "automatic",
+  "evaluation_split": "evaluation",
+  "metric": "objective_integrity",
+  "metrics": [
+    "summary.friendly_killed",
+    "summary.atp_spent",
+    "summary.duration_seconds",
+    "summary.kills"
+  ],
+  "seeds": [
+    31031
+  ],
+  "policies": [
+    {
+      "name": "tactical",
+      "controller": {
+        "policy": "tactical"
+      }
+    },
+    {
+      "name": "competent",
+      "controller": {
+        "policy": "competent"
+      }
+    }
+  ],
+  "variants": [
+    {
+      "name": "automatic",
+      "patch": {}
+    }
+  ],
+  "base": {
+    "config_dir": "assets/config",
+    "level": "assets/balance/levels/campaign_final_first_wave_reference.json",
+    "level_document": {
+      "camera": {
+        "center": [
+          240,
+          160
+        ],
+        "max_view_height": 320,
+        "min_view_height": 243.2,
+        "view_height": 320
+      },
+      "description": "Controller qualification reference only. Exact L10 geometry, earned profile, income and authored wave0; later waves omitted. A clear is not a full L10 campaign victory.",
+      "difficulty": 10,
+      "display_name": "Diagnostic: L10 first authored wave only",
+      "economy": {
+        "income_multiplier": 0.262144,
+        "starting_atp": 750
+      },
+      "name": "diagnostic_l10_first_authored_wave_only",
+      "objectives": [
+        {
+          "half_extents": [
+            110,
+            5
+          ],
+          "id": "organ",
+          "pos": [
+            240,
+            -35
+          ]
+        }
+      ],
+      "obstacles": [
+        {
+          "id": "nw",
+          "inflate": 22,
+          "points": [
+            [
+              75,
+              280
+            ],
+            [
+              130,
+              265
+            ],
+            [
+              150,
+              230
+            ],
+            [
+              100,
+              220
+            ],
+            [
+              70,
+              235
+            ]
+          ],
+          "shape": "polygon"
+        },
+        {
+          "id": "sw",
+          "inflate": 21,
+          "points": [
+            [
+              60,
+              110
+            ],
+            [
+              125,
+              95
+            ],
+            [
+              135,
+              55
+            ],
+            [
+              90,
+              40
+            ],
+            [
+              65,
+              65
+            ]
+          ],
+          "shape": "polygon"
+        },
+        {
+          "id": "w_core",
+          "inflate": 19,
+          "points": [
+            [
+              175,
+              150
+            ],
+            [
+              195,
+              165
+            ]
+          ],
+          "shape": "polygon"
+        },
+        {
+          "id": "n",
+          "inflate": 21,
+          "points": [
+            [
+              215,
+              300
+            ],
+            [
+              280,
+              290
+            ],
+            [
+              280,
+              250
+            ],
+            [
+              235,
+              260
+            ]
+          ],
+          "shape": "polygon"
+        },
+        {
+          "id": "s",
+          "inflate": 20,
+          "points": [
+            [
+              205,
+              30
+            ],
+            [
+              270,
+              25
+            ],
+            [
+              280,
+              70
+            ],
+            [
+              230,
+              65
+            ]
+          ],
+          "shape": "polygon"
+        },
+        {
+          "id": "e_core",
+          "inflate": 20,
+          "points": [
+            [
+              292.5,
+              145
+            ],
+            [
+              310,
+              165
+            ]
+          ],
+          "shape": "polygon"
+        },
+        {
+          "id": "ne",
+          "inflate": 22,
+          "points": [
+            [
+              350,
+              280
+            ],
+            [
+              415,
+              270
+            ],
+            [
+              430,
+              225
+            ],
+            [
+              380,
+              225
+            ]
+          ],
+          "shape": "polygon"
+        },
+        {
+          "id": "se",
+          "inflate": 21,
+          "points": [
+            [
+              350,
+              40
+            ],
+            [
+              415,
+              45
+            ],
+            [
+              430,
+              100
+            ],
+            [
+              380,
+              85
+            ]
+          ],
+          "shape": "polygon"
+        },
+        {
+          "id": "pebble_1",
+          "pos": [
+            150,
+            300
+          ],
+          "radius": 12.5,
+          "shape": "disc"
+        },
+        {
+          "id": "pebble_3",
+          "pos": [
+            165,
+            100
+          ],
+          "radius": 11,
+          "shape": "disc"
+        },
+        {
+          "id": "pebble_4",
+          "pos": [
+            310,
+            220
+          ],
+          "radius": 10,
+          "shape": "disc"
+        }
+      ],
+      "placement_zones": [
+        {
+          "max": [
+            480,
+            320
+          ],
+          "min": [
+            0,
+            0
+          ]
+        },
+        {
+          "concentrated": true,
+          "max": [
+            227.5,
+            190
+          ],
+          "min": [
+            140,
+            85
+          ],
+          "priority": 3
+        },
+        {
+          "concentrated": true,
+          "max": [
+            377.5,
+            190
+          ],
+          "min": [
+            305,
+            85
+          ],
+          "priority": 3
+        },
+        {
+          "concentrated": true,
+          "max": [
+            327.5,
+            80
+          ],
+          "min": [
+            147.5,
+            10
+          ],
+          "priority": 1.5
+        }
+      ],
+      "region": "organ_chamber",
+      "schema": 2,
+      "spawn_points": [
+        {
+          "id": "p_w",
+          "lane_id": "in_w",
+          "pos": [
+            -175,
+            160
+          ],
+          "radius": 17
+        },
+        {
+          "id": "p_e",
+          "lane_id": "in_e",
+          "pos": [
+            660,
+            160
+          ],
+          "radius": 17
+        },
+        {
+          "id": "p_superior_left",
+          "lane_id": "superior_left",
+          "pos": [
+            180,
+            357.5
+          ],
+          "radius": 14
+        },
+        {
+          "id": "p_superior_right",
+          "lane_id": "superior_right",
+          "pos": [
+            314,
+            357.5
+          ],
+          "radius": 14
+        }
+      ],
+      "squad_paths": [
+        {
+          "half_width": 3,
+          "id": "west_capsule_lower",
+          "lane_id": "in_w",
+          "points": [
+            [
+              -175,
+              160
+            ],
+            [
+              45,
+              160
+            ],
+            [
+              110,
+              160
+            ],
+            [
+              135,
+              140
+            ],
+            [
+              145,
+              117.5
+            ],
+            [
+              182.5,
+              112.5
+            ],
+            [
+              185,
+              80
+            ],
+            [
+              175,
+              55
+            ],
+            [
+              167.5,
+              22.5
+            ],
+            [
+              160,
+              -35
+            ]
+          ]
+        },
+        {
+          "half_width": 3,
+          "id": "west_capsule_upper",
+          "lane_id": "in_w",
+          "points": [
+            [
+              -175,
+              160
+            ],
+            [
+              45,
+              160
+            ],
+            [
+              110,
+              160
+            ],
+            [
+              135,
+              195
+            ],
+            [
+              187.5,
+              215
+            ],
+            [
+              215,
+              195
+            ],
+            [
+              225,
+              160
+            ],
+            [
+              225,
+              125
+            ],
+            [
+              195,
+              105
+            ],
+            [
+              185,
+              80
+            ],
+            [
+              175,
+              55
+            ],
+            [
+              167.5,
+              22.5
+            ],
+            [
+              160,
+              -35
+            ]
+          ]
+        },
+        {
+          "half_width": 3,
+          "id": "east_capsule_route",
+          "lane_id": "in_e",
+          "points": [
+            [
+              660,
+              160
+            ],
+            [
+              435,
+              160
+            ],
+            [
+              380,
+              150
+            ],
+            [
+              352.5,
+              150
+            ],
+            [
+              345,
+              130
+            ],
+            [
+              332.5,
+              107.5
+            ],
+            [
+              317.5,
+              80
+            ],
+            [
+              310,
+              50
+            ],
+            [
+              305,
+              20
+            ],
+            [
+              310,
+              -35
+            ]
+          ]
+        },
+        {
+          "half_width": 3,
+          "id": "superior_left_route",
+          "lane_id": "superior_left",
+          "points": [
+            [
+              180,
+              357.5
+            ],
+            [
+              180,
+              305
+            ],
+            [
+              180,
+              245
+            ],
+            [
+              197.5,
+              225
+            ],
+            [
+              210,
+              202.5
+            ],
+            [
+              227.5,
+              175
+            ],
+            [
+              225,
+              135
+            ],
+            [
+              195,
+              105
+            ],
+            [
+              185,
+              80
+            ],
+            [
+              175,
+              55
+            ],
+            [
+              167.5,
+              22.5
+            ],
+            [
+              160,
+              -35
+            ]
+          ]
+        },
+        {
+          "half_width": 3,
+          "id": "superior_right_route",
+          "lane_id": "superior_right",
+          "points": [
+            [
+              314,
+              357.5
+            ],
+            [
+              314,
+              295
+            ],
+            [
+              315,
+              240
+            ],
+            [
+              337.5,
+              220
+            ],
+            [
+              337.5,
+              195
+            ],
+            [
+              350,
+              160
+            ],
+            [
+              345,
+              130
+            ],
+            [
+              332.5,
+              107.5
+            ],
+            [
+              317.5,
+              80
+            ],
+            [
+              310,
+              50
+            ],
+            [
+              305,
+              20
+            ],
+            [
+              310,
+              -35
+            ]
+          ]
+        }
+      ],
+      "tags": [
+        "campaign"
+      ],
+      "vessels": [
+        {
+          "id": "in_w",
+          "points": [
+            {
+              "p": [
+                -200,
+                160
+              ],
+              "w": 45
+            },
+            {
+              "p": [
+                20,
+                160
+              ],
+              "w": 45
+            },
+            {
+              "p": [
+                45,
+                160
+              ],
+              "w": 45
+            }
+          ],
+          "vessel_type": "vein"
+        },
+        {
+          "id": "in_e",
+          "points": [
+            {
+              "p": [
+                680,
+                160
+              ],
+              "w": 45
+            },
+            {
+              "p": [
+                460,
+                160
+              ],
+              "w": 45
+            },
+            {
+              "p": [
+                435,
+                160
+              ],
+              "w": 45
+            }
+          ]
+        },
+        {
+          "id": "field_0",
+          "lane_id": "in_w",
+          "points": [
+            {
+              "p": [
+                40,
+                50
+              ],
+              "w": 85
+            },
+            {
+              "p": [
+                240,
+                50
+              ],
+              "w": 85
+            },
+            {
+              "p": [
+                440,
+                50
+              ],
+              "w": 85
+            }
+          ],
+          "vessel_type": "vein"
+        },
+        {
+          "id": "field_1",
+          "lane_id": "in_w",
+          "points": [
+            {
+              "p": [
+                40,
+                120
+              ],
+              "w": 85
+            },
+            {
+              "p": [
+                240,
+                120
+              ],
+              "w": 85
+            },
+            {
+              "p": [
+                440,
+                120
+              ],
+              "w": 85
+            }
+          ],
+          "vessel_type": "vein"
+        },
+        {
+          "id": "field_2",
+          "lane_id": "in_w",
+          "points": [
+            {
+              "p": [
+                40,
+                190
+              ],
+              "w": 85
+            },
+            {
+              "p": [
+                240,
+                190
+              ],
+              "w": 85
+            },
+            {
+              "p": [
+                440,
+                190
+              ],
+              "w": 85
+            }
+          ],
+          "vessel_type": "vein"
+        },
+        {
+          "id": "field_3",
+          "lane_id": "in_w",
+          "points": [
+            {
+              "p": [
+                40,
+                260
+              ],
+              "w": 85
+            },
+            {
+              "p": [
+                240,
+                260
+              ],
+              "w": 85
+            },
+            {
+              "p": [
+                440,
+                260
+              ],
+              "w": 85
+            }
+          ],
+          "vessel_type": "vein"
+        },
+        {
+          "id": "superior_left",
+          "points": [
+            {
+              "p": [
+                180,
+                380
+              ],
+              "w": 37.5
+            },
+            {
+              "p": [
+                180,
+                305
+              ],
+              "w": 37.5
+            },
+            {
+              "p": [
+                180,
+                245
+              ],
+              "w": 37.5
+            },
+            {
+              "p": [
+                197.5,
+                225
+              ],
+              "w": 37.5
+            }
+          ],
+          "vessel_type": "vein"
+        },
+        {
+          "id": "superior_right",
+          "points": [
+            {
+              "p": [
+                314,
+                380
+              ],
+              "w": 37.5
+            },
+            {
+              "p": [
+                314,
+                295
+              ],
+              "w": 37.5
+            },
+            {
+              "p": [
+                315,
+                240
+              ],
+              "w": 37.5
+            },
+            {
+              "p": [
+                337.5,
+                220
+              ],
+              "w": 37.5
+            }
+          ]
+        },
+        {
+          "id": "left_drain",
+          "lane_id": "in_w",
+          "points": [
+            {
+              "p": [
+                185,
+                112.5
+              ],
+              "w": 40
+            },
+            {
+              "p": [
+                177.5,
+                75
+              ],
+              "w": 40
+            },
+            {
+              "p": [
+                160,
+                30
+              ],
+              "w": 40
+            },
+            {
+              "p": [
+                160,
+                -50
+              ],
+              "w": 40
+            }
+          ],
+          "vessel_type": "vein"
+        },
+        {
+          "id": "right_drain",
+          "lane_id": "in_e",
+          "points": [
+            {
+              "p": [
+                345,
+                130
+              ],
+              "w": 40
+            },
+            {
+              "p": [
+                317.5,
+                80
+              ],
+              "w": 40
+            },
+            {
+              "p": [
+                310,
+                30
+              ],
+              "w": 40
+            },
+            {
+              "p": [
+                310,
+                -50
+              ],
+              "w": 40
+            }
+          ]
+        },
+        {
+          "id": "hidden_organ_bed",
+          "lane_id": "in_w",
+          "points": [
+            {
+              "p": [
+                160,
+                -35
+              ],
+              "w": 30
+            },
+            {
+              "p": [
+                240,
+                -35
+              ],
+              "w": 30
+            },
+            {
+              "p": [
+                310,
+                -35
+              ],
+              "w": 30
+            }
+          ],
+          "vessel_type": "vein"
+        }
+      ],
+      "waves": [
+        {
+          "atp_reward": 90,
+          "name": "campaign_10_core_breach_wave_1",
+          "prep_time": 10,
+          "spawns": [
+            {
+              "count": 155,
+              "duration": 1.2385,
+              "family": "virus",
+              "spawn_point_id": "p_w",
+              "squad_paths": [
+                "west_capsule_lower"
+              ],
+              "squad_size": 60
+            },
+            {
+              "count": 70,
+              "duration": 1.2385,
+              "family": "bacteria",
+              "spawn_point_id": "p_e",
+              "squad_paths": [
+                "east_capsule_route"
+              ],
+              "squad_size": 60,
+              "start_time": 0.2996
+            },
+            {
+              "count": 155,
+              "duration": 1.2385,
+              "family": "virus",
+              "spawn_point_id": "p_superior_left",
+              "squad_paths": [
+                "superior_left_route"
+              ],
+              "squad_size": 60,
+              "start_time": 0.5993
+            },
+            {
+              "count": 70,
+              "duration": 1.2385,
+              "family": "bacteria",
+              "spawn_point_id": "p_superior_right",
+              "squad_paths": [
+                "superior_right_route"
+              ],
+              "squad_size": 60,
+              "start_time": 0.899
+            },
+            {
+              "count": 70,
+              "duration": 1.2385,
+              "family": "bacteria",
+              "spawn_point_id": "p_w",
+              "squad_paths": [
+                "west_capsule_upper"
+              ],
+              "squad_size": 60,
+              "start_time": 2.4885
+            },
+            {
+              "count": 155,
+              "duration": 1.2385,
+              "family": "virus",
+              "spawn_point_id": "p_e",
+              "squad_paths": [
+                "east_capsule_route"
+              ],
+              "squad_size": 60,
+              "start_time": 2.7881
+            },
+            {
+              "count": 70,
+              "duration": 1.2385,
+              "family": "bacteria",
+              "spawn_point_id": "p_superior_left",
+              "squad_paths": [
+                "superior_left_route"
+              ],
+              "squad_size": 60,
+              "start_time": 3.0878
+            },
+            {
+              "count": 155,
+              "duration": 1.2385,
+              "family": "virus",
+              "spawn_point_id": "p_superior_right",
+              "squad_paths": [
+                "superior_right_route"
+              ],
+              "squad_size": 60,
+              "start_time": 3.3875
+            }
+          ]
+        }
+      ],
+      "world": {
+        "cell_size": 1.25,
+        "max": [
+          480,
+          320
+        ],
+        "min": [
+          0,
+          0
+        ]
+      }
+    },
+    "max_ticks": 7200,
+    "progression": {
+      "profile": "campaign"
+    },
+    "progression_snapshot": {
+      "antibodies": 0,
+      "memory_cells": 2,
+      "progress": {
+        "completed_level_ids": [
+          "campaign_01_first_bend",
+          "campaign_02_island_climb",
+          "campaign_03_two_chambers",
+          "campaign_04_twin_channels",
+          "campaign_05_ring_road",
+          "campaign_06_circuit_board",
+          "campaign_07_chevron_sieve",
+          "campaign_08_blob_field",
+          "campaign_09_funnel_walls"
+        ],
+        "levels_completed": 9,
+        "unlocked_regions": []
+      },
+      "spent_antibodies": 9,
+      "spent_memory_cells": 3262,
+      "tree": {
+        "ability.clot.unlock": 1,
+        "ability.complement.cooldown": 1,
+        "ability.complement.unlock": 1,
+        "ability.fever.unlock": 1,
+        "ability.histamine.unlock": 1,
+        "cytotoxic.attach_speed": 1,
+        "cytotoxic.drain": 1,
+        "cytotoxic.search": 1,
+        "cytotoxic.stamina": 1,
+        "cytotoxic.tower_health": 1,
+        "cytotoxic.unlock": 1,
+        "fibroblast.build_radius": 1,
+        "fibroblast.inflammation": 1,
+        "fibroblast.reinforce": 1,
+        "fibroblast.scar_health": 1,
+        "fibroblast.tower_health": 1,
+        "fibroblast.unlock": 1,
+        "goblet.slow_duration": 1,
+        "goblet.slow_strength": 1,
+        "goblet.splash_radius": 1,
+        "goblet.tower_health": 1,
+        "goblet.unlock": 1,
+        "goblet.weakness": 1,
+        "hub.bone_marrow_reserve": 5,
+        "hub.efficient_clearance": 5,
+        "hub.elite_response": 4,
+        "hub.field_requisition": 3,
+        "hub.homeostasis": 4,
+        "hub.membrane_resilience": 4,
+        "hub.systemic_potency": 3,
+        "macrophage.arms": 1,
+        "macrophage.captives": 3,
+        "macrophage.grab_speed": 4,
+        "macrophage.health": 4,
+        "macrophage.search": 2,
+        "macrophage.unlock": 1,
+        "macrophage.wall": 2,
+        "neutrophil.accuracy": 3,
+        "neutrophil.aggro_range": 3,
+        "neutrophil.capstone": 1,
+        "neutrophil.round_damage": 5,
+        "neutrophil.squad_size": 3,
+        "neutrophil.trigger_rate": 4,
+        "neutrophil.vitality": 4
+      },
+      "version": 3
+    },
+    "sample_ticks": 60,
+    "schema": 1,
+    "seed": 31031
+  },
+  "controller_calibration": {
+    "schema": 1,
+    "references": [
+      {
+        "name": "Late earned final-map first authored wave is achievable",
+        "level": "diagnostic_l10_first_authored_wave_only",
+        "profile": "any",
+        "policies": [
+          "tactical",
+          "competent"
+        ],
+        "variants": [
+          "automatic"
+        ],
+        "minimum_waves_cleared": 1,
+        "expected_status": "cleared",
+        "minimum_samples": 1,
+        "minimum_success_rate": 1,
+        "require_standard_rules": true,
+        "automatic_controller_only": true,
+        "source": "The paid drain-hold feasibility reference clears the exact first authored wave under this legitimately earned late profile. Independent Tactical and Competent policies then cleared with no golden actions; exact V15 results and hashes are in assets/balance/references/final_first_wave_automatic_verification.json.",
+        "evidence": {
+          "paid_reference": "assets/balance/references/final_first_wave_qualification.json",
+          "automatic_verification": "assets/balance/references/final_first_wave_automatic_verification.json",
+          "single_seed_scope": "A bounded deterministic calibration encounter, not a win-rate estimate or an independent held-out campaign sample."
+        }
+      }
+    ]
+  },
+  "expectations": {
+    "scope": "FIRST AUTHORED L10 WAVE ONLY. Exact legitimate first-post-L9 V8 economy profile, historical staged income and geometry, evaluated with the V15 controller. A clear is neither a full L10 victory nor a fresh/full-campaign affordability proof.",
+    "controls": "No action script, synthetic grants, free casts, opening-ATP override or config overrides. Purchases use 950 ATP from the actual earned opening bonus plus normal earned income; abilities use the normal API and cooldowns.",
+    "historical_inputs": "The embedded document intentionally retains the original staged income_multiplier 0.262144. Current campaign income may differ; this preserved diagnostic is not silently updated to it.",
+    "config_drift": "The verification pins all six config file hashes and base_config_fingerprint 10585889450267739244. Changes require rerunning this experiment; previous outcomes remain historical.",
+    "inference": "Controller adequacy is qualified only for this earned-profile encounter. Do not infer human difficulty, enjoyment, all-map tactics, full progression pacing or a required gameplay nerf."
+  }
+}

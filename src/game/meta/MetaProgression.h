@@ -51,6 +51,16 @@ struct RunReward {
     bool first_clear = false;
 };
 
+/// An affordable, unowned permanent tool. A new campaign may first need its
+/// ordinary starter upgrade; its real MC cost is explicit and paid normally.
+/// This query never grants or buys a prerequisite on the player's behalf.
+struct DiscoveryOffer {
+    TreeNode node = TreeNode::Count;
+    TreeCost cost{};
+    TreeNode prerequisite = TreeNode::Count;
+    TreeCost prerequisite_cost{};
+};
+
 struct CampaignProgress {
     u32 levels_completed = 0;
     std::vector<std::string> completed_level_ids;
@@ -67,7 +77,7 @@ public:
 
     // Memory Cell payout defaults. meta.json is the live source
     // (MetaConfig); these seed it and are what default_game_config() writes.
-    static constexpr u32 kBaseRunReward = 10;      ///< Flat, every run, even a wipe on wave 0.
+    static constexpr u32 kBaseRunReward = 30;      ///< Flat, every run, even a wipe on wave 0.
     static constexpr u32 kPerWaveReward = 15;      ///< Per wave fully cleared.
     static constexpr u32 kPerEliteReward = 8;      ///< Per elite defeated.
     static constexpr u32 kPerBossReward = 50;      ///< Per boss defeated.
@@ -80,8 +90,8 @@ public:
     static RunReward reward_for_run(const RunResult& result, const MetaConfig& cfg,
                                     bool first_clear);
 
-    /// A new campaign: no currency, no progress, and only the Neutrophil --
-    /// the one tower the player starts with (PROGRESSION.md §1).
+    /// A new campaign: no currency, progress, or tree purchases. Neutrophil
+    /// is available innately (PROGRESSION.md §1).
     void reset_to_new_game();
 
     // ---- Currencies ---------------------------------------------------------
@@ -114,7 +124,7 @@ public:
         Ok = 0,
         Maxed,              ///< Already at max level (a root/capstone: already owned).
         Locked,             ///< Its parent in the tree is not owned yet.
-        BelowThreshold,     ///< A capstone before enough stat levels in its branch.
+        BelowThreshold,     ///< Retained result code; discoveries no longer use a branch-point gate.
         NeedMemoryCells,
         NeedAntibodies,
     };
@@ -125,8 +135,13 @@ public:
     /// Price of the next level of `node` (zero-cost if already maxed).
     TreeCost next_cost(TreeNode node, const MetaConfig& cfg) const;
 
+    /// Available cell/ability/capstone choices, including a legal, affordable
+    /// starter purchase when it is still missing. Discoveries cost 1 AB and
+    /// zero MC; normal prerequisite ownership remains exactly the catalog graph.
+    std::vector<DiscoveryOffer> discovery_offers(const MetaConfig& cfg) const;
+
     /// A full respec (PROGRESSION.md §8's recommended default): every node back
-    /// to zero except the Neutrophil, every currency spent on them refunded,
+    /// to zero, every currency spent on them refunded,
     /// minus MetaConfig::respec_cost Memory Cells. False (and nothing changes)
     /// if nothing has been bought or the refund could not cover the fee.
     bool respec(const MetaConfig& cfg);
@@ -137,6 +152,14 @@ public:
     /// Folds the purchased tree into `cfg` (a run-start COPY of the loaded
     /// config); see apply_immunity_tree().
     TreeEffects apply_to(GameConfig& cfg) const { return apply_immunity_tree(levels_, cfg); }
+
+    // Developer progression controls. Grants are free; edits discard the refund
+    // ledger so respec cannot refund skills that were granted by a cheat.
+    void debug_set_currencies(u64 memory_cells, u32 antibodies);
+    void debug_set_skill(TreeNode node, u32 level);
+    void debug_set_all_skills(bool maxed);
+    void debug_set_level_cleared(const std::string& level_id, bool cleared);
+    void debug_reset_campaign();
 
     // ---- Persistence --------------------------------------------------------
     /// Versioned JSON save/load. Returns false and leaves state untouched on a

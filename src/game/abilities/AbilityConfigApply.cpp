@@ -36,6 +36,7 @@ AbilityConfig& mutable_ability_config() {
 const AbilityConfig& ability_config() { return mutable_ability_config(); }
 
 void apply_ability_config(ActiveAbilitySystem& system, const AbilityConfig& cfg) {
+    (void)default_game_config(); // Snapshot bootstrap values before the first live override.
     mutable_ability_config() = cfg;
     system.load_defaults();
 }

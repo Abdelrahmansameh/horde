@@ -9,6 +9,7 @@
 #include <nlohmann/json.hpp>
 
 #include <utility>
+#include <algorithm>
 
 namespace immune::game {
 
@@ -43,8 +44,6 @@ const char* purchase_result_text(MetaProgression::PurchaseResult r) {
 
 void MetaProgression::reset_to_new_game() {
     levels_ = TreeLevels{};
-    // The one thing a new campaign owns (PROGRESSION.md §1): innate immunity.
-    levels_[TreeNode::NeutrophilRoot] = 1;
     progress_ = CampaignProgress{};
     memory_cells_ = 0;
     antibodies_ = 0;
@@ -53,6 +52,7 @@ void MetaProgression::reset_to_new_game() {
 }
 
 bool MetaProgression::tower_unlocked(TowerType type) const {
+    if (type == TowerType::Neutrophil) return true;
     const TreeNode root = tower_root(type);
     return root != TreeNode::Count && levels_.owned(root);
 }
@@ -118,14 +118,27 @@ MetaProgression::PurchaseResult MetaProgression::check_purchase(TreeNode node,
     if (levels_[node] >= d.max_level) return PurchaseResult::Maxed;
     // A tree (§4): a node opens once its parent is owned, at any level.
     if (d.parent != TreeNode::Count && !levels_.owned(d.parent)) return PurchaseResult::Locked;
-    if (d.kind == TreeNodeKind::Capstone && branch_points(d.branch) < cfg.capstone_threshold) {
-        return PurchaseResult::BelowThreshold;
-    }
-
     const TreeCost c = next_cost(node, cfg);
     if (antibodies_ < c.antibodies) return PurchaseResult::NeedAntibodies;
     if (memory_cells_ < c.memory_cells) return PurchaseResult::NeedMemoryCells;
     return PurchaseResult::Ok;
+}
+
+std::vector<DiscoveryOffer> MetaProgression::discovery_offers(const MetaConfig& cfg) const {
+    MetaProgression prepared = *this;
+    const TreeNode starter = kTreeRoot;
+    const TreeCost starter_cost = next_cost(starter, cfg);
+    const bool can_prepare = !levels_.owned(starter) && prepared.purchase(starter, cfg) == PurchaseResult::Ok;
+    std::vector<DiscoveryOffer> offers;
+    for (u32 i = 0; i < kTreeNodeCount; ++i) {
+        const auto node = static_cast<TreeNode>(i);
+        const auto kind = tree_node(node).kind;
+        if (kind != TreeNodeKind::TowerRoot && kind != TreeNodeKind::AbilityRoot && kind != TreeNodeKind::Capstone) continue;
+        if (check_purchase(node, cfg) == PurchaseResult::Ok) offers.push_back({node, next_cost(node, cfg)});
+        else if (can_prepare && prepared.check_purchase(node, cfg) == PurchaseResult::Ok)
+            offers.push_back({node, prepared.next_cost(node, cfg), starter, starter_cost});
+    }
+    return offers;
 }
 
 MetaProgression::PurchaseResult MetaProgression::purchase(TreeNode node, const MetaConfig& cfg) {
@@ -152,8 +165,39 @@ bool MetaProgression::respec(const MetaConfig& cfg) {
     spent_memory_cells_ = 0;
     spent_antibodies_ = 0;
     levels_ = TreeLevels{};
-    levels_[TreeNode::NeutrophilRoot] = 1;
     return true;
+}
+
+void MetaProgression::debug_set_currencies(u64 memory_cells, u32 antibodies) {
+    memory_cells_ = memory_cells;
+    antibodies_ = antibodies;
+}
+
+void MetaProgression::debug_set_skill(TreeNode node, u32 level) {
+    if (static_cast<u32>(node) >= kTreeNodeCount) return;
+    levels_[node] = static_cast<u8>(std::min(level, static_cast<u32>(tree_node(node).max_level)));
+    spent_memory_cells_ = 0;
+    spent_antibodies_ = 0;
+}
+
+void MetaProgression::debug_set_all_skills(bool maxed) {
+    for (u32 i = 0; i < kTreeNodeCount; ++i) {
+        const auto node = static_cast<TreeNode>(i);
+        debug_set_skill(node, maxed ? tree_node(node).max_level : 0);
+    }
+}
+
+void MetaProgression::debug_set_level_cleared(const std::string& id, bool cleared) {
+    if (cleared) record_level_complete(id);
+    else {
+        auto& ids = progress_.completed_level_ids;
+        ids.erase(std::remove(ids.begin(), ids.end(), id), ids.end());
+        progress_.levels_completed = static_cast<u32>(ids.size());
+    }
+}
+
+void MetaProgression::debug_reset_campaign() {
+    progress_ = CampaignProgress{};
 }
 
 // ---- Versioned JSON save/load ----------------------------------------------
@@ -237,7 +281,12 @@ bool MetaProgression::from_json(const std::string& text, std::string& out_error)
             if (j.contains("tree")) {
                 const json& tree = j.at("tree");
                 if (!tree.is_object()) throw std::runtime_error("'tree' must be an object");
+                u32 legacy_trigger_ranks = 0;
                 for (auto it = tree.begin(); it != tree.end(); ++it) {
+                    if (it.key() == "neutrophil.trigger_rate") {
+                        legacy_trigger_ranks = std::min(it.value().get<u32>(), u32{4});
+                        continue;
+                    }
                     TreeNode n{};
                     // A node this build does not know (a newer catalog, or one
                     // since removed) is skipped rather than failing the load:
@@ -247,6 +296,11 @@ bool MetaProgression::from_json(const std::string& text, std::string& out_error)
                     const u8 max = tree_node(n).max_level;
                     levels[n] = static_cast<u8>(lv < max ? lv : max);
                 }
+                // Save only the surviving key, so migration happens once.
+                // Keep the actual spend ledger intact for refunds.
+                levels[kTreeRoot] = static_cast<u8>(std::min(
+                    static_cast<u32>(tree_node(kTreeRoot).max_level),
+                    static_cast<u32>(levels[kTreeRoot]) + legacy_trigger_ranks));
             }
         } else {
             // v1/v2: one currency and a set of unlocked tower indices. The
@@ -259,13 +313,13 @@ bool MetaProgression::from_json(const std::string& text, std::string& out_error)
                 if (!arr.is_array()) throw std::runtime_error("'unlocked_towers' must be an array");
                 for (const auto& idx_j : arr) {
                     const u32 idx = migrate_tower_index(idx_j.get<u32>(), version);
-                    if (idx < kTowerTypeCount) levels[tower_root(static_cast<TowerType>(idx))] = 1;
+                    if (idx < kTowerTypeCount) {
+                        const TreeNode root = tower_root(static_cast<TowerType>(idx));
+                        if (root != TreeNode::Count) levels[root] = 1;
+                    }
                 }
             }
         }
-        // Whatever the file says, the campaign always owns its starting tower.
-        levels[TreeNode::NeutrophilRoot] = 1;
-
         CampaignProgress progress;
         if (j.contains("progress")) {
             const json& pj = j.at("progress");

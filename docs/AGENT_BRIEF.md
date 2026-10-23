@@ -36,7 +36,7 @@ terminate their process to relink: use a separate build directory or coordinate
 the build. See the local [run-immune skill](../.agents/skills/run-immune/SKILL.md)
 for execution guidance.
 
-Select checks for the changed contract. Unit tests, sim scripts, autoplay, and
+Select checks for the changed contract. Unit tests, sim scripts, and
 screenshots validate different layers. Sim scripts do not run the complete
 campaign session; legacy gym towers do not exercise player deployment.
 Documentation changes need source/link/example checks. Do not claim checks

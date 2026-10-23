@@ -68,6 +68,16 @@ struct WaveStatus {
     bool all_waves_complete = false;
 };
 
+// Authoritative scheduling diagnostics, separate from replicated population.
+struct WaveMetrics {
+    u64 requested = 0;
+    u64 spawned = 0;
+    u64 denied = 0;
+    bool completed = false;
+    bool clearing_timeout = false;
+    u64 survivors_on_completion = 0;
+};
+
 class WaveDirector {
 public:
     /// The table comes from the level (LevelDef::waves) and nowhere else.
@@ -86,12 +96,13 @@ public:
     void request_early_start();
 
     /// Whether prep ends by itself when its timer runs out. Off: prep waits
-    /// for request_early_start(). On by default so headless runs (tests, the
-    /// balance harness) keep the timed cadence; the app turns it off.
+    /// for request_early_start(). On by default so headless tests keep the
+    /// timed cadence; the app turns it off.
     void set_auto_start(bool on) { auto_start_ = on; }
     bool auto_start() const { return auto_start_; }
 
     WaveStatus status() const { return status_; }
+    const std::vector<WaveMetrics>& metrics() const { return metrics_; }
 
     /// Preview of the next wave's composition, for the HUD.
     const WaveDef* next_wave() const;
@@ -106,6 +117,7 @@ public:
 
 private:
     std::vector<WaveDef> waves_;
+    std::vector<WaveMetrics> metrics_;
     WaveStatus status_{};
     f32 wave_time_ = 0.0f;
     bool early_start_requested_ = false;

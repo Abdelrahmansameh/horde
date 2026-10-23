@@ -1,0 +1,170 @@
+{
+  "schema": 2,
+  "region": "capillary",
+  "world": {
+    "min": [
+      0,
+      0
+    ],
+    "max": [
+      240,
+      120
+    ],
+    "cell_size": 1
+  },
+  "economy": {
+    "starting_atp": 300
+  },
+  "spawn_points": [
+    {
+      "id": "west",
+      "pos": [
+        15,
+        60
+      ],
+      "radius": 7,
+      "lane_id": "main"
+    }
+  ],
+  "objectives": [
+    {
+      "id": "organ",
+      "pos": [
+        225,
+        60
+      ],
+      "half_extents": [
+        7,
+        24
+      ]
+    }
+  ],
+  "placement_zones": [
+    {
+      "min": [
+        35,
+        35
+      ],
+      "max": [
+        208,
+        85
+      ]
+    },
+    {
+      "min": [
+        85,
+        45
+      ],
+      "max": [
+        160,
+        75
+      ],
+      "concentrated": true,
+      "priority": 2
+    }
+  ],
+  "squad_paths": [
+    {
+      "id": "main_route",
+      "lane_id": "main",
+      "points": [
+        [
+          15,
+          60
+        ],
+        [
+          65,
+          60
+        ],
+        [
+          110,
+          60
+        ],
+        [
+          155,
+          60
+        ],
+        [
+          205,
+          60
+        ],
+        [
+          225,
+          60
+        ]
+      ],
+      "half_width": 4
+    }
+  ],
+  "name": "balance_pressure_choke",
+  "display_name": "Balance Lab: pressure_choke",
+  "description": "Release rate diagnostic: compare arrival pressure separately from total population and economy.",
+  "vessels": [
+    {
+      "id": "main",
+      "points": [
+        {
+          "p": [
+            0,
+            60
+          ],
+          "w": 56
+        },
+        {
+          "p": [
+            65,
+            60
+          ],
+          "w": 56
+        },
+        {
+          "p": [
+            105,
+            60
+          ],
+          "w": 22
+        },
+        {
+          "p": [
+            145,
+            60
+          ],
+          "w": 22
+        },
+        {
+          "p": [
+            185,
+            60
+          ],
+          "w": 56
+        },
+        {
+          "p": [
+            240,
+            60
+          ],
+          "w": 56
+        }
+      ]
+    }
+  ],
+  "waves": [
+    {
+      "name": "pressure_probe",
+      "prep_time": 4,
+      "atp_reward": 0,
+      "spawns": [
+        {
+          "family": "virus",
+          "count": 600,
+          "duration": 30,
+          "spawn_point_id": "west",
+          "squad_size": 40,
+          "squad_paths": [
+            "main_route"
+          ]
+        }
+      ]
+    }
+  ]
+}

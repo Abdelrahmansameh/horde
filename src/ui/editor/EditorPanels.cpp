@@ -741,10 +741,10 @@ void draw_settings(app::EditorMode& editor, bool* open, Vec2 cam_center,
         }
         gesture_from_item(doc, "set starting atp");
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("0 = use economy.json");
-        if (ImGui::DragFloat("income x", &d.economy.income_multiplier, 0.01f, 0.05f, 10.0f)) {
+        if (ImGui::DragFloat("kill ATP x", &d.economy.income_multiplier, 0.01f, 0.05f, 10.0f)) {
             changed = true;
         }
-        gesture_from_item(doc, "set income multiplier");
+        gesture_from_item(doc, "set kill ATP multiplier");
         if (ImGui::DragFloat("survive seconds", &d.win.survive_seconds, 1.0f, 0.0f, 3600.0f)) {
             changed = true;
         }
@@ -833,9 +833,42 @@ EditorRequest EditorPanels::draw_waves(app::EditorMode& editor, const game::Enem
         return req;
     }
 
-    game::WaveDef& w = d.waves[static_cast<usize>(selected_wave_)];
     ImGui::Separator();
 
+    // Keep wave actions on their own row: the fixed-width property fields can
+    // fill a docked panel before the delete button is reached.
+    const bool can_delete = d.waves.size() > 1;
+    ImGui::BeginDisabled(!can_delete);
+    const bool delete_wave = ImGui::Button("Delete wave");
+    ImGui::EndDisabled();
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+        ImGui::SetTooltip(can_delete ? "Delete the selected wave (Ctrl+Z to undo)"
+                                    : "A level must keep at least one wave");
+    }
+    if (delete_wave) {
+        if (doc.erase(ElementRef{ElementKind::Wave, selected_wave_, -1})) {
+            selected_wave_ = math::max(selected_wave_ - 1, 0);
+        }
+        ImGui::End();
+        return req;
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Dup")) selected_wave_ = doc.duplicate_wave(selected_wave_);
+    ImGui::SameLine();
+    if (ImGui::Button("<") && selected_wave_ > 0) {
+        if (doc.move_wave(selected_wave_, selected_wave_ - 1)) --selected_wave_;
+    }
+    ImGui::SameLine();
+    if (ImGui::Button(">") && selected_wave_ + 1 < static_cast<i32>(d.waves.size())) {
+        if (doc.move_wave(selected_wave_, selected_wave_ + 1)) ++selected_wave_;
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Play from here")) {
+        req.action = EditorAction::Play;
+        req.wave_index = selected_wave_;
+    }
+
+    game::WaveDef& w = d.waves[static_cast<usize>(selected_wave_)];
     bool changed = false;
     static char wname[128] = {};
     if (!ImGui::IsAnyItemActive()) std::snprintf(wname, sizeof(wname), "%s", w.name.c_str());
@@ -865,30 +898,6 @@ EditorRequest EditorPanels::draw_waves(app::EditorMode& editor, const game::Enem
         w.modifier = static_cast<game::WaveModifier>(mod);
         doc.end_gesture();
     }
-    ImGui::SameLine();
-    if (ImGui::Button("Dup")) selected_wave_ = doc.duplicate_wave(selected_wave_);
-    ImGui::SameLine();
-    if (ImGui::Button("Del")) {
-        if (doc.erase(ElementRef{ElementKind::Wave, selected_wave_, -1})) {
-            selected_wave_ = math::max(selected_wave_ - 1, 0);
-        }
-        ImGui::End();
-        return req;
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("<") && selected_wave_ > 0) {
-        if (doc.move_wave(selected_wave_, selected_wave_ - 1)) --selected_wave_;
-    }
-    ImGui::SameLine();
-    if (ImGui::Button(">") && selected_wave_ + 1 < static_cast<i32>(d.waves.size())) {
-        if (doc.move_wave(selected_wave_, selected_wave_ + 1)) ++selected_wave_;
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("Play from here")) {
-        req.action = EditorAction::Play;
-        req.wave_index = selected_wave_;
-    }
-
     // ---- Budget readout ---------------------------------------------------
     // You should know a wave will blow the chaff cap BEFORE you play it.
     const game::WaveBudget budget = game::wave_budget(w);

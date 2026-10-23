@@ -17,6 +17,7 @@
 namespace immune::sim {
 
 void ChaffBuffers::reserve(usize max_agents) {
+    if (combat_metrics_) clear();
     capacity_ = max_agents;
     pos_x.assign(max_agents, 0.0f);
     pos_y.assign(max_agents, 0.0f);
@@ -55,9 +56,12 @@ void ChaffBuffers::reserve(usize max_agents) {
     size_scale.assign(max_agents, 1.0f);
     next_generation_ = 1u;   // 0 is the reserved "invalid handle" generation.
     clear();
+    if (combat_metrics_) set_combat_metrics(combat_metrics_);
 }
 
 void ChaffBuffers::clear() {
+    if (combat_metrics_) for (usize i = 0; i < count_; ++i)
+        combat_metrics_->enemy_retire(family[i], metric_retirement_[i], metric_birth_tick_[i], metric_first_hit_tick_[i]);
     count_ = 0;
     total_density_ = 0.0f;
     for (u32& c : family_counts_) c = 0;
@@ -149,23 +153,51 @@ ChaffHandle ChaffBuffers::spawn(const ChaffSpawnParams& p) {
     total_density_ += p.density;
     ++family_counts_[static_cast<u32>(p.family)];
     ++spawned_by_family_[static_cast<u32>(p.family)];
+    if (combat_metrics_) {
+        metric_birth_tick_[i] = combat_metrics_->tick();
+        metric_first_hit_tick_[i] = kUnobservedTick;
+        metric_retirement_[i] = CombatRetirement::Unknown;
+        combat_metrics_->enemy_spawn(family[i]);
+    }
     return ChaffHandle{static_cast<u32>(i), generation[i]};
 }
 
-void ChaffBuffers::kill(usize index) {
-    if (index >= count_) return;
-    flags[index] |= chaff_flags::kPendingKill;
+void ChaffBuffers::set_combat_metrics(CombatMetrics* metrics) {
+    combat_metrics_ = metrics;
+    if (!metrics) return;
+    metric_birth_tick_.assign(capacity_, kUnobservedTick);
+    metric_first_hit_tick_.assign(capacity_, kUnobservedTick);
+    metric_retirement_.assign(capacity_, CombatRetirement::Unknown);
+    for (usize i = 0; i < count_; ++i) metrics->enemy_spawn(family[i], true);
 }
 
-void ChaffBuffers::apply_density_loss(usize index, f32 amount) {
+void ChaffBuffers::kill(usize index, CombatRetirement reason) {
+    if (index >= count_) return;
+    flags[index] |= chaff_flags::kPendingKill;
+    if (combat_metrics_) metric_retirement_[index] = reason;
+}
+
+void ChaffBuffers::apply_density_loss(usize index, f32 amount, DamageAttribution attribution) {
     if (index >= count_ || amount <= 0.0f) return;
-    if (burrow_state[index] != burrow_state::kSurface) return;   // under the tissue
+    if (burrow_state[index] != burrow_state::kSurface) {
+        if (combat_metrics_) combat_metrics_->record(attribution, family[index], amount, 0.0, amount, 0.0);
+        return;   // under the tissue
+    }
     if ((flags[index] & chaff_flags::kSlowed) != 0) amount *= slowed_damage_mult_;
     const f32 before = density[index];
     const f32 removed = amount < before ? amount : before;
     density[index] = before - removed;
     total_density_ -= removed;
     if (density[index] <= 0.0f) flags[index] |= chaff_flags::kPendingKill;
+    if (combat_metrics_ && before - density[index] > 0.0f) {
+        if (metric_first_hit_tick_[index] == kUnobservedTick) {
+            metric_first_hit_tick_[index] = combat_metrics_->tick();
+            combat_metrics_->enemy_first_hit(family[index]);
+        }
+        if (density[index] <= 0.0f) metric_retirement_[index] = CombatRetirement::Damage;
+    }
+    if (combat_metrics_) combat_metrics_->record(attribution, family[index], amount, before - density[index], 0.0,
+                                                 before > 0.0f && density[index] <= 0.0f ? 1.0 : 0.0);
 
     // Hit feedback. Raised off `removed` rather than off `amount`, so a hit
     // that was mostly overkill flashes for the part that actually landed --
@@ -189,6 +221,8 @@ usize ChaffBuffers::compact(u32* removed_by_family) {
             continue;
         }
         // Retire slot i.
+        if (combat_metrics_) combat_metrics_->enemy_retire(family[i], metric_retirement_[i],
+            metric_birth_tick_[i], metric_first_hit_tick_[i]);
         total_density_ -= density[i];
         const u32 fam = family[i];
         if (fam < kFamilyCount) {
@@ -199,6 +233,11 @@ usize ChaffBuffers::compact(u32* removed_by_family) {
 
         const usize last = count_ - 1;
         if (i != last) {
+            if (combat_metrics_) {
+                metric_birth_tick_[i] = metric_birth_tick_[last];
+                metric_first_hit_tick_[i] = metric_first_hit_tick_[last];
+                metric_retirement_[i] = metric_retirement_[last];
+            }
             pos_x[i] = pos_x[last];
             pos_y[i] = pos_y[last];
             prev_pos_x[i] = prev_pos_x[last];

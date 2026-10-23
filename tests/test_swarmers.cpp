@@ -711,6 +711,54 @@ TEST_CASE("a shooter reloads while it has nothing to shoot at", "[swarm][sim][sh
     CHECK(f.system.effects().shots.empty());
 }
 
+TEST_CASE("a shooter's body pulse follows actual rounds through the final reload edge",
+          "[swarm][sim][shooter][magazine]") {
+    Fixture f;
+    SwarmerProfile pr = magazine_profile(f.swarm.profile_at(kShooter));
+    pr.magazine_size = 2u;
+    pr.fire_interval = 0.1f;
+    f.swarm.set_profile(kShooter, pr);
+    f.add_swarmer(Vec2{40.0f, 40.0f}, Vec2{0.0f, 0.0f}, kShooter);
+
+    // A new or wandering cell has no shot to animate.
+    CHECK(f.swarm.magazine[0].seconds_since_shot == 1.0f);
+    f.step(3);
+    CHECK(f.swarm.magazine[0].seconds_since_shot == 1.0f);
+    CHECK(f.system.effects().shots.empty());
+
+    const usize target = f.add_chaff(Vec2{43.6f, 40.0f}, 1.0e6f);
+    u32 rounds = 0;
+    f32 previous_age = f.swarm.magazine[0].seconds_since_shot;
+    for (int tick = 0; tick < 90 && rounds < 2u; ++tick) {
+        f.step(1);
+        const f32 age = f.swarm.magazine[0].seconds_since_shot;
+        if (!f.system.effects().shots.empty()) {
+            rounds += static_cast<u32>(f.system.effects().shots.size());
+            CHECK(age >= 0.0f);
+            CHECK(age <= kDt + 1.0e-5f);
+            CHECK(age < previous_age);
+        } else {
+            CHECK(age == Catch::Approx(math::min(previous_age + kDt, 1.0f)));
+        }
+        previous_age = age;
+    }
+    REQUIRE(rounds == 2u);
+    REQUIRE(f.swarm.magazine[0].phase == MagazinePhase::Reloading);
+    CHECK(f.swarm.magazine[0].seconds_since_shot < 0.02f);
+
+    // The final round's recovery carries through Reloading after the target
+    // dies, then settles without producing a fresh pulse when loading ends.
+    f.chaff.kill(target);
+    f.chaff.compact();
+    f.step(6);
+    CHECK(f.system.effects().shots.empty());
+    CHECK(f.swarm.magazine[0].seconds_since_shot == Catch::Approx(previous_age + 6.0f * kDt));
+    f.step(66);
+    CHECK(f.swarm.magazine[0].phase == MagazinePhase::Loaded);
+    CHECK(f.swarm.magazine[0].seconds_since_shot == 1.0f);
+    CHECK(f.system.effects().shots.empty());
+}
+
 TEST_CASE("a bomber whose target leaves its aggro radius switches to a closer one",
           "[swarm][sim][bomber][retarget]") {
     Fixture f;

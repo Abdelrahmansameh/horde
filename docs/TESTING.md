@@ -1,6 +1,14 @@
 # Testing and verification
 
-IMMUNE has three complementary verification paths: Catch2 tests for system contracts, JSON simulation scripts for reproducible scenarios, and real GL captures for visual changes. [Building](BUILDING.md) describes the compiler setup; [Balance](BALANCE.md) describes the automatic player and performance comparisons.
+The [Balance lab](BALANCE_LAB.md) runs real paid deployment, abilities, waves,
+economy and progression in isolated sessions. Its `[balance]` tests cover the
+controller, shared setup, attribution, lifecycle TTK, recordings and replay.
+Python tooling is verified separately with
+`python -m unittest discover -s tests/python -p "test_balance*.py"`.
+Use human-beatable reference encounters to calibrate controllers before treating
+their outcomes as evidence about difficulty.
+
+IMMUNE has three complementary verification paths: Catch2 tests for system contracts, JSON simulation scripts for reproducible scenarios, and real GL captures for visual changes. [Building](BUILDING.md) describes the compiler setup; [Performance benchmarks](#performance-benchmarks) covers subsystem timing and budgets.
 
 ## Catch2 and CTest
 
@@ -24,7 +32,8 @@ Run focused tests while iterating and the full required suite before handing off
 
 | Area | Starting points in `tests/` |
 |---|---|
-| CLI/modes | [test_cli.cpp](../tests/test_cli.cpp), [test_autoplay.cpp](../tests/test_autoplay.cpp) |
+| CLI/modes | [test_cli.cpp](../tests/test_cli.cpp) |
+| Level sessions, runtime rules, and accounting | [test_level_session.cpp](../tests/test_level_session.cpp) |
 | Level content/serialization | [test_level_content.cpp](../tests/test_level_content.cpp), [test_level_loader.cpp](../tests/test_level_loader.cpp), [test_level_writer.cpp](../tests/test_level_writer.cpp) |
 | Authoring | [test_level_validate.cpp](../tests/test_level_validate.cpp), [test_level_edit.cpp](../tests/test_level_edit.cpp), [test_level_templates.cpp](../tests/test_level_templates.cpp) |
 | Editor/gym front ends | [test_editor_panel.cpp](../tests/test_editor_panel.cpp), [test_gym_commands.cpp](../tests/test_gym_commands.cpp), [test_gym_edit.cpp](../tests/test_gym_edit.cpp), [test_gym_panel.cpp](../tests/test_gym_panel.cpp) |
@@ -40,7 +49,7 @@ $immuneExe = "$env:LOCALAPPDATA\horde-build\windows-release\bin\immune.exe"
 & $immuneExe --sim-test tests/scripts/spawn_point_reaches_goal.json --threads 1
 ```
 
-The script harness in [Modes.cpp](../src/app/Modes.cpp) creates the world, runs actions at named ticks, evaluates every scheduled assertion, and emits one report on stdout. Exit 0 means its evaluated assertions passed; exit 1 means a setup/parse failure or an assertion failed. `--report` does not save this mode's report: redirect stdout if a file is needed.
+The script harness in [Modes.cpp](../src/app/Modes.cpp) creates the world, runs actions at named ticks, evaluates every scheduled assertion, and emits one report on stdout. Exit 0 means its evaluated assertions passed; exit 1 means a setup/parse failure or an assertion failed. Redirect stdout if a report file is needed.
 
 ### Script schema 1
 
@@ -107,9 +116,9 @@ Assertions outside `0..ticks` are never evaluated, and an empty assertion set ca
 
 ### Script scope and reports
 
-The loop is a bare simulation loop. It registers gameplay systems but does **not** advance the wave director, economy, or ability cooldown clock as a complete session would. The harness's `WaveDirector` has no level wave table; `wave start` alone does not play authored waves here. Use `--autoplay` or `--screenshot --ui` for full session behavior, and Catch2 tests around `step_level()` for session contracts.
+The loop is a bare simulation loop. It registers gameplay systems but does **not** advance the wave director, economy, or ability cooldown clock as a complete session would. The harness's `WaveDirector` has no level wave table; `wave start` alone does not play authored waves here. Use `--screenshot --ui` for full session behavior, and Catch2 tests around `step_level()` for session contracts.
 
-Gym commands have no camera, time-scale clock, UI, editor document, level-loading callback, or autoplay callback here. `config get/set/list` is available; `config reload/dump` is absent. Config setters reapply a subset of live systems, while some `SimDesc` initialization values require a fresh world. See [Gym](GYM.md) and [Configuration](CONFIGURATION.md).
+Gym commands have no camera, time-scale clock, UI, editor document, or level-loading callback here. `config get/set/list` is available; `config reload/dump` is absent. Config setters reapply a subset of live systems, while some `SimDesc` initialization values require a fresh world. See [Gym](GYM.md) and [Configuration](CONFIGURATION.md).
 
 The report includes `schema`, `name`, `script`, `seed`, `ticks`, `passed`, `failed`, `assertions`, `final_state`, integer `state_hash`, `config_hash`, `config_dir`, and `result: PASS|FAIL`. `final_state` includes per-family spawned/killed/leaked/despawned counters. Replication can make spawned counts exceed the original burst; compare the specific counter needed by the test.
 
@@ -156,7 +165,32 @@ python tools/gen_tree_layout.py --check
 python tools/bench_report.py --no-history
 ```
 
-Level checking reports semantic/baked errors and warnings; formatting checks canonical text without writing it. Generated icon/tree checks compare against their source inputs. They are independent of Catch2 and are not automatically added to CTest. See [Levels](LEVELS.md), [Tools](TOOLS.md), and [Balance](BALANCE.md) for interpretation.
+Level checking reports semantic/baked errors and warnings; formatting checks canonical text without writing it. Generated icon/tree checks compare against their source inputs. They are independent of Catch2 and are not automatically added to CTest. See [Levels](LEVELS.md), [Tools](TOOLS.md), and [Performance benchmarks](#performance-benchmarks) for interpretation.
+
+## Performance benchmarks
+
+```powershell
+& $immuneExe --list-scenarios
+& $immuneExe --bench chaff10k --ticks 600 --threads 1
+python tools/bench_report.py --ticks 1200 --scenario chaff10k --scenario mixed --no-history
+```
+
+Registered scenarios are `empty`, `chaff1k`, `chaff10k`, `chaff10k_towers`, `named200`, and `mixed`. They seed 0/1,000/10,000 ordinary agents, 0/200 named agents, and optionally 16 long-lived damage fields. Despite its name, `chaff10k_towers` adds damage fields rather than purchasing a defense plan. Benchmarks tick the sim and submit rendering without playing authored waves.
+
+Benchmark JSON contains `scenario`, `ticks`, `seed`, final `agents.chaff/named`, and `timings_ms`. Timing entries contain `avg`, `p50`, `p99`, `min`, `max`, and `samples`. Standard keys are `chaff_update`, `spatial_hash`, `ecs_tick`, `render_submit`, and `frame_total`; additional recorded subsystem keys are retained.
+
+The [report helper](../tools/bench_report.py) grades averages against strict thresholds:
+
+| Timing | Budget |
+|---|---:|
+| `chaff_update + render_submit` | < 4 ms |
+| `ecs_tick` | < 2 ms |
+| `spatial_hash` | < 1 ms |
+| `frame_total` | < 16.6 ms |
+
+It accepts `--exe`, `--ticks` (default 600), `--seed`, repeatable `--scenario`, `--history`, `--no-history`, and `--json`. Default is every registered scenario. It prints a table, can print graded rows, and appends per-scenario results plus time/commit to the gitignored `tools/bench_history.csv`. Exit 0 means every average budget passed; 1 means a budget or execution failed. The summed p99 shown for chaff/render is a sum of their individual percentiles, not the percentile of combined frame samples.
+
+The benchmark attempts a hidden GL context for real render submission. If context/renderer setup fails, it warns and records render submission as zero while still running sim timings. Run without `--quiet` to confirm rendering is active before interpreting the combined budget. Timings are hardware/workload dependent and reports do not include a config hash; record tuning separately and compare on the same machine with consistent thread settings.
 
 ## Reproducibility limits
 

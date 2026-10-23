@@ -580,10 +580,9 @@ int run_sim_test(const Options& opt) {
     gym.economy = &economy;
     gym.abilities = &abilities;
 
-    // Read/write the tuning from a script, so a balance regression can be
-    // expressed as a sim-test rather than a hand-run experiment. Reload and
-    // dump stay OFF headlessly: re-reading the files mid-run would change a
-    // determinism input, and the report already pins the config hash.
+    // Scripted config access checks that runtime settings reach the systems.
+    // Reload and dump stay OFF headlessly: re-reading files mid-run would
+    // change a determinism input, and the report already pins the config hash.
     {
         // The store outlives the context: `tuning` is a local of this function
         // and the gym context never escapes it either.
@@ -820,14 +819,11 @@ int run_screenshot(const Options& opt) {
     {
         const HeadlessConfig tuning = load_headless_config(opt);
         exec_roster.load_defaults();
-        game::EconomyConfig economy = tuning.cfg.economy;
         if (opt.ui) {
-            if (level_def.economy.starting_atp != 0)
-                economy.starting_atp = level_def.economy.starting_atp;
-            economy.passive_income_per_second *= level_def.economy.income_multiplier;
-            economy.atp_per_density *= level_def.economy.income_multiplier;
+            game::apply_level_rules(level_def, tuning.cfg.economy, exec_economy, towers);
+        } else {
+            exec_economy.configure(tuning.cfg.economy);
         }
-        exec_economy.configure(economy);
         exec_abilities.load_defaults();
         if (opt.ui) {
             game::apply_enemy_config(exec_roster, tuning.cfg.enemies);

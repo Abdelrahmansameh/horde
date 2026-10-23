@@ -16,15 +16,13 @@ authority as balance changes.
 | Baseline input | Value | Timing |
 | --- | ---: | --- |
 | Starting ATP | 300 | New level/run |
-| Passive income | 4 ATP/second | Simulation ticks outside Prep |
-| Damage income | 0.5 ATP per density removed | Credited after the simulation tick |
+| Kill income | 0.85 ATP per density removed | Credited after the simulation tick |
 | Wave reward | Authored `atp_reward` | When that wave finishes Clearing |
-| Cell cost | 8 / 12 / 20 / 24 / 30 | Per successful Neutrophil / Cytotoxic T / Macrophage / Goblet Cell / Fibroblast deployment |
+| Cell cost | 15 / 12 / 35 / 24 / 30 | Per successful Neutrophil / Cytotoxic T / Macrophage / Goblet Cell / Fibroblast deployment |
 
-[Economy.cpp](../src/game/economy/Economy.cpp) accumulates fractional passive
-and density income in a shared fractional remainder, crediting whole ATP as
-it becomes available. Damage income is for player density removal, not
-merely a drop in population due to leaks or leaving bounds. This includes
+[Economy.cpp](../src/game/economy/Economy.cpp) accumulates fractional kill
+income, crediting whole ATP as it becomes available. Kill income is for player
+density removal, not merely a drop in population due to leaks or leaving bounds. This includes
 projectile and swarmer damage through
 [SimWorld.cpp](../src/sim/SimWorld.cpp)'s combined damage accounting.
 
@@ -34,17 +32,19 @@ when the next cell is unaffordable, invalid, or over capacity. Cells are not
 refundable through the normal HUD. The retained `refund_fraction: 0.7` applies
 to legacy spawner selling, not to normal direct deployment.
 
-Permanent hub nodes raise starting ATP, passive income, and damage income,
+Permanent hub nodes raise starting ATP and kill income,
 or reduce global placement costs. Level `economy.starting_atp` can override
 the base, while retaining the player's Bone Marrow Reserve bonus. A level's
-`income_multiplier` scales both passive income and ATP per density. The level
-rules are applied after the tree in `App::apply_level_rules()`.
+`income_multiplier` scales ATP per density removed. The shared
+`game::apply_level_rules()` applies level rules after the tree.
+Current campaign opening wallets rise from 300 to 750 ATP. Maximum Efficient
+Clearance raises baseline damage-income from 0.85 to 1.275 ATP per density.
 
-Prep blocks passive income; it does not prevent collecting damage income from
-surviving enemies or paying a wave reward. Pausing stops simulation ticks, so
-simulation-based income and ability cooldowns stop. Speed changes accelerate
-their simulation-time advancement. Reinitializing the economy resets the
-ledger; it is not a persistent wallet.
+Kills can earn ATP during Prep when surviving enemies are still present;
+wave rewards also remain payable. Pausing stops simulation ticks, so combat,
+wave progression, and ability cooldowns stop. Speed changes accelerate their
+simulation-time advancement. Reinitializing the economy resets the ledger;
+it is not a persistent wallet.
 
 ## Casting and cooldowns
 
@@ -130,4 +130,4 @@ is redirection and added time for defenses. Barrier Duration increases the
 - [Deployment tests](../tests/test_towers.cpp): per-cell ATP charging and partial
   batches.
 - [Session](../src/game/session/LevelSession.cpp): ordering of simulation,
-  passive/damage/wave income, cooldown ticking, and outcome checks.
+  kill/wave income, cooldown ticking, and outcome checks.

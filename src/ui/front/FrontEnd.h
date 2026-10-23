@@ -15,7 +15,7 @@
 // Switching screens crossfades: the old screen fades out while the new one
 // buds in (fades up from 97% scale). Each fades as a group through an
 // offscreen layer, so a button does not show its panel through itself.
-// Main-menu Play waits for the virus swarm to span the screen before emitting
+// Level-select Play waits for the virus swarm to span the screen before emitting
 // navigation, then swaps screens at the authored point in peak coverage.
 #pragma once
 
@@ -90,7 +90,7 @@ private:
     void build_results(gui::Widget& root, const FrontModel& m, bool victory);
     void sync_selection();
     void emit(MenuResult r);
-    void play_from_menu();
+    void start_level(usize level_index);
     static u64 signature(FrontScreen s, const FrontModel& m);
 
     gui::Gui& gui_;
@@ -104,6 +104,7 @@ private:
     VirusSwipeConfig swipe_config_;
     std::string swipe_config_path_;
     bool swipe_handoff_ = false;
+    MenuResult swipe_result_{};
 
     // Level select state.
     std::vector<CampaignLevel> campaign_;

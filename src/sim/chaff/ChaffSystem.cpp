@@ -1169,7 +1169,7 @@ ChaffUpdateStats ChaffSystem::update(ChaffBuffers& buffers, const FlowField& flo
             const f32 lx = dx * goal_cos_ - dy * goal_sin_;
             const f32 ly = dx * goal_sin_ + dy * goal_cos_;
             if (std::fabs(lx) <= goal_half_.x && std::fabs(ly) <= goal_half_.y) {
-                buffers.kill(i);
+                buffers.kill(i, CombatRetirement::Leak);
                 ++despawned_goal;
                 const u32 f = fam[i];
                 if (f < kFamilyCount) ++stats.despawned_at_goal_by_family[f];
@@ -1177,7 +1177,7 @@ ChaffUpdateStats ChaffSystem::update(ChaffBuffers& buffers, const FlowField& flo
             }
         }
         if (!killed && !bounds_.contains(Vec2{px[i], py[i]})) {
-            buffers.kill(i);
+            buffers.kill(i, CombatRetirement::OutOfBounds);
             ++despawned_bounds;
             const u32 f = fam[i];
             if (f < kFamilyCount) ++stats.despawned_out_of_bounds_by_family[f];
@@ -1198,7 +1198,10 @@ ChaffUpdateStats ChaffSystem::update(ChaffBuffers& buffers, const FlowField& flo
     for (usize i = 0; i < count; ++i) {
         if (!replicate_wanted[i]) continue;
         replicate_wanted[i] = 0;
-        if (replicated >= cap || buffers.full()) continue;
+        if (replicated >= cap || buffers.full()) {
+            if (auto* metrics = buffers.combat_metrics()) metrics->record_replication_denied(buffers.full());
+            continue;
+        }
         const u32 f = fam[i];
         const ChaffFamilyParams& fp = tuning.family[f < kFamilyCount ? f : 0];
         ChaffSpawnParams sp;

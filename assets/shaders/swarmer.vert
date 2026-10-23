@@ -22,7 +22,7 @@ layout(location = 2) in vec2  i_velocity;
 layout(location = 3) in float i_radius;
 layout(location = 4) in float i_phase;      // per-granule animation offset
 layout(location = 5) in vec4  i_tint;
-layout(location = 6) in uint  i_flags;      // bit 0: engaged; bits 8..11: kind; 12..15: tier
+layout(location = 6) in uint  i_flags;      // engaged; kind/tier; arbor mass; shooter pulse (see frag)
 // ArborGrabber (kind 6): each arm = {reach in world units, relative angle,
 // grip 0..1, phase (0 idle, 1 extending, 2 latching, 3 pulling, 4 recovery)}.
 // Shooter (kind 1): the magazine instead (Renderer.cpp, pack_magazine).
@@ -65,6 +65,9 @@ void main() {
     // as close to "what is drawn is what collides" as a spindle gets.
     float world_per_local = 2.0 * i_radius * (macrophage ? 1.35 : (kind == 5u ? 1.45 : 1.0));
     float half_extent = macrophage ? 1.175 : 0.5 * kPad;
+    // Leave room behind the shooter's stronger stretch/recoil and ahead of
+    // its narrow membrane protrusion, including the soft shadow.
+    if (kind == 1u) half_extent = 0.98;
     if (kind == 6u) {
         float reach = max(i_arm0.x, max(i_arm1.x, i_arm2.x));
         half_extent = max(half_extent, (reach + 0.9 * i_radius) / world_per_local);

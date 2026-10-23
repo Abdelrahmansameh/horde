@@ -81,7 +81,6 @@ struct Field {
 
 TreeLevels bought(std::initializer_list<std::pair<TreeNode, u8>> nodes) {
     TreeLevels lv{};
-    lv[TreeNode::NeutrophilRoot] = 1;
     for (const auto& [n, l] : nodes) lv[n] = l;
     return lv;
 }
@@ -107,9 +106,11 @@ TEST_CASE("every tree node has a unique key that finds it again", "[meta][tree]"
     }
     TreeNode none{};
     REQUIRE_FALSE(find_tree_node("not.a.node", none));
+    REQUIRE_FALSE(find_tree_node("hub.rapid_metabolism", none));
+    REQUIRE_FALSE(find_tree_node("neutrophil.unlock", none));
 }
 
-TEST_CASE("each tower branch has one root, one capstone, and its own stat lines", "[meta][tree]") {
+TEST_CASE("cell branches have their own lines and capstone; only new cells need unlock nodes", "[meta][tree]") {
     for (u32 t = 0; t < kTowerTypeCount; ++t) {
         const TowerType type = static_cast<TowerType>(t);
         const TreeBranch b = tower_branch(type);
@@ -122,13 +123,17 @@ TEST_CASE("each tower branch has one root, one capstone, and its own stat lines"
             caps += d.kind == TreeNodeKind::Capstone;
             stats += d.kind == TreeNodeKind::Stat;
         }
-        REQUIRE(roots == 1);
+        REQUIRE(roots == (type == TowerType::Neutrophil ? 0u : 1u));
         REQUIRE(caps == 1);
         REQUIRE(stats >= 5);
-        REQUIRE(tree_node(tower_root(type)).kind == TreeNodeKind::TowerRoot);
-        REQUIRE(tree_node(tower_root(type)).branch == b);
+        if (type == TowerType::Neutrophil) {
+            REQUIRE(tower_root(type) == TreeNode::Count);
+        } else {
+            REQUIRE(tree_node(tower_root(type)).kind == TreeNodeKind::TowerRoot);
+            REQUIRE(tree_node(tower_root(type)).branch == b);
+            REQUIRE(tree_node(tower_root(type)).max_level == 1);
+        }
         REQUIRE(tree_node(branch_capstone(b)).kind == TreeNodeKind::Capstone);
-        REQUIRE(tree_node(tower_root(type)).max_level == 1);
         REQUIRE(tree_node(branch_capstone(b)).max_level == 1);
     }
     for (u32 a = 0; a < kAbilityCount; ++a) {
@@ -138,7 +143,7 @@ TEST_CASE("each tower branch has one root, one capstone, and its own stat lines"
     }
 }
 
-TEST_CASE("the catalog is one tree: one root, one parent each, at most three children", "[meta][tree]") {
+TEST_CASE("the catalog is one tree with small branches around the replenishment hub", "[meta][tree]") {
     u32 children[kTreeNodeCount] = {};
     for (u32 i = 0; i < kTreeNodeCount; ++i) {
         const TreeNode n = static_cast<TreeNode>(i);
@@ -158,15 +163,29 @@ TEST_CASE("the catalog is one tree: one root, one parent each, at most three chi
     }
     for (u32 i = 0; i < kTreeNodeCount; ++i) {
         CAPTURE(tree_node(static_cast<TreeNode>(i)).key);
-        REQUIRE(children[i] <= kTreeMaxChildren);
+        const u32 limit = static_cast<TreeNode>(i) == kTreeHub ? kTreeHubMaxChildren : kTreeMaxChildren;
+        REQUIRE(children[i] <= limit);
     }
-    // The root is the tower a new campaign owns.
-    REQUIRE(kTreeRoot == tower_root(TowerType::Neutrophil));
+    // The legacy stable identifier is both the first purchase and the hub.
+    REQUIRE(kTreeRoot == TreeNode::NeutrophilRoundDamage);
+    REQUIRE(kTreeRoot == kTreeHub);
+    REQUIRE(children[static_cast<u32>(kTreeHub)] == kTreeHubMaxChildren);
 }
 
-TEST_CASE("every unlock is reached through Memory Cell nodes only; capstones end their branch", "[meta][tree]") {
-    // PROGRESSION.md §4.1: the player picks the order towers and abilities
-    // are unlocked in, so no Antibody node may stand in front of another.
+TEST_CASE("all economy upgrades share one branch without cell or ability unlocks", "[meta][tree]") {
+    for (u32 i = 0; i < kTreeNodeCount; ++i) {
+        const TreeNode n = static_cast<TreeNode>(i);
+        if (n == kTreeRoot || n == kTreeHub) continue;
+        CAPTURE(tree_node(n).key);
+        TreeNode spoke = n;
+        while (tree_node(spoke).parent != kTreeHub) spoke = tree_node(spoke).parent;
+        REQUIRE((spoke == TreeNode::BoneMarrowReserve) == (tree_node(n).kind == TreeNodeKind::Economy));
+    }
+}
+
+TEST_CASE("cell unlocks remain independent and capstones end their branch", "[meta][tree]") {
+    // Cells remain independent choices; related discoveries grow directly
+    // from that cell's unlock without requiring Memory Cell stat purchases.
     auto antibody_priced = [](TreeNode n) {
         const TreeNodeKind k = tree_node(n).kind;
         return k == TreeNodeKind::TowerRoot || k == TreeNodeKind::AbilityRoot || k == TreeNodeKind::Capstone;
@@ -175,7 +194,7 @@ TEST_CASE("every unlock is reached through Memory Cell nodes only; capstones end
         const TreeNode n = static_cast<TreeNode>(i);
         const TreeNodeKind kind = tree_node(n).kind;
         CAPTURE(tree_node(n).key);
-        if (n != kTreeRoot && (kind == TreeNodeKind::TowerRoot || kind == TreeNodeKind::AbilityRoot)) {
+        if (kind == TreeNodeKind::TowerRoot) {
             for (TreeNode a = tree_node(n).parent; a != kTreeRoot; a = tree_node(a).parent) {
                 CAPTURE(tree_node(a).key);
                 REQUIRE_FALSE(antibody_priced(a));
@@ -185,30 +204,53 @@ TEST_CASE("every unlock is reached through Memory Cell nodes only; capstones end
             for (u32 j = 0; j < kTreeNodeCount; ++j) REQUIRE(tree_node(static_cast<TreeNode>(j)).parent != n);
         }
     }
-    // A branch's lines grow from its own unlock (or, for the Neutrophil's,
-    // from the heart it is).
+    // A branch's lines grow from its unlock; the innate Neutrophil's lines
+    // grow from Round Damage itself.
     for (u32 i = 0; i < kTreeNodeCount; ++i) {
+        const TreeNode n = static_cast<TreeNode>(i);
+        if (n == kTreeRoot) continue;
         const TreeNodeDef& d = tree_node(static_cast<TreeNode>(i));
         if (d.kind != TreeNodeKind::Stat && d.kind != TreeNodeKind::Capstone && d.kind != TreeNodeKind::AbilityStat) {
             continue;
         }
         CAPTURE(d.key);
         const TreeNode root = d.kind == TreeNodeKind::AbilityStat ? ability_root(d.ability)
-                                                                   : tower_root(branch_tower(d.branch));
+                            : d.branch == TreeBranch::Neutrophil ? kTreeRoot
+                                                               : tower_root(branch_tower(d.branch));
         TreeNode a = d.parent;
         while (a != root && a != kTreeRoot) a = tree_node(a).parent;
         REQUIRE(a == root);
     }
 }
 
+TEST_CASE("active abilities grow directly from their four related cell unlocks", "[meta][tree]") {
+    struct Placement { TreeNode ability, parent, branch; };
+    const Placement placements[] = {
+        {TreeNode::ComplementUnlock, TreeNode::CytotoxicRoot, TreeNode::CytotoxicRoot},
+        {TreeNode::HistamineUnlock, TreeNode::GobletRoot, TreeNode::GobletRoot},
+        {TreeNode::FeverUnlock, TreeNode::MacrophageRoot, TreeNode::MacrophageRoot},
+        {TreeNode::ClotUnlock, TreeNode::FibroblastRoot, TreeNode::FibroblastRoot},
+    };
+    std::set<TreeNode> branches;
+    for (const Placement& p : placements) {
+        CAPTURE(tree_node(p.ability).key);
+        REQUIRE(tree_node(p.ability).parent == p.parent);
+        REQUIRE(tree_node(p.parent).kind == TreeNodeKind::TowerRoot);
+        TreeNode spoke = p.ability;
+        while (tree_node(spoke).parent != kTreeRoot) spoke = tree_node(spoke).parent;
+        REQUIRE(spoke == p.branch);
+        REQUIRE(branches.insert(spoke).second);
+    }
+}
+
 TEST_CASE("milestones cost Antibodies, lines cost Memory Cells that rise per level", "[meta][tree]") {
     const MetaConfig cfg;
-    REQUIRE(tree_node_cost(cfg, TreeNode::MacrophageRoot, 0).antibodies == cfg.tower_unlock_antibodies);
+    REQUIRE(tree_node_cost(cfg, TreeNode::MacrophageRoot, 0).antibodies == 1);
     REQUIRE(tree_node_cost(cfg, TreeNode::MacrophageRoot, 0).memory_cells == 0);
-    REQUIRE(tree_node_cost(cfg, TreeNode::FeverUnlock, 0).antibodies == cfg.ability_unlock_antibodies);
+    REQUIRE(tree_node_cost(cfg, TreeNode::FeverUnlock, 0).antibodies == 1);
     const TreeCost cap = tree_node_cost(cfg, TreeNode::GobletCapstone, 0);
-    REQUIRE(cap.antibodies == cfg.capstone_antibodies);
-    REQUIRE(cap.memory_cells == cfg.capstone_memory_cells);
+    REQUIRE(cap.antibodies == 1);
+    REQUIRE(cap.memory_cells == 0);
     const TreeCost l0 = tree_node_cost(cfg, TreeNode::BoneMarrowReserve, 0);
     const TreeCost l1 = tree_node_cost(cfg, TreeNode::BoneMarrowReserve, 1);
     REQUIRE(l0.antibodies == 0);
@@ -254,7 +296,13 @@ TEST_CASE("stat lines change their tower and nothing else", "[meta][tree]") {
     const u32 n = static_cast<u32>(TowerType::Neutrophil);
     const u32 c = static_cast<u32>(TowerType::CytotoxicT);
     REQUIRE(cfg.towers.mechanics[n].shooter.round_damage ==
-            Catch::Approx(base.towers.mechanics[n].shooter.round_damage * 1.30f));
+            Catch::Approx(base.towers.mechanics[n].shooter.round_damage));
+    REQUIRE(cfg.towers.mechanics[n].shooter.reload_seconds ==
+            Catch::Approx(base.towers.mechanics[n].shooter.reload_seconds * 0.72f));
+    REQUIRE(cfg.towers.mechanics[n].shooter.fire_interval ==
+            Catch::Approx(base.towers.mechanics[n].shooter.fire_interval * 0.88f));
+    REQUIRE(cfg.towers.mechanics[n].shooter.gather_seconds ==
+            Catch::Approx(base.towers.mechanics[n].shooter.gather_seconds * 0.88f));
     REQUIRE(cfg.towers.mechanics[n].shooter.magazine_size ==
             base.towers.mechanics[n].shooter.magazine_size + 2);
     REQUIRE(cfg.towers.mechanics[c].latch.dps == Catch::Approx(base.towers.mechanics[c].latch.dps));
@@ -264,20 +312,76 @@ TEST_CASE("hub lines reach the economy, every tower and the sim", "[meta][tree]"
     const GameConfig base = default_game_config();
     GameConfig cfg = base;
     const TreeEffects fx = apply_immunity_tree(
-        bought({{TreeNode::BoneMarrowReserve, 2}, {TreeNode::FieldRequisition, 2},
+        bought({{TreeNode::BoneMarrowReserve, 2}, {TreeNode::EfficientClearance, 2},
+                {TreeNode::FieldRequisition, 2},
                 {TreeNode::SystemicPotency, 1}, {TreeNode::EliteResponse, 3},
                 {TreeNode::Homeostasis, 2}, {TreeNode::MembraneResilience, 1}}),
         cfg);
     REQUIRE(cfg.economy.starting_atp == base.economy.starting_atp + 80);
+    REQUIRE(cfg.economy.atp_per_density == Catch::Approx(base.economy.atp_per_density * 1.20f));
     REQUIRE(cfg.towers.globals.refund_fraction == Catch::Approx(cfg.economy.refund_fraction));
     for (u32 t = 0; t < kTowerTypeCount; ++t) {
         REQUIRE(cfg.towers.stats[t].build_cost < base.towers.stats[t].build_cost);
         REQUIRE(cfg.towers.mechanics[t].shooter.round_damage ==
-                Catch::Approx(base.towers.mechanics[t].shooter.round_damage * 1.04f));
+                Catch::Approx(base.towers.mechanics[t].shooter.round_damage));
+        REQUIRE(cfg.towers.mechanics[t].swarm.max_health ==
+                Catch::Approx(base.towers.mechanics[t].swarm.max_health * 1.45f));
     }
-    REQUIRE(fx.immunity.named_damage_mult == Catch::Approx(1.3f));
+    REQUIRE(fx.immunity.named_damage_mult == 1.0f);
     REQUIRE(fx.immunity.leak_damage == Catch::Approx(base.sim.globals.objective_damage_per_leak * 0.8f));
     REQUIRE(fx.hostile_damage_taken_mult == Catch::Approx(0.92f));
+}
+
+TEST_CASE("coordinated response reaches each role's actual work cycle and preserves payloads", "[meta][tree]") {
+    const GameConfig base = default_game_config();
+    GameConfig cfg = base;
+    const TreeEffects fx = apply_immunity_tree(bought({{TreeNode::SystemicPotency, 3}}), cfg);
+    constexpr f32 cycle = 0.82f;
+    const auto& neutro = cfg.towers.mechanics[static_cast<u32>(TowerType::Neutrophil)];
+    const auto& n0 = base.towers.mechanics[static_cast<u32>(TowerType::Neutrophil)];
+    REQUIRE(neutro.shooter.reload_seconds == Catch::Approx(n0.shooter.reload_seconds * cycle));
+    REQUIRE(neutro.shooter.fire_interval == Catch::Approx(n0.shooter.fire_interval * cycle));
+    REQUIRE(neutro.shooter.gather_seconds == Catch::Approx(n0.shooter.gather_seconds * cycle));
+    const auto& cyto = cfg.towers.mechanics[static_cast<u32>(TowerType::CytotoxicT)];
+    const auto& c0 = base.towers.mechanics[static_cast<u32>(TowerType::CytotoxicT)];
+    REQUIRE(cyto.latch.dps == Catch::Approx(c0.latch.dps / cycle));
+    REQUIRE(cyto.latch.attach_seconds == Catch::Approx(c0.latch.attach_seconds * cycle));
+    const auto& macro = cfg.towers.mechanics[static_cast<u32>(TowerType::Macrophage)];
+    const auto& m0 = base.towers.mechanics[static_cast<u32>(TowerType::Macrophage)];
+    REQUIRE(macro.arbor_grabber.extend_seconds == Catch::Approx(m0.arbor_grabber.extend_seconds * cycle));
+    REQUIRE(macro.arbor_grabber.pull_seconds == Catch::Approx(m0.arbor_grabber.pull_seconds * cycle));
+    const auto& goblet = cfg.towers.mechanics[static_cast<u32>(TowerType::GobletCell)];
+    const auto& g0 = base.towers.mechanics[static_cast<u32>(TowerType::GobletCell)];
+    REQUIRE(goblet.swarm.speed == Catch::Approx(g0.swarm.speed / cycle));
+    REQUIRE(goblet.mucus_bomber.chase_seconds == g0.mucus_bomber.chase_seconds);
+    REQUIRE(goblet.mucus_bomber.droplets == g0.mucus_bomber.droplets);
+    const auto& fibro = cfg.towers.mechanics[static_cast<u32>(TowerType::Fibroblast)];
+    const auto& f0 = base.towers.mechanics[static_cast<u32>(TowerType::Fibroblast)];
+    REQUIRE(fibro.builder.build_cooldown == Catch::Approx(f0.builder.build_cooldown * cycle));
+    REQUIRE(fibro.builder.secrete_seconds == Catch::Approx(f0.builder.secrete_seconds * cycle));
+    REQUIRE(fibro.builder.scar_health == f0.builder.scar_health);
+    REQUIRE(fx.immunity.scar_contact_rate == 0);
+}
+
+TEST_CASE("survival lines add base health before percentage reserves and preserve mobility", "[meta][tree]") {
+    const GameConfig base = default_game_config();
+    GameConfig cfg = base;
+    apply_immunity_tree(bought({{TreeNode::NeutrophilVitality, 2},
+                                {TreeNode::CytotoxicHealth, 2}, {TreeNode::CytotoxicStamina, 1},
+                                {TreeNode::GobletHealth, 3}, {TreeNode::EliteResponse, 1}}), cfg);
+    const u32 n = static_cast<u32>(TowerType::Neutrophil);
+    const u32 c = static_cast<u32>(TowerType::CytotoxicT);
+    const u32 g = static_cast<u32>(TowerType::GobletCell);
+    REQUIRE(cfg.towers.mechanics[n].swarm.max_health ==
+            Catch::Approx((base.towers.mechanics[n].swarm.max_health + 18.0f) * 1.15f));
+    REQUIRE(cfg.towers.mechanics[n].swarm.speed ==
+            Catch::Approx(base.towers.mechanics[n].swarm.speed * 1.2f));
+    REQUIRE(cfg.towers.mechanics[c].swarm.max_health ==
+            Catch::Approx((base.towers.mechanics[c].swarm.max_health + 20.0f + 9.0f) * 1.15f));
+    REQUIRE(cfg.towers.mechanics[c].swarm.speed ==
+            Catch::Approx(base.towers.mechanics[c].swarm.speed * 1.1f));
+    REQUIRE(cfg.towers.mechanics[g].swarm.max_health ==
+            Catch::Approx((base.towers.mechanics[g].swarm.max_health + 30.0f) * 1.15f));
 }
 
 TEST_CASE("the Fibroblast lines reach its builder's rest, territory and wall count", "[meta][tree]") {
@@ -311,10 +415,12 @@ TEST_CASE("capstones turn on their mechanics", "[meta][tree]") {
                 {TreeNode::FibroblastCapstone, 1}}),
         cfg);
     const CapstoneParams& cyto = cfg.towers.mechanics[static_cast<u32>(TowerType::CytotoxicT)].capstone;
-    REQUIRE(cyto.kill_pulse_radius > 0.0f);
+    REQUIRE(cyto.kill_pulse_radius == Catch::Approx(10.0f));
+    REQUIRE(cyto.kill_pulse_damage == Catch::Approx(1.2f));
     REQUIRE(cyto.named_damage_mult > 1.0f);
     REQUIRE(cfg.towers.mechanics[static_cast<u32>(TowerType::Macrophage)].capstone.heal_per_kill > 0.0f);
-    REQUIRE(fx.immunity.incendiary_radius > 0.0f);
+    REQUIRE(cfg.towers.mechanics[static_cast<u32>(TowerType::Neutrophil)].shooter.round_damage ==
+            Catch::Approx(default_game_config().towers.mechanics[static_cast<u32>(TowerType::Neutrophil)].shooter.round_damage * 1.25f));
     REQUIRE(fx.immunity.contagion_radius > 0.0f);
     REQUIRE(fx.immunity.scar_contact_rate > 0.0f);
     REQUIRE(fx.tower_mask == TowerSystem::kAllTowersMask);
@@ -437,37 +543,6 @@ TEST_CASE("Anaphylactic Shock: a slowed agent's death slows its neighbours", "[m
         REQUIRE(f.world.chaff().count() == 2);
         REQUIRE(f.slowed() == (on ? 1u : 0u));
     }
-}
-
-TEST_CASE("Incendiary Rounds: a landed round leaves a burning patch", "[meta][tree][sim]") {
-    f32 left[2] = {};
-    for (const bool on : {false, true}) {
-        Field f;
-        sim::ImmunityTuning im;
-        if (on) {
-            im.incendiary_radius = 2.0f;
-            im.incendiary_damage = 6.0f;
-            im.incendiary_seconds = 1.0f;
-        }
-        f.world.set_immunity(im);
-        f.spawn(Vec2{30.0f, 10.0f}, 100.0f);
-        f.world.tick(); // index the hash
-        sim::ProjectileSpawnParams p;
-        p.position = f.world.chaff().count() > 0
-                         ? Vec2{f.world.chaff().pos_x[0], f.world.chaff().pos_y[0]}
-                         : Vec2{30.0f, 10.0f};
-        p.velocity = Vec2{0.0f, 0.0f};
-        p.damage = 1.0f;
-        p.hit_radius = 1.0f;
-        p.flags = sim::projectile_flags::kIncendiary;
-        REQUIRE(f.world.projectiles().spawn(p));
-        for (int i = 0; i < 90; ++i) f.world.tick();
-        REQUIRE(f.world.chaff().count() == 1);
-        left[on ? 1 : 0] = f.world.chaff().density[0];
-    }
-    // Both took the round; only the incendiary one kept burning.
-    REQUIRE(left[0] == Catch::Approx(99.0f));
-    REQUIRE(left[1] < left[0] - 1.0f);
 }
 
 TEST_CASE("Inflammatory Scarring: a scar burns what presses against it", "[meta][tree][sim][scar]") {

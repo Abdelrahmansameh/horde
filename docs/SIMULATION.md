@@ -35,7 +35,7 @@ fixed 1/60-second step:
 5. Run ordered ECS systems, including named behavior and legacy tower release.
 6. Build inflammation zones and apply their current effects.
 7. Apply aggregate damage fields.
-8. Update existing rounds; turn incendiary impacts into timed fields.
+8. Update existing rounds.
 9. Build named-target snapshots; update swarmers and apply their damage,
    fields, splashes, round spawns, scar builds and heals.
 10. Expire chaff slow timers before fluid refresh.
@@ -47,7 +47,7 @@ fixed 1/60-second step:
     while the retiring agents still have positions.
 15. Compact chaff once; separate damage kills from leaks/out-of-bounds
     retirements; age/clear damage-field submissions.
-16. Close optional attribution, pump pending flow rebakes, increment world tick.
+16. Pump pending flow rebakes, increment world tick.
 
 The hash retains beginning-of-tick membership during movement/combat. Queries
 test current position/density where required. Compacting between damage sources
@@ -259,7 +259,7 @@ the live submission buffer after clear would omit persistent fields. Damage
 fields never compact chaff.
 
 [Projectiles](../src/sim/projectile/Projectiles.h) are real bounded SoA rounds,
-with lifetimes, owners, family masks, piercing/incendiary flags, approximate
+with lifetimes, owners, family masks, piercing flags, approximate
 crowd broadphase hits and swept authored-wall grid checks. This is not a global
 nearest-target or per-bullet rigid-body solver. Cosmetic tracers are separate
 VFX objects; removing them cannot remove the round.
@@ -287,9 +287,9 @@ is not consumed by its build: it rests and roams near its spawn point, and the
 game layer's `builder_sites` system gives it its next site once it is due
 (`SwarmerBuffers::builder_due`, FIBROSIS in
 [Swarmers.h](../src/sim/swarm/Swarmers.h)). It has no ECS tower owner: the
-high-range attribution ID groups its combat/scars only. Legacy `place()` creates an ECS spawner, whose
+high-range owner ID identifies its combat/scars only. Legacy `place()` creates an ECS spawner, whose
 volleys normally have finite lifetime. Use `validate_deploy()` and
-`deploy_cells()` for new player/bot placement paths rather than reviving the
+`deploy_cells()` for new player placement paths rather than reviving the
 legacy spawner assumptions.
 
 ## Hostile attacks and burrowing
@@ -332,8 +332,7 @@ surface. Highlights/spray belong in render/VFX. See
 
 `last_damage_stats().density_removed` combines active damage sources and feeds
 kill income. Its `density_removed_by_family` remains field-only, not all-source
-family damage. Optional [DamageAttribution](../src/sim/Attribution.h) records
-per-owner/per-family combat for telemetry without changing choices.
+family damage.
 
 Legacy `chaff_killed_total` means all compacted retirements, including leaks and
 out-of-bounds despawns. Per-family kill tallies subtract those retirements and
@@ -341,11 +340,21 @@ mean damage kills. Spawn totals include replication. Do not infer income or
 outcomes from count differences.
 
 [ImmunityTuning](../src/sim/Immunity.h) carries rules such as leak damage,
-incendiary fields, slow contagion, scar damage and inflammation. Game progression
+slow contagion, scar damage and inflammation. Game progression
 folds purchases into tuning/profile copies; sim does not load saves or traverse
 the tree. See [test_immunity_tree.cpp](../tests/test_immunity_tree.cpp).
 
 ## Reproducibility and hashes
+
+Balance experiments opt into serial simulation and
+`SimDesc::deterministic_rebakes`, which drains scheduled geometry rebakes at the
+tick boundary. Normal play keeps its wall-clock rebake budget unless recording
+with `--record-balance`. Optional `CombatMetrics` tracks applied/overkill damage,
+source ownership, lifecycle TTK, spawn drops, projectile outcomes and sampled
+cell activity. It is disabled by default and never feeds decisions or world RNG.
+TTK starts at the first effective hit and ends at damage death; living cells,
+leaks and consumed units remain explicit censored or competing outcomes.
+See [Balance lab](BALANCE_LAB.md) for interpretation and replay verification.
 
 Exact comparisons pin build, config, level, seed, workers, commands, and rebake
 completion policy. Different worker counts change bulk RNG partitions, and

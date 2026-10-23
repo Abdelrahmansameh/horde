@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <memory>
+#include <string>
 #include <vector>
 
 using namespace immune;
@@ -60,7 +61,6 @@ HudModel fixture() {
     HudModel m;
     m.integrity01 = 0.72f;
     m.atp = 150;
-    m.income_per_second = 4.0f;
     m.phase = HudWavePhase::Spawning;
     m.wave_number = 3;
     m.preview.valid = true;
@@ -98,6 +98,10 @@ TEST_CASE("HUD: the dock shows unlocked towers in canvas order, greyed when unaf
     Harness h;
     HudModel m = fixture();
     h.frame(m);
+    auto* atp_label = dynamic_cast<gui::Label*>(h.w("hud/dock/atp/label"));
+    REQUIRE(atp_label != nullptr);
+    CHECK(atp_label->text() == "ATP");
+    CHECK(h.w("hud/dock/atp/rate") == nullptr);
     REQUIRE(h.shown("hud/dock/neutrophil"));
     CHECK(h.w("hud/dock/neutrophil")->enabled);        // 70 <= 150
     CHECK_FALSE(h.w("hud/dock/macrophage")->enabled);  // 180 > 150
@@ -290,7 +294,10 @@ TEST_CASE("HUD: critical integrity, the wave-cleared toast, the next-wave panel"
 
 TEST_CASE("HUD: hidden, it draws nothing and takes no clicks", "[ui][hud]") {
     Harness h;
-    const HudModel m = fixture();
+    HudModel m = fixture();
+    m.phase = HudWavePhase::Prep;
+    m.spawn_points = {{Vec2{100, 160}, Vec2{1, 0}}};
+    m.organ_points = {Vec2{220, 160}};
     h.frame(m);
     h.hud->set_visible(false);
     h.frame(m);
@@ -299,4 +306,169 @@ TEST_CASE("HUD: hidden, it draws nothing and takes no clicks", "[ui][hud]") {
     h.gui.draw(dl);
     // Only the (hidden) tooltip layer remains: no geometry at all.
     CHECK(dl.vertices().empty());
+}
+
+TEST_CASE("HUD: every entrance has a count-free marker during preparation", "[ui][hud][spawn]") {
+    Harness h;
+    HudModel m = fixture();
+    m.phase = HudWavePhase::Prep;
+    m.spawn_points = {{Vec2{100, 160}, Vec2{1, 0}}, {Vec2{220, 160}, Vec2{-1, 0}}};
+    // Entrances belong to the level, even when there is no next-wave preview.
+    m.preview = {};
+    h.frame(m);
+    REQUIRE(h.shown("world/spawn0"));
+    REQUIRE(h.shown("world/spawn1"));
+    CHECK(h.w("world/spawn0")->center().x < h.w("world/spawn1")->center().x);
+
+    // Counts remain in the wave panel; entrance markers never imply a split.
+    m.preview = fixture().preview;
+    h.frame(m);
+    const auto check_no_count = [](const auto& self, const gui::Widget& w) -> void {
+        if (const auto* label = dynamic_cast<const gui::Label*>(&w)) {
+            CHECK(label->text().find_first_of("0123456789") == std::string::npos);
+        }
+        for (const auto& child : w.children()) self(self, *child);
+    };
+    check_no_count(check_no_count, *h.w("world/spawn0"));
+    check_no_count(check_no_count, *h.w("world/spawn1"));
+    CHECK(h.w("world/spawn") == nullptr); // The old composition pill is gone.
+
+    // A marker must not block deploying a cell beneath it.
+    gui::PointerInput pointer;
+    pointer.pos = h.w("world/spawn1")->center();
+    h.gui.frame(pointer, 1.0f / 60.0f);
+    CHECK_FALSE(h.gui.wants_pointer());
+
+    for (HudWavePhase phase : {HudWavePhase::Spawning, HudWavePhase::Clearing, HudWavePhase::Complete}) {
+        m.phase = phase;
+        h.frame(m);
+        CHECK_FALSE(h.shown("world/spawn0"));
+        CHECK_FALSE(h.shown("world/spawn1"));
+    }
+    m.phase = HudWavePhase::Prep;
+    ++m.wave_number;
+    h.frame(m);
+    CHECK(h.shown("world/spawn0"));
+    CHECK(h.shown("world/spawn1"));
+    m.all_waves_complete = true;
+    h.frame(m);
+    CHECK_FALSE(h.shown("world/spawn0"));
+    CHECK_FALSE(h.shown("world/spawn1"));
+}
+
+TEST_CASE("HUD: entrance markers stay visible at map edges and follow the current level", "[ui][hud][spawn]") {
+    Harness h;
+    HudModel m = fixture();
+    m.phase = HudWavePhase::Prep;
+    m.spawn_points = {{Vec2{0, 80}, Vec2{1, 0}}, {Vec2{500, 500}, Vec2{-1, 0}},
+                      {Vec2{200, 100}, Vec2{0, -1}}};
+    h.frame(m);
+    for (const char* path : {"world/spawn0", "world/spawn1", "world/spawn2"}) {
+        REQUIRE(h.shown(path));
+        const Rect r = h.w(path)->rect();
+        CHECK(r.min.x >= 0.0f);
+        CHECK(r.min.y >= 0.0f);
+        CHECK(r.max.x <= h.gui.viewport().x);
+        CHECK(r.max.y <= h.gui.viewport().y);
+    }
+
+    m.spawn_points.resize(1);
+    m.spawn_points.front().world = Vec2{150, 160};
+    h.frame(m);
+    REQUIRE(h.shown("world/spawn0"));
+    CHECK(h.w("world/spawn0")->center().x > 700.0f);
+    CHECK(h.w("world/spawn1") == nullptr);
+    CHECK(h.w("world/spawn2") == nullptr);
+    m.spawn_points.clear();
+    h.frame(m);
+    CHECK(h.w("world/spawn0") == nullptr);
+}
+
+TEST_CASE("HUD: entrance markers clear nearby panels without losing their entrance", "[ui][hud][spawn]") {
+    Harness h;
+    HudModel m = fixture();
+    m.phase = HudWavePhase::Prep;
+    m.spawn_points = {{Vec2{0, 26}, Vec2{1, 0}}, {Vec2{192, 0}, Vec2{0, 1}}};
+    h.frame(m);
+    REQUIRE(h.shown("world/spawn0"));
+    REQUIRE(h.shown("world/spawn1"));
+    REQUIRE(h.shown("hud/prep"));
+    const Rect organ = h.w("hud/organ")->rect();
+    const Rect prep = h.w("hud/prep")->rect();
+    const gui::Widget& left = *h.w("world/spawn0");
+    const gui::Widget& top = *h.w("world/spawn1");
+
+    // A small panel overlap should move the badge just beyond that panel,
+    // keeping left and top entrances recognizable at their respective edges.
+    CHECK(left.center().x < 100.0f);
+    CHECK(top.center().x > 950.0f);
+    CHECK(top.center().x < 970.0f);
+    CHECK(top.center().y > prep.max.y + 34.0f);
+    for (const gui::Widget* marker : {&left, &top}) {
+        CHECK_FALSE(marker->rect().overlaps(organ));
+        CHECK_FALSE(marker->rect().overlaps(prep));
+        gui::PointerInput pointer;
+        pointer.pos = marker->center();
+        h.gui.frame(pointer, 1.0f / 60.0f);
+        CHECK_FALSE(h.gui.wants_pointer());
+    }
+}
+
+TEST_CASE("HUD: organ destinations remain marked after preparation", "[ui][hud][organ]") {
+    Harness h;
+    HudModel m = fixture();
+    m.spawn_points = {{Vec2{100, 160}, Vec2{1, 0}}};
+    m.organ_points = {Vec2{220, 160}, Vec2{300, 120}};
+    m.preview = {};
+    for (HudWavePhase phase : {HudWavePhase::Prep, HudWavePhase::Spawning, HudWavePhase::Clearing}) {
+        m.phase = phase;
+        h.frame(m);
+        REQUIRE(h.shown("world/organ0"));
+        REQUIRE(h.shown("world/organ1"));
+        CHECK(h.w("world/organ0") != h.w("world/spawn0"));
+        CHECK(h.w("world/organ0")->center().x < h.w("world/organ1")->center().x);
+        if (phase != HudWavePhase::Prep) CHECK_FALSE(h.shown("world/spawn0"));
+    }
+
+    m.phase = HudWavePhase::Complete;
+    m.all_waves_complete = true;
+    h.frame(m);
+    CHECK_FALSE(h.shown("world/organ0"));
+    CHECK_FALSE(h.shown("world/organ1"));
+    m.phase = HudWavePhase::Clearing;
+    m.all_waves_complete = false;
+    m.organ_points.resize(1);
+    m.organ_points.front() = Vec2{180, 160};
+    h.frame(m);
+    REQUIRE(h.shown("world/organ0"));
+    CHECK(h.w("world/organ0")->center().x < 1000.0f);
+    CHECK(h.w("world/organ1") == nullptr);
+    m.organ_points.clear();
+    h.frame(m);
+    CHECK(h.w("world/organ0") == nullptr);
+}
+
+TEST_CASE("HUD: organ destinations stay accessible at screen edges and beside panels", "[ui][hud][organ]") {
+    Harness h;
+    HudModel m = fixture();
+    m.organ_points = {Vec2{0, 26}, Vec2{500, 500}};
+    h.frame(m);
+    REQUIRE(h.shown("world/organ0"));
+    REQUIRE(h.shown("world/organ1"));
+    CHECK(h.w("world/organ0")->center().x < 100.0f);
+    for (const char* path : {"world/organ0", "world/organ1"}) {
+        const gui::Widget& marker = *h.w(path);
+        const Rect bounds = marker.rect();
+        CHECK(bounds.min.x >= 0.0f);
+        CHECK(bounds.min.y >= 0.0f);
+        CHECK(bounds.max.x <= h.gui.viewport().x);
+        CHECK(bounds.max.y <= h.gui.viewport().y);
+        for (const char* panel : {"hud/organ", "hud/wave", "hud/dock", "hud/abilities"}) {
+            if (h.shown(panel)) CHECK_FALSE(bounds.overlaps(h.w(panel)->rect()));
+        }
+        gui::PointerInput pointer;
+        pointer.pos = marker.center();
+        h.gui.frame(pointer, 1.0f / 60.0f);
+        CHECK_FALSE(h.gui.wants_pointer());
+    }
 }

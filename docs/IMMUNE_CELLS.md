@@ -16,9 +16,9 @@ checked-in baselines before tree effects; source/config remain authoritative.
 
 | Cell / config key | ATP | Cell HP | Speed | Search radius | Cell size | Kind |
 | --- | ---: | ---: | ---: | ---: | ---: | --- |
-| Neutrophil / `neutrophil` | 8 | 10 | 22 | 28 | 2.0 | `shooter` |
+| Neutrophil / `neutrophil` | 15 | 10 | 22 | 28 | 2.0 | `shooter` |
 | Cytotoxic T / `cytotoxic_t` | 12 | 10 | 30 | 12 | 0.705 | `latch` |
-| Macrophage / `macrophage` | 20 | 120 | 15 | 26 | 2.6 | `arbor_grabber` |
+| Macrophage / `macrophage` | 35 | 120 | 15 | 26 | 2.6 | `arbor_grabber` |
 | Goblet Cell / `goblet_cell` | 24 | 10 | 25 | 14 | 1.8 | `mucus_bomber` |
 | Fibroblast / `fibroblast` | 30 | 60 | 12 | 14 | 1.6 | `builder` |
 
@@ -43,17 +43,17 @@ rather than simply following the horde into contact. Each cell gathers and
 fires a magazine of projectile granules, then reloads. Projectiles travel and
 perform collision tests; this is not a continuously applied damage circle.
 
-Baseline mechanics are nine rounds per magazine, 2.8 damage per hit, a
-0.03-second interval inside the volley, 0.22-second gather, and 1.3-second
+Baseline mechanics are six rounds per magazine, 2.3 damage per hit, a
+0.03-second interval inside the volley, 0.22-second gather, and 2-second
 reload. Rounds travel at 20 world units/second with a 0.45 hit radius; shot
 spread is 0.04 and the volley cone is 0.3 radians. Formation spacing is 4.8.
 Shooter aiming leads moving targets, while projectile lifetime and finite
 reach prevent unlimited-range shots.
 
-Tree damage and accuracy improve output; Trigger Rate scales volley spacing,
+Granule Replenishment shortens reloads, while accuracy improves aiming; Trigger Rate scales volley spacing,
 gather, and reload together. **Granule Capacity** adds two magazine rounds per
-level, despite its retained `neutrophil.squad_size` save key. Incendiary Rounds
-adds burning patches on impacts.
+level, despite its retained `neutrophil.squad_size` save key. Granule Priming
+increases neutrophil round damage by 25%.
 
 ## Cytotoxic T: attach, ride, drain, retarget
 
@@ -89,7 +89,7 @@ releasing legacy tower.
 
 A Goblet Cell pursues an eligible target and consumes itself in a mucus splash
 on engagement or after its one-second chase limit. It does not deal baseline
-burst damage. The splash emits 500 fluid droplets at speed 20, with radius 5
+burst damage. The splash emits 200 fluid droplets at speed 20, with radius 5
 and 5.6-second droplet lifetime. Wet coverage slows targets; the baseline slow
 factor 0.12 means retaining 12% of movement speed, and the timed slow lasts
 three seconds after coverage stops refreshing it.

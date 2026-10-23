@@ -189,8 +189,9 @@ struct SwarmerGpuInstance {
     f32 radius;
     f32 phase;
     f32 r, g, b, a;
-    /// bit 0: engaged; bits 8..11: kind; bits 12..15: tier. Mirrors
-    /// swarmer.frag.
+    /// bit 0: engaged; bits 8..11: kind; bits 12..15: tier;
+    /// bits 16..23: arbor mass; bits 24..31: shooter pulse remaining.
+    /// Mirrors swarmer.frag.
     u32 flags;
     /// ArborGrabber: each row is {reach, relative_angle, grip, phase}.
     /// Shooter: the MAGAZINE (sim/swarm/Swarmers.h), see pack_magazine().
@@ -200,6 +201,10 @@ struct SwarmerGpuInstance {
 
 /// Fraction of a round's hit radius it is drawn at. See submit_projectiles.
 constexpr f32 kRoundDrawScale = 0.75f;
+
+/// Shot-to-settle duration, mirrored by kShooterPulseSeconds in swarmer.frag.
+/// Zero in the packed high byte means settled, including older instance data.
+constexpr f32 kShooterPulseSeconds = 0.22f;
 
 /// A shooter's MAGAZINE as swarmer.frag draws it, in the three arm rows:
 ///   arm[0] = {aim angle relative to the heading, gather 0..1, rounds already
@@ -350,7 +355,7 @@ constexpr f32 kFieldBurstFadeWindow = 0.10f;
 /// dropped by the validity test below and end up at the same fallback.
 ///
 /// Deliberately compile-time and deliberately the ONLY place this is decided --
-/// every caller of submit_tissue (game, editor, autoplay, --screenshot) goes
+/// every caller of submit_tissue (game, editor, --screenshot) goes
 /// through here, so flipping this one line turns it off everywhere. It also
 /// skips the per-rebake CPU texture rebuild entirely, so "off" costs nothing.
 ///
@@ -2208,7 +2213,6 @@ void Renderer::submit_projectiles(const sim::ProjectileBuffers& projectiles) {
     // particle pass so the additive tracer storm layers on top of them: the
     // round is matter, the smear behind it is atmosphere.
     const usize count = projectiles.count();
-    stats_.projectile_instances_drawn = static_cast<u32>(count);
     if (!ready_ || !impl_ || count == 0) return;
     Impl& imp = *impl_;
     WallClock timer;
@@ -2265,6 +2269,7 @@ void Renderer::submit_projectiles(const sim::ProjectileBuffers& projectiles) {
         imp.projectile_vao.bind();
         glDrawArraysInstancedBaseInstance(GL_TRIANGLE_FAN, 0, 4, static_cast<GLsizei>(draw_count),
                                           imp.projectile_region * imp.max_projectile_instances);
+        stats_.projectile_instances_drawn += draw_count;
         ++stats_.draw_calls;
     }
 
@@ -2274,7 +2279,6 @@ void Renderer::submit_projectiles(const sim::ProjectileBuffers& projectiles) {
 }
 
 void Renderer::submit_toxin_shots(const std::vector<sim::ToxinShot>& shots) {
-    stats_.projectile_instances_drawn += static_cast<u32>(shots.size());
     if (!ready_ || !impl_ || shots.empty()) return;
     Impl& imp = *impl_;
     WallClock timer;
@@ -2305,6 +2309,7 @@ void Renderer::submit_toxin_shots(const std::vector<sim::ToxinShot>& shots) {
         imp.projectile_vao.bind();
         glDrawArraysInstancedBaseInstance(GL_TRIANGLE_FAN, 0, 4, static_cast<GLsizei>(draw_count),
                                           imp.projectile_region * imp.max_projectile_instances);
+        stats_.projectile_instances_drawn += draw_count;
         ++stats_.draw_calls;
     }
     imp.projectile_fence.signal(imp.projectile_region);
@@ -2342,6 +2347,13 @@ void Renderer::submit_swarmers(const sim::SwarmerBuffers& swarmers) {
         if (pr.kind == sim::SwarmerKind::ArborGrabber) {
             inst.vx = swarmers.arbor_grabber[i].heading.x;
             inst.vy = swarmers.arbor_grabber[i].heading.y;
+        } else if (pr.kind == sim::SwarmerKind::Shooter) {
+            // A radial liquid body has no travel-facing nose. Normalizing
+            // tiny steering corrections made it spin or flip while holding
+            // its standoff. Keep its body frame still; the magazine carries
+            // the independent aim for the pore, rounds and shooting pulse.
+            inst.vx = 1.0f;
+            inst.vy = 0.0f;
         }
         inst.radius = math::max(swarmers.body_size(i), 0.05f);
 
@@ -2356,9 +2368,11 @@ void Renderer::submit_swarmers(const sim::SwarmerBuffers& swarmers) {
         }
         inst.radius *= 1.0f - entry;
 
-        // Hashed off the slot so the cloud does not pulse in lockstep, same
-        // rationale as ChaffInstance::anim_phase and the projectile pass.
-        const u32 h = (swarmers.seed[i] * 2654435761u) ^ 0x85EBCA6Bu;
+        // A shooter's gameplay seed changes every round. Use its stable id
+        // so firing stretches the same liquid body instead of reshuffling
+        // its lobes and granules on the very frame of the shot.
+        const u32 phase_seed = pr.kind == sim::SwarmerKind::Shooter ? swarmers.generation[i] : swarmers.seed[i];
+        const u32 h = (phase_seed * 2654435761u) ^ 0x85EBCA6Bu;
         inst.phase = static_cast<f32>(h & 0xFFFFu) * (math::kTwoPi / 65536.0f);
 
         // Fade the last half-second of life instead of popping out. Swarmers
@@ -2396,10 +2410,13 @@ void Renderer::submit_swarmers(const sim::SwarmerBuffers& swarmers) {
                 inst.arm[a][3] = static_cast<f32>(arm.phase);
             }
         } else if (pr.kind == sim::SwarmerKind::Shooter) {
-            // The same heading swarmer.vert derives from the velocity.
+            // The same body heading swarmer.vert receives above, so the
+            // magazine aim remains correct independently of travel direction.
             const f32 speed = math::length(Vec2{inst.vx, inst.vy});
             const Vec2 heading = speed > 1.0e-5f ? Vec2{inst.vx, inst.vy} / speed : Vec2{1.0f, 0.0f};
             pack_magazine(pr, swarmers.magazine[i], heading, inst.arm);
+            const f32 pulse = 1.0f - math::saturate(swarmers.magazine[i].seconds_since_shot / kShooterPulseSeconds);
+            inst.flags |= static_cast<u32>(pulse * 255.0f + 0.5f) << 24;
         } else if (pr.kind == sim::SwarmerKind::Builder) {
             // The crawl and the secretion (swarmer.frag, kind 5):
             //   arm[0] = {pace 0..1 (speed over the profile's), secretion

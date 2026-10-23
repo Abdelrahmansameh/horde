@@ -216,6 +216,7 @@ void SwarmerEffects::clear() {
 // ---------------------------------------------------------------------------
 
 void SwarmerBuffers::reserve(usize max_swarmers) {
+    if (combat_metrics_) clear();
     capacity_ = max_swarmers;
     pos_x.assign(max_swarmers, 0.0f);
     pos_y.assign(max_swarmers, 0.0f);
@@ -247,9 +248,13 @@ void SwarmerBuffers::reserve(usize max_swarmers) {
     size_scale.assign(max_swarmers, 1.0f);
     next_generation_ = 1u;
     clear();
+    if (combat_metrics_) set_combat_metrics(combat_metrics_);
 }
 
 void SwarmerBuffers::clear() {
+    if (combat_metrics_) for (usize i = 0; i < count_; ++i)
+        if (!metric_retired_[i]) combat_metrics_->friendly_retire(owner[i], profile_of(i).source,
+            metric_retirement_[i], metric_birth_tick_[i], metric_first_hit_tick_[i]);
     count_ = 0;
     for (usize i = 0; i < capacity_; ++i) {
         flags[i] = 0;
@@ -259,12 +264,15 @@ void SwarmerBuffers::clear() {
     // a reference taken before the clear must not resolve to a new unit.
 }
 
-void SwarmerBuffers::set_profile(u16 slot, const SwarmerProfile& p) {
-    if (slot >= kSwarmerProfileSlots) return;
-    profiles_[slot] = p;
+void SwarmerBuffers::set_profile(u16 profile_slot, const SwarmerProfile& p) {
+    if (profile_slot >= kSwarmerProfileSlots) return;
+    profiles_[profile_slot] = p;
 }
 
 bool SwarmerBuffers::spawn(const SwarmerSpawnParams& p) {
+    if (combat_metrics_) combat_metrics_->record_spawn(CombatSpawnPool::Cells,
+        {p.owner, profile_at(p.profile).source, CombatDamageSource::Unknown}, 1,
+        count_ < capacity_ ? 1 : 0, count_ < capacity_ ? count_ + 1 : count_);
     if (count_ >= capacity_) return false;   // S3: never grows.
     const usize i = count_++;
     pos_x[i] = p.position.x;
@@ -300,13 +308,93 @@ bool SwarmerBuffers::spawn(const SwarmerSpawnParams& p) {
     // Released loaded: a shooter opens fire the moment it reaches range.
     magazine[i] = ShooterMagazine{};
     size_scale[i] = spawn_size_scale(generation[i], profile_at(p.profile).size_jitter);
+    if (combat_metrics_) {
+        metric_birth_tick_[i] = combat_metrics_->tick();
+        metric_first_hit_tick_[i] = kUnobservedTick;
+        metric_retirement_[i] = CombatRetirement::Unknown;
+        metric_retired_[i] = 0;
+        combat_metrics_->friendly_spawn(owner[i], profile_of(i).source);
+    }
     if (next_generation_ == 0u) next_generation_ = 1u;   // never hand out 0
     return true;
 }
 
-void SwarmerBuffers::kill(usize index) {
+void SwarmerBuffers::set_combat_metrics(CombatMetrics* metrics) {
+    combat_metrics_ = metrics;
+    if (!metrics) return;
+    metrics->observe_pool(CombatSpawnPool::Cells, count_);
+    metric_birth_tick_.assign(capacity_, kUnobservedTick);
+    metric_first_hit_tick_.assign(capacity_, kUnobservedTick);
+    metric_retirement_.assign(capacity_, CombatRetirement::Unknown);
+    metric_retired_.assign(capacity_, 0);
+    for (usize i = 0; i < count_; ++i) metrics->friendly_spawn(owner[i], profile_of(i).source, true);
+}
+
+void SwarmerBuffers::observe_hostile_damage(usize index, f32 health_before, f32 requested) {
+    if (!combat_metrics_ || index >= count_) return;
+    const f32 actual = math::max(0.0f, math::max(health_before, 0.0f) -
+                                       math::max(health_before - requested, 0.0f));
+    if (actual <= 0.0f) return;
+    if (metric_first_hit_tick_[index] == kUnobservedTick) {
+        metric_first_hit_tick_[index] = combat_metrics_->tick();
+        combat_metrics_->friendly_first_hit(owner[index], profile_of(index).source);
+    }
+    combat_metrics_->friendly_damage(owner[index], profile_of(index).source, actual);
+}
+
+void SwarmerBuffers::kill(usize index, CombatRetirement reason) {
     if (index >= count_) return;
     flags[index] |= swarmer_flags::kPendingKill;
+    if (combat_metrics_) {
+        metric_retirement_[index] = reason;
+        if (!metric_retired_[index]) {
+            combat_metrics_->friendly_retire(owner[index], profile_of(index).source, reason,
+                metric_birth_tick_[index], metric_first_hit_tick_[index]);
+            metric_retired_[index] = 1;
+        }
+    }
+}
+
+void SwarmerBuffers::observe_activity(usize i, bool builders_active) {
+    if (!combat_metrics_ || i >= count_) return;
+    const auto& pr = profile_of(i);
+    ActivityMetrics sample;
+    sample.observed_ticks = 1;
+    const bool retired = (flags[i] & swarmer_flags::kPendingKill) != 0;
+    const bool has_target = target_generation[i] != 0 || target_named[i].valid();
+    const bool attached = (flags[i] & swarmer_flags::kAttached) != 0;
+    sample.retired_ticks = retired ? 1 : 0;
+    if (pr.kind == SwarmerKind::Builder) {
+        if (!builders_active) sample.builder_paused_ticks = 1;
+        else if ((flags[i] & swarmer_flags::kHasGoal) != 0) sample.builder_travel_ticks = 1;
+        else if (rest[i] > 0 || (flags[i] & swarmer_flags::kSecreting) != 0) {
+            sample.builder_rest_ticks = 1;
+            sample.builder_secreting_ticks = (flags[i] & swarmer_flags::kSecreting) != 0 ? 1 : 0;
+        } else sample.builder_waiting_ticks = 1;
+    } else {
+        sample.targetless_ticks = !has_target ? 1 : 0;
+        sample.chasing_ticks = has_target && !attached && !retired ? 1 : 0;
+        sample.engaged_ticks = attached ? 1 : 0;
+        if (pr.kind == SwarmerKind::Latch && attached) {
+            sample.attaching_ticks = attach[i] < pr.attach_seconds ? 1 : 0;
+            sample.attacking_ticks = sample.attaching_ticks ? 0 : 1;
+        }
+        if (pr.kind == SwarmerKind::Shooter) {
+            sample.reloading_ticks = magazine[i].phase == MagazinePhase::Reloading ? 1 : 0;
+            sample.gathering_ticks = magazine[i].phase == MagazinePhase::Gathering ? 1 : 0;
+            sample.firing_ticks = magazine[i].phase == MagazinePhase::Firing ? 1 : 0;
+            sample.loaded_ticks = magazine[i].phase == MagazinePhase::Loaded ? 1 : 0;
+            sample.attacking_ticks = sample.firing_ticks;
+        }
+        if (pr.kind == SwarmerKind::ArborGrabber) {
+            for (u32 arm = 0; arm < std::min(pr.arbor_arm_count, kArborMaxArms); ++arm)
+                if (arbor_grabber[i].arms[arm].phase != ArborArmPhase::Idle) sample.arbor_work_ticks = 1;
+            sample.attacking_ticks = sample.arbor_work_ticks;
+        }
+        if (retired && metric_retirement_[i] == CombatRetirement::Consumed &&
+            (pr.kind == SwarmerKind::Bomber || pr.kind == SwarmerKind::MucusBomber)) sample.attacking_ticks = 1;
+    }
+    combat_metrics_->record_activity(owner[i], pr.source, sample);
 }
 
 void SwarmerBuffers::set_goal(usize i, Vec2 site) {
@@ -329,8 +417,16 @@ usize SwarmerBuffers::compact() {
     usize i = 0;
     while (i < count_) {
         if ((flags[i] & swarmer_flags::kPendingKill) == 0) { ++i; continue; }
+        if (combat_metrics_ && !metric_retired_[i]) combat_metrics_->friendly_retire(owner[i], profile_of(i).source,
+            metric_retirement_[i], metric_birth_tick_[i], metric_first_hit_tick_[i]);
         const usize last = count_ - 1;
         if (i != last) {
+            if (combat_metrics_) {
+                metric_birth_tick_[i] = metric_birth_tick_[last];
+                metric_first_hit_tick_[i] = metric_first_hit_tick_[last];
+                metric_retirement_[i] = metric_retirement_[last];
+                metric_retired_[i] = metric_retired_[last];
+            }
             pos_x[i] = pos_x[last];
             pos_y[i] = pos_y[last];
             vel_x[i] = vel_x[last];
@@ -466,18 +562,13 @@ SwarmerStats SwarmerSystem::update(SwarmerBuffers& sw,
     SwarmerStats stats;
     effects_.clear();
 
-    // Queues hit points against a named agent and credits the owner. The kill
-    // flag is decided here, off the running total, because SimWorld lands the
-    // damage after this loop and the owner is gone from view by then.
-    const auto hit_named = [&](usize i, usize k, f32 hp) {
+    // Queue hit points against a named agent and update the health available
+    // to later swarmers before SimWorld applies the accumulated damage.
+    const auto hit_named = [&](usize k, f32 hp) {
         if (hp <= 0.0f) return;
         named.damage[k] += hp;
         stats.named_damage += hp;
-        const bool was_alive = named.health_left[k] > 0.0f;
         named.health_left[k] -= hp;
-        if (attribution_ != nullptr && sw.owner[i].valid()) {
-            attribution_->record_named(sw.owner[i], hp, was_alive && named.health_left[k] <= 0.0f);
-        }
     };
 
     // Inflammation: how hard a unit standing at `p` hits. A handful of scars
@@ -599,7 +690,7 @@ SwarmerStats SwarmerSystem::update(SwarmerBuffers& sw,
             return;
         }
         ++stats.detonated;
-        sw.flags[i] |= swarmer_flags::kPendingKill;
+        sw.kill(i, CombatRetirement::Consumed);
         if (events) {
             CombatEvent e = make_event(CombatEventType::Explosion, pr.source, p, dir, sw.visual_id[i]);
             e.radius = pr.kind == SwarmerKind::Bomber ? pr.burst_radius : pr.splash_radius;
@@ -700,7 +791,7 @@ SwarmerStats SwarmerSystem::update(SwarmerBuffers& sw,
     // (named_idx npos otherwise).
     const auto fire_round = [&](usize i, const SwarmerProfile& pr, u32 k, f32 reach, Vec2 lead,
                                 usize named_idx, f32 dist, f32 target_radius) {
-        const ShooterMagazine& mag = sw.magazine[i];
+        ShooterMagazine& mag = sw.magazine[i];
         const f32 slot = std::fmod(0.5f + static_cast<f32>(k) * 0.618034f, 1.0f);
         u32 s = sw.seed[i];
         const f32 angle = (slot * 2.0f - 1.0f) * pr.volley_cone + signed_unit(s) * pr.round_spread;
@@ -730,6 +821,10 @@ SwarmerStats SwarmerSystem::update(SwarmerBuffers& sw,
         shot.visual_id = sw.visual_id[i];
         effects_.shots.push_back(shot);
         ++stats.shots_fired;
+        // The firing timer is negative by the time this round was overdue
+        // within the tick. Preserve that age so the body pulse and projectile
+        // share the same clock, including the last round before Reloading.
+        mag.seconds_since_shot = math::min(math::max(-mag.timer, 0.0f), 1.0f);
 
         // Rounds only ever DAMAGE chaff (Projectiles.h), so a round at a named
         // agent lands as a direct hit here and the spawned round is its
@@ -739,7 +834,7 @@ SwarmerStats SwarmerSystem::update(SwarmerBuffers& sw,
             const NamedTarget& t = named.items[named_idx];
             const f32 half_width = std::atan2(target_radius + pr.round_hit_radius, math::max(dist, 0.01f));
             if (aim.x * lead.x + aim.y * lead.y >= std::cos(half_width)) {
-                hit_named(i, named_idx, math::max(0.0f, pr.round_damage - t.armor) * t.damage_multiplier);
+                hit_named(named_idx, math::max(0.0f, pr.round_damage - t.armor) * t.damage_multiplier);
             }
         }
 
@@ -759,6 +854,7 @@ SwarmerStats SwarmerSystem::update(SwarmerBuffers& sw,
     const auto run_magazine = [&](usize i, const SwarmerProfile& pr, f32 dt, bool engaged, Vec2 lead,
                                   f32 reach, usize named_idx, f32 dist, f32 target_radius) {
         ShooterMagazine& mag = sw.magazine[i];
+        mag.seconds_since_shot = math::min(mag.seconds_since_shot + dt, 1.0f);
         const u32 rounds = math::max(pr.magazine_size, 1u);
         f32 reload_rate = 1.0f;
         if (inflamed_zones_ != nullptr && inflamed_reload_mult_ > 1.0f) {
@@ -855,6 +951,13 @@ SwarmerStats SwarmerSystem::update(SwarmerBuffers& sw,
             continue;
         }
 
+        struct ActivityScope {
+            SwarmerBuffers& units;
+            usize index;
+            bool builders_active;
+            ~ActivityScope() { units.observe_activity(index, builders_active); }
+        } activity_scope{sw, i, builders_active_};
+
         if ((sw.flags[i] & swarmer_flags::kPersistent) == 0) sw.life[i] -= dt;
 
         const SwarmerProfile& pr = sw.profile_of(i);
@@ -866,7 +969,7 @@ SwarmerStats SwarmerSystem::update(SwarmerBuffers& sw,
         // for a bomber: nothing off the map is worth a circle.
         if (!world_bounds.contains(p)) {
             if (pr.kind == SwarmerKind::ArborGrabber) release_arbor_captives(sw.arbor_grabber[i]);
-            sw.flags[i] |= swarmer_flags::kPendingKill;
+            sw.kill(i, CombatRetirement::OutOfBounds);
             ++stats.expired;
             continue;
         }
@@ -875,7 +978,7 @@ SwarmerStats SwarmerSystem::update(SwarmerBuffers& sw,
             if (swarmer_kind_detonates(pr.kind)) {
                 detonate(i, pr, p, v);
             } else {
-                sw.flags[i] |= swarmer_flags::kPendingKill;
+                sw.kill(i, CombatRetirement::Expired);
                 ++stats.expired;
                 raise_swarmer_death(sw, i, events);
             }
@@ -1010,7 +1113,7 @@ SwarmerStats SwarmerSystem::update(SwarmerBuffers& sw,
                     if (SwarmerBuffers::secretion_hold(pr) > 0.0f) sw.flags[i] |= swarmer_flags::kSecreting;
                     continue;
                 }
-                sw.flags[i] |= swarmer_flags::kPendingKill;
+                sw.kill(i, CombatRetirement::Consumed);
                 raise_swarmer_death(sw, i, events);
                 continue;
             }
@@ -1228,11 +1331,12 @@ SwarmerStats SwarmerSystem::update(SwarmerBuffers& sw,
                     if (t >= 1.0f) {
                         PathogenFamily family = PathogenFamily::Count;
                         f32 radius = math::max(target_radius, 0.6f);
-                        bool killed = false;
+                        u32 swallowed = 0;
                         if (named_idx != NamedTargetList::npos) {
                             family = static_cast<PathogenFamily>(named.items[named_idx].family);
-                            hit_named(i, named_idx, named.health_left[named_idx]);
-                            killed = true;
+                            const f32 before = named.health_left[named_idx];
+                            hit_named(named_idx, before);
+                            if (before > 0.0f && named.health_left[named_idx] <= 0.0f) ++swallowed;
                         } else if (host != ChaffBuffers::npos) {
                             // Every member of a captured chunk completes on
                             // the same tick. The leading family's radius is
@@ -1240,7 +1344,7 @@ SwarmerStats SwarmerSystem::update(SwarmerBuffers& sw,
                             for (u32 c = 0; c < arm.captive.chaff_count; ++c) {
                                 const usize captive = chaff.resolve(arm.captive.chaff[c].handle);
                                 if (captive == ChaffBuffers::npos) continue;
-                                if (!killed) {
+                                if (swallowed == 0) {
                                     family = static_cast<PathogenFamily>(chaff.family[captive]);
                                     radius = math::max(radius, chaff_radius_[chaff.family[captive] <
                                                                           kFamilyCount
@@ -1250,24 +1354,25 @@ SwarmerStats SwarmerSystem::update(SwarmerBuffers& sw,
                                 }
                                 chaff.flags[captive] &= static_cast<u8>(~chaff_flags::kHidden);
                                 const f32 before = chaff.density[captive];
-                                chaff.apply_density_loss(captive, before);
-                                stats.density_removed += before;
-                                ++stats.hosts_finished;
-                                killed = true;
-                                if (attribution_ != nullptr && sw.owner[i].valid()) {
-                                    attribution_->record_chaff(sw.owner[i], chaff.family[captive], before,
-                                                               true);
-                                }
+                                const bool live = before > 0.0f &&
+                                    (chaff.flags[captive] & chaff_flags::kAlive) != 0 &&
+                                    (chaff.flags[captive] & chaff_flags::kPendingKill) == 0;
+                                chaff.apply_density_loss(captive, before,
+                                    {sw.owner[i], pr.source, CombatDamageSource::Swallow});
+                                // A parasite can finish diving while a
+                                // captured chunk is being pulled. Its damage
+                                // immunity still applies at swallow time;
+                                // rejected density must not become ATP income.
+                                stats.density_removed += before - chaff.density[captive];
+                                if (live && chaff.density[captive] <= 0.0f) ++swallowed;
                             }
                         }
-                        if (killed) {
-                            if (named_idx != NamedTargetList::npos) ++stats.hosts_finished;
+                        if (swallowed > 0) {
+                            stats.hosts_finished += swallowed;
                             // Phagocytic Sustain: the tower eats what its
-                            // pseudopods bring in, one serving per enemy.
+                            // pseudopods actually killed. Rejected immune
+                            // damage and already-dead captives are not meals.
                             if (pr.heal_per_kill > 0.0f) {
-                                const u32 swallowed = named_idx != NamedTargetList::npos
-                                                          ? 1u
-                                                          : arm.captive.chaff_count;
                                 const f32 amount = pr.heal_per_kill * static_cast<f32>(swallowed);
                                 if ((sw.flags[i] & swarmer_flags::kPersistent) == 0 &&
                                     sw.owner[i].valid()) {
@@ -1570,15 +1675,13 @@ SwarmerStats SwarmerSystem::update(SwarmerBuffers& sw,
                 // host; the host is on tissue.
                 if (progress < 1.0f) continue;
 
-                f32 removed = 0.0f;
                 if (on_named) {
                     // Armor is a flat reduction per damage event; for a
                     // continuous drain the event is "one second of feeding".
                     const NamedTarget& t = named.items[named_idx];
                     const f32 hp = math::max(0.0f, pr.dps * inflamed(p) - t.armor) * dt *
                                    t.damage_multiplier * pr.named_damage_mult;
-                    hit_named(i, named_idx, hp);
-                    removed = hp;
+                    hit_named(named_idx, hp);
                 } else {
                     // A unit feeding on an agent the Goblet Cell has already
                     // weakened (chaff_flags::kMarked) drains it faster, same
@@ -1589,9 +1692,9 @@ SwarmerStats SwarmerSystem::update(SwarmerBuffers& sw,
                                       inflamed(p);
                     const bool was_dying = (chaff.flags[host] & chaff_flags::kPendingKill) != 0;
                     const f32 before = chaff.density[host];
-                    chaff.apply_density_loss(host, drain);
-                    removed = before - chaff.density[host];
-                    stats.density_removed += removed;
+                    chaff.apply_density_loss(host, drain,
+                        {sw.owner[i], pr.source, CombatDamageSource::Drain});
+                    stats.density_removed += before - chaff.density[host];
 
                     // Apoptosis Trigger: the latcher that finishes a host
                     // bursts it. Only the one whose drain crossed zero, so a
@@ -1611,12 +1714,6 @@ SwarmerStats SwarmerSystem::update(SwarmerBuffers& sw,
                         b.visual_id = sw.visual_id[i];
                         effects_.bursts.push_back(b);
                         ++stats.kill_pulses;
-                    }
-
-                    // Off by default; see sim/Attribution.h.
-                    if (attribution_ != nullptr && sw.owner[i].valid() && removed > 0.0f) {
-                        const bool killed = (chaff.flags[host] & chaff_flags::kPendingKill) != 0;
-                        attribution_->record_chaff(sw.owner[i], chaff.family[host], removed, killed);
                     }
                 }
 

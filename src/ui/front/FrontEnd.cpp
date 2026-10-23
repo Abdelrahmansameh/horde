@@ -215,6 +215,7 @@ u64 FrontEnd::signature(FrontScreen s, const FrontModel& m) {
             h = mix(h, m.run.sandbox ? 1 : 0);
             h = mix(h, m.run.memory_cells);
             h = mix(h, m.run.antibodies);
+            h = mix(h, m.discovery_choices);
             h = mix(h, m.playtest ? 1 : 0);
             h = mix(h, static_cast<u64>(m.campaign_slot + 1));
             h = mix(h, m.unlocked_next ? 1 : 0);
@@ -230,7 +231,7 @@ u64 FrontEnd::signature(FrontScreen s, const FrontModel& m) {
 void FrontEnd::show(FrontScreen s, const FrontModel& m) {
     if (!swipe_->active() && live_ != nullptr) live_->accepts_pointer = true;
     const bool covered_handoff = swipe_handoff_ && swipe_->ready_to_reveal() &&
-                                 current_ == FrontScreen::MainMenu && s == FrontScreen::Tree;
+                                 current_ == FrontScreen::LevelSelect && s == FrontScreen::None;
     if (s != current_ && swipe_->active() && !covered_handoff) {
         // An external navigation (for example opening the editor) cancels
         // this cosmetic effect and its queued navigation.
@@ -275,7 +276,14 @@ void FrontEnd::show(FrontScreen s, const FrontModel& m) {
     }
     cells_.clear();
     play_button_ = nullptr;
-    if (s == FrontScreen::None) return;
+    if (s == FrontScreen::None) {
+        if (covered_handoff) {
+            for (ScreenRoot* r : leaving_) layer_root_->remove(*r);
+            leaving_.clear();
+            swipe_->reveal();
+        }
+        return;
+    }
 
     // A screen coming back while its previous self is still fading out
     // replaces it outright (two trees must not share one path).
@@ -304,7 +312,7 @@ void FrontEnd::show(FrontScreen s, const FrontModel& m) {
 
 void FrontEnd::finish_transitions() {
     if (swipe_->active()) {
-        if (current_ == FrontScreen::MainMenu && !swipe_handoff_) {
+        if (current_ == FrontScreen::LevelSelect && !swipe_handoff_) {
             // Test/screenshot callers can skip the cover but still receive
             // the single Play navigation on their next take_result().
             swipe_->update(swipe_config_.duration_seconds);
@@ -321,7 +329,7 @@ void FrontEnd::finish_transitions() {
 MenuResult FrontEnd::take_result() {
     if (swipe_->ready_to_reveal() && !swipe_handoff_) {
         swipe_handoff_ = true;
-        pending_ = MenuResult{MenuAction::OpenImmunityTree};
+        pending_ = swipe_result_;
     }
     const MenuResult r = pending_;
     pending_ = MenuResult{};
@@ -333,17 +341,18 @@ void FrontEnd::emit(MenuResult r) {
     if (pending_.action == MenuAction::None) pending_ = r;
 }
 
-void FrontEnd::play_from_menu() {
+void FrontEnd::start_level(usize level_index) {
     if (swipe_->active() || pending_.action != MenuAction::None) return;
     std::string error;
     if (!load_virus_swipe_config(swipe_config_path_, swipe_config_, error)) {
         IMMUNE_LOG_WARN("Virus swipe: %s; keeping the last valid settings", error.c_str());
     }
     if (!swipe_config_.enabled) {
-        emit(MenuResult{MenuAction::OpenImmunityTree});
+        emit(MenuResult{MenuAction::StartLevel, level_index});
         return;
     }
     swipe_handoff_ = false;
+    swipe_result_ = MenuResult{MenuAction::StartLevel, level_index};
     swipe_->start(swipe_config_);
     if (live_ != nullptr) live_->accepts_pointer = false;
 }
@@ -423,7 +432,7 @@ void FrontEnd::build_main(Widget& root) {
     Button& play = labelled_button(left, th, "play", "button.cta", Vec2{460, 120}, "Play Game", "menu_cta", false, 40.0f);
     place(play, Vec2{160.0f, 520.0f}, Vec2{0, 0});
     play.tooltip = "Strengthen your immunity, then pick a level";
-    play.on_click = [this] { play_from_menu(); };
+    play.on_click = [this] { emit(MenuResult{MenuAction::OpenImmunityTree}); };
     Button& quit = labelled_button(left, th, "quit", "button.flesh", Vec2{400, 86}, "Quit to Desktop", "menu_button");
     place(quit, Vec2{190.0f, 672.0f}, Vec2{0, 0});
     quit.on_click = [this] { emit(MenuResult{MenuAction::Quit}); };
@@ -510,7 +519,7 @@ void FrontEnd::build_levels(Widget& root, const FrontModel& m) {
                                    : lvl.name + ": +1 Antibody on first clear";
         cell.on_click = [this, i] {
             if (selected_ == static_cast<i32>(i)) {
-                emit(MenuResult{MenuAction::StartLevel, campaign_[i].level_index});
+                start_level(campaign_[i].level_index);
             } else {
                 select_level(i);
             }
@@ -555,7 +564,7 @@ void FrontEnd::build_levels(Widget& root, const FrontModel& m) {
     play.tooltip = "Play the selected level";
     play.on_click = [this] {
         if (selected_ >= 0 && static_cast<usize>(selected_) < campaign_.size()) {
-            emit(MenuResult{MenuAction::StartLevel, campaign_[static_cast<usize>(selected_)].level_index});
+            start_level(campaign_[static_cast<usize>(selected_)].level_index);
         }
     };
     play_button_ = &play;
@@ -642,9 +651,9 @@ void FrontEnd::build_pause(Widget& root, const FrontModel& m) {
     resume.on_click = [this] { emit(MenuResult{MenuAction::Resume}); };
     Button& restart = labelled_button(buttons, th, "restart", "button.soft", Vec2{190, 84}, "Restart", "result_button");
     restart.on_click = [this] { emit(MenuResult{MenuAction::RestartLevel}); };
-    Button& menu = labelled_button(buttons, th, "menu", "button.flesh", Vec2{210, 84}, "Main menu", "result_button");
-    menu.tooltip = "Abandon this run";
-    menu.on_click = [this] { emit(MenuResult{MenuAction::Back}); };
+    Button& abandon = labelled_button(buttons, th, "abandon", "button.flesh", Vec2{210, 84}, "Abandon", "result_button");
+    abandon.tooltip = "Abandon this run and return to the skill tree";
+    abandon.on_click = [this] { emit(MenuResult{MenuAction::AbandonRun}); };
 }
 
 void FrontEnd::build_results(Widget& root, const FrontModel& m, bool victory) {
@@ -668,7 +677,7 @@ void FrontEnd::build_results(Widget& root, const FrontModel& m, bool victory) {
                        "reward_memory");
         } else {
             std::snprintf(buf, sizeof(buf), "+%u", m.run.memory_cells);
-            reward_row(rows, gui_, "memory", "memory_cell", "Memory cells", buf, "reward_memory");
+            reward_row(rows, gui_, "memory", "memory_cell", "Memory Cells", buf, "reward_memory");
             if (m.run.antibodies > 0) {
                 std::snprintf(buf, sizeof(buf), "+%u", m.run.antibodies);
                 reward_row(rows, gui_, "antibody", "antibody", m.run.antibodies == 1 ? "Antibody" : "Antibodies", buf,
@@ -696,7 +705,6 @@ void FrontEnd::build_results(Widget& root, const FrontModel& m, bool victory) {
     }
     Button& tree = labelled_button(buttons, th, "tree", "button.cta", Vec2{330, 84}, "Strengthen Immunity",
                                    "result_button_cta");
-    tree.tooltip = "Spend Memory Cells and Antibodies";
     tree.on_click = [this] { emit(MenuResult{MenuAction::OpenImmunityTree}); };
     if (victory) {
         if (next != nullptr && !next->locked) {

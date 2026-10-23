@@ -2,7 +2,7 @@
 // validates its location, configures its swarmer profile, and records a stable
 // attribution handle. Swarmers.h owns its movement and combat thereafter.
 // Legacy tower creation/release methods remain for gym commands and old tests;
-// the HUD and autoplay use validate_deploy()/deploy() instead.
+// the HUD uses validate_deploy()/deploy() instead.
 #include "game/towers/TowerSystem.h"
 
 #include "game/towers/TowerMechanics.h"
@@ -118,8 +118,7 @@ void init_mechanics_once() {
                               kStandoff, 0.70f, kSize};
         // A MAGAZINE per unit (sim/swarm/Swarmers.h): gather, a quick
         // fanned volley, then a reload that regrows the rounds. Damage
-        // per round is sized so rounds per second across the whole
-        // cycle (shooter_rounds_per_second) keeps the old stream's DPS.
+        // per round accounts for rounds per second across the whole cycle.
         constexpr f32 kFire = 0.03f;
         constexpr f32 kDamage = 1.6f;
         constexpr f32 kRoundSpeed = 20.0f;
@@ -936,7 +935,7 @@ PlacementQuery TowerSystem::validate(const sim::SimWorld& world, TowerType type,
     }
 
     // The level's schema-2 allowed_towers list. Checked HERE and not in the HUD
-    // so the gym console and the balance bot are bound by it too.
+    // so the gym console is bound by it too.
     if (!tower_allowed(type)) {
         q.result = PlacementResult::TowerNotAllowed;
         return q;
@@ -1119,7 +1118,7 @@ EntityId TowerSystem::place(sim::SimWorld& world, TowerType type, Vec2 world_pos
     comp::Tower tw;
     tw.type = type;
     // A tower has no range; what the component carries is its swarmers'
-    // aggro radius, which is what the HUD ring and the balance bot want.
+    // aggro radius, which is what the HUD ring displays.
     tw.range = tower_mechanics(type).swarm.search_radius;
     // Spin-up: a tower starts one full fire_interval from its first volley
     // rather than releasing on the tick it is dropped -- the difference
@@ -1360,6 +1359,7 @@ sim::SwarmerProfile swarmer_profile(TowerType type) {
 }
 
 void apply_tower_config(TowerSystem& towers, const TowerConfig& cfg) {
+    (void)default_game_config(); // Snapshot bootstrap values before the first live override.
     init_mechanics_once();
     for (u32 t = 0; t < kTowerTypeCount; ++t) {
         towers.set_stats(static_cast<TowerType>(t), cfg.stats[t]);

@@ -1,16 +1,16 @@
 // ui/front/TreeScreen.h — the Strengthen Immunity tree, on the gui framework.
 //
 // A classic radial skill tree. tools/gen_tree_layout.py lays out every node
-// of game/meta/ImmunityTree from its parent links: the Neutrophil in the
-// middle, three core economy lines round it, and each subject (the attack
-// towers, the abilities, the systemic lines and the control towers) growing
-// outward in its own wedge; it writes that to assets/ui/tree_layout.json.
+// of game/meta/ImmunityTree from its parent links: Round Damage in the
+// middle as the first purchase, and each subject growing outward
+// in its own sector, including a single economy branch. It writes that to
+// assets/ui/tree_layout.json.
 // The vessels between nodes follow the game's parent links
 // (TreeNodeView::parent), so the drawing cannot disagree with the rules.
 //
 // The tree is uncovered as it grows (TreeModel::revealed): a node shows once
-// its parent is owned, so a new campaign sees the Neutrophil and its three
-// cores, zoomed in, and each purchase buds the next nodes into view.
+// its parent is owned, so a new campaign sees only Round Damage,
+// zoomed in, and each purchase buds the next nodes into view.
 //
 // The view pans (drag anywhere), zooms about the pointer (wheel) and has
 // zoom-in, zoom-out and recenter buttons; zooming out stops at the whole
@@ -34,7 +34,7 @@ namespace immune::gui { class Gui; class Widget; class Label; class Icon; class 
 namespace immune::ui {
 
 /// assets/ui/tree_layout.json, in tree units: one logical pixel at zoom 1,
-/// y down, the centre (the Neutrophil) at the origin.
+/// y down, the centre (Round Damage) at the origin.
 struct TreeLayout {
     struct Node {
         Vec2 at;

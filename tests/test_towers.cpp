@@ -1647,7 +1647,7 @@ TEST_CASE("register_systems() drops the previous level's placed towers",
 
     // Next level, same TowerSystem. Those two ids belong to a world that no
     // longer exists; carrying them over leaves the new level reporting towers
-    // that were never built, and hands them to the HUD and the balance bot.
+    // that were never built, and hands them to the HUD.
     SimWorld next = make_world();
     ts.register_systems(next);
     REQUIRE(ts.placed_towers().empty());

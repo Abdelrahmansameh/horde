@@ -1,0 +1,159 @@
+{
+  "schema": 1,
+  "seeds": [
+    101,
+    202,
+    303,
+    404,
+    505,
+    606,
+    707,
+    808
+  ],
+  "metric": "objective_integrity",
+  "metrics": [
+    "summary.friendly_killed",
+    "summary.leaks",
+    "summary.density_removed",
+    "summary.atp_spent",
+    "summary.sampled_slow_enemy_seconds",
+    "summary.abilities_used"
+  ],
+  "policies": [
+    {
+      "name": "competent",
+      "controller": {
+        "policy": "competent"
+      }
+    },
+    {
+      "name": "tactical",
+      "controller": {
+        "policy": "tactical"
+      }
+    }
+  ],
+  "name": "Ability unlock removal and cooldown rank impact",
+  "kind": "paired",
+  "base": {
+    "schema": 1,
+    "level": "assets/balance/levels/two_fronts.json",
+    "max_ticks": 18000,
+    "sample_ticks": 60,
+    "opening_atp": 300,
+    "spend_limit": 300,
+    "income_enabled": false,
+    "controller": {
+      "use_abilities": true
+    },
+    "progression": {
+      "grant_tree": {
+        "cytotoxic.unlock": 1,
+        "macrophage.unlock": 1,
+        "goblet.unlock": 1,
+        "fibroblast.unlock": 1,
+        "ability.complement.unlock": 1,
+        "ability.histamine.unlock": 1,
+        "ability.fever.unlock": 1,
+        "ability.clot.unlock": 1
+      }
+    }
+  },
+  "variants": [
+    {
+      "name": "baseline",
+      "patch": {}
+    },
+    {
+      "name": "all_abilities_disabled",
+      "patch": {
+        "controller": {
+          "use_abilities": false
+        }
+      }
+    },
+    {
+      "name": "without_complement",
+      "patch": {
+        "progression": {
+          "grant_tree": {
+            "ability.complement.unlock": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "without_histamine",
+      "patch": {
+        "progression": {
+          "grant_tree": {
+            "ability.histamine.unlock": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "without_fever",
+      "patch": {
+        "progression": {
+          "grant_tree": {
+            "ability.fever.unlock": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "without_clot",
+      "patch": {
+        "progression": {
+          "grant_tree": {
+            "ability.clot.unlock": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "complement_cooldown_rank3",
+      "patch": {
+        "progression": {
+          "grant_tree": {
+            "ability.complement.cooldown": 3
+          }
+        }
+      }
+    },
+    {
+      "name": "histamine_cooldown_rank3",
+      "patch": {
+        "progression": {
+          "grant_tree": {
+            "ability.histamine.cooldown": 3
+          }
+        }
+      }
+    },
+    {
+      "name": "fever_cooldown_rank3",
+      "patch": {
+        "progression": {
+          "grant_tree": {
+            "ability.fever.cooldown": 3
+          }
+        }
+      }
+    },
+    {
+      "name": "clot_cooldown_rank3",
+      "patch": {
+        "progression": {
+          "grant_tree": {
+            "ability.clot.cooldown": 3
+          }
+        }
+      }
+    }
+  ],
+  "expectations": {
+    "scope": "Diagnostic grants isolate actual controller casts. Zero casts are evidence of policy/context, not proof an unlocked ability is weak. Observe cast counts, preserved allies, and outcome changes."
+  }
+}

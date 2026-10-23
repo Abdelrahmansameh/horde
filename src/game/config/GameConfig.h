@@ -126,15 +126,6 @@ struct ShooterParams {
     f32 spawn_ease_power = 2.0f;
 };
 
-/// One shooter's steady-state rounds per second: a full magazine per cycle of
-/// gather, volley and reload. What balance comparisons should use in place of
-/// 1 / fire_interval, which is now only the gap inside a volley.
-inline f32 shooter_rounds_per_second(const ShooterParams& s) {
-    const u32 n = s.magazine_size > 0u ? s.magazine_size : 1u;
-    const f32 cycle = s.gather_seconds + static_cast<f32>(n - 1u) * s.fire_interval + s.reload_seconds;
-    return static_cast<f32>(n) / (cycle > 0.001f ? cycle : 0.001f);
-}
-
 struct BomberParams {
     /// Seconds a bomber chases one target before detonating where it is.
     f32 chase_seconds = 1.0f;
@@ -537,7 +528,7 @@ struct AbilityConfig {
 /// price the tree. What each node DOES per level lives in the node catalog
 /// (game/meta/ImmunityTree.cpp) -- this block is only the pacing.
 struct MetaConfig {
-    u32 base_run_reward = 10;
+    u32 base_run_reward = 30;
     u32 per_wave_reward = 15;
     u32 per_elite_reward = 8;
     u32 per_boss_reward = 50;
@@ -549,15 +540,15 @@ struct MetaConfig {
     /// level after that. A node's own cost weight scales both.
     u32 stat_base_cost = 20;
     u32 stat_cost_step = 15;
-    /// Antibodies to unlock a tower, an ability, and a capstone.
+    /// Legacy tuning fields retained for old documents. Every discovery
+    /// (cell, ability or capstone) now costs exactly one Antibody.
     u32 tower_unlock_antibodies = 1;
     u32 ability_unlock_antibodies = 1;
     u32 capstone_antibodies = 1;
-    /// A capstone's Memory Cell half of its price.
-    u32 capstone_memory_cells = 150;
-    /// Stat levels that must already be bought in a branch before its
-    /// capstone can be.
-    u32 capstone_threshold = 6;
+    /// Legacy config fields retained for old tuning documents. Discoveries
+    /// now cost one Antibody and have no Memory Cell or branch-point gate.
+    u32 capstone_memory_cells = 0;
+    u32 capstone_threshold = 0;
     /// Memory Cells withheld from a full respec's refund.
     u32 respec_cost = 25;
 };
@@ -588,6 +579,8 @@ bool load_game_config(config::ConfigStore& store, const std::string& dir, GameCo
 /// Parses an already-loaded store into `out`. Split out so tests can drive the
 /// parser without touching the filesystem.
 bool parse_game_config(const config::ConfigStore& store, GameConfig& out, std::string& err);
+bool parse_game_config_documents(const std::vector<config::Json>& documents, GameConfig& out,
+                                  std::string& err);
 
 /// Serializes `cfg` to one Json document per file name, in config_file_names()
 /// order. Round-trips: parsing the output reproduces `cfg` exactly.

@@ -1,0 +1,124 @@
+{
+  "schema": 1,
+  "seeds": [
+    101,
+    202,
+    303,
+    404,
+    505,
+    606,
+    707,
+    808
+  ],
+  "metric": "objective_integrity",
+  "policies": [
+    {
+      "name": "novice",
+      "controller": {
+        "policy": "novice"
+      }
+    },
+    {
+      "name": "competent",
+      "controller": {
+        "policy": "competent"
+      }
+    },
+    {
+      "name": "tactical",
+      "controller": {
+        "policy": "tactical"
+      }
+    }
+  ],
+  "name": "Strategy search with separate held-out evaluation",
+  "kind": "search",
+  "base": {
+    "schema": 1,
+    "level": "assets/balance/levels/two_fronts.json",
+    "max_ticks": 18000,
+    "sample_ticks": 60,
+    "progression": {
+      "profile": "all_unlocked"
+    }
+  },
+  "train_seeds": [
+    101,
+    202,
+    303,
+    404
+  ],
+  "heldout_seeds": [
+    1101,
+    1202,
+    1303,
+    1404,
+    1505,
+    1606,
+    1707,
+    1808
+  ],
+  "top_k": 1,
+  "variants": [
+    {
+      "name": "baseline",
+      "patch": {
+        "controller": {
+          "weights": {
+            "neutrophil": 1,
+            "cytotoxic_t": 1,
+            "macrophage": 1,
+            "goblet_cell": 1,
+            "fibroblast": 1
+          },
+          "reserve_atp": 15
+        }
+      }
+    },
+    {
+      "name": "damage_heavy",
+      "patch": {
+        "controller": {
+          "weights": {
+            "neutrophil": 4,
+            "cytotoxic_t": 3,
+            "macrophage": 2,
+            "goblet_cell": 1,
+            "fibroblast": 1
+          },
+          "reserve_atp": 15
+        }
+      }
+    },
+    {
+      "name": "control_heavy",
+      "patch": {
+        "controller": {
+          "weights": {
+            "neutrophil": 2,
+            "cytotoxic_t": 1,
+            "macrophage": 3,
+            "goblet_cell": 3,
+            "fibroblast": 2
+          },
+          "reserve_atp": 15
+        }
+      }
+    },
+    {
+      "name": "reserve_heavy",
+      "patch": {
+        "controller": {
+          "weights": {
+            "neutrophil": 1,
+            "cytotoxic_t": 1,
+            "macrophage": 1,
+            "goblet_cell": 1,
+            "fibroblast": 1
+          },
+          "reserve_atp": 75
+        }
+      }
+    }
+  ]
+}

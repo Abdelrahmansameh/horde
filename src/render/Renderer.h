@@ -74,7 +74,7 @@ struct RendererDesc {
     u32 max_chaff_instances = 16384;
     u32 max_entity_instances = 4096;
     /// Live simulated rounds drawable in one frame.
-    u32 max_projectile_instances = 16384;
+    u32 max_projectile_instances = 65536;
     /// Live swarmers across every tower. See sim/swarm/Swarmers.h for how the standing
     /// cloud size is set; this only has to clear the equilibrium a full board
     /// of maxed T-cells reaches.

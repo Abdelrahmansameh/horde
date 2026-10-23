@@ -53,10 +53,6 @@ int run_dump_config(const Options& options);
 /// --sim-test proves nothing about what a player sees. Hot reload is never
 /// enabled here: the config is a determinism input, and every headless report
 /// prints `hash` so a run records exactly which tuning produced it.
-///
-/// Shared (rather than private to Modes.cpp) because --autoplay needs the same
-/// guarantee for the same reason, and a second copy of this would be a second
-/// chance for a balance run to be tuned differently from the game.
 struct HeadlessConfig {
     config::ConfigStore store;
     game::GameConfig cfg;

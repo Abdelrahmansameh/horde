@@ -1,0 +1,87 @@
+{
+  "schema": 1,
+  "seeds": [
+    101,
+    202,
+    303,
+    404,
+    505,
+    606,
+    707,
+    808
+  ],
+  "metric": "objective_integrity",
+  "policies": [
+    {
+      "name": "novice",
+      "controller": {
+        "policy": "novice"
+      }
+    },
+    {
+      "name": "competent",
+      "controller": {
+        "policy": "competent"
+      }
+    },
+    {
+      "name": "tactical",
+      "controller": {
+        "policy": "tactical"
+      }
+    }
+  ],
+  "name": "Synthetic upgrade ranks with fixed defense budget",
+  "kind": "sweep",
+  "base": {
+    "schema": 1,
+    "level": "assets/balance/levels/open_lane.json",
+    "max_ticks": 18000,
+    "sample_ticks": 60,
+    "controller": { "use_abilities": false },
+    "progression": {
+      "grant_tree": {}
+    },
+    "opening_atp": 300,
+    "spend_limit": 300,
+    "income_enabled": false,
+    "allowed_cells": [
+      "neutrophil"
+    ]
+  },
+  "variants": [
+    {
+      "name": "baseline",
+      "patch": {}
+    }
+  ],
+  "sweeps": [
+    {
+      "name": "round_damage",
+      "tree": "neutrophil.round_damage",
+      "values": [
+        1,
+        3,
+        5
+      ]
+    },
+    {
+      "name": "trigger_rate",
+      "tree": "neutrophil.trigger_rate",
+      "values": [
+        1,
+        2,
+        4
+      ]
+    },
+    {
+      "name": "income_disabled_negative_control",
+      "tree": "hub.efficient_clearance",
+      "values": [
+        1,
+        3,
+        5
+      ]
+    }
+  ]
+}

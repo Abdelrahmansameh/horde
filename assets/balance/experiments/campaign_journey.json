@@ -1,0 +1,110 @@
+{
+  "schema": 1,
+  "seeds": [
+    101,
+    202,
+    303
+  ],
+  "metric": "objective_integrity",
+  "policies": [
+    {
+      "name": "novice",
+      "controller": {
+        "policy": "novice"
+      }
+    },
+    {
+      "name": "competent",
+      "controller": {
+        "policy": "competent"
+      }
+    },
+    {
+      "name": "tactical",
+      "controller": {
+        "policy": "tactical"
+      }
+    }
+  ],
+  "name": "Real campaign rewards and elective progression journeys",
+  "kind": "campaign",
+  "base": {
+    "schema": 1,
+    "max_ticks": 72000,
+    "sample_ticks": 120,
+    "progression": {
+      "memory_cells": 0,
+      "antibodies": 0
+    },
+    "campaign": {
+      "levels": [
+        "assets/levels/campaign_01_first_bend.json",
+        "assets/levels/campaign_02_island_climb.json",
+        "assets/levels/campaign_03_two_chambers.json",
+        "assets/levels/campaign_04_twin_channels.json",
+        "assets/levels/campaign_05_ring_road.json",
+        "assets/levels/campaign_06_circuit_board.json",
+        "assets/levels/campaign_07_chevron_sieve.json",
+        "assets/levels/campaign_08_blob_field.json",
+        "assets/levels/campaign_09_funnel_walls.json",
+        "assets/levels/campaign_10_core_breach.json"
+      ],
+      "max_attempts_per_level": 5,
+      "max_total_attempts": 50,
+      "purchase_policy": {
+        "priority": [
+          "neutrophil.round_damage",
+          "hub.bone_marrow_reserve",
+          "hub.efficient_clearance",
+          "hub.field_requisition",
+          "neutrophil.trigger_rate",
+          "macrophage.unlock",
+          "macrophage.health"
+        ],
+        "repeat": true
+      }
+    }
+  },
+  "variants": [
+    {
+      "name": "baseline",
+      "patch": {}
+    },
+    {
+      "name": "early_control_unlock",
+      "patch": {
+        "campaign": {
+          "purchase_policy": {
+            "priority": [
+              "neutrophil.round_damage",
+              "goblet.unlock",
+              "goblet.splash_radius",
+              "macrophage.unlock",
+              "hub.bone_marrow_reserve",
+              "neutrophil.trigger_rate"
+            ],
+            "repeat": true
+          }
+        }
+      }
+    },
+    {
+      "name": "early_economy",
+      "patch": {
+        "campaign": {
+          "purchase_policy": {
+            "priority": [
+              "neutrophil.round_damage",
+              "hub.bone_marrow_reserve",
+              "hub.efficient_clearance",
+              "hub.field_requisition",
+              "neutrophil.trigger_rate",
+              "macrophage.unlock"
+            ],
+            "repeat": true
+          }
+        }
+      }
+    }
+  ]
+}

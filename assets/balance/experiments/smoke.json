@@ -1,0 +1,57 @@
+{
+  "schema": 1,
+  "seeds": [
+    101,
+    202
+  ],
+  "metric": "objective_integrity",
+  "policies": [
+    {
+      "name": "novice",
+      "controller": {
+        "policy": "novice"
+      }
+    },
+    {
+      "name": "competent",
+      "controller": {
+        "policy": "competent"
+      }
+    },
+    {
+      "name": "tactical",
+      "controller": {
+        "policy": "tactical"
+      }
+    }
+  ],
+  "name": "Balance Lab smoke and map comparison",
+  "kind": "paired",
+  "base": {
+    "schema": 1,
+    "level": "assets/balance/levels/open_lane.json",
+    "max_ticks": 18000,
+    "sample_ticks": 60,
+    "progression": {
+      "profile": "all_unlocked"
+    }
+  },
+  "variants": [
+    {
+      "name": "baseline",
+      "patch": {}
+    },
+    {
+      "name": "choke",
+      "patch": {
+        "level": "assets/balance/levels/choke.json"
+      }
+    },
+    {
+      "name": "two_fronts",
+      "patch": {
+        "level": "assets/balance/levels/two_fronts.json"
+      }
+    }
+  ]
+}

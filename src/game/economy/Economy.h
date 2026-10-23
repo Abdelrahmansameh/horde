@@ -12,9 +12,8 @@ namespace immune::game {
 
 struct EconomyConfig {
     u32 starting_atp = 300;
-    f32 passive_income_per_second = 4.0f;
     /// ATP per unit of chaff density destroyed.
-    f32 atp_per_density = 0.5f;
+    f32 atp_per_density = 1.0f;
     /// Fraction of build+upgrade cost returned on sell.
     f32 refund_fraction = 0.7f;
 };
@@ -23,16 +22,17 @@ struct EconomySnapshot {
     u32 atp = 0;
     u32 total_earned = 0;
     u32 total_spent = 0;
-    f32 income_per_second = 0.0f;
+    u32 opening_atp = 0;
+    u32 damage_income = 0;
+    u32 bounty_income = 0;
+    u32 refunds = 0;
+    f32 fractional_income = 0;
 };
 
 class Economy {
 public:
     void configure(const EconomyConfig& cfg);
     void reset();
-
-    /// Accrues passive income for one fixed step.
-    void tick(f32 dt);
 
     /// Credits income for density destroyed this tick (from DamageStats).
     void credit_kills(f32 density_removed);
@@ -55,6 +55,9 @@ private:
     u32 total_earned_ = 0;
     u32 total_spent_ = 0;
     f32 fractional_ = 0.0f;   ///< Sub-unit income carry, so income is exact.
+    u32 damage_income_ = 0;
+    u32 bounty_income_ = 0;
+    u32 refunds_ = 0;
 };
 
 } // namespace immune::game

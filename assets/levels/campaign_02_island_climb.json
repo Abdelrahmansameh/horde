@@ -8,7 +8,7 @@
   "region": "capillary",
   "world": { "min": [0, 0], "max": [197.4, 193.2] },
   "camera": { "center": [98.7, 96.6], "view_height": 193.2, "min_view_height": 146.832, "max_view_height": 193.2 },
-  "economy": { "starting_atp": 420 },
+  "economy": { "starting_atp": 335 },
   "vessels": [
     {
       "id": "inlet",
@@ -67,7 +67,7 @@
       "prep_time": 12,
       "atp_reward": 50,
       "spawns": [
-        { "family": "virus", "count": 170, "duration": 3.9, "spawn_point_id": "p0", "squad_size": 48, "squad_paths": ["island_west_route"] }
+        { "family": "virus", "count": 170, "duration": 3.7329, "spawn_point_id": "p0", "squad_size": 48, "squad_paths": ["island_west_route"] }
       ]
     },
     {
@@ -75,8 +75,8 @@
       "prep_time": 11.3,
       "atp_reward": 72,
       "spawns": [
-        { "family": "virus", "count": 226, "duration": 3.97, "spawn_point_id": "p0", "squad_size": 48, "squad_paths": ["island_east_route"] },
-        { "family": "bacteria", "count": 102, "start_time": 5.47, "duration": 3.97, "spawn_point_id": "p0", "squad_size": 48, "squad_paths": ["island_west_route"] }
+        { "family": "virus", "count": 226, "duration": 3.4076, "spawn_point_id": "p0", "squad_size": 48, "squad_paths": ["island_east_route"] },
+        { "family": "bacteria", "count": 102, "start_time": 4.6952, "duration": 3.4076, "spawn_point_id": "p0", "squad_size": 48, "squad_paths": ["island_west_route"] }
       ]
     },
     {
@@ -84,8 +84,8 @@
       "prep_time": 10.6,
       "atp_reward": 94,
       "spawns": [
-        { "family": "virus", "count": 351, "duration": 4.04, "spawn_point_id": "p0", "squad_size": 48, "squad_paths": ["island_west_route"] },
-        { "family": "bacteria", "count": 158, "start_time": 5.54, "duration": 4.04, "spawn_point_id": "p0", "squad_size": 48, "squad_paths": ["island_east_route"] }
+        { "family": "virus", "count": 351, "duration": 3.8294, "spawn_point_id": "p0", "squad_size": 48, "squad_paths": ["island_west_route"] },
+        { "family": "bacteria", "count": 158, "start_time": 5.2513, "duration": 3.8294, "spawn_point_id": "p0", "squad_size": 48, "squad_paths": ["island_east_route"] }
       ]
     },
     {
@@ -93,8 +93,8 @@
       "prep_time": 9.9,
       "atp_reward": 116,
       "spawns": [
-        { "family": "virus", "count": 483, "duration": 4.11, "spawn_point_id": "p0", "squad_size": 48, "squad_paths": ["island_east_route"] },
-        { "family": "bacteria", "count": 217, "start_time": 5.61, "duration": 4.11, "spawn_point_id": "p0", "squad_size": 48, "squad_paths": ["island_west_route"] }
+        { "family": "virus", "count": 483, "duration": 4.0569, "spawn_point_id": "p0", "squad_size": 48, "squad_paths": ["island_east_route"] },
+        { "family": "bacteria", "count": 217, "start_time": 5.5376, "duration": 4.0569, "spawn_point_id": "p0", "squad_size": 48, "squad_paths": ["island_west_route"] }
       ]
     },
     {
@@ -102,9 +102,9 @@
       "prep_time": 9.2,
       "atp_reward": 138,
       "spawns": [
-        { "family": "virus", "count": 572, "duration": 4.18, "spawn_point_id": "p0", "squad_size": 48, "squad_paths": ["island_west_route"] },
-        { "family": "bacteria", "count": 257, "start_time": 5.68, "duration": 4.18, "spawn_point_id": "p0", "squad_size": 48, "squad_paths": ["island_east_route"] },
-        { "family": "parasite", "count": 69, "start_time": 11.36, "duration": 4.18, "spawn_point_id": "p0", "squad_size": 48, "squad_paths": ["island_west_route"] }
+        { "family": "virus", "count": 572, "duration": 3.8679, "spawn_point_id": "p0", "squad_size": 48, "squad_paths": ["island_west_route"] },
+        { "family": "bacteria", "count": 257, "start_time": 5.2561, "duration": 3.8679, "spawn_point_id": "p0", "squad_size": 48, "squad_paths": ["island_east_route"] },
+        { "family": "parasite", "count": 69, "start_time": 10.5121, "duration": 3.8679, "spawn_point_id": "p0", "squad_size": 48, "squad_paths": ["island_west_route"] }
       ]
     },
     {
@@ -112,9 +112,9 @@
       "prep_time": 8.5,
       "atp_reward": 160,
       "spawns": [
-        { "family": "virus", "count": 701, "duration": 4.25, "spawn_point_id": "p0", "squad_size": 48, "squad_paths": ["island_east_route"] },
-        { "family": "bacteria", "count": 315, "start_time": 5.75, "duration": 4.25, "spawn_point_id": "p0", "squad_size": 48, "squad_paths": ["island_west_route"] },
-        { "family": "parasite", "count": 84, "start_time": 11.5, "duration": 4.25, "spawn_point_id": "p0", "squad_size": 48, "squad_paths": ["island_east_route"] }
+        { "family": "virus", "count": 701, "duration": 3.9421, "spawn_point_id": "p0", "squad_size": 48, "squad_paths": ["island_east_route"] },
+        { "family": "bacteria", "count": 315, "start_time": 5.3335, "duration": 3.9421, "spawn_point_id": "p0", "squad_size": 48, "squad_paths": ["island_west_route"] },
+        { "family": "parasite", "count": 84, "start_time": 10.667, "duration": 3.9421, "spawn_point_id": "p0", "squad_size": 48, "squad_paths": ["island_east_route"] }
       ]
     }
   ]

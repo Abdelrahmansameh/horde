@@ -1,30 +1,27 @@
 """Generates the Strengthen Immunity tree's layout: a classic radial tree.
 
-The tree (src/game/meta/ImmunityTree.cpp) is laid out radially from its
-root. The Neutrophil, owned from the start, is the centre; the three core
-economy lines sit round it; and from each core its subjects grow outward, each
-in its own wedge -- the attack towers (Macrophage, Neutrophil, Cytotoxic T),
-the abilities, and the systemic lines with the control towers (Fibroblast,
-Goblet Cell). This script places every node and writes the placement to
-assets/ui/tree_layout.json, which the game's tree screen
-(src/ui/front/TreeScreen) draws from.
+Firing Cycle is the root and geometric centre. Its children occupy
+sectors sized for their branches: economy, Neutrophil upgrades and discovery,
+and the four other cells.
+Active abilities and capstones grow directly from their related cell.
+Descendants stay inside that sector on successively larger concentric rings.
+This script writes assets/ui/tree_layout.json for the game's tree screen.
 
 The tree's SHAPE (who is whose parent, and the clockwise order of a node's
 children) is the game's: it is read from ImmunityTree.cpp's kEdges table, and
 the vessels between nodes are drawn from it at run time. This script only
 works out where each node sits:
 
-  - a node's depth sets its ring (RING_1 out from the centre for the cores,
+  - a node's depth from the starter upgrade sets its ring (RING_1 for each spoke,
     RING_STEP further for each level after that);
-  - every node gets a wedge of its parent's, in proportion to how many leaves
-    hang below it, and sits in the middle of it; the subtrees under the
-    centre and the cores keep PETAL_GAP between them, so each subject reads as
-    its own region;
-  - the whole tree is turned so the Neutrophil's own lines grow straight up.
+  - first-layer sectors grow with the square root of their leaf count, with
+    PETAL_GAP between them; each deeper node gets a share of its parent's sector in
+    proportion to how many leaves hang below it;
+  - the subjects fill a complete circle around the first upgrade.
 
-It checks that every node of the catalog is placed, that the Neutrophil is
-the only root, that no node has more than three children, and that no two
-nodes overlap.
+It checks that every node of the catalog is placed, that the starter upgrade is
+the only root, that each node obeys the catalog's child limits, that
+every branch grows outward, and that nodes and vessels stay clear.
 
 Output, in tree units (one unit is one logical pixel at zoom 1), y down, the
 centre at the origin:
@@ -49,11 +46,10 @@ SOURCE = ROOT / "src" / "game" / "meta" / "ImmunityTree.cpp"
 OUT = ROOT / "assets" / "ui" / "tree_layout.json"
 
 # Tree units.
-RING_1 = 180.0
-RING_STEP = 165.0
-PETAL_GAP = math.radians(9.0)
-# The node whose wedge points straight up.
-UP = "neutrophil.round_damage"
+RING_1 = 480.0
+RING_STEP = 300.0
+PETAL_GAP = math.radians(4.0)
+HUB = "neutrophil.round_damage"
 
 # ---------------------------------------------------------------- the catalog
 
@@ -74,6 +70,9 @@ def read_catalog():
 
 
 KEYS, KIND, EDGES = read_catalog()
+_header_text = HEADER.read_text(encoding="utf-8")
+MAX_CHILDREN = int(re.search(r"kTreeMaxChildren\s*=\s*(\d+)", _header_text).group(1))
+MAX_HUB_CHILDREN = int(re.search(r"kTreeHubMaxChildren\s*=\s*(\d+)", _header_text).group(1))
 PARENT = dict(EDGES)
 CHILDREN = {}
 for _child, _parent in EDGES:
@@ -86,11 +85,10 @@ SIZE = {"TowerRoot": 108, "AbilityRoot": 84, "Capstone": 92, "Stat": 62, "Econom
 # their cell or ability; every other node, what kind of number it raises.
 ICON = {
     "hub.bone_marrow_reserve": "stat_atp",
-    "hub.rapid_metabolism": "stat_atp",
     "hub.efficient_clearance": "stat_atp",
     "hub.field_requisition": "stat_atp",
     "hub.systemic_potency": "stat_damage",
-    "hub.elite_response": "stat_damage",
+    "hub.elite_response": "stat_health",
     "hub.homeostasis": "stat_health",
     "hub.membrane_resilience": "stat_health",
     "ability.complement.unlock": "ability_complement_cascade",
@@ -105,14 +103,12 @@ ICON = {
     "ability.clot.unlock": "ability_fibrin_clot",
     "ability.clot.cooldown": "stat_cadence",
     "ability.clot.duration": "stat_time",
-    "neutrophil.unlock": "tower_neutrophil",
-    "neutrophil.round_damage": "stat_damage",
-    "neutrophil.trigger_rate": "stat_cadence",
+    "neutrophil.round_damage": "stat_cadence",
     "neutrophil.aggro_range": "stat_reach",
     "neutrophil.squad_size": "stat_count",
     "neutrophil.accuracy": "stat_aim",
     "neutrophil.vitality": "stat_health",
-    "neutrophil.capstone": "stat_fire",
+    "neutrophil.capstone": "stat_damage",
     "cytotoxic.unlock": "tower_cytotoxic_t",
     "cytotoxic.drain": "stat_damage",
     "cytotoxic.attach_speed": "stat_cadence",
@@ -152,8 +148,8 @@ ICON = {
 
 def root():
     roots = [k for k in KEYS if k not in PARENT]
-    if roots != ["neutrophil.unlock"]:
-        sys.exit(f"the tree must have the Neutrophil as its only root, not {roots}")
+    if roots != [HUB]:
+        sys.exit(f"the tree must have Firing Cycle as its only root, not {roots}")
     return roots[0]
 
 
@@ -171,22 +167,23 @@ def place_nodes():
         kids = CHILDREN.get(key, [])
         if not kids:
             return
-        gap = PETAL_GAP if d <= 1 else 0.0
+        gap = PETAL_GAP if key == HUB else 0.0
         usable = (a1 - a0) - gap * len(kids)
-        total = sum(leaves(k) for k in kids)
+        weights = {k: math.sqrt(leaves(k)) if key == HUB else leaves(k) for k in kids}
+        total = sum(weights.values())
         a = a0
         for k in kids:
-            span = usable * leaves(k) / total
+            span = usable * weights[k] / total
             grow(k, a + gap / 2, a + gap / 2 + span, d + 1)
             a += span + gap
 
-    centre = root()
-    grow(centre, 0.0, 2.0 * math.pi, 0)
-    turn = -math.pi / 2 - angle[UP]          # screen y is down: -90 degrees is up
+    # Keep economy at the lower left and spread the spokes around a full circle.
+    turn = math.radians(110.0)
+    grow(root(), turn, turn + 2 * math.pi, 0)
     pos = {}
     for key in angle:
         r = 0.0 if depth[key] == 0 else RING_1 + (depth[key] - 1) * RING_STEP
-        a = angle[key] + turn
+        a = angle[key]
         pos[key] = (round(r * math.cos(a), 1), round(r * math.sin(a), 1))
     return pos
 
@@ -197,8 +194,11 @@ def check_nodes(pos):
     if missing or no_icon:
         sys.exit(f"unplaced: {missing}  no icon: {no_icon}")
     for parent, kids in CHILDREN.items():
-        if len(kids) > 3:
+        if len(kids) > (MAX_HUB_CHILDREN if parent == HUB else MAX_CHILDREN):
             sys.exit(f"{parent} has {len(kids)} children: {kids}")
+    for child, parent in EDGES:
+        if math.hypot(*pos[child]) <= math.hypot(*pos[parent]) + 100:
+            sys.exit(f"{child} does not grow outward from {parent}")
     # No two nodes closer than a third of a small node between their rims.
     keys = sorted(pos)
     for i, a in enumerate(keys):
@@ -206,6 +206,18 @@ def check_nodes(pos):
             gap = math.dist(pos[a], pos[b]) - (SIZE[KIND[a]] + SIZE[KIND[b]]) / 2
             if gap < 20:
                 sys.exit(f"{a} and {b} overlap (gap {gap:.0f})")
+    # A vessel cannot pass through an unrelated node or double back inward.
+    for child, parent in EDGES:
+        curve = vessel(pos, child)
+        radii = [math.hypot(*p) for p in curve]
+        if any(b < a - 0.1 for a, b in zip(radii, radii[1:])):
+            sys.exit(f"the vessel to {child} doubles back toward the hub")
+        for key in keys:
+            if key in (child, parent):
+                continue
+            gap = min(segment_distance(pos[key], a, b) for a, b in zip(curve, curve[1:])) - SIZE[KIND[key]] / 2
+            if gap < 15:
+                sys.exit(f"the vessel to {child} crowds {key} (gap {gap:.0f})")
 
 
 # ---------------------------------------------------------------- output
@@ -218,7 +230,7 @@ def build():
     return {
         "_comment": "Generated by tools/gen_tree_layout.py: the Strengthen Immunity tree laid out radially, "
                     "each subject in its own wedge, in tree units (one logical pixel at zoom 1), y down, "
-                    "the centre at the origin. Do not edit by hand.",
+                    "Firing Cycle at the origin. Do not edit by hand.",
         "nodes": nodes,
     }
 
@@ -240,6 +252,13 @@ def norm(a):
     return (a[0] / length, a[1] / length)
 
 
+def segment_distance(p, a, b):
+    delta = sub(b, a)
+    length_sq = delta[0] ** 2 + delta[1] ** 2
+    t = 0.0 if length_sq == 0 else max(0.0, min(1.0, sum(x * y for x, y in zip(sub(p, a), delta)) / length_sq))
+    return math.dist(p, add(a, mul(delta, t)))
+
+
 def vessel(pos, child):
     """The game's vessel from a node's parent to it (TreeCanvas::add_edge): a
     cubic leaving the parent partly along the vessel that feeds it."""
@@ -247,7 +266,7 @@ def vessel(pos, child):
     a, b = pos[parent], pos[child]
     length = math.dist(a, b)
     d = norm(sub(b, a))
-    trunk = norm(sub(a, pos[PARENT[parent]])) if parent in PARENT else d
+    trunk = norm(sub(a, pos[PARENT[parent]])) if parent in PARENT and parent != HUB else d
     leave = norm(add(mul(trunk, 0.45), d))
     c1, c2 = add(a, mul(leave, length * 0.38)), sub(b, mul(d, length * 0.30))
     points = []

@@ -52,10 +52,13 @@ struct TreeModel {
     std::vector<TreeNodeView> nodes;  ///< Catalog order.
     u64 memory_cells = 0;
     u32 antibodies = 0;
-    /// Stat levels bought per tower branch (kTreeBranchIds order), toward the
-    /// capstone threshold.
+    u32 discovery_choices = 0;
+    /// When all affordable discoveries first need the ordinary starter node.
+    bool discovery_needs_starter = false;
+    u32 discovery_starter_cost = 0;
+    /// Stat levels bought per tower branch (kTreeBranchIds order).
     std::array<u32, 5> branch_points{};
-    u32 capstone_threshold = 6;
+    u32 capstone_threshold = 0; ///< Legacy model field; discovery tools have no stat threshold.
     bool can_respec = false;
     u32 respec_cost = 0;
 

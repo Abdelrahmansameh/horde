@@ -60,6 +60,7 @@ enum class MenuAction : u8 {
     OpenImmunityTree, ///< The Strengthen Immunity screen (game/meta).
     PurchaseNode,     ///< Buy the next level of `node` (a game::TreeNode).
     Respec,           ///< Refund the whole tree (minus the fee).
+    AbandonRun,       ///< End the current run and return to Strengthen Immunity.
 };
 
 struct MenuResult {

@@ -17,7 +17,6 @@ Read the maintained references for the work at hand:
   screenshots, benchmarks, and verification scope.
 - [Gym](../../../docs/GYM.md): console commands and context availability.
 - [Level editor](../../../docs/LEVEL_EDITOR.md): editor operations and playtesting.
-- [Balance](../../../docs/BALANCE.md): autoplay, telemetry, and sweep comparisons.
 - [Simulation](../../../docs/SIMULATION.md): state hash and reproducibility limits.
 
 ## Choose a build
@@ -75,7 +74,7 @@ animation time are separate; equal hashes are not pixel equality.
 
 ## Direct cells versus legacy emitters
 
-Normal HUD and autoplay use `validate_deploy/deploy` and create persistent
+Normal HUD uses `validate_deploy/deploy` and creates persistent
 mobile cells. Screenshot `--towers` and sim-script `place_tower/place_swarm`
 also use direct deployment. The gym's `tower` command still calls legacy
 `validate/place` and creates a stationary ECS emitter. Its `sell` and `fire`
@@ -95,14 +94,12 @@ feature.
 & $immuneExe --sim-test tests/scripts/smoke.json --quiet
 & $immuneExe --bench chaff10k --ticks 600 --threads 1 --quiet
 & $immuneExe --list-scenarios --quiet
-& $immuneExe --autoplay --level assets/levels/campaign_01_first_bend.json --profile greedy-cheapest --report scratch/run.json
 & $immuneExe --level-check assets/levels
 & $immuneExe --level-fmt assets/levels --check
 ```
 
-Use checks appropriate to the changed behavior. Sim-test runs bare simulation;
-autoplay shares session tick order but differs from interactive level-rule
-application. Compare baseline results before calling a script failure a
+Use checks appropriate to the changed behavior. Sim-test runs bare simulation.
+Compare baseline results before calling a script failure a
 regression. Preserve executable/config/level/seed/commands/thread settings:
 range-based RNG and elapsed-time flow rebakes can change outcomes.
 `state_hash` is a partial state fingerprint, not full game equivalence.

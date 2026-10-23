@@ -41,6 +41,10 @@ const char* usage_text() {
 "  immune                                              play interactively\n"
 "  immune --bench <scenario> [--ticks N]               headless sim, JSON timings on stdout\n"
 "  immune --sim-test <script.json>                     scripted run, exit 0 pass / 1 fail\n"
+"  immune --balance-run <spec.json> [--out report.json] real gameplay balance experiment\n"
+"  immune --balance-catalog [--out catalog.json]        inspect all upgrades, prices and tuning paths\n"
+"  immune --balance-replay <report.json> --tick N --out frame.png  replay paid actions\n"
+"  immune --record-balance <directory> [--level file] record player actions for balance replay\n"
 "  immune --screenshot <level> --tick N --out <f.png>  deterministic frame capture\n"
 "      --towers                                        place every tower type first,\n"
 "                                                      so the shot shows real combat\n"
@@ -48,7 +52,6 @@ const char* usage_text() {
 "                                                      (e.g. \"spawn all 300; tower all\")\n"
 "      --ui                                            draw the HUD; waves and ATP run as\n"
 "                                                      in play; `ui ...` gym commands\n"
-"  immune --level <f.json> --exec \"autoplay on; time 8\"  watch the bot play\n"
 "  immune --list-scenarios                             print available bench scenarios\n"
 "  immune --licenses                                   print bundled third-party notices\n"
 "  immune --editor [<f.json>]                          open the in-game level editor\n"
@@ -76,6 +79,7 @@ const char* usage_text() {
 
 Options parse_args(int argc, char** argv) {
     Options o;
+    if (argc > 0 && argv[0]) o.executable_path = argv[0];
     bool tick_set = false;
 
     for (int i = 1; i < argc; ++i) {
@@ -93,6 +97,13 @@ Options parse_args(int argc, char** argv) {
         } else if (a == "--bench") {
             if (!next_value(argc, argv, i, a, o.scenario, o.error)) break;
             o.mode = Mode::Bench;
+        } else if (a == "--balance-catalog") {
+            o.mode = Mode::BalanceCatalog;
+        } else if (a == "--balance-run" || a == "--balance-replay") {
+            if (!next_value(argc, argv, i, a, o.balance_path, o.error)) break;
+            o.mode = a == "--balance-run" ? Mode::BalanceRun : Mode::BalanceReplay;
+        } else if (a == "--record-balance") {
+            if (!next_value(argc, argv, i, a, o.record_balance_dir, o.error)) break;
         } else if (a == "--sim-test") {
             if (!next_value(argc, argv, i, a, o.script_path, o.error)) break;
             o.mode = Mode::SimTest;
@@ -100,19 +111,13 @@ Options parse_args(int argc, char** argv) {
             if (!next_value(argc, argv, i, a, o.level, o.error)) break;
             o.mode = Mode::Screenshot;
             if (!tick_set) o.ticks = 0;   // screenshots default to tick 0
-        } else if (a == "--autoplay") {
-            o.mode = Mode::Autoplay;
-        } else if (a == "--profile") {
-            if (!next_value(argc, argv, i, a, o.profile, o.error)) break;
-        } else if (a == "--report") {
-            if (!next_value(argc, argv, i, a, o.report_path, o.error)) break;
-        } else if (a == "--max-ticks") {
-            if (!next_u64(argc, argv, i, a, o.max_ticks, o.error)) break;
         } else if (a == "--ticks" || a == "--tick") {
             if (!next_u64(argc, argv, i, a, o.ticks, o.error)) break;
             tick_set = true;
+            o.ticks_explicit = true;
         } else if (a == "--out" || a == "-o") {
             if (!next_value(argc, argv, i, a, o.out_path, o.error)) break;
+            o.output_explicit = true;
         } else if (a == "--ui") {
             o.ui = true;
         } else if (a == "--ui-scale") {
@@ -208,10 +213,6 @@ Options parse_args(int argc, char** argv) {
         o.mode = Mode::Invalid;
         o.error = "--bench requires a scenario name";
     }
-    if (o.mode == Mode::Autoplay && o.level.empty()) {
-        o.mode = Mode::Invalid;
-        o.error = "--autoplay requires --level <path>";
-    }
     if (o.mode == Mode::Screenshot && o.out_path.empty()) {
         o.mode = Mode::Invalid;
         o.error = "--screenshot requires --out <file.png>";
@@ -219,6 +220,20 @@ Options parse_args(int argc, char** argv) {
     if (o.width <= 0 || o.height <= 0) {
         o.mode = Mode::Invalid;
         o.error = "--width/--height must be positive";
+    }
+    if (o.mode == Mode::BalanceRun || o.mode == Mode::BalanceReplay || !o.record_balance_dir.empty()) {
+        if (o.threads > 1) {
+            o.mode = Mode::Invalid;
+            o.error = "balance experiments and recordings use serial simulation; use --threads 1";
+        } else o.threads = 1;
+    }
+    if (!o.record_balance_dir.empty() && o.mode != Mode::Play) {
+        o.mode = Mode::Invalid;
+        o.error = "--record-balance records normal interactive play";
+    }
+    if (!o.record_balance_dir.empty() && !o.exec.empty()) {
+        o.mode = Mode::Invalid;
+        o.error = "--record-balance requires clean player actions; use --balance-run for scripted experiments";
     }
     return o;
 }

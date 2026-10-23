@@ -13,6 +13,8 @@
 #include "render/Camera.h"
 #include "render/Renderer.h"
 #include "sim/chaff/ChaffBuffers.h"
+#include "sim/hostile/HostileAttacks.h"
+#include "sim/projectile/Projectiles.h"
 #include "sim/spatial/SpatialHash.h"
 
 #include <catch2/catch_test_macros.hpp>
@@ -33,6 +35,50 @@ struct HeadlessGl {
 };
 
 } // namespace
+
+TEST_CASE("projectile draw statistics count submitted rounds within the GPU capacity",
+          "[render][gl][projectiles][capacity]") {
+    ProjectileBuffers rounds;
+    rounds.reserve(3);
+    for (u32 i = 0; i < 3; ++i) {
+        ProjectileSpawnParams round;
+        round.position = {8.0f + static_cast<f32>(i), 8.0f};
+        REQUIRE(rounds.spawn(round));
+    }
+    std::vector<ToxinShot> toxin(3);
+    for (auto& shot : toxin) shot.position = {8.0f, 9.0f};
+
+    Renderer renderer;
+    renderer.submit_projectiles(rounds);
+    renderer.submit_toxin_shots(toxin);
+    CHECK(renderer.stats().projectile_instances_drawn == 0);
+
+    HeadlessGl gl(320, 180);
+    if (!gl.ok) {
+        WARN("headless GL context unavailable in this environment; skipping");
+        return;
+    }
+    RendererDesc rd;
+    rd.framebuffer_width = gl.window.width();
+    rd.framebuffer_height = gl.window.height();
+    rd.max_projectile_instances = 2;
+    REQUIRE(renderer.init(rd));
+    Camera camera;
+    camera.set_viewport(gl.window.width(), gl.window.height());
+    camera.set_bounds({{0.0f, 0.0f}, {32.0f, 18.0f}});
+    camera.set_center({16.0f, 9.0f});
+    camera.set_view_height(18.0f);
+    renderer.begin_frame(camera, 0.0f);
+    renderer.submit_projectiles(rounds);
+    CHECK(renderer.stats().projectile_instances_drawn == 2);
+    renderer.submit_toxin_shots(toxin);
+    renderer.end_frame();
+    CHECK(renderer.stats().projectile_instances_drawn == 4);
+    CHECK(renderer.stats().draw_calls == 2);
+    CHECK(rounds.count() == 3);
+    CHECK(toxin.size() == 3);
+    renderer.shutdown();
+}
 
 TEST_CASE("Renderer draws a 10k-agent chaff field and reads back non-background pixels",
          "[render][gl][integration]") {

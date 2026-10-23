@@ -77,6 +77,20 @@ TEST_CASE("unknown arguments are rejected, not ignored", "[app][cli]") {
     REQUIRE(o.error.find("--not-a-flag") != std::string::npos);
 }
 
+TEST_CASE("retired automation and report switches are rejected", "[app][cli]") {
+    const std::vector<std::vector<const char*>> retired{
+        {"--autoplay"}, {"--profile", "greedy-cheapest"},
+        {"--report", "run.json"}, {"--max-ticks", "120"}};
+    for (const auto& args : retired) {
+        const char* flag = args.front();
+        INFO(flag);
+        const auto o = parse(args);
+        REQUIRE(o.mode == Mode::Invalid);
+        REQUIRE(o.error.find(flag) != std::string::npos);
+        REQUIRE(std::string(usage_text()).find(flag) == std::string::npos);
+    }
+}
+
 TEST_CASE("cli rejects a non-numeric ticks value", "[app][cli]") {
     const auto o = parse({"--bench", "empty", "--ticks", "lots"});
     REQUIRE(o.mode == Mode::Invalid);

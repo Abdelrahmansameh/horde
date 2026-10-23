@@ -9,14 +9,12 @@
 // objective still dies. That order lived in exactly one place, App::tick_sim,
 // and was therefore unavailable to anything without a window.
 //
-// The balance harness (game/autoplay) has to run the *same* game, not a
-// plausible headless imitation of it -- a bot playing a subtly different tick
-// order produces numbers that describe nothing. So the order moved here, App
-// calls it, and the harness calls it. There is no second copy to drift.
+// Interactive play, HUD captures, and session tests call this shared step so
+// they advance the same systems in the same order.
 //
 // WHAT IT IS NOT
 // Not an owner. Every pointer in LevelSystems belongs to the caller (App holds
-// its systems as members; the harness holds its own), which is what lets App
+// its systems as members; tests hold their own), which is what lets App
 // keep handing the same objects to the HUD, the renderer and the gym panel
 // without indirection. Not a state machine either: it reports the outcome and
 // leaves acting on it to the caller, because app/GameState.h's transitions are
@@ -36,7 +34,16 @@ class EnemyRoster;
 class GymSpawnQueue;
 class TowerSystem;
 class WaveDirector;
+struct EconomyConfig;
 struct GymToggles;
+struct LevelDef;
+
+/// Applies authored opening ATP, kill-income multipliers, and allowed cell types.
+/// `base` may already contain progression effects. An explicit level opening
+/// receives `starting_atp_bonus` on top; a zero opening keeps the base value.
+/// Configuring the economy resets its ATP and income ledger.
+void apply_level_rules(const LevelDef& level, const EconomyConfig& base,
+                       Economy& economy, TowerSystem& towers, u32 starting_atp_bonus = 0);
 
 /// Everything one tick of a level touches. All non-owning; `world` is the only
 /// member that must be non-null.

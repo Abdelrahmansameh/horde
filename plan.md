@@ -20,7 +20,7 @@ rules are not current requirements. This inventory was audited on 2026-10-06.
 | Audio/platform | SDL window/input/file lookup and runtime synthesized sound/music | [Audio and platform](docs/AUDIO_PLATFORM.md) |
 | Tuning | Six strict gameplay files, live registry/reload, separate UI theme | [Configuration](docs/CONFIGURATION.md) |
 | Content tools | In-game editor, document validation/writer, CLI checks/formatting, level preview | [Level editor](docs/LEVEL_EDITOR.md), [Tools](docs/TOOLS.md) |
-| Verification | Catch2, GL tests, sim scripts, benchmarks, autoplay telemetry/sweeps | [Testing](docs/TESTING.md), [Balance](docs/BALANCE.md) |
+| Verification | Catch2, GL tests, sim scripts, benchmarks | [Testing](docs/TESTING.md) |
 
 ## Current limitations and retained code
 
@@ -38,14 +38,13 @@ feature backlog.
 - Fixed ticks and seeded RNG support repeatable comparisons, but thread-range
   RNG partitioning and elapsed-time flow rebake scheduling limit reproducibility.
   The state hash is a partial fingerprint, not complete game-state equivalence.
-- Headless autoplay shares the session tick but does not mirror every interactive
-  level-rule application. Sim-test drives bare simulation, not the full economy,
+- Sim-test drives bare simulation, not the full economy,
   wave, campaign, and payout lifecycle.
 - Several editor menu shortcut labels are presentation hints rather than wired
   keyboard actions. The actual tool/canvas key handlers define supported keys.
 - HTML UI artboards preserve earlier interactions. The live radial tree and
   direct-cell behavior are authoritative; preview labels/prices are illustrative.
-- Save progression, live tuning, visual shader correctness, and campaign balance
+- Save progression, live tuning, and visual shader correctness
   require their corresponding checks. A successful C++ build alone proves none
   of those properties.
 

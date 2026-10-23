@@ -114,6 +114,29 @@ CPU packing tests: [test_render_batch.cpp](../tests/test_render_batch.cpp),
 [test_render_gl.cpp](../tests/test_render_gl.cpp),
 [test_render_species.cpp](../tests/test_render_species.cpp).
 
+## Neutrophil firing pulse
+
+Shooter cells squeeze during the magazine gather, then stretch along the
+volley's aim and rebound after each real round. `ShooterMagazine::seconds_since_shot`
+keeps the last shot's recovery alive through Reloading and advances in simulation
+seconds, independently of reload bonuses. It starts settled and never drives
+gameplay. The renderer packs the remaining 0.22-second pulse into swarmer flag
+bits 24..31; zero means settled.
+
+The global stretch conserves body area around the muzzle before a small visual
+backward kick. The nucleus and magazine centres move together while individual
+rounds stay circular. Each shot also briefly pulls a narrow strip of the existing
+front membrane outward; it changes the cell's outline and uses its usual shading,
+without moving the nucleus into that protrusion. The direction comes from the
+magazine aim so retreating cells pulse toward their shots. These offsets do not
+move simulation positions or projectile origins.
+Shooter idle phases use stable unit generations rather than the gameplay RNG
+seed, which changes on every shot and would make the membrane jump.
+Their radial bodies also use a fixed world orientation, retaining the shader's
+slow organic motion without snapping to small steering corrections or reversing
+when kiting. Magazine aim is packed relative to that same body orientation, so
+the pore and shooting pulse still follow the actual volley.
+
 ## Tissue geometry and lane identity
 
 `submit_tissue(mask, sdf, heartbeat_phase, decor)` can draw with only the sim

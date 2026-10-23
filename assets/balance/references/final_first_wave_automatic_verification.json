@@ -1,0 +1,436 @@
+{
+  "schema": 1,
+  "kind": "late_earned_automatic_controller_qualification",
+  "name": "Final-map first authored wave: independent automatic policies",
+  "qualified": true,
+  "scope": {
+    "scope": "FIRST AUTHORED L10 WAVE ONLY. Exact legitimate first-post-L9 V8 economy profile, historical staged income and geometry, evaluated with the V15 controller. A clear is neither a full L10 victory nor a fresh/full-campaign affordability proof.",
+    "controls": "No action script, synthetic grants, free casts, opening-ATP override or config overrides. Purchases use 950 ATP from the actual earned opening bonus plus normal earned income; abilities use the normal API and cooldowns.",
+    "historical_inputs": "The embedded document intentionally retains the original staged income_multiplier 0.262144. Current campaign income may differ; this preserved diagnostic is not silently updated to it.",
+    "config_drift": "The verification pins all six config file hashes and base_config_fingerprint 10585889450267739244. Changes require rerunning this experiment; previous outcomes remain historical.",
+    "inference": "Controller adequacy is qualified only for this earned-profile encounter. Do not infer human difficulty, enjoyment, all-map tactics, full progression pacing or a required gameplay nerf."
+  },
+  "files": {
+    "experiment": "assets/balance/experiments/controller_final_wave_calibration.json",
+    "experiment_sha256": "6cae7d5ac2985b9e93c7c06ed8441cb5375219ecce7c0cc50e33552a50ce6e7d",
+    "level": "assets/balance/levels/campaign_final_first_wave_reference.json",
+    "level_sha256": "0dfa514d8fc0eec929537aa2668757768ceebbaf6cbf2316cb682c1a7777380b",
+    "paid_spec": "assets/balance/references/final_first_wave_paid_actions.json",
+    "paid_spec_sha256": "2a60d518487cbabaf411f91a40a932751699867851907d9975761af33ee1fa19"
+  },
+  "source": {
+    "campaign_level": "assets/levels/campaign_10_core_breach.json",
+    "origin": "V8 staged-income economy journey, first L10 attempt immediately after nine earned clears",
+    "source_attempt_index": 18,
+    "level_attempt": 1,
+    "seed": 31031,
+    "completed_level_ids": [
+      "campaign_01_first_bend",
+      "campaign_02_island_climb",
+      "campaign_03_two_chambers",
+      "campaign_04_twin_channels",
+      "campaign_05_ring_road",
+      "campaign_06_circuit_board",
+      "campaign_07_chevron_sieve",
+      "campaign_08_blob_field",
+      "campaign_09_funnel_walls"
+    ],
+    "earned_profile_sha256": "7be5196bcbc1bfacecf619f7e24ed0f3d44f304148415a2ffdf8eceb614b6f59",
+    "full_staged_level_document_sha256": "42fb00bd692a1e6628bb929d4f9ae80653f5574a7f6f8456e283c8932c894e1b",
+    "source_staged_level_file_sha256": "e0b58597caf8fbe516e7094054a09c1d1ea3ab0280db37236844767cedb10961",
+    "source_journey_sha256": "7c54c760e36b776cdcb09e037087b5db825afaae27039fcab685be995812fec8",
+    "source_journey_path": "scratch/progression-rework/training-v8-staged-income/runs/training-tactical-economy-31013-538e105b01a9.report.json",
+    "reference_report_sha256": "8eb72ade1e23ba0e565bf7d956bdc15b12f259698dde6d644f0a92025799271e"
+  },
+  "provenance": {
+    "runtime": "scratch/progression-rework/pinned-v15-runtime/immune.exe",
+    "runtime_sha256": "88221df69fa712525a91cd42eb8a160956c8f8d05caf1888ca09613220654538",
+    "base_config_fingerprint": 10585889450267739244,
+    "base_config_file_sha256": {
+      "towers": "c80c719b2c17bc4868bb18d5769b1608c762225732fc34e3186de94fa93191cf",
+      "enemies": "5d8a2238c3d9d3d6b15216f9b06b3713ca6850a3c8153a14e92434eeca6d1a27",
+      "sim": "09afa9ac9e317d342ed7c6dc6121758edef8de0afa612ebbb92e5611742e6d5f",
+      "economy": "0610e446a979cc7fa3a38ac124f0ca68addebe018e5990a9f89832010edf24dd",
+      "abilities": "4a077baecc85de03eff2f423e1ce0e0bdf7dc1530935975980e988106d7882b5",
+      "meta": "b403a6b502cc6541ee5d47e5dc0ac4323b7641a5fe7f0d6b77a5757dfd8cdb71"
+    },
+    "seed": 31031,
+    "predeclared_policies": [
+      "tactical",
+      "competent"
+    ],
+    "paid_earned_profile_sha256": "7be5196bcbc1bfacecf619f7e24ed0f3d44f304148415a2ffdf8eceb614b6f59",
+    "embedded_profile_canonical_sha256": "7be5196bcbc1bfacecf619f7e24ed0f3d44f304148415a2ffdf8eceb614b6f59",
+    "embedded_level_canonical_sha256": "b631ce66bf29c2dc7b06b4acac7479e8891d92169e4b8073dde81a28cf342d03",
+    "no_scripted_actions": true,
+    "no_grants_or_economy_overrides": true,
+    "only_future_waves_omitted": true,
+    "income_multiplier_in_source_level": 0.262144,
+    "base_atp_per_density": 0.85,
+    "projectile_capacity": 65536
+  },
+  "qualification_requirements": {
+    "minimum_waves_cleared": 1,
+    "expected_status": "cleared",
+    "require_valid": true,
+    "require_zero_enemy_survivors": true,
+    "require_zero_action_rejections": true,
+    "require_zero_damaging_pool_denials": true,
+    "require_zero_clearing_timeout_advances": true,
+    "no_action_script": true,
+    "same_earned_profile": true,
+    "same_base_config": true
+  },
+  "observed": {
+    "tactical": {
+      "qualified": true,
+      "exit_code": 0,
+      "wall_seconds": 4.0979142999858595,
+      "summary": {
+        "abilities_used": 3,
+        "actions_rejected": 0,
+        "antibodies": 1,
+        "atp_remaining": 98,
+        "atp_seconds_unspent": 6431.483333333488,
+        "atp_spent": 1359,
+        "clearing_timeout_advances": 0,
+        "combat_metrics_available": true,
+        "denied_spawns": 0,
+        "density_removed": 1249.8000522702932,
+        "deploy_capacity_rejected": 0,
+        "duration_seconds": 43.6,
+        "duration_ticks": 2616,
+        "friendly_alive": 77,
+        "friendly_killed": 9,
+        "kills": 1943,
+        "leaks": 0,
+        "memory_cells": 94,
+        "objective_integrity": 100.0,
+        "peak_enemies": 1481,
+        "prep_seconds": 13.766666666666666,
+        "sampled_danger_seconds": 0.0,
+        "sampled_slow_enemy_seconds": 0.0,
+        "status": "cleared",
+        "unable_to_afford_seconds": 23.4,
+        "valid": true,
+        "wave_reached": 0,
+        "waves_cleared": 1
+      },
+      "pools": {
+        "cells": {
+          "capacity": 32768,
+          "denied": 0,
+          "highwater": 77,
+          "request_scope": "kernel spawn attempts; player validation rejections are separate",
+          "requested": 86,
+          "spawned": 86
+        },
+        "fluid": {
+          "capacity": 32768,
+          "denied": 0,
+          "highwater": 0,
+          "requested": 0,
+          "spawned": 0
+        },
+        "projectiles": {
+          "capacity": 65536,
+          "denied": 0,
+          "highwater": 811,
+          "requested": 3801,
+          "spawned": 3801
+        }
+      },
+      "diagnostics": {
+        "errors": [],
+        "warnings": []
+      },
+      "report_path": "scratch/progression-rework/l10-controller-v15-qualification/tactical.report.json",
+      "report_sha256": "45b9259dc172e15eea39c737569e1ecb7be151a6c137413177771421b1a34be6",
+      "base_config_fingerprint": 10585889450267739244,
+      "state_hash": 18283365414810277341,
+      "wave_status": {
+        "all_waves_complete": true,
+        "phase": 3,
+        "phase_time_remaining": 0.0,
+        "remaining_to_spawn": 0,
+        "wave_index": 0
+      },
+      "spec_path": "scratch/progression-rework/l10-controller-v15-qualification/tactical.spec.json",
+      "observed_spec_sha256": "d39f1bbf4c3f3d8a49a1c88090492bb172c24255badf4012a0dc32f1ad09d068",
+      "portable_spec_canonical_sha256": "c508a95089fba3cf8e5649412f9684a3f1025e646cec3edba081fa40df061bfb",
+      "same_input_except_config_directory": true,
+      "economy": {
+        "atp": 98,
+        "damage_income": 417,
+        "fractional_income": 0.7251840233802795,
+        "opening_atp": 950,
+        "refunds": 0,
+        "spent": 1359,
+        "wave_income": 90
+      },
+      "enemy_survivors": 0
+    },
+    "competent": {
+      "qualified": true,
+      "exit_code": 0,
+      "wall_seconds": 4.505517899990082,
+      "summary": {
+        "abilities_used": 2,
+        "actions_rejected": 0,
+        "antibodies": 1,
+        "atp_remaining": 234,
+        "atp_seconds_unspent": 13877.7166666663,
+        "atp_spent": 1214,
+        "clearing_timeout_advances": 0,
+        "combat_metrics_available": true,
+        "denied_spawns": 0,
+        "density_removed": 1222.2000236809254,
+        "deploy_capacity_rejected": 0,
+        "duration_seconds": 54.81666666666666,
+        "duration_ticks": 3289,
+        "friendly_alive": 61,
+        "friendly_killed": 10,
+        "kills": 1897,
+        "leaks": 0,
+        "memory_cells": 94,
+        "objective_integrity": 100.0,
+        "peak_enemies": 1433,
+        "prep_seconds": 24.516666666666666,
+        "sampled_danger_seconds": 0.0,
+        "sampled_slow_enemy_seconds": 0.0,
+        "status": "cleared",
+        "unable_to_afford_seconds": 8.15,
+        "valid": true,
+        "wave_reached": 0,
+        "waves_cleared": 1
+      },
+      "pools": {
+        "cells": {
+          "capacity": 32768,
+          "denied": 0,
+          "highwater": 61,
+          "request_scope": "kernel spawn attempts; player validation rejections are separate",
+          "requested": 71,
+          "spawned": 71
+        },
+        "fluid": {
+          "capacity": 32768,
+          "denied": 0,
+          "highwater": 0,
+          "requested": 0,
+          "spawned": 0
+        },
+        "projectiles": {
+          "capacity": 65536,
+          "denied": 0,
+          "highwater": 825,
+          "requested": 3687,
+          "spawned": 3687
+        }
+      },
+      "diagnostics": {
+        "errors": [],
+        "warnings": []
+      },
+      "report_path": "scratch/progression-rework/l10-controller-v15-qualification/competent.report.json",
+      "report_sha256": "d8a26fa5f1fcc90f092185c741bb64da962cb90b996f04023fa16c9ce62632f9",
+      "base_config_fingerprint": 10585889450267739244,
+      "state_hash": 4233131886861459109,
+      "wave_status": {
+        "all_waves_complete": true,
+        "phase": 3,
+        "phase_time_remaining": 0.0,
+        "remaining_to_spawn": 0,
+        "wave_index": 0
+      },
+      "spec_path": "scratch/progression-rework/l10-controller-v15-qualification/competent.spec.json",
+      "observed_spec_sha256": "e07afdf7b83f9e36eb5d6ae64d30c809a8cfa15afe7966cc60c1e06fb058c9a1",
+      "portable_spec_canonical_sha256": "2f96a95895ece4f4c4c380f2451a181e3b0c674d40b0f91598048dc247e41694",
+      "same_input_except_config_directory": true,
+      "economy": {
+        "atp": 234,
+        "damage_income": 408,
+        "fractional_income": 0.5003284811973572,
+        "opening_atp": 950,
+        "refunds": 0,
+        "spent": 1214,
+        "wave_income": 90
+      },
+      "enemy_survivors": 0
+    }
+  },
+  "controller_adequacy": {
+    "status": "reference_passed",
+    "interpretation": "The controller reproduced the declared reference criteria in this sample. This supports comparisons within that reference scope; it does not establish human skill calibration or justify an automatic balance change.",
+    "reference_checks": [
+      {
+        "name": "Late earned final-map first authored wave is achievable",
+        "policy": "tactical",
+        "level": "diagnostic_l10_first_authored_wave_only",
+        "profile": "any",
+        "source": "The paid drain-hold feasibility reference clears the exact first authored wave under this legitimately earned late profile. Independent Tactical and Competent policies then cleared with no golden actions; exact V15 results and hashes are in assets/balance/references/final_first_wave_automatic_verification.json.",
+        "criteria": {
+          "name": "Late earned final-map first authored wave is achievable",
+          "level": "diagnostic_l10_first_authored_wave_only",
+          "profile": "any",
+          "policies": [
+            "tactical",
+            "competent"
+          ],
+          "variants": [
+            "automatic"
+          ],
+          "minimum_waves_cleared": 1,
+          "expected_status": "cleared",
+          "minimum_samples": 1,
+          "minimum_success_rate": 1,
+          "require_standard_rules": true,
+          "automatic_controller_only": true,
+          "source": "The paid drain-hold feasibility reference clears the exact first authored wave under this legitimately earned late profile. Independent Tactical and Competent policies then cleared with no golden actions; exact V15 results and hashes are in assets/balance/references/final_first_wave_automatic_verification.json.",
+          "evidence": {
+            "paid_reference": "assets/balance/references/final_first_wave_qualification.json",
+            "automatic_verification": "assets/balance/references/final_first_wave_automatic_verification.json",
+            "single_seed_scope": "A bounded deterministic calibration encounter, not a win-rate estimate or an independent held-out campaign sample."
+          }
+        },
+        "status": "passed",
+        "observed": 1,
+        "terminal": 1,
+        "successful": 1,
+        "success_rate": 1.0,
+        "success_rate_ci95": [
+          0.20654931437723745,
+          1.0
+        ],
+        "observations": [
+          {
+            "record_id": "evaluation-tactical-automatic-31031-5509129705aa",
+            "attempt_index": 0,
+            "seed": 31031,
+            "status": "cleared",
+            "waves_cleared": 1
+          }
+        ]
+      },
+      {
+        "name": "Late earned final-map first authored wave is achievable",
+        "policy": "competent",
+        "level": "diagnostic_l10_first_authored_wave_only",
+        "profile": "any",
+        "source": "The paid drain-hold feasibility reference clears the exact first authored wave under this legitimately earned late profile. Independent Tactical and Competent policies then cleared with no golden actions; exact V15 results and hashes are in assets/balance/references/final_first_wave_automatic_verification.json.",
+        "criteria": {
+          "name": "Late earned final-map first authored wave is achievable",
+          "level": "diagnostic_l10_first_authored_wave_only",
+          "profile": "any",
+          "policies": [
+            "tactical",
+            "competent"
+          ],
+          "variants": [
+            "automatic"
+          ],
+          "minimum_waves_cleared": 1,
+          "expected_status": "cleared",
+          "minimum_samples": 1,
+          "minimum_success_rate": 1,
+          "require_standard_rules": true,
+          "automatic_controller_only": true,
+          "source": "The paid drain-hold feasibility reference clears the exact first authored wave under this legitimately earned late profile. Independent Tactical and Competent policies then cleared with no golden actions; exact V15 results and hashes are in assets/balance/references/final_first_wave_automatic_verification.json.",
+          "evidence": {
+            "paid_reference": "assets/balance/references/final_first_wave_qualification.json",
+            "automatic_verification": "assets/balance/references/final_first_wave_automatic_verification.json",
+            "single_seed_scope": "A bounded deterministic calibration encounter, not a win-rate estimate or an independent held-out campaign sample."
+          }
+        },
+        "status": "passed",
+        "observed": 1,
+        "terminal": 1,
+        "successful": 1,
+        "success_rate": 1.0,
+        "success_rate_ci95": [
+          0.20654931437723745,
+          1.0
+        ],
+        "observations": [
+          {
+            "record_id": "evaluation-competent-automatic-31031-2d0c7fc241c1",
+            "attempt_index": 0,
+            "seed": 31031,
+            "status": "cleared",
+            "waves_cleared": 1
+          }
+        ]
+      }
+    ],
+    "automatic_gameplay_tuning_recommendation": null,
+    "reference_scope_comparisons_supported": true,
+    "qualified_scopes": [
+      {
+        "name": "Late earned final-map first authored wave is achievable",
+        "policy": "tactical",
+        "level": "diagnostic_l10_first_authored_wave_only",
+        "profile": "any",
+        "criteria": {
+          "name": "Late earned final-map first authored wave is achievable",
+          "level": "diagnostic_l10_first_authored_wave_only",
+          "profile": "any",
+          "policies": [
+            "tactical",
+            "competent"
+          ],
+          "variants": [
+            "automatic"
+          ],
+          "minimum_waves_cleared": 1,
+          "expected_status": "cleared",
+          "minimum_samples": 1,
+          "minimum_success_rate": 1,
+          "require_standard_rules": true,
+          "automatic_controller_only": true,
+          "source": "The paid drain-hold feasibility reference clears the exact first authored wave under this legitimately earned late profile. Independent Tactical and Competent policies then cleared with no golden actions; exact V15 results and hashes are in assets/balance/references/final_first_wave_automatic_verification.json.",
+          "evidence": {
+            "paid_reference": "assets/balance/references/final_first_wave_qualification.json",
+            "automatic_verification": "assets/balance/references/final_first_wave_automatic_verification.json",
+            "single_seed_scope": "A bounded deterministic calibration encounter, not a win-rate estimate or an independent held-out campaign sample."
+          }
+        }
+      },
+      {
+        "name": "Late earned final-map first authored wave is achievable",
+        "policy": "competent",
+        "level": "diagnostic_l10_first_authored_wave_only",
+        "profile": "any",
+        "criteria": {
+          "name": "Late earned final-map first authored wave is achievable",
+          "level": "diagnostic_l10_first_authored_wave_only",
+          "profile": "any",
+          "policies": [
+            "tactical",
+            "competent"
+          ],
+          "variants": [
+            "automatic"
+          ],
+          "minimum_waves_cleared": 1,
+          "expected_status": "cleared",
+          "minimum_samples": 1,
+          "minimum_success_rate": 1,
+          "require_standard_rules": true,
+          "automatic_controller_only": true,
+          "source": "The paid drain-hold feasibility reference clears the exact first authored wave under this legitimately earned late profile. Independent Tactical and Competent policies then cleared with no golden actions; exact V15 results and hashes are in assets/balance/references/final_first_wave_automatic_verification.json.",
+          "evidence": {
+            "paid_reference": "assets/balance/references/final_first_wave_qualification.json",
+            "automatic_verification": "assets/balance/references/final_first_wave_automatic_verification.json",
+            "single_seed_scope": "A bounded deterministic calibration encounter, not a win-rate estimate or an independent held-out campaign sample."
+          }
+        }
+      }
+    ],
+    "distinction": "Pressure-grid calibration measures this controller's capacity. Controller adequacy requires separate known-achievable gameplay references; valid simulation alone does not prove adequate play."
+  },
+  "retained_historical_failures": {
+    "v10": "scratch/progression-rework/l10-controller-v10-qualification/verification.json",
+    "meaning": "Both policies lost before wave 1 with idle allies. Later automatic qualification does not erase those failures."
+  },
+  "command": "python tools/balance_lab.py run assets/balance/experiments/controller_final_wave_calibration.json --exe path/to/immune.exe --out scratch/balance/final-first-wave --jobs 1"
+}

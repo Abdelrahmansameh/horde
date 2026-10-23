@@ -19,8 +19,8 @@
 #include "core/JobSystem.h"
 #include "core/Profiler.h"
 #include "game/abilities/ActiveAbilities.h"
-#include "game/autoplay/AutoPlayer.h"
 #include "game/config/GameConfig.h"
+#include "game/balance/RunRecording.h"
 #include "game/economy/Economy.h"
 #include "game/enemies/EnemyRoster.h"
 #include "game/gym/GymCommands.h"
@@ -142,10 +142,13 @@ private:
     /// Pays out the run that just ended (a clear or a wipe -- an abort pays
     /// nothing), saves, and fills last_run_ for the results screen.
     void finish_run(bool won);
+    void save_balance_recording(game::SessionOutcome outcome = game::SessionOutcome::InProgress);
     /// Writes meta_ to save_path_, unless loading it failed (see save_ok_).
     void save_meta();
     /// Loads save_path_ into meta_ at startup.
     void load_meta();
+    void build_progression_cheats();
+    bool progression_cheats_visible_ = false;
 
     Options options_{};
     GameStateMachine state_;
@@ -218,6 +221,8 @@ private:
     game::Economy economy_;
     /// The player's persistent progress: both currencies and the tree.
     game::MetaProgression meta_;
+    game::balance::RunRecording balance_recording_;
+    u64 balance_recording_sequence_ = 0;
     /// Where meta_ lives on disk (--save, else the per-user data dir).
     std::string save_path_;
     /// False when the save file exists but would not load (corrupt, or from
@@ -239,14 +244,8 @@ private:
     /// tick and before the win/loss check.
     game::GymToggles gym_toggles_;
 
-    /// The balance bot (game/autoplay), off unless the `autoplay` gym command
-    /// turns it on. Present in the interactive build for one reason: a bot
-    /// whose play cannot be watched cannot be trusted to produce balance
-    /// numbers. Pair with `time 8` to watch a level at eight times speed.
-    game::AutoPlayer bot_;
-    bool autoplay_enabled_ = false;
-    /// The level geometry the bot planned against, kept so a re-plan after a
-    /// level load has something to plan from.
+    /// The loaded level's authored rules, camera, and geometry, also used when
+    /// opening the current level in the editor.
     game::LevelDef current_level_def_;
 
     /// Cosmetic only, and deliberately outside sim_: own RNG, render clock.

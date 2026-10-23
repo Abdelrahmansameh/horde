@@ -3,14 +3,41 @@
 // explaining a sequencing decision came with it and is load-bearing.
 #include "game/session/LevelSession.h"
 
+#include "core/Log.h"
 #include "game/abilities/ActiveAbilities.h"
 #include "game/economy/Economy.h"
 #include "game/gym/GymCommands.h"
+#include "game/level/Level.h"
 #include "game/towers/TowerSystem.h"
 #include "game/wave/WaveDirector.h"
 #include "sim/SimWorld.h"
 
 namespace immune::game {
+
+void apply_level_rules(const LevelDef& level, const EconomyConfig& base,
+                       Economy& economy, TowerSystem& towers, u32 starting_atp_bonus) {
+    EconomyConfig config = base;
+    if (level.economy.starting_atp != 0) {
+        config.starting_atp = level.economy.starting_atp + starting_atp_bonus;
+    }
+    if (level.economy.income_multiplier != 1.0f) {
+        config.atp_per_density *= level.economy.income_multiplier;
+    }
+    economy.configure(config);
+
+    // An empty allowlist means all types, represented by a zero mask.
+    u32 mask = 0;
+    for (const std::string& name : level.allowed_towers) {
+        TowerType type{};
+        if (!parse_tower_type(name, type)) {
+            IMMUNE_LOG_WARN("level '%s' allows unknown tower '%s'", level.name.c_str(),
+                            name.c_str());
+            continue;
+        }
+        mask |= 1u << static_cast<u32>(type);
+    }
+    towers.set_allowed_towers(mask);
+}
 
 SessionOutcome step_level(const LevelSystems& s, Profiler* profiler) {
     if (s.world == nullptr) return SessionOutcome::InProgress;
@@ -34,11 +61,6 @@ SessionOutcome step_level(const LevelSystems& s, Profiler* profiler) {
     if (s.toggles != nullptr) s.toggles->apply(world);
 
     if (s.economy != nullptr) {
-        // Passive income only accrues during the round itself (Spawning/
-        // Clearing), not during Prep -- the player shouldn't watch ATP tick up
-        // while idling in the build phase between rounds.
-        const bool in_prep = s.waves != nullptr && s.waves->status().phase == WavePhase::Prep;
-        if (!in_prep) s.economy->tick(kFixedDt);
         s.economy->credit_kills(world.last_damage_stats().density_removed);
         if (s.waves != nullptr) s.economy->credit_bounty(s.waves->take_pending_atp_reward());
     }

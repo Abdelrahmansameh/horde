@@ -1,0 +1,104 @@
+{
+  "schema": 1,
+  "name": "Automatic controller calibration against known achievable fresh first wave",
+  "kind": "paired",
+  "baseline": "baseline",
+  "metric": "objective_integrity",
+  "metrics": [
+    "summary.friendly_killed",
+    "summary.atp_spent",
+    "summary.duration_seconds",
+    "summary.kills"
+  ],
+  "seeds": [
+    1101,
+    1202,
+    1303,
+    1404,
+    1505,
+    1606,
+    1707,
+    1808
+  ],
+  "policies": [
+    {
+      "name": "competent",
+      "controller": {
+        "policy": "competent"
+      }
+    },
+    {
+      "name": "tactical",
+      "controller": {
+        "policy": "tactical"
+      }
+    }
+  ],
+  "base": {
+    "schema": 1,
+    "level": "assets/balance/levels/campaign_first_wave_reference.json",
+    "max_ticks": 6000,
+    "sample_ticks": 60,
+    "progression": {
+      "memory_cells": 0,
+      "antibodies": 0
+    },
+    "controller": {
+      "use_abilities": false
+    }
+  },
+  "variants": [
+    {
+      "name": "baseline",
+      "patch": {}
+    }
+  ],
+  "controller_calibration": {
+    "schema": 1,
+    "references": [
+      {
+        "name": "Fresh campaign first wave is achievable",
+        "level": "campaign_01_first_bend",
+        "profile": "fresh",
+        "policies": [
+          "competent",
+          "tactical"
+        ],
+        "variants": [
+          "baseline"
+        ],
+        "minimum_waves_cleared": 1,
+        "expected_status": "cleared",
+        "minimum_samples": 8,
+        "minimum_success_rate": 1,
+        "require_standard_rules": true,
+        "source": "Player-confirmed achievable first wave; paid early-cohort reference cleared 9/9 seeds 101–909 with 70–100 integrity, 300 ATP, no upgrades, abilities or reinforcements.",
+        "evidence": {
+          "spec": "assets/balance/references/fresh_first_wave_paid_actions.json",
+          "observed_seeds": [
+            101,
+            202,
+            303,
+            404,
+            505,
+            606,
+            707,
+            808,
+            909
+          ],
+          "observed_integrity_range": [
+            70,
+            100
+          ],
+          "role": "Establishes achievable play; scripted reference results do not count as an automatic controller passing calibration."
+        }
+      }
+    ]
+  },
+  "expectations": {
+    "purpose": "Validate adequate placement and reinforcement policy before drawing gameplay-balance conclusions. Failing an achievable reference identifies a controller/input mismatch.",
+    "controls": "This scenario truncates the original campaign after its first authored wave; original map geometry, enemy release,300ATP and progression are preserved.",
+    "independence": "Automatic controller seeds are held out from the nine paid reference seeds. The automatic base intentionally has no action script.",
+    "inference": "No result automatically recommends weakening enemies, granting stats or changing economy."
+  }
+}

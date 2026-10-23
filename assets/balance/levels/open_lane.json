@@ -1,0 +1,187 @@
+{
+  "schema": 2,
+  "region": "capillary",
+  "world": {
+    "min": [
+      0,
+      0
+    ],
+    "max": [
+      240,
+      120
+    ],
+    "cell_size": 1
+  },
+  "economy": {
+    "starting_atp": 300
+  },
+  "name": "balance_open_lane",
+  "display_name": "Balance Lab: Open Lane",
+  "description": "Controlled diagnostic encounter. Not a campaign difficulty target.",
+  "vessels": [
+    {
+      "id": "main",
+      "points": [
+        {
+          "p": [
+            0,
+            60
+          ],
+          "w": 56
+        },
+        {
+          "p": [
+            240,
+            60
+          ],
+          "w": 56
+        }
+      ]
+    }
+  ],
+  "spawn_points": [
+    {
+      "id": "west",
+      "pos": [
+        15,
+        60
+      ],
+      "radius": 7,
+      "lane_id": "main"
+    }
+  ],
+  "objectives": [
+    {
+      "id": "organ",
+      "pos": [
+        225,
+        60
+      ],
+      "half_extents": [
+        7,
+        24
+      ]
+    }
+  ],
+  "placement_zones": [
+    {
+      "min": [
+        35,
+        35
+      ],
+      "max": [
+        208,
+        85
+      ]
+    },
+    {
+      "min": [
+        85,
+        45
+      ],
+      "max": [
+        160,
+        75
+      ],
+      "concentrated": true,
+      "priority": 2
+    }
+  ],
+  "squad_paths": [
+    {
+      "id": "main_route",
+      "lane_id": "main",
+      "points": [
+        [
+          15,
+          60
+        ],
+        [
+          65,
+          60
+        ],
+        [
+          110,
+          60
+        ],
+        [
+          155,
+          60
+        ],
+        [
+          205,
+          60
+        ],
+        [
+          225,
+          60
+        ]
+      ],
+      "half_width": 4
+    }
+  ],
+  "waves": [
+    {
+      "name": "virus_column",
+      "prep_time": 4,
+      "atp_reward": 35,
+      "spawns": [
+        {
+          "family": "virus",
+          "count": 100,
+          "duration": 6,
+          "spawn_point_id": "west",
+          "squad_size": 40,
+          "squad_paths": [
+            "main_route"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "bacterial_column",
+      "prep_time": 4,
+      "atp_reward": 45,
+      "spawns": [
+        {
+          "family": "bacteria",
+          "count": 130,
+          "duration": 6,
+          "spawn_point_id": "west",
+          "squad_size": 40,
+          "squad_paths": [
+            "main_route"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "mixed_pressure",
+      "prep_time": 4,
+      "atp_reward": 55,
+      "spawns": [
+        {
+          "family": "parasite",
+          "count": 50,
+          "duration": 5,
+          "spawn_point_id": "west",
+          "squad_size": 25,
+          "squad_paths": [
+            "main_route"
+          ]
+        },
+        {
+          "family": "virus",
+          "count": 180,
+          "start_time": 6.5,
+          "duration": 6,
+          "spawn_point_id": "west",
+          "squad_size": 40,
+          "squad_paths": [
+            "main_route"
+          ]
+        }
+      ]
+    }
+  ]
+}

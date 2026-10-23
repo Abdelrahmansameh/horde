@@ -384,6 +384,7 @@ const SpeedProfileParams& enemy_speed_profile(SpeedTier tier) {
 }
 
 void apply_enemy_config(EnemyRoster& roster, const EnemyConfig& cfg) {
+    (void)default_game_config(); // Snapshot bootstrap values before the first live override.
     mutable_enemy_config() = cfg;
     g_enemy_config_applied = true;
 

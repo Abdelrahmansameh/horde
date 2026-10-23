@@ -1,0 +1,84 @@
+{
+  "schema": 1,
+  "name": "Enemy and friendly first-hit TTK diagnostics",
+  "kind": "paired",
+  "seeds": [
+    101,
+    202,
+    303,
+    404,
+    505,
+    606,
+    707,
+    808
+  ],
+  "metric": "objective_integrity",
+  "policies": [
+    {
+      "name": "competent",
+      "controller": {
+        "policy": "competent"
+      }
+    }
+  ],
+  "base": {
+    "schema": 1,
+    "level": "assets/balance/levels/open_lane.json",
+    "max_ticks": 18000,
+    "sample_ticks": 30,
+    "opening_atp": 120,
+    "spend_limit": 120,
+    "income_enabled": false,
+    "allowed_cells": [
+      "neutrophil"
+    ],
+    "controller": {
+      "use_abilities": false
+    },
+    "progression": {
+      "grant_tree": {}
+    },
+    "overrides": {
+      "enemies.families.virus.behavior.base_density": 6
+    }
+  },
+  "expectations": {
+    "scope": "Diagnostic fixed-wallet encounter, abilities disabled; enemy virus density deliberately increased to expose multi-hit thresholds.",
+    "measurement": "TTK starts at first effective damage, ends only on damage death; spawn-to-damage-death lifetime is separate.",
+    "zero": "A zero TTK is a valid first-hit kill at the fixed 60 Hz resolution.",
+    "censoring": "Alive and hit-alive organisms are right-censored; leaks, bounds exits, consumption and expiration never become damage-death TTK.",
+    "comparison": "Damage ranks can cross a hit-count threshold. Do not assert a numeric universal TTK or substitute missing death observations with zero."
+  },
+  "variants": [
+    {
+      "name": "baseline",
+      "patch": {}
+    },
+    {
+      "name": "damage_rank_1",
+      "patch": {
+        "progression": {
+          "grant_tree": {
+            "neutrophil.round_damage": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "damage_rank_5",
+      "patch": {
+        "progression": {
+          "grant_tree": {
+            "neutrophil.round_damage": 5
+          }
+        }
+      }
+    },
+    {
+      "name": "more_fronts",
+      "patch": {
+        "level": "assets/balance/levels/two_fronts.json"
+      }
+    }
+  ]
+}

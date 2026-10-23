@@ -1,0 +1,112 @@
+{
+  "schema": 1,
+  "name": "Separate release pressure, horde duration and reinvestment",
+  "kind": "paired",
+  "metric": "objective_integrity",
+  "metrics": [
+    "summary.peak_enemies",
+    "summary.friendly_killed",
+    "summary.atp_spent",
+    "summary.density_removed",
+    "summary.duration_seconds",
+    "economy.damage_income"
+  ],
+  "seeds": [
+    101,
+    202,
+    303,
+    404,
+    505,
+    606,
+    707,
+    808
+  ],
+  "policies": [
+    {
+      "name": "novice",
+      "controller": {
+        "policy": "novice"
+      }
+    },
+    {
+      "name": "competent",
+      "controller": {
+        "policy": "competent"
+      }
+    },
+    {
+      "name": "tactical",
+      "controller": {
+        "policy": "tactical"
+      }
+    }
+  ],
+  "base": {
+    "schema": 1,
+    "level": "assets/balance/levels/pressure_baseline.json",
+    "seed": 101,
+    "max_ticks": 18000,
+    "sample_ticks": 30,
+    "opening_atp": 300,
+    "spend_limit": 300,
+    "income_enabled": false,
+    "controller": {
+      "use_abilities": false
+    },
+    "progression": {
+      "profile": "all_unlocked"
+    }
+  },
+  "expectations": {
+    "hypothesis": "A longer horde at unchanged release rate can extend combat without exceeding sustained defensive capacity; compressing the same count increases arrival pressure. Mobile cells, enemy attacks, crowding and economy require actual measurement.",
+    "controls": "Fixed-wallet comparisons share budget and roster. Explicit income variants permit reinvestment and intentionally change that control."
+  },
+  "variants": [
+    {
+      "name": "baseline",
+      "patch": {}
+    },
+    {
+      "name": "same_count_double_release_rate",
+      "patch": {
+        "level": "assets/balance/levels/pressure_compressed.json"
+      }
+    },
+    {
+      "name": "double_count_same_release_rate",
+      "patch": {
+        "level": "assets/balance/levels/pressure_longer.json"
+      }
+    },
+    {
+      "name": "same_release_choke_geometry",
+      "patch": {
+        "level": "assets/balance/levels/pressure_choke.json"
+      }
+    },
+    {
+      "name": "reinvestment_baseline",
+      "patch": {
+        "level": "assets/balance/levels/pressure_baseline.json",
+        "income_enabled": true,
+        "spend_limit": 1000000
+      }
+    },
+    {
+      "name": "reinvestment_compressed",
+      "patch": {
+        "level": "assets/balance/levels/pressure_compressed.json",
+        "income_enabled": true,
+        "spend_limit": 1000000
+      }
+    },
+    {
+      "name": "reinvestment_longer",
+      "patch": {
+        "level": "assets/balance/levels/pressure_longer.json",
+        "income_enabled": true,
+        "spend_limit": 1000000
+      }
+    }
+  ]
+}

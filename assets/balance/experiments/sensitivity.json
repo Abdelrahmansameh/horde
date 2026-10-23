@@ -1,0 +1,77 @@
+{
+  "schema": 1,
+  "seeds": [
+    101,
+    202,
+    303,
+    404,
+    505,
+    606,
+    707,
+    808
+  ],
+  "metric": "objective_integrity",
+  "policies": [
+    {
+      "name": "novice",
+      "controller": {
+        "policy": "novice"
+      }
+    },
+    {
+      "name": "competent",
+      "controller": {
+        "policy": "competent"
+      }
+    },
+    {
+      "name": "tactical",
+      "controller": {
+        "policy": "tactical"
+      }
+    }
+  ],
+  "name": "Single parameter sensitivity with paired seeds",
+  "kind": "sweep",
+  "base": {
+    "schema": 1,
+    "level": "assets/balance/levels/open_lane.json",
+    "max_ticks": 18000,
+    "sample_ticks": 60,
+    "progression": {
+      "profile": "all_unlocked"
+    }
+  },
+  "variants": [
+    {
+      "name": "baseline",
+      "patch": {}
+    }
+  ],
+  "sweeps": [
+    {
+      "name": "virus_density",
+      "override": "enemies.families.virus.behavior.base_density",
+      "values": [
+        0.48,
+        0.72
+      ]
+    },
+    {
+      "name": "neutrophil_round_damage",
+      "override": "towers.neutrophil.payload.round_damage",
+      "values": [
+        1.84,
+        2.76
+      ]
+    },
+    {
+      "name": "atp_per_density",
+      "override": "economy.atp_per_density",
+      "values": [
+        0.8,
+        1.2
+      ]
+    }
+  ]
+}

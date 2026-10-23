@@ -388,6 +388,7 @@ HostileStats HostileSystem::update(ChaffBuffers& chaff, const SpatialHash& hash,
                 const f32 r = shot.radius + body;
                 if (math::length_sq(shot.position - Vec2{sw.pos_x[k], sw.pos_y[k]}) <= r * r) {
                     const f32 damage = shot.damage * tuning_.damage_taken_mult;
+                    sw.observe_hostile_damage(k, sw.health[k], damage);
                     sw.health[k] -= damage;
                     stats.swarmer_damage += damage;
                     ++stats.toxin_hits;
@@ -469,6 +470,7 @@ HostileStats HostileSystem::update(ChaffBuffers& chaff, const SpatialHash& hash,
             host_vel = Vec2{sw.vel_x[idx], sw.vel_y[idx]};
             host_body = sw.body_size(idx) * kWallContactFraction;
             ++swarmer_passengers_[idx];
+            sw.observe_hostile_damage(idx, sw.health[idx], bite);
             sw.health[idx] -= bite;
             stats.swarmer_damage += bite;
             break;
@@ -637,6 +639,7 @@ HostileStats HostileSystem::update(ChaffBuffers& chaff, const SpatialHash& hash,
         });
         incoming *= tuning_.damage_taken_mult;
         if (incoming > 0.0f) {
+            sw.observe_hostile_damage(i, sw.health[i], incoming);
             sw.health[i] -= incoming;
             stats.swarmer_damage += incoming;
         }
@@ -752,7 +755,7 @@ HostileStats HostileSystem::update(ChaffBuffers& chaff, const SpatialHash& hash,
     for (usize i = 0; i < sw_n; ++i) {
         if ((sw.flags[i] & swarmer_flags::kPendingKill) != 0) continue;
         if (sw.health[i] > 0.0f) continue;
-        sw.kill(i);
+        sw.kill(i, CombatRetirement::Damage);
         ++stats.swarmers_killed;
         raise_swarmer_death(sw, i, events);
     }

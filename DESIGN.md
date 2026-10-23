@@ -19,7 +19,7 @@ documentation are current defaults, not a promise that balance is final.
 | Deployment | One click places one persistent cell; holding repeats; Shift requests up to ten cells per placement event. Cells act autonomously. | [Gameplay](docs/GAMEPLAY.md), [immune cells](docs/IMMUNE_CELLS.md) |
 | Roster | Neutrophil, Cytotoxic T, Macrophage, Goblet Cell, Fibroblast. A new campaign owns only Neutrophil. | [Immune cells](docs/IMMUNE_CELLS.md) |
 | Pathogens | Virus replicates and latches; bacteria fire toxin pellets; parasites slither and burrow. The game roster currently contains no elites or bosses. | [Pathogens](docs/PATHOGENS.md) |
-| Economy | ATP pays for cells. Passive income runs outside Prep; removing pathogen density and finishing waves also pay ATP. | [Abilities and economy](docs/ABILITIES_ECONOMY.md) |
+| Economy | ATP pays for cells. Removing pathogen density and finishing waves earn ATP. | [Abilities and economy](docs/ABILITIES_ECONOMY.md) |
 | Abilities | Complement Cascade Burst, Histamine Flare, Fever Response, Fibrin Clot, permanently unlocked through the tree. | [Abilities and economy](docs/ABILITIES_ECONOMY.md) |
 | Waves | A level supplies its spawn schedule. Normal play manually starts waves unless Auto is enabled. | [Gameplay](docs/GAMEPLAY.md) |
 | Campaign | The level selector uses the ordered `campaign_*.json` files; clearing the previous level opens the next. | [Progression](docs/PROGRESSION.md) |

@@ -1,13 +1,9 @@
 // game/config/GameConfig.cpp — sim/economy/abilities/meta schemas, the
 // aggregate load/dump/bind, and the bootstrap defaults.
 //
-// default_game_config() deliberately reads most of its values back OUT of the
-// live systems (TowerSystem::stats, EnemyRoster::load_defaults, render's
-// family tables, ActiveAbilitySystem::load_defaults) rather than restating
-// them. Those are the numbers the game actually runs on today, so the shipped
-// JSON generated from this is correct by construction instead of by careful
-// typing. Only values that live as file-static constants — the tower mechanism
-// tables — are written out by hand here.
+// default_game_config() snapshots bootstrap values from the live systems before
+// their first config application. It returns that immutable snapshot afterwards,
+// so an experiment or permanent upgrade cannot redefine compiled defaults.
 #include "game/config/Schemas.h"
 
 #include "game/abilities/AbilityConfigApply.h"
@@ -145,7 +141,6 @@ constexpr Schema kHostileSchema{"hostile", kHostileFields};
 
 constexpr Field kEconomyFields[] = {
     IMMUNE_CONFIG_FIELD(EconomyConfig, starting_atp, FieldKind::U32, "ATP at level start"),
-    IMMUNE_CONFIG_FIELD(EconomyConfig, passive_income_per_second, FieldKind::F32, ""),
     IMMUNE_CONFIG_FIELD(EconomyConfig, atp_per_density, FieldKind::F32, "ATP per unit of chaff density destroyed"),
     IMMUNE_CONFIG_FIELD(EconomyConfig, refund_fraction, FieldKind::F32, "Fraction of invested ATP returned on sell"),
 };
@@ -172,11 +167,11 @@ constexpr Field kMetaFields[] = {
     IMMUNE_CONFIG_FIELD(MetaConfig, first_clear_antibodies, FieldKind::U32, "Antibodies for a level's first clear; replays pay none"),
     IMMUNE_CONFIG_FIELD(MetaConfig, stat_base_cost, FieldKind::U32, "Memory Cells for level 1 of a standard stat line"),
     IMMUNE_CONFIG_FIELD(MetaConfig, stat_cost_step, FieldKind::U32, "Extra Memory Cells per level after the first"),
-    IMMUNE_CONFIG_FIELD(MetaConfig, tower_unlock_antibodies, FieldKind::U32, "Antibodies to unlock a tower branch"),
-    IMMUNE_CONFIG_FIELD(MetaConfig, ability_unlock_antibodies, FieldKind::U32, "Antibodies to unlock an active ability"),
-    IMMUNE_CONFIG_FIELD(MetaConfig, capstone_antibodies, FieldKind::U32, "Antibody half of a capstone's price"),
-    IMMUNE_CONFIG_FIELD(MetaConfig, capstone_memory_cells, FieldKind::U32, "Memory Cell half of a capstone's price"),
-    IMMUNE_CONFIG_FIELD(MetaConfig, capstone_threshold, FieldKind::U32, "Stat levels bought in a branch before its capstone opens"),
+    IMMUNE_CONFIG_FIELD(MetaConfig, tower_unlock_antibodies, FieldKind::U32, "Legacy: cell discoveries now cost exactly one Antibody"),
+    IMMUNE_CONFIG_FIELD(MetaConfig, ability_unlock_antibodies, FieldKind::U32, "Legacy: ability discoveries now cost exactly one Antibody"),
+    IMMUNE_CONFIG_FIELD(MetaConfig, capstone_antibodies, FieldKind::U32, "Legacy: capstone discoveries now cost exactly one Antibody"),
+    IMMUNE_CONFIG_FIELD(MetaConfig, capstone_memory_cells, FieldKind::U32, "Legacy: capstones have no Memory Cell cost"),
+    IMMUNE_CONFIG_FIELD(MetaConfig, capstone_threshold, FieldKind::U32, "Legacy: capstones have no stat-rank threshold"),
     IMMUNE_CONFIG_FIELD(MetaConfig, respec_cost, FieldKind::U32, "Memory Cells withheld from a full respec's refund"),
 };
 constexpr Schema kMetaSchema{"meta", kMetaFields};
@@ -398,31 +393,39 @@ std::vector<std::string> config_file_names() {
 }
 
 bool parse_game_config(const config::ConfigStore& store, GameConfig& out, std::string& err) {
+    std::vector<config::Json> documents;
+    for (const auto& name : config_file_names()) documents.push_back(store.file(name));
+    return parse_game_config_documents(documents, out, err);
+}
+
+bool parse_game_config_documents(const std::vector<config::Json>& documents, GameConfig& out,
+                                  std::string& err) {
+    if (documents.size() != 6) { err = "expected six gameplay config documents"; return false; }
     GameConfig staged;
     try {
         {
             config::Ctx ctx("towers.json");
-            detail::parse_towers(store.file("towers.json"), staged.towers, ctx);
+            detail::parse_towers(documents.at(0), staged.towers, ctx);
         }
         {
             config::Ctx ctx("enemies.json");
-            detail::parse_enemies(store.file("enemies.json"), staged.enemies, ctx);
+            detail::parse_enemies(documents.at(1), staged.enemies, ctx);
         }
         {
             config::Ctx ctx("sim.json");
-            detail::parse_sim(store.file("sim.json"), staged.sim, ctx);
+            detail::parse_sim(documents.at(2), staged.sim, ctx);
         }
         {
             config::Ctx ctx("economy.json");
-            detail::parse_economy(store.file("economy.json"), staged.economy, ctx);
+            detail::parse_economy(documents.at(3), staged.economy, ctx);
         }
         {
             config::Ctx ctx("abilities.json");
-            detail::parse_abilities(store.file("abilities.json"), staged.abilities, ctx);
+            detail::parse_abilities(documents.at(4), staged.abilities, ctx);
         }
         {
             config::Ctx ctx("meta.json");
-            detail::parse_meta(store.file("meta.json"), staged.meta, ctx);
+            detail::parse_meta(documents.at(5), staged.meta, ctx);
         }
     } catch (const std::exception& e) {
         err = e.what();
@@ -494,7 +497,8 @@ void fill_default_mechanics(TowerConfig& towers) {
 
 } // namespace
 
-GameConfig default_game_config() {
+namespace {
+GameConfig build_bootstrap_config() {
     GameConfig cfg;
 
     // --- towers: read straight out of the live table -----------------------
@@ -630,6 +634,9 @@ GameConfig default_game_config() {
     }
 
     cfg.economy = EconomyConfig{};
+    // The game fallback uses the campaign's reinvestment rate. EconomyConfig's
+    // standalone unit conversion remains neutral for isolated economy users.
+    cfg.economy.atp_per_density = 0.85f;
 
     cfg.abilities = ability_config();
 
@@ -644,6 +651,16 @@ GameConfig default_game_config() {
     cfg.meta.win_bonus = MetaProgression::kWinBonus;
 
     return cfg;
+}
+
+} // namespace
+
+GameConfig default_game_config() {
+    // The first config application primes this snapshot before changing any
+    // process-wide mechanics, enemy, ability or visual table. Subsequent
+    // experiments must never redefine the executable's bootstrap defaults.
+    static const GameConfig compiled = build_bootstrap_config();
+    return compiled;
 }
 
 } // namespace immune::game

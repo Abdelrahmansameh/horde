@@ -359,6 +359,81 @@ void WaveRow::sync(const HudFamilyCount& f, u32 total) {
     bar_->set_level(total > 0 ? static_cast<f32>(f.count) / static_cast<f32>(total) : 0.0f);
 }
 
+// ---- Enemy entrance -------------------------------------------------------------------------
+
+SpawnMarker::SpawnMarker(Gui& g, std::string id)
+    : Panel(std::move(id), g.theme().shape("spawn.entry")), gui_(g) {
+    layout.position = Position::Anchored;
+    layout.pivot = Vec2{0.5f, 0.5f};
+    fixed_size(*this, 68.0f, 68.0f);
+    shape_inset = Insets::all(7.0f);
+    blocks_pointer = false;
+    accepts_pointer = false;
+}
+
+void SpawnMarker::draw_self(DrawList& dl) {
+    const Theme& th = gui_.theme();
+    // A soft breathing rim uses the same warm accent as the wave UI. The
+    // badge stays still, keeping the actual entrance easy to locate.
+    ShapeDesc halo;
+    halo.kind = ShapeKind::Ellipse;
+    halo.center = center();
+    const f32 pulse = preparing ? 0.5f + 0.5f * std::sin(gui_.time() * 2.8f) : 0.0f;
+    halo.half_size = Vec2{31.0f, 31.0f} + Vec2{2.0f, 2.0f} * pulse;
+    halo.stroke = with_alpha(th.color("gold"), preparing ? 0.28f + pulse * 0.22f : 0.22f);
+    halo.stroke_width = 1.5f;
+    dl.shape(halo);
+    Panel::draw_self(dl);
+
+    const Vec2 d = math::length_sq(direction) > math::kEpsilon
+                       ? math::normalize_safe(direction) : Vec2{1.0f, 0.0f};
+    const Vec2 side{-d.y, d.x};
+    const auto at = [&](f32 x, f32 y) { return center() + d * x + side * y; };
+    // Small arrivals feeding into two rounded, inward-facing chevrons;
+    // the symbol describes an entrance without promising a pathogen or count.
+    for (f32 y : {-5.0f, 5.0f}) {
+        ShapeDesc dot;
+        dot.kind = ShapeKind::Ellipse;
+        dot.center = at(-15.0f, y);
+        dot.half_size = Vec2{2.2f, 2.2f};
+        dot.fill = th.color("gold");
+        dl.shape(dot);
+    }
+    for (f32 x : {-7.0f, 6.0f}) {
+        const Vec2 chevron[] = {at(x, -8.0f), at(x + 7.0f, 0.0f), at(x, 8.0f)};
+        dl.stroke_polyline(chevron, false, StrokeStyle{4.5f, th.color("plum")});
+    }
+}
+
+// ---- Organ destination ----------------------------------------------------------------------
+
+OrganMarker::OrganMarker(Gui& g, std::string id)
+    : Panel(std::move(id), g.theme().shape("organ.destination")), gui_(g) {
+    layout.position = Position::Anchored;
+    layout.pivot = Vec2{0.5f, 0.5f};
+    fixed_size(*this, 76.0f, 76.0f);
+    shape_inset = Insets::all(7.0f);
+    blocks_pointer = false;
+    accepts_pointer = false;
+}
+
+void OrganMarker::draw_self(DrawList& dl) {
+    Panel::draw_self(dl);
+    const Theme& th = gui_.theme();
+    const auto at = [&](f32 x, f32 y) { return center() + Vec2{x, y}; };
+    Path heart;
+    heart.move_to(at(0, 17))
+        .cubic_to(at(-5, 12), at(-19, 3), at(-19, -6))
+        .cubic_to(at(-19, -19), at(-5, -21), at(0, -11))
+        .cubic_to(at(5, -21), at(19, -19), at(19, -6))
+        .cubic_to(at(19, 3), at(5, 12), at(0, 17)).close();
+    for (const auto& contour : heart.contours()) dl.fill_polygon(contour.points, th.color("blood"));
+    heart.stroke(dl, StrokeStyle{2.5f, th.color("plum")});
+    const Vec2 pulse[] = {at(-12, -1), at(-8, -1), at(-5, -6), at(0, 5),
+                          at(4, -5), at(7, -1), at(12, -1)};
+    dl.stroke_polyline(pulse, false, StrokeStyle{2.5f, th.color("cytoplasm")});
+}
+
 // ---- Range ring -----------------------------------------------------------------------------
 
 RangeRing::RangeRing(std::string id) : Widget(std::move(id)) {}

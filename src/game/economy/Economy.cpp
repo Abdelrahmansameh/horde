@@ -13,16 +13,7 @@ void Economy::reset() {
     total_earned_ = cfg_.starting_atp;
     total_spent_ = 0;
     fractional_ = 0.0f;
-}
-
-void Economy::tick(f32 dt) {
-    fractional_ += cfg_.passive_income_per_second * dt;
-    const u32 whole = static_cast<u32>(fractional_);
-    if (whole > 0) {
-        fractional_ -= static_cast<f32>(whole);
-        atp_ += whole;
-        total_earned_ += whole;
-    }
+    damage_income_ = bounty_income_ = refunds_ = 0;
 }
 
 void Economy::credit_kills(f32 density_removed) {
@@ -33,12 +24,14 @@ void Economy::credit_kills(f32 density_removed) {
         fractional_ -= static_cast<f32>(whole);
         atp_ += whole;
         total_earned_ += whole;
+        damage_income_ += whole;
     }
 }
 
 void Economy::credit_bounty(u32 atp) {
     atp_ += atp;
     total_earned_ += atp;
+    bounty_income_ += atp;
 }
 
 bool Economy::spend(u32 cost) {
@@ -51,6 +44,7 @@ bool Economy::spend(u32 cost) {
 u32 Economy::refund(u32 original_cost) {
     const u32 back = static_cast<u32>(static_cast<f32>(original_cost) * cfg_.refund_fraction);
     atp_ += back;
+    refunds_ += back;
     return back;
 }
 
@@ -59,7 +53,11 @@ EconomySnapshot Economy::snapshot() const {
     s.atp = atp_;
     s.total_earned = total_earned_;
     s.total_spent = total_spent_;
-    s.income_per_second = cfg_.passive_income_per_second;
+    s.opening_atp = cfg_.starting_atp;
+    s.damage_income = damage_income_;
+    s.bounty_income = bounty_income_;
+    s.refunds = refunds_;
+    s.fractional_income = fractional_;
     return s;
 }
 

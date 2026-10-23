@@ -1,6 +1,6 @@
 # Gameplay configuration
 
-[Documentation index](README.md) · [Balance](BALANCE.md) · [Gym](GYM.md)
+[Documentation index](README.md) · [Gym](GYM.md)
 
 Gameplay numbers are loaded from complete, strict JSON files. The compiled
 defaults support bootstrap and tests; they are not a substitute for missing
@@ -20,7 +20,7 @@ All six gameplay files use `"schema": 1` and are loaded in this order:
 | [towers.json](../assets/config/towers.json) | Five cell stat blocks, kind-specific mechanics, deployment interval, death effects |
 | [enemies.json](../assets/config/enemies.json) | Speed tiers, family appearance/physics, replication, hit/death effects, hostile attacks, parasite burrowing, elite catalog |
 | [sim.json](../assets/config/sim.json) | Pool capacities, spatial cells, flow baking, crowd limits, squads, cell contact, hostile limits, mucus solver |
-| [economy.json](../assets/config/economy.json) | Starting ATP, passive income, density bounty, retained refund setting |
+| [economy.json](../assets/config/economy.json) | Starting ATP, kill-density bounty, retained refund setting |
 | [abilities.json](../assets/config/abilities.json) | Four ability cooldowns, radii, damage, duration, Fever heal parameter, Clot dimensions |
 | [meta.json](../assets/config/meta.json) | Run rewards, tree prices, capstone thresholds, respec fee |
 
@@ -70,6 +70,11 @@ In interactive play, [App::apply_tuning_config](../src/app/App.cpp) performs:
 4. Reapply the loaded level's rules last, including its economy and placement
    restrictions. A hot reload must not erase a level override.
 
+App delegates authored economy and cell restrictions to the shared
+`game::apply_level_rules()` in [LevelSession.cpp](../src/game/session/LevelSession.cpp).
+It passes the player's starting-ATP bonus separately so an authored opening
+amount still receives that bonus.
+
 Tree-only capstone fields are intentionally excluded from the authored JSON
 and dump. They come from the node catalog and the player's purchases.
 Rebuilding from a fresh base copy prevents bonuses from compounding after
@@ -79,39 +84,24 @@ editing a stat retroactively reconstructs existing cells or live effects.
 
 ## Editing and live reload
 
-Edit a file directly, or start the standard-library tuning UI:
-
-```powershell
-python tools/config_editor.py
-```
-
-It serves the selected config folder locally and scrapes descriptions/enums
-from the C++ schemas. See [Tools](TOOLS.md) for its options. The game checks
-file contents every 0.5 seconds in ordinary interactive play. It does not rely
-on modification times. A syntactic or schema error keeps the previously applied
+The game checks file contents every 0.5 seconds in ordinary interactive play.
+It does not rely on modification times. A syntactic or schema error keeps the previously applied
 game settings; the log explains the failure. Correct the file to trigger a
 fresh poll. A schema-invalid but syntactically valid file may already reside
 in the store, so distinguish the store's raw documents from applied settings.
 
 Launching with `--config <directory>` pins that directory and disables automatic
 polling, including theme polling in `App::poll_config_reload`. Headless modes
-load a config once. Use a full copied directory for an experiment and record
-its contents; all six required files must be present.
+load a config once. All six required files must be present in the selected
+directory.
 
-The interactive console supports:
-
-```text
-config list macrophage
-config get towers.macrophage.stats.max_health
-config set towers.macrophage.stats.max_health 800
-config reload
-config dump
-```
+The interactive console supports `config list`, `config get`, `config set`,
+`config reload`, and `config dump`.
 
 `set` updates bound base structs and reapplies supported live settings; it does
 not save a file. `reload` explicitly reloads the selected folder. `dump` writes
-all six current base gameplay files into that folder, so it persists console
-experiments and can overwrite other unsaved file edits. Registry paths can
+all six current base gameplay files into that folder, persisting console
+changes and potentially overwriting other unsaved file edits. Registry paths can
 differ from nested JSON paths; discover them with `config list` rather than
 guessing. `config list` without a filter truncates long output.
 
@@ -126,12 +116,16 @@ before using the same command in another mode.
 arbitrary values from `--config`. Use the console's `config dump` for loaded
 base settings. The dump excludes `ui_theme.json`.
 
+The bootstrap snapshot is captured before the first live config application and
+cached. Applying an experimental config or upgraded run cannot change later
+compiled-default exports in the same process.
+
 `ConfigStore::hash` is FNV-1a over filenames and raw text in the six-file load
 order, stripping carriage returns. CRLF/LF alone does not change it; spaces
 and formatting do. A console `config set` does not update the stored text or
 hash. This is a file-input fingerprint, not a full hash of effective run
-settings, tree purchases, level overrides, or theme. Record those other inputs
-along with seed, commands, thread count, executable version, and report.
+settings, tree purchases, level overrides, or theme. For bug reproduction, record
+those inputs along with seed, commands, thread count, and executable version.
 See [Simulation](SIMULATION.md) for the limits of `state_hash`.
 
 ## Adding a tunable
@@ -146,4 +140,4 @@ See [Simulation](SIMULATION.md) for the limits of `state_hash`.
    Check compiled defaults if they are intended to match authored defaults.
 5. Verify failure messages, round trips, registry access, and an actual effect
    using [test_config.cpp](../tests/test_config.cpp) and a relevant behavior test.
-6. Update the owning gameplay/engine reference and tuning tool metadata as needed.
+6. Update the owning gameplay/engine reference and config field descriptions as needed.

@@ -60,6 +60,9 @@ namespace immune { class JobSystem; }
 namespace immune::sim {
 
 struct SimDesc {
+    /// Balance/replay runs may drain whole pending regions per tick instead
+    /// of letting elapsed wall time decide which regions finish this tick.
+    bool deterministic_rebakes = false;
     u64 seed = 0x1234'5678'9abc'def0ULL;
     usize max_chaff = 16384;
     usize max_damage_fields = 512;
@@ -202,8 +205,7 @@ struct SimSnapshot {
     u64 chaff_killed_total = 0;
     u64 chaff_leaked_total = 0;   ///< Reached the objective.
     /// Live squads (sim/squad/Squads.h). Exposed so --sim-test can assert that
-    /// a real level's waves actually group -- an aggregate the HUD and the
-    /// balance report can read without walking the registry.
+    /// a real level's waves actually group without walking the registry.
     u32 active_squads = 0;
     u32 chaff_by_family[kFamilyCount] = {};
     /// The horde fighting back (sim/hostile). Additive, for --sim-test and
@@ -222,10 +224,8 @@ struct SimSnapshot {
     u32 chaff_burrowed = 0;
     u64 burrows_total = 0;
 
-    // Per-family lifetime tallies. Additive to this struct (Wave "balance
-    // harness"): the three aggregate counters above cannot answer "which
-    // pathogen is the one getting through", which is the first question any
-    // balance pass asks. `killed` here means killed by damage specifically --
+    // Per-family lifetime tallies for diagnostics and scripted assertions.
+    // `killed` here means killed by damage specifically --
     // leaks and out-of-bounds despawns are broken out rather than folded in,
     // unlike chaff_killed_total, which has always counted all three together.
     u64 chaff_spawned_by_family[kFamilyCount] = {};
@@ -269,6 +269,7 @@ public:
     const SquadRegistry& squads() const { return squads_; }
 
     DamageSystem& damage() { return damage_; }
+    const DamageSystem& damage() const { return damage_; }
     EcsWorld& ecs() { return ecs_; }
     const EcsWorld& ecs() const { return ecs_; }
 
@@ -366,10 +367,8 @@ public:
     ///
     /// Threaded here for the same reason spawn points are: LevelDef does not
     /// survive instantiate(), and TowerSystem::validate() is the only thing
-    /// that needs to answer "may a tower go here". Before this, the field was
-    /// authorable, validated, drawn by the editor, read by the balance bot --
-    /// and enforced by nothing, because PlacementResult::OutsidePlacementZone
-    /// had no data source to be returned from.
+    /// that needs to answer "may a tower go here". Runtime validation and the
+    /// editor use the same authored rectangles.
     const std::vector<Rect>& placement_zones() const { return placement_zones_; }
     void set_placement_zones(std::vector<Rect> zones) { placement_zones_ = std::move(zones); }
 
@@ -397,6 +396,10 @@ public:
     /// density_removed_by_family, because the other three sources do not track
     /// which family they thinned.
     const DamageStats& last_damage_stats() const { return last_damage_stats_; }
+    void enable_combat_metrics(bool enabled = true, usize bucket_capacity = 4096);
+    void reset_combat_metrics();
+    CombatMetrics& combat_metrics() { return combat_metrics_; }
+    const CombatMetrics& combat_metrics() const { return combat_metrics_; }
 
     /// The player's permanent world-wide combat modifiers (sim/Immunity.h):
     /// Elite Response, Homeostasis, and the three capstones with no unit to
@@ -438,6 +441,7 @@ private:
     FluidBuffers fluid_;
     FluidSystem fluid_system_;
     CombatEventSink combat_events_;
+    CombatMetrics combat_metrics_;
     EcsWorld ecs_;
 
     std::vector<SpawnPointRuntime> spawn_points_;
@@ -447,9 +451,6 @@ private:
     /// Scratch for the capstone passes' hash queries. Reserved at init.
     std::vector<u32> immunity_scratch_;
 
-    /// Incendiary Rounds: lays a burning patch at every incendiary round that
-    /// landed this tick (ProjectileSystem::impact_log()).
-    void ignite_impacts();
     /// Inflammatory Scarring: every live scar burns the chaff pressed
     /// against it. Returns the density removed.
     f32 apply_scar_contact();

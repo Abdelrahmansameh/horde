@@ -69,6 +69,8 @@ struct FrontModel {
     i32 campaign_slot = -1;
     /// This run unlocked the next campaign level (a first clear).
     bool unlocked_next = false;
+    /// Affordable new-tool choices, including a legal starter MC purchase.
+    u32 discovery_choices = 0;
 
     // ---- Strengthen Immunity ----
     TreeModel tree;

@@ -32,7 +32,7 @@ class Economy;
 /// Deliberately carries NO damage number: a tower's output is entirely its
 /// swarmers' (game/config/GameConfig.h's TowerMechanics), so a `damage` here
 /// would be a second, disagreeing source of truth. Derive DPS from the
-/// mechanics if a display or a bot needs one.
+/// mechanics if a display needs one.
 struct TowerStats {
     f32 fire_interval = 1.0f;    ///< Seconds between volleys.
     f32 footprint_radius = 1.0f; ///< Body radius: tower spacing and sprite size. Not an obstacle.
@@ -94,7 +94,7 @@ public:
     /// `allowed_towers` list means -- so this is inert unless a level opts in.
     ///
     /// Enforced in validate() rather than by hiding HUD buttons, so the gym
-    /// console and the balance bot obey it too: a rule only the UI knows about
+    /// console obeys it too: a rule only the UI knows about
     /// is a rule the game does not actually have.
     void set_allowed_towers(u32 mask) { allowed_mask_ = mask; }
     u32 allowed_towers() const { return allowed_mask_; }

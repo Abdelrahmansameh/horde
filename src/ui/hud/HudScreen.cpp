@@ -33,6 +33,52 @@ Panel& panel(Widget& parent, std::string id, const ShapeDesc& shape) {
     return parent.emplace<Panel>(std::move(id), shape);
 }
 
+/// Keep a map badge near its location, clear of panels and other badges.
+void place_map_marker(Widget& marker, Vec2 at, Vec2 direction, Vec2 vp, std::vector<Rect>& occupied) {
+    const Vec2 half = marker.measure(vp) * 0.5f;
+    const Vec2 margin = half + Vec2{12.0f, 12.0f};
+    const auto clamp = [&](Vec2 p) {
+        return Vec2{math::clamp(p.x, margin.x, math::max(vp.x - margin.x, margin.x)),
+                    math::clamp(p.y, margin.y, math::max(vp.y - margin.y, margin.y))};
+    };
+    const Vec2 preferred = clamp(at);
+    const auto clear = [&](Vec2 p) {
+        const Vec2 padding = half + Vec2{8.0f, 8.0f};
+        const Rect bounds{p - padding, p + padding};
+        return std::none_of(occupied.begin(), occupied.end(),
+                            [&](const Rect& r) { return bounds.overlaps(r); });
+    };
+    Vec2 position = preferred;
+    if (!clear(position)) {
+        // Clear positions lie on panel edges or their intersections.
+        // Favor staying on the entrance's lane or the organ's bearing,
+        // allowing small sideways adjustments around nearby panel corners.
+        std::vector<f32> xs{preferred.x, margin.x, vp.x - margin.x};
+        std::vector<f32> ys{preferred.y, margin.y, vp.y - margin.y};
+        for (const Rect& r : occupied) {
+            xs.push_back(r.min.x - half.x - 9.0f);
+            xs.push_back(r.max.x + half.x + 9.0f);
+            ys.push_back(r.min.y - half.y - 9.0f);
+            ys.push_back(r.max.y + half.y + 9.0f);
+        }
+        f32 nearest = gui::kUnbounded;
+        const Vec2 side{-direction.y, direction.x};
+        for (f32 x : xs) for (f32 y : ys) {
+            const Vec2 candidate = clamp(Vec2{x, y});
+            const Vec2 shift = candidate - preferred;
+            const f32 along = shift.x * direction.x + shift.y * direction.y;
+            const f32 across = shift.x * side.x + shift.y * side.y;
+            const f32 distance = along * along + 16.0f * across * across;
+            if (distance < nearest && clear(candidate)) {
+                nearest = distance;
+                position = candidate;
+            }
+        }
+    }
+    marker.layout.offset = position;
+    occupied.push_back(Rect{position - half, position + half});
+}
+
 } // namespace
 
 HudScreen::HudScreen(Gui& gui) : gui_(gui) {
@@ -220,7 +266,7 @@ void HudScreen::build() {
     atp_icon_ = &icon(atp, "icon", "atp", Vec2{44, 28});
     Widget& atp_text = column(atp, 0, Align::Start);
     atp_value_ = &text(atp_text, "value", "0", th.text("atp_value"));
-    atp_rate_ = &text(atp_text, "rate", "ATP", th.text("atp_rate"));
+    text(atp_text, "label", "ATP", th.text("atp_label"));
     u32 slot = 0;
     for (TowerType t : dock_order()) {
         BuildCard& card = dock_->emplace<BuildCard>(gui_, t, slot++);
@@ -283,23 +329,6 @@ void HudScreen::build() {
     selection_ring_->layout.pivot = Vec2{0.5f, 0.5f};
     fixed_size(*selection_ring_, 78, 78);
     selection_ring_->visible = false;
-
-    // Positioned from the projected spawn each sync (not Position::World) so
-    // it can be kept on screen: spawns often sit right at the world's edge.
-    spawn_pill_ = &panel(*world_, "spawn", th.shape("pill.gold"));
-    spawn_pill_->layout.position = Position::Anchored;
-    spawn_pill_->layout.axis = Axis::Row;
-    spawn_pill_->layout.align = Align::Center;
-    spawn_pill_->layout.gap = 12;
-    spawn_pill_->layout.padding = Insets{14, 6, 18, 6};
-    spawn_pill_->blocks_pointer = false;
-    for (usize i = 0; i < kFamilyCount; ++i) {
-        Widget& e = row(*spawn_pill_, 2, Align::Center, "f" + std::to_string(i));
-        icon(e, "icon", family_icon(static_cast<PathogenFamily>(i)), 30);
-        spawn_counts_[i] = &text(e, "count", "", th.text("world_count"));
-        spawn_entries_[i] = &e;
-    }
-    spawn_pill_->visible = false;
 
     popup_ = &popup_layer_root_->emplace<TowerPopup>(gui_, "popup");
     popup_->sell->on_click = [this] {
@@ -442,8 +471,6 @@ void HudScreen::sync(const HudModel& m, Vec2 world_cursor) {
 
     // ---- Dock ----
     atp_value_->set_text(std::to_string(m.atp));
-    std::snprintf(buf, sizeof(buf), "ATP \xC2\xB7 +%.1f/s", static_cast<double>(m.income_per_second));
-    atp_rate_->set_text(buf);
     for (usize i = 0; i < kTowerTypeCount; ++i) {
         cards_[i]->sync(m.cards[i], m.atp, armed_tower_ == static_cast<TowerType>(i));
     }
@@ -576,22 +603,58 @@ void HudScreen::sync_world(const HudModel& m, Vec2 world_cursor) {
         popup_->sync(*sel);
     }
 
-    // Incoming composition at the lane entrance during prep.
-    spawn_pill_->visible = prep && m.has_spawn && m.preview.valid;
-    if (spawn_pill_->visible) {
-        const Vec2 at = gui_.project(m.spawn_world) + Vec2{30.0f, 70.0f};
-        const Vec2 size = spawn_pill_->measure(gui_.viewport());
-        const Vec2 vp = gui_.viewport();
-        spawn_pill_->layout.offset = Vec2{math::clamp(at.x, 16.0f, math::max(vp.x - size.x - 16.0f, 16.0f)),
-                                          math::clamp(at.y, 16.0f, math::max(vp.y - size.y - 16.0f, 16.0f))};
-        for (usize i = 0; i < kFamilyCount; ++i) {
-            u32 count = 0;
-            for (const HudFamilyCount& f : m.preview.families) {
-                if (static_cast<usize>(f.family) == i) count = f.count;
-            }
-            spawn_entries_[i]->visible = count > 0;
-            spawn_counts_[i]->set_text("\xC3\x97" + std::to_string(count));
+    // Every possible entrance is independent of the next-wave composition.
+    // Project explicitly so entrances outside the camera stay on its edge.
+    while (spawn_markers_.size() > m.spawn_points.size()) {
+        world_->remove(*spawn_markers_.back());
+        spawn_markers_.pop_back();
+    }
+    while (organ_markers_.size() > m.organ_points.size()) {
+        world_->remove(*organ_markers_.back());
+        organ_markers_.pop_back();
+    }
+    const Vec2 vp = gui_.viewport();
+    // Use this frame's measured HUD bounds, including a dragged dock, rather
+    // than last frame's rects. Top and side entrances must remain readable.
+    std::vector<Rect> occupied;
+    for (Widget* w : {static_cast<Widget*>(organ_), hud_->find("controls"),
+                       static_cast<Widget*>(prep_banner_), static_cast<Widget*>(critical_banner_),
+                       static_cast<Widget*>(toast_), static_cast<Widget*>(wave_panel_),
+                       static_cast<Widget*>(dock_), static_cast<Widget*>(abilities_)}) {
+        if (w == nullptr || !w->visible) continue;
+        const Vec2 size = w->measure(vp);
+        const Vec2 pos = Vec2{w->layout.anchor.x * vp.x, w->layout.anchor.y * vp.y} -
+                         Vec2{w->layout.pivot.x * size.x, w->layout.pivot.y * size.y} + w->layout.offset;
+        occupied.push_back(Rect{pos, pos + size});
+    }
+    // Organs are persistent destinations, including when they lie beyond the
+    // camera. Give their distinct heart badges priority over prep entrances.
+    for (usize i = 0; i < m.organ_points.size(); ++i) {
+        if (i == organ_markers_.size()) {
+            organ_markers_.push_back(&world_->emplace<OrganMarker>(gui_, "organ" + std::to_string(i)));
         }
+        OrganMarker& marker = *organ_markers_[i];
+        marker.visible = !m.all_waves_complete && m.phase != HudWavePhase::Complete;
+        if (!marker.visible) continue;
+        const Vec2 projected = gui_.project(m.organ_points[i]);
+        Vec2 bearing = math::normalize_safe(projected - vp * 0.5f);
+        if (math::length_sq(bearing) <= math::kEpsilon) bearing = Vec2{0.0f, 1.0f};
+        place_map_marker(marker, projected, bearing, vp, occupied);
+    }
+    for (usize i = 0; i < m.spawn_points.size(); ++i) {
+        if (i == spawn_markers_.size()) {
+            spawn_markers_.push_back(&world_->emplace<SpawnMarker>(gui_, "spawn" + std::to_string(i)));
+        }
+        SpawnMarker& marker = *spawn_markers_[i];
+        const HudSpawnPoint& spawn = m.spawn_points[i];
+        marker.visible = prep;
+        marker.preparing = prep;
+        if (!marker.visible) continue;
+        const Vec2 projected = gui_.project(spawn.world);
+        marker.direction = math::normalize_safe(gui_.project(spawn.world + spawn.direction) - projected);
+        if (math::length_sq(marker.direction) <= math::kEpsilon) marker.direction = Vec2{1.0f, 0.0f};
+        const Vec2 at = projected + marker.direction * 24.0f;
+        place_map_marker(marker, at, marker.direction, vp, occupied);
     }
 }
 

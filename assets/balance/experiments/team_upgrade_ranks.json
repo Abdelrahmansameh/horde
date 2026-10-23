@@ -1,0 +1,159 @@
+{
+  "schema": 1,
+  "seeds": [
+    101,
+    202,
+    303,
+    404,
+    505,
+    606,
+    707,
+    808
+  ],
+  "metric": "objective_integrity",
+  "metrics": [
+    "summary.friendly_killed",
+    "summary.leaks",
+    "summary.density_removed",
+    "summary.atp_spent",
+    "summary.sampled_slow_enemy_seconds"
+  ],
+  "policies": [
+    {
+      "name": "competent",
+      "controller": {
+        "policy": "competent"
+      }
+    },
+    {
+      "name": "tactical",
+      "controller": {
+        "policy": "tactical"
+      }
+    }
+  ],
+  "name": "Support and capstone upgrade marginal team value",
+  "kind": "sweep",
+  "base": {
+    "schema": 1,
+    "level": "assets/balance/levels/two_fronts.json",
+    "max_ticks": 18000,
+    "sample_ticks": 60,
+    "opening_atp": 300,
+    "spend_limit": 300,
+    "income_enabled": false,
+    "controller": {
+      "use_abilities": false
+    },
+    "progression": {
+      "grant_tree": {
+        "cytotoxic.unlock": 1,
+        "macrophage.unlock": 1,
+        "goblet.unlock": 1,
+        "fibroblast.unlock": 1
+      }
+    }
+  },
+  "variants": [
+    {
+      "name": "baseline",
+      "patch": {}
+    }
+  ],
+  "sweeps": [
+    {
+      "name": "cytotoxic_drain",
+      "tree": "cytotoxic.drain",
+      "values": [
+        1,
+        5
+      ]
+    },
+    {
+      "name": "macrophage_capacity",
+      "tree": "macrophage.captives",
+      "values": [
+        1,
+        3
+      ]
+    },
+    {
+      "name": "macrophage_cycle",
+      "tree": "macrophage.grab_speed",
+      "values": [
+        1,
+        4
+      ]
+    },
+    {
+      "name": "goblet_slow",
+      "tree": "goblet.slow_strength",
+      "values": [
+        1,
+        4
+      ]
+    },
+    {
+      "name": "goblet_weakness",
+      "tree": "goblet.weakness",
+      "values": [
+        1,
+        3
+      ]
+    },
+    {
+      "name": "fibroblast_scar_health",
+      "tree": "fibroblast.scar_health",
+      "values": [
+        1,
+        5
+      ]
+    },
+    {
+      "name": "fibroblast_network",
+      "tree": "fibroblast.scar_count",
+      "values": [
+        1,
+        2
+      ]
+    },
+    {
+      "name": "neutrophil_capstone",
+      "tree": "neutrophil.capstone",
+      "values": [
+        1
+      ]
+    },
+    {
+      "name": "cytotoxic_capstone",
+      "tree": "cytotoxic.capstone",
+      "values": [
+        1
+      ]
+    },
+    {
+      "name": "macrophage_capstone",
+      "tree": "macrophage.capstone",
+      "values": [
+        1
+      ]
+    },
+    {
+      "name": "goblet_capstone",
+      "tree": "goblet.capstone",
+      "values": [
+        1
+      ]
+    },
+    {
+      "name": "fibroblast_capstone",
+      "tree": "fibroblast.capstone",
+      "values": [
+        1
+      ]
+    }
+  ],
+  "expectations": {
+    "scope": "Diagnostic synthetic unlocks/ranks isolate team combat value; these grants do not claim campaign affordability or prerequisites. Compare roster usage and spending as well as team outcomes."
+  }
+}

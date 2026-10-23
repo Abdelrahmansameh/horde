@@ -331,7 +331,7 @@ struct PlacementZoneTag {
 /// A value of 0 / 1.0 means "use the global".
 struct LevelEconomy {
     u32 starting_atp = 0;         ///< 0 = economy.json's value
-    f32 income_multiplier = 1.0f;
+    f32 income_multiplier = 1.0f; ///< Scales ATP per density destroyed.
 };
 
 /// Per-level camera framing (schema 2). Without it, framing is "the whole

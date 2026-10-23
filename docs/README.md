@@ -24,11 +24,11 @@ overrides and permanent upgrades. Source and data take precedence over prose.
 | Prerequisites, presets, build paths, and launch | [Building](BUILDING.md) |
 | Standalone Windows executable, packaging, and release checks | [Publishing](PUBLISHING.md) |
 | Catch2, simulation scripts, screenshots, and benchmarks | [Testing](TESTING.md) |
+| Automated combat, economy, upgrade and progression experiments | [Balance lab](BALANCE_LAB.md) |
 | Naming, hot paths, determinism, contracts, and documentation upkeep | [Conventions](CONVENTIONS.md) |
 | First steps, parallel work, and reporting evidence | [Agent brief](AGENT_BRIEF.md) |
 | Console commands and differences between execution contexts | [Gym](GYM.md) |
 | In-game editing, validation, undo, save, and playtest | [Level editor](LEVEL_EDITOR.md) |
-| Autoplay, attribution, reports, and balance sweeps | [Balance](BALANCE.md) |
 | Python helpers, generation, and auxiliary build scripts | [Tools](TOOLS.md) |
 | Implementation inventory and limitations | [Project status](../plan.md) |
 
@@ -62,14 +62,14 @@ the relevant headers and point to tests; they are not copies of every function.
 | `src/game/meta/` | [Progression](PROGRESSION.md) |
 | `src/game/level/`, `src/game/editor/` | [Levels](LEVELS.md), [Level editor](LEVEL_EDITOR.md) |
 | `src/game/gym/` | [Gym](GYM.md) |
-| `src/game/autoplay/`, `src/game/telemetry/` | [Balance](BALANCE.md) |
+| `src/game/balance/`, `src/sim/CombatMetrics.h` | [Balance lab](BALANCE_LAB.md) |
 | `src/sim/SimWorld.*`, `src/sim/Immunity.h`, `src/sim/SizeJitter.h` | [Simulation](SIMULATION.md), [Progression](PROGRESSION.md) |
 | `src/sim/chaff/`, `src/sim/spatial/`, `src/sim/squad/` | [Simulation](SIMULATION.md), [Pathogens](PATHOGENS.md) |
 | `src/sim/flowfield/`, `src/game/level/RenderSdf.*` | [Simulation](SIMULATION.md), [Levels](LEVELS.md), [Rendering](RENDERING.md) |
 | `src/sim/swarm/`, `src/sim/scar/` | [Immune cells](IMMUNE_CELLS.md), [Simulation](SIMULATION.md) |
 | `src/sim/burrow/`, `src/sim/hostile/`, `src/sim/ecs/` | [Pathogens](PATHOGENS.md), [Simulation](SIMULATION.md) |
 | `src/sim/damage/`, `src/sim/projectile/`, `src/sim/fluid/` | [Simulation](SIMULATION.md), [Immune cells](IMMUNE_CELLS.md) |
-| `src/sim/Attribution.h`, `src/sim/CombatEvents.h` | [Balance](BALANCE.md), [Rendering](RENDERING.md) |
+| `src/sim/CombatEvents.h` | [Rendering](RENDERING.md) |
 | `src/render/`, `src/vfx/`, `assets/shaders/` | [Rendering](RENDERING.md) |
 | `src/audio/` | [Audio and platform](AUDIO_PLATFORM.md) |
 | `src/gui/` | [UI framework](UI_FRAMEWORK.md) |

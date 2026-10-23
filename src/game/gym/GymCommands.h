@@ -204,10 +204,8 @@ struct GymContext {
     // Supplied by app/, which owns the ConfigStore. Absent in a context that
     // has no config, in which case `config` reports that rather than lying.
     //
-    // These are what make a balance tweak a one-liner: `config set
-    // towers.macrophage.stats.max_health 800` reaches the same bytes the JSON loader
-    // writes, and `config dump` writes the live values back out so an
-    // experiment that worked can be kept.
+    // Registry access uses the same fields as the JSON loader; config_dump
+    // persists the loaded base values to the selected directory.
 
     /// Reads one dotted field path. False with a message in `out` on a miss.
     std::function<bool(const std::string& path, std::string& out)> config_get;
@@ -220,15 +218,6 @@ struct GymContext {
     std::function<bool(std::string& err)> config_dump;
     /// Every addressable field path, for `config list`.
     std::function<std::vector<std::string>()> config_paths;
-
-    /// Turns the balance bot (game/autoplay) on or off for the current level,
-    /// with an optional profile name. Supplied by app/; absent headlessly,
-    /// where --autoplay drives the bot directly and needs no console.
-    ///
-    /// The point of exposing it here is verification: `autoplay on; time 8`
-    /// runs the same bot the harness runs, in a window, at eight times speed,
-    /// so its play can be watched rather than trusted.
-    std::function<bool(bool enable, const std::string& profile, std::string& err)> set_autoplay;
 };
 
 /// One row of the command table: what `help` prints and what the panel's

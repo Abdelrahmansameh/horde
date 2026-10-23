@@ -1,6 +1,6 @@
 # The gym and developer command console
 
-The gym combines [assets/levels/gym.json](../assets/levels/gym.json), the ImGui [GymPanel](../src/ui/GymPanel.cpp), and the reusable [GymCommands](../src/game/gym/GymCommands.cpp) executor. It is useful for movement, combat, effects, wave, UI, and tuning experiments.
+The gym combines [assets/levels/gym.json](../assets/levels/gym.json), the ImGui [GymPanel](../src/ui/GymPanel.cpp), and the reusable [GymCommands](../src/game/gym/GymCommands.cpp) executor. It supports movement, combat, effects, wave, and UI diagnostics.
 
 ```powershell
 $immuneExe = "$env:LOCALAPPDATA\horde-build\windows-release\bin\immune.exe"
@@ -8,6 +8,19 @@ $immuneExe = "$env:LOCALAPPDATA\horde-build\windows-release\bin\immune.exe"
 ```
 
 The panel opens automatically when the loaded level's `name` is `gym`. Backtick or F2 toggles it on other levels, and Escape closes it before other Escape handling. F1 is the debug overlay. Gym runs are sandboxed and hold objective integrity by default; `invuln off` restores the loss consequence of leaks. Headless modes default invulnerability off.
+
+## Progression cheats (F3)
+
+F3 toggles the progression cheat menu from the front end, a run, or the editor.
+Escape closes it. The simulation freezes while it is open. Edit Memory Cells
+and Antibodies, clear or reset campaign levels, max/reset the skill tree, or
+set individual skill levels (including tower and ability unlocks). The full
+progression reset asks for confirmation. Edits save immediately to the active
+save; skill effects apply when starting or restarting a run. Free skill edits
+clear the respec refund ledger and keep the starting tower unlocked. Campaign
+clear cheats grant no rewards; removing a clear restores its first-clear reward.
+The current-run section also edits or resets ATP while a level is loaded.
+Use `--save <scratch-path>` for disposable progression experiments.
 
 ## Panel and level
 
@@ -60,7 +73,7 @@ Screenshot `--towers`/`--tower`, the gym `cell` command and simulation action `p
 
 Large gym spawns use tissue-aware burst capacity, place what fits immediately, and queue the rest for deterministic release on later ticks when a spawn queue is supplied. Counts in the result distinguish immediate and queued population. Grouped spawns may use squad paths; explicit targets retain the requested location. A tick-0 capture can show only the first released portion. `radius` is a spawn parameter rather than a guarantee that every requested agent fits in that disc.
 
-Ability aliases include `cascade`/`burst` for complement, `flare` for histamine, and `fibrin`/`barrier` for clot. `ready` also resets definitions to defaults, so it can overwrite a live ability tuning experiment.
+Ability aliases include `cascade`/`burst` for complement, `flare` for histamine, and `fibrin`/`barrier` for clot. `ready` also resets definitions to defaults, so it can overwrite live ability settings.
 
 ### Session, world, and diagnostics
 
@@ -75,7 +88,6 @@ Ability aliases include `cascade`/`burst` for complement, `flare` for histamine,
 | `overlay <debug\|threat\|squads> [on\|off]` | Set an interactive overlay; omitted state means on |
 | `squads [on\|off\|list\|paths]` | Toggle squad behavior or inspect live squads/routes; off preserves membership |
 | `invuln [on\|off]` | Hold integrity after normal tick processing; no argument toggles; `invulnerable`/`godmode` aliases |
-| `autoplay [on\|off] [profile]` | Enable/disable the interactive bot; `bot` alias |
 | `stats` | Sim, economy, wave, and pending-spawn summary |
 | `spawn_points` | Marker ids/positions and objective location |
 | `level <name\|path>` | Load discovered level by name/title/stem or a path |
@@ -109,7 +121,7 @@ The `edit` family requires an open `LevelDoc`. Its complete syntax and save/vali
 | `config get/set/list` | Yes | Yes | No | No | Yes |
 | `config reload/dump` | Yes | No | No | No | Yes |
 | `ui` bridge | Yes | No | No | Yes | Game UI only, not ImGui editor widgets |
-| `level`, `restart`, `autoplay` callbacks | Yes | No | No | No | App callbacks exist; prefer editor lifecycle controls |
+| `level`, `restart` callbacks | Yes | No | No | No | App callbacks exist; prefer editor lifecycle controls |
 | `edit` document commands | No | No | No | No | Yes; also while that document is playtested |
 
 A context can provide an empty director without ticking it; successful `wave start` does not imply waves will spawn. Headless setup failures and unsupported commands may be logged while a screenshot/script still completes. Keep diagnostic logs while developing recipes.

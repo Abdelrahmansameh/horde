@@ -386,6 +386,15 @@ TEST_CASE("the shipped deployment economy matches fallback defaults", "[config][
     }
 }
 
+TEST_CASE("the shipped and exported economy use the campaign reinvestment rate without passive income",
+          "[config][game][economy]") {
+    const immune::game::GameConfig shipped = load_from("assets/config");
+    const immune::game::GameConfig compiled = immune::game::default_game_config();
+    REQUIRE(shipped.economy.atp_per_density == Catch::Approx(0.85f));
+    REQUIRE(compiled.economy.atp_per_density == Catch::Approx(0.85f));
+    REQUIRE_FALSE(contains(dump_all(compiled), "passive_income_per_second"));
+}
+
 TEST_CASE("game config dump round-trips byte-for-byte", "[config][game]") {
     const std::filesystem::path dir = scratch_dir("game");
     const immune::game::GameConfig original = immune::game::default_game_config();

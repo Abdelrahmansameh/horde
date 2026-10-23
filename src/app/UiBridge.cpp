@@ -21,6 +21,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <filesystem>
+#include <limits>
 
 namespace immune::app {
 
@@ -48,6 +49,37 @@ ui::HudWavePreview preview_of(const game::WaveDef& w, u32 number) {
         if (s.elite_id != 0) p.elites += 1;
     }
     return p;
+}
+
+/// Vessel points run toward the objective. Use the closest segment on the
+/// entrance's lane so offscreen and sideways entrances retain their direction.
+Vec2 spawn_direction(const game::LevelDef* level, const sim::SimWorld& world,
+                     Vec2 position, const std::string& lane_id) {
+    Vec2 direction{0.0f, 0.0f};
+    f32 best_d2 = std::numeric_limits<f32>::max();
+    if (level != nullptr) {
+        for (const game::Vessel& vessel : level->vessels) {
+            const std::string& vessel_lane = vessel.lane_id.empty() ? vessel.id : vessel.lane_id;
+            if (!lane_id.empty() && vessel_lane != lane_id) continue;
+            for (usize i = 1; i < vessel.points.size(); ++i) {
+                const Vec2 a = vessel.points[i - 1].position;
+                const Vec2 d = vessel.points[i].position - a;
+                const f32 length2 = math::length_sq(d);
+                if (length2 <= math::kEpsilon * math::kEpsilon) continue;
+                const Vec2 offset = position - a;
+                const f32 t = math::saturate((offset.x * d.x + offset.y * d.y) / length2);
+                const f32 distance2 = math::length_sq(position - (a + d * t));
+                if (distance2 < best_d2) {
+                    best_d2 = distance2;
+                    direction = math::normalize_safe(d);
+                }
+            }
+        }
+    }
+    if (math::length_sq(direction) <= math::kEpsilon) {
+        direction = math::normalize_safe(world.flow().sample(position));
+    }
+    return math::length_sq(direction) > math::kEpsilon ? direction : Vec2{1.0f, 0.0f};
 }
 
 /// Uniform Catmull-Rom through `pts` (endpoints clamped), `steps` samples per
@@ -212,18 +244,18 @@ ui::TreeModel make_screenshot_tree_model(ScreenshotTree progress) {
     using T = game::TreeNode;
     switch (progress) {
         case ScreenshotTree::New:
-            // A first run lost: enough for one of the two nodes on offer.
+            // A first run lost: enough for the first Round Damage upgrade.
             meta.credit(30);
             break;
         case ScreenshotTree::Sample: {
             // A few runs and two first clears in: the Neutrophil's lines,
-            // the Cytotoxic T and Histamine Flare opened, 486 Memory Cells and
+            // the Cytotoxic T and Complement Cascade opened, 486 Memory Cells and
             // an Antibody to spend.
-            const T buys[] = {T::BoneMarrowReserve,     T::BoneMarrowReserve,     T::NeutrophilRoundDamage,
-                              T::NeutrophilRoundDamage, T::NeutrophilRoundDamage, T::NeutrophilTriggerRate,
-                              T::NeutrophilTriggerRate, T::NeutrophilAccuracy,    T::RapidMetabolism,
+            const T buys[] = {T::NeutrophilRoundDamage, T::BoneMarrowReserve,     T::BoneMarrowReserve,
+                              T::NeutrophilRoundDamage, T::NeutrophilRoundDamage, T::NeutrophilSquadSize,
+                              T::NeutrophilSquadSize, T::NeutrophilAccuracy,    T::FieldRequisition,
                               T::CytotoxicRoot,         T::CytotoxicDrain,        T::EfficientClearance,
-                              T::SystemicPotency,       T::HistamineUnlock,       T::HistamineCooldown};
+                              T::SystemicPotency,       T::ComplementUnlock,      T::ComplementCooldown};
             game::MetaProgression rich = meta;
             rich.credit(100000, 100);
             for (T b : buys) rich.purchase(b, cfg);
@@ -279,6 +311,7 @@ ui::FrontModel make_screenshot_front_model(const game::LevelDef& level, const st
     // The tree a few runs into a campaign: a few levels bought, 486 Memory
     // Cells and an Antibody to spend (`ui tree` swaps in another).
     m.tree = make_screenshot_tree_model(ScreenshotTree::Sample);
+    m.discovery_choices = m.tree.discovery_choices;
     m.run.valid = true;
     m.run.memory_cells = 120;
     m.run.antibodies = 1;
@@ -292,7 +325,13 @@ ui::TreeModel make_tree_model(const game::MetaProgression& meta, const game::Met
     ui::TreeModel m;
     m.memory_cells = meta.memory_cells();
     m.antibodies = meta.antibodies();
-    m.capstone_threshold = cfg.capstone_threshold;
+    const auto discoveries = meta.discovery_offers(cfg);
+    m.discovery_choices = static_cast<u32>(discoveries.size());
+    m.discovery_needs_starter = !discoveries.empty() && std::all_of(discoveries.begin(), discoveries.end(), [](const game::DiscoveryOffer& offer) {
+        return offer.prerequisite != game::TreeNode::Count;
+    });
+    if (m.discovery_needs_starter) m.discovery_starter_cost = discoveries.front().prerequisite_cost.memory_cells;
+    m.capstone_threshold = 0;
     m.can_respec = meta.can_respec(cfg);
     m.respec_cost = cfg.respec_cost;
     for (usize b = 0; b < m.branch_points.size(); ++b) {
@@ -324,11 +363,7 @@ ui::TreeModel make_tree_model(const game::MetaProgression& meta, const game::Met
             case PR::NeedMemoryCells:
             case PR::NeedAntibodies: v.state = ui::TreeNodeState::Short; break;
         }
-        if (r == PR::BelowThreshold) {
-            v.requirement = "Needs " + std::to_string(cfg.capstone_threshold) + " points in " +
-                            game::branch_name(d.branch) + " (" + std::to_string(meta.branch_points(d.branch)) +
-                            "/" + std::to_string(cfg.capstone_threshold) + ")";
-        } else if (r == PR::Locked && d.parent != game::TreeNode::Count) {
+        if (r == PR::Locked && d.parent != game::TreeNode::Count) {
             v.requirement = std::string("Needs ") + game::tree_node(d.parent).name;
         }
         if (v.state != ui::TreeNodeState::Maxed) {
@@ -347,10 +382,19 @@ ui::HudModel make_hud_model(const HudSources& src, const ui::HudScreen& screen, 
     const sim::SimSnapshot snap = world.snapshot();
     // The sim's objective starts at 100 on every level (SimWorld::reset).
     m.integrity01 = math::saturate(snap.objective_integrity / 100.0f);
+    const auto organs = world.ecs().registry().view<const sim::comp::Objective, const sim::comp::Transform>();
+    for (const entt::entity entity : organs) {
+        m.organ_points.push_back(organs.get<const sim::comp::Transform>(entity).position);
+    }
+    if (m.organ_points.empty() && src.level != nullptr) {
+        m.organ_points.reserve(src.level->objectives.size());
+        for (const game::ObjectivePoint& organ : src.level->objectives) {
+            m.organ_points.push_back(organ.position);
+        }
+    }
 
     const game::EconomySnapshot econ = src.economy->snapshot();
     m.atp = econ.atp;
-    m.income_per_second = econ.income_per_second;
     m.time_scale = src.time_scale;
 
     // ---- Waves ----
@@ -370,9 +414,21 @@ ui::HudModel make_hud_model(const HudSources& src, const ui::HudScreen& screen, 
     } else if (const game::WaveDef* next = src.waves->next_wave()) {
         m.preview = preview_of(*next, ws.wave_index + 2);
     }
-    if (src.level != nullptr && !src.level->spawn_points.empty()) {
-        m.has_spawn = true;
-        m.spawn_world = src.level->spawn_points.front().position;
+    const auto& spawn_points = world.spawn_points();
+    if (!spawn_points.empty()) {
+        m.spawn_points.reserve(spawn_points.size());
+        for (const sim::SpawnPointRuntime& spawn : spawn_points) {
+            m.spawn_points.push_back(ui::HudSpawnPoint{
+                spawn.position, spawn_direction(src.level, world, spawn.position, spawn.lane_id)});
+        }
+    } else if (src.level != nullptr) {
+        m.spawn_points.reserve(src.level->spawn_points.size());
+        const game::LevelLoader loader;
+        for (const game::SpawnPoint& spawn : src.level->spawn_points) {
+            m.spawn_points.push_back(ui::HudSpawnPoint{
+                spawn.position, spawn_direction(src.level, world, spawn.position,
+                    loader.resolve_spawn_point_lane_id(*src.level, spawn))});
+        }
     }
 
     // ---- Cards ----

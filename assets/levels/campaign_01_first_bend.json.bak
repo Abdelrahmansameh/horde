@@ -2,104 +2,96 @@
   "schema": 2,
   "name": "campaign_01_first_bend",
   "display_name": "First Bend",
-  "description": "One vessel, two corners. Learn where a bend slows the horde down.",
+  "description": "One broad vessel sweeps from the upper left to the lower right. Hold the bend before the horde escapes below.",
   "difficulty": 1,
   "tags": ["campaign"],
   "region": "capillary",
-  "world": { "min": [0, 0], "max": [146.2, 142.8] },
-  "camera": { "view_height": 142.8 },
+  "world": { "min": [0, 13], "max": [200, 142.8] },
+  "camera": { "center": [100, 71.4], "view_height": 108, "min_view_height": 82.08, "max_view_height": 108 },
   "economy": { "starting_atp": 300 },
   "vessels": [
     {
       "id": "main",
       "points": [
-        { "p": [-64.337, 115.796], "w": 23.8 },
-        { "p": [37.4, 115.6], "w": 23.8 },
-        { "p": [70.72, 115.6], "w": 23.8 },
-        { "p": [80.24, 112.88], "w": 23.8 },
-        { "p": [83.64, 105.4], "w": 23.8 },
-        { "p": [83.64, 71.4], "w": 23.8 },
-        { "p": [83.64, 41.48], "w": 23.8 },
-        { "p": [87.04, 34.68], "w": 23.8 },
-        { "p": [93.84, 31.96], "w": 23.8 },
-        { "p": [119, 31.96], "w": 23.8 },
-        { "p": [212.889, 31.796], "w": 23.8 }
+        { "p": [-18, 111], "w": 32 },
+        { "p": [0, 110], "w": 32 },
+        { "p": [40, 107], "w": 32 },
+        { "p": [76, 102], "w": 32 },
+        { "p": [108, 94], "w": 32 },
+        { "p": [135, 83], "w": 32 },
+        { "p": [153, 70], "w": 32 },
+        { "p": [166, 56], "w": 32 },
+        { "p": [172, 42], "w": 32 },
+        { "p": [174, 22], "w": 32 },
+        { "p": [174, 12], "w": 32 }
       ]
     }
   ],
   "spawn_points": [
-    { "id": "p0", "pos": [-81.262, 116.008], "radius": 9.52, "lane_id": "main" }
+    { "id": "p0", "pos": [-38, 112], "radius": 9.52, "lane_id": "main" }
   ],
   "objectives": [
-    { "id": "organ", "pos": [206.734, 31.552], "half_extents": [3.4, 10.88] }
+    { "id": "organ", "pos": [174, 8], "half_extents": [18.7, 4] }
   ],
   "placement_zones": [
-    { "min": [-63.626, 0], "max": [146.2, 141.578] },
-    { "min": [64.6, 95.2], "max": [102, 129.2], "concentrated": true, "priority": 2 },
-    { "min": [64.6, 20.4], "max": [108.8, 54.4], "concentrated": true, "priority": 2 }
+    { "min": [0, 14], "max": [201, 142.8] },
+    { "min": [105, 65], "max": [160, 103], "concentrated": true, "priority": 2 },
+    { "min": [148, 20], "max": [194, 68], "concentrated": true, "priority": 2 }
+  ],
+  "squad_paths": [
+    { "id": "first_bend_route", "lane_id": "main", "points": [[-39, 112], [0, 110], [40, 107], [76, 102], [108, 94], [135, 83], [153, 70], [166, 56], [172, 42], [174, 22], [174, 13]], "half_width": 4 }
   ],
   "waves": [
     {
       "name": "campaign_01_first_bend_wave_1",
-      "prep_time": 8,
-      "atp_reward": 50,
+      "prep_time": 12,
+      "atp_reward": 45,
       "spawns": [
-        { "family": "virus", "count": 138, "duration": 4 }
+        { "family": "virus", "count": 138, "duration": 4, "spawn_point_id": "p0", "squad_size": 48, "squad_paths": ["first_bend_route"] }
       ]
     },
     {
       "name": "campaign_01_first_bend_wave_2",
-      "prep_time": 7.2,
-      "atp_reward": 68,
+      "prep_time": 11.3,
+      "atp_reward": 64,
       "spawns": [
-        { "family": "virus", "count": 255, "duration": 4 }
+        { "family": "virus", "count": 259, "duration": 4.07, "spawn_point_id": "p0", "squad_size": 48, "squad_paths": ["first_bend_route"] }
       ]
     },
     {
       "name": "campaign_01_first_bend_wave_3",
-      "prep_time": 6.4,
-      "atp_reward": 86,
+      "prep_time": 10.6,
+      "atp_reward": 83,
       "spawns": [
-        { "family": "virus", "count": 372, "duration": 4 },
-        { "family": "bacteria", "count": 56, "start_time": 5, "duration": 3.5 }
+        { "family": "virus", "count": 274, "duration": 3.946, "spawn_point_id": "p0", "squad_size": 48, "squad_paths": ["first_bend_route"] },
+        { "family": "bacteria", "count": 124, "start_time": 5.376, "duration": 3.946, "spawn_point_id": "p0", "squad_size": 48, "squad_paths": ["first_bend_route"] }
       ]
     },
     {
       "name": "campaign_01_first_bend_wave_4",
-      "prep_time": 5.6,
-      "atp_reward": 104,
+      "prep_time": 9.9,
+      "atp_reward": 102,
       "spawns": [
-        { "family": "virus", "count": 200, "duration": 2 },
-        { "family": "bacteria", "count": 95, "start_time": 3, "duration": 4 }
-      ]
-    },
-    {
-      "name": "campaign_01_first_bend_wave_4_copy",
-      "prep_time": 5.6,
-      "atp_reward": 104,
-      "spawns": [
-        { "family": "virus", "count": 489, "duration": 4 },
-        { "family": "bacteria", "count": 95, "start_time": 1, "duration": 3.5 }
+        { "family": "virus", "count": 375, "duration": 4.158, "spawn_point_id": "p0", "squad_size": 48, "squad_paths": ["first_bend_route"] },
+        { "family": "bacteria", "count": 169, "start_time": 5.639, "duration": 4.158, "spawn_point_id": "p0", "squad_size": 48, "squad_paths": ["first_bend_route"] }
       ]
     },
     {
       "name": "campaign_01_first_bend_wave_5",
-      "prep_time": 4.8,
-      "atp_reward": 122,
+      "prep_time": 9.2,
+      "atp_reward": 121,
       "spawns": [
-        { "family": "virus", "count": 607, "duration": 4 },
-        { "family": "bacteria", "count": 134, "start_time": 1, "duration": 3.5 },
-        { "family": "parasite", "count": 20, "start_time": 1.5, "duration": 3.5 }
+        { "family": "virus", "count": 479, "duration": 4.276, "spawn_point_id": "p0", "squad_size": 48, "squad_paths": ["first_bend_route"] },
+        { "family": "bacteria", "count": 216, "start_time": 5.774, "duration": 4.276, "spawn_point_id": "p0", "squad_size": 48, "squad_paths": ["first_bend_route"] }
       ]
     },
     {
       "name": "campaign_01_first_bend_wave_6",
-      "prep_time": 4,
+      "prep_time": 8.5,
       "atp_reward": 140,
       "spawns": [
-        { "family": "virus", "count": 724, "duration": 4 },
-        { "family": "bacteria", "count": 173, "start_time": 1, "duration": 3.5 },
-        { "family": "parasite", "count": 26, "start_time": 1.5, "duration": 3.5 }
+        { "family": "virus", "count": 586, "duration": 4.35, "spawn_point_id": "p0", "squad_size": 48, "squad_paths": ["first_bend_route"] },
+        { "family": "bacteria", "count": 264, "start_time": 5.85, "duration": 4.35, "spawn_point_id": "p0", "squad_size": 48, "squad_paths": ["first_bend_route"] }
       ]
     }
   ]

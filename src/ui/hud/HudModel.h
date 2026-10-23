@@ -51,6 +51,13 @@ struct HudWavePreview {
     u32 total = 0;
 };
 
+/// A possible enemy entrance, independent of the upcoming wave's composition.
+struct HudSpawnPoint {
+    Vec2 world{0.0f, 0.0f};
+    /// Unit direction into the lane, in world coordinates.
+    Vec2 direction{1.0f, 0.0f};
+};
+
 /// A tower on the board.
 struct HudTower {
     EntityId id{};
@@ -73,10 +80,11 @@ struct HudPlacement {
 struct HudModel {
     // ---- Organ ----
     f32 integrity01 = 1.0f;
+    /// Actual destinations the enemy must be kept from reaching.
+    std::vector<Vec2> organ_points;
 
     // ---- Economy ----
     u32 atp = 0;
-    f32 income_per_second = 0.0f;
 
     // ---- Waves ----
     HudWavePhase phase = HudWavePhase::Prep;
@@ -89,9 +97,8 @@ struct HudModel {
     /// The wave the player should prepare for: the upcoming one in Prep, the
     /// next one while a wave is on.
     HudWavePreview preview;
-    /// Where the horde enters, for the prep composition marker.
-    bool has_spawn = false;
-    Vec2 spawn_world{0.0f, 0.0f};
+    /// Every possible entrance; enemy counts belong to the wave panel.
+    std::vector<HudSpawnPoint> spawn_points;
 
     // ---- Board ----
     std::array<HudTowerCard, kTowerTypeCount> cards{};

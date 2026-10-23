@@ -9,8 +9,7 @@
 //   top-right    pause / 1x / 2x / menu, then the next-wave panel
 //   bottom       build dock (ATP, then Attack and Control cards), ability cells
 //   world        range rings, placement ghost, aim reticle, tower health pips,
-//                the selected tower's popup, the incoming composition at the
-//                spawn during prep
+//                the selected tower's popup, every possible enemy entrance
 //
 // The screen owns the HUD's interaction state (armed tower, armed ability,
 // selected tower) — what used to be Hud.cpp's file statics — and reports what
@@ -40,6 +39,8 @@ class WaveRow;
 class RangeRing;
 class TowerPopup;
 class HintPill;
+class SpawnMarker;
+class OrganMarker;
 
 class HudScreen {
 public:
@@ -125,7 +126,6 @@ private:
     gui::Panel* dock_ = nullptr;
     gui::Icon* atp_icon_ = nullptr;
     gui::Label* atp_value_ = nullptr;
-    gui::Label* atp_rate_ = nullptr;
     std::array<BuildCard*, kTowerTypeCount> cards_{};
     gui::Panel* abilities_ = nullptr;
     std::array<AbilityCell*, game::kAbilityCount> ability_cells_{};
@@ -146,9 +146,8 @@ private:
     RangeRing* reticle_ = nullptr;
     gui::Ring* selection_ring_ = nullptr;
     TowerPopup* popup_ = nullptr;
-    gui::Panel* spawn_pill_ = nullptr;
-    std::array<gui::Widget*, kFamilyCount> spawn_entries_{};
-    std::array<gui::Label*, kFamilyCount> spawn_counts_{};
+    std::vector<SpawnMarker*> spawn_markers_;
+    std::vector<OrganMarker*> organ_markers_;
 };
 
 } // namespace immune::ui

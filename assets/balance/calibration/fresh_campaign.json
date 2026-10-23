@@ -1,0 +1,22 @@
+{
+  "schema": 1,
+  "references": [
+    {
+      "name": "Fresh campaign first wave is achievable",
+      "level": "campaign_01_first_bend",
+      "profile": "fresh",
+      "policies": ["competent", "tactical"],
+      "variants": ["baseline"],
+      "minimum_waves_cleared": 1,
+      "minimum_samples": 2,
+      "minimum_success_rate": 1.0,
+      "require_standard_rules": true,
+      "source": "Player report and paid early-cohort reference: the first fresh wave is achievable with baseline 300 ATP and 20 Neutrophils. The paid reference cleared 9/9 tested seeds; automatic controllers must reproduce feasible play before gameplay conclusions.",
+      "evidence": {
+        "spec": "assets/balance/references/fresh_first_wave_paid_actions.json",
+        "observed_seeds": [101, 202, 303, 404, 505, 606, 707, 808, 909],
+        "role": "Scripted feasibility evidence; does not qualify an automatic controller."
+      }
+    }
+  ]
+}

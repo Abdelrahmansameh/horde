@@ -1,0 +1,58 @@
+{
+  "schema": 1,
+  "seeds": [
+    101,
+    202,
+    303,
+    404,
+    505,
+    606,
+    707,
+    808
+  ],
+  "metric": "objective_integrity",
+  "policies": [
+    {
+      "name": "novice",
+      "controller": {
+        "policy": "novice"
+      }
+    },
+    {
+      "name": "competent",
+      "controller": {
+        "policy": "competent"
+      }
+    },
+    {
+      "name": "tactical",
+      "controller": {
+        "policy": "tactical"
+      }
+    }
+  ],
+  "name": "Opening ATP threshold grid with no reinvestment",
+  "kind": "budget",
+  "base": {
+    "schema": 1,
+    "level": "assets/balance/levels/open_lane.json",
+    "max_ticks": 18000,
+    "sample_ticks": 60,
+    "progression": {
+      "profile": "all_unlocked"
+    },
+    "income_enabled": false
+  },
+  "budget_path": "opening_atp",
+  "budgets": [
+    0,
+    60,
+    120,
+    180,
+    240,
+    300,
+    450,
+    600
+  ],
+  "target_win_rate": 1
+}

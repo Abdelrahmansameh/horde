@@ -86,10 +86,12 @@ float smax(float a, float b, float k) { return -smin(-a, -b, k); }
 // Neutrophil body (entity.frag: sdf_neutrophil). Domain-warped membrane with
 // five uneven pseudopods, a three-lobed nucleus, granular cytoplasm.
 // ---------------------------------------------------------------------------
-float sdf_neutrophil(vec2 p, float phase, out float nucleus_d, out float granule) {
-    float wx = fbm(p * 3.1 + vec2(phase * 0.13, 0.0)) - 0.5;
-    float wy = fbm(p * 3.1 + vec2(5.2, -phase * 0.11)) - 0.5;
-    vec2 wp = p + vec2(wx, wy) * 0.17;
+// Separate membrane coordinates let the shooter push out its skin without
+// dragging the nucleus or painting a second shape over the cell.
+float sdf_neutrophil(vec2 p, vec2 membrane_p, float phase, out float nucleus_d, out float granule) {
+    float wx = fbm(membrane_p * 3.1 + vec2(phase * 0.13, 0.0)) - 0.5;
+    float wy = fbm(membrane_p * 3.1 + vec2(5.2, -phase * 0.11)) - 0.5;
+    vec2 wp = membrane_p + vec2(wx, wy) * 0.17;
 
     float body = length(wp) - 0.34;
     for (int k = 0; k < 5; ++k) {
@@ -140,6 +142,56 @@ const float kGatherSquash = 1.0;
 // Gathered rounds stack this many deep against the membrane.
 const float kGatherRows   = 3.0;
 
+// A real shot resets the sim's seconds_since_shot even on the last round,
+// whose magazine has already changed to Reloading. Renderer packs the
+// remaining fraction in flags 24..31; zero is fully settled. Keep the
+// duration in sync with Renderer.cpp's kShooterPulseSeconds.
+const float kShooterPulseSeconds = 0.22;
+
+// {longitudinal stretch, backward recoil, narrow membrane extension}.
+vec3 shooter_motion(vec4 magazine) {
+    float remaining = float((v_flags >> 24u) & 255u) / 255.0;
+    float age = (1.0 - remaining) * kShooterPulseSeconds;
+    // A sharp expulsion, a softer opposite squish, then a gentle settle.
+    float pulse = exp(-age * 18.0) * cos(age * 30.0) *
+                  (1.0 - smoothstep(0.16, kShooterPulseSeconds, age));
+    float release = exp(-age * 20.0) *
+                    (1.0 - smoothstep(0.12, kShooterPulseSeconds, age));
+    float rounds = floor(magazine.z / 256.0);
+    float fired = magazine.z - rounds * 256.0;
+    // Only wind up before the first round. The rest of the volley is driven
+    // by actual shots, rather than by an independent cosmetic oscillator.
+    float gather = fired < 0.5 ? magazine.y : 0.0;
+    return vec3(1.0 - 0.12 * gather * gather + 0.32 * pulse,
+                0.045 * release, 0.160 * release);
+}
+
+// Stretch around the fusion pore, then kick back opposite the shot. The
+// reciprocal sideways scale conserves area and makes the body feel liquid.
+// Forward maps magazine centres; inverse maps the membrane and nucleus.
+// Rounds themselves stay round while they ride the same moving cytoplasm.
+vec2 shooter_deform(vec2 p, vec2 aim, float stretch, float recoil, bool inverse) {
+    vec2 tang = vec2(-aim.y, aim.x);
+    vec2 q = vec2(dot(p, aim), dot(p, tang));
+    if (inverse) q.x += recoil;
+    float scale = inverse ? 1.0 / stretch : stretch;
+    q.x = kGatherEdge + (q.x - kGatherEdge) * scale;
+    q.y /= scale;
+    if (!inverse) q.x -= recoil;
+    return aim * q.x + tang * q.y;
+}
+
+vec2 shooter_membrane(vec2 p, vec2 aim, float extension) {
+    vec2 tang = vec2(-aim.y, aim.x);
+    vec2 q = vec2(dot(p, aim), dot(p, tang));
+    // Pull only the narrow front strip of the existing SDF forward. This
+    // grows a connected, rounded tip out of whichever lobe faces the aim;
+    // it uses the same cytoplasm and membrane rim as the rest of the body.
+    q.x -= extension * exp(-q.y * q.y / (0.09 * 0.09)) *
+           smoothstep(0.04, 0.38, q.x);
+    return aim * q.x + tang * q.y;
+}
+
 // Ease in up to the overshoot, then settle back to 1.
 float pop_scale(float u, float start, float over, float peak, float power) {
     if (u >= 1.0) return 1.0;
@@ -150,7 +202,7 @@ float pop_scale(float u, float start, float over, float peak, float power) {
 
 // Signed distance to the nearest live granule, and that granule's radius.
 // `pore` comes back as how hot the gather point on the membrane is.
-float magazine_d(vec2 p, float phase, vec4 m0, vec4 m1, vec4 m2,
+float magazine_d(vec2 p, float phase, vec4 m0, vec4 m1, vec4 m2, float stretch, float recoil,
                  out float nearest_r, out float pore) {
     vec2 aim = vec2(cos(m0.x), sin(m0.x));
     vec2 tang = vec2(-aim.y, aim.x);
@@ -193,7 +245,8 @@ float magazine_d(vec2 p, float phase, vec4 m0, vec4 m1, vec4 m2,
         float g = clamp(gather * 1.35 - fk / float(max(rounds, 1)) * 0.35, 0.0, 1.0);
         g = g * g * (3.0 - 2.0 * g);
 
-        float d = length(p - mix(rest, clump, g)) - r;
+        vec2 centre = shooter_deform(mix(rest, clump, g), aim, stretch, recoil, false);
+        float d = length(p - centre) - r;
         if (d < best) {
             best = d;
             nearest_r = r;
@@ -880,11 +933,19 @@ void main() {
     // the near-colourless body the tower has (tint mixed in lightly); the
     // Goblet Cell's are the same cell repainted in their tower's hue, so the
     // colour carries "which tower" the way it does for every other read.
+    vec3 motion = kind == 1u ? shooter_motion(v_arm0) : vec3(1.0, 0.0, 0.0);
+    vec2 body_p = p;
+    vec2 membrane_p = p;
+    if (kind == 1u) {
+        vec2 aim = vec2(cos(v_arm0.x), sin(v_arm0.x));
+        body_p = shooter_deform(p, aim, motion.x, motion.y, true);
+        membrane_p = shooter_membrane(body_p, aim, motion.z);
+    }
     float nucleus_d, granule;
-    float body_d = sdf_neutrophil(p, phase, nucleus_d, granule);
+    float body_d = sdf_neutrophil(body_p, membrane_p, phase, nucleus_d, granule);
 
     float a = 1.0 - smoothstep(-0.030, 0.010, body_d);
-    float sh = entity_shadow(p, 0.46);
+    float sh = entity_shadow(membrane_p, 0.46);
     if (a <= 0.0 && sh <= 0.0) discard;
 
     float depth = clamp(-body_d * 5.0, 0.0, 1.0);
@@ -914,7 +975,7 @@ void main() {
         // from the body and from the nucleus under it. The same white the
         // rounds fly in (Renderer.cpp, submit_projectiles).
         float gr, pore;
-        float gd = magazine_d(p, phase, v_arm0, v_arm1, v_arm2, gr, pore);
+        float gd = magazine_d(p, phase, v_arm0, v_arm1, v_arm2, motion.x, motion.y, gr, pore);
         float gmask = 1.0 - smoothstep(-0.006, 0.004, gd);
         float inside = clamp(-gd / max(gr, 1e-3), 0.0, 1.0);
         vec3 grain = mix(vec3(0.95, 0.96, 1.00), vec3(1.0), smoothstep(0.35, 0.95, inside));

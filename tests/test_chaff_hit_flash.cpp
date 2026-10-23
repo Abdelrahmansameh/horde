@@ -660,14 +660,8 @@ TEST_CASE("a flashed agent is drawn in the authored flash colour",
 // ---------------------------------------------------------------------------
 // The death flash — the half that actually fires in this game.
 //
-// WHY THIS IS THE IMPORTANT TEST. Chaff has essentially no wounded state: a
-// bot-played run of skin_1_breach drew 94,245 agent-frames and only 29 of them
-// (0.03%) were an agent that had taken damage and was still alive. At shipped
-// tower rates an agent loses all of its density inside one tick and is
-// compacted away before any frame is drawn, so for almost every enemy in the
-// game THE KILLING BLOW IS THE ONLY HIT IT EVER TAKES. Everything above this
-// point in the file is correct and covers 0.03% of the cases; this covers the
-// rest.
+// An agent can die and be compacted before a frame is drawn. These cases
+// cover feedback that remains visible after that retirement.
 // ---------------------------------------------------------------------------
 
 namespace {

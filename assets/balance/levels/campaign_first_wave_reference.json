@@ -1,0 +1,271 @@
+{
+  "camera": {
+    "center": [
+      100,
+      71.4
+    ],
+    "max_view_height": 108,
+    "min_view_height": 82.08,
+    "view_height": 108
+  },
+  "description": "Diagnostic reference slice: exact first authored campaign wave, with the original geometry, starting ATP and release timing. One broad vessel sweeps from the upper left to the lower right. Hold the bend before the horde escapes below.",
+  "difficulty": 1,
+  "display_name": "First Bend",
+  "economy": {
+    "starting_atp": 300
+  },
+  "name": "campaign_01_first_bend",
+  "objectives": [
+    {
+      "half_extents": [
+        14,
+        4
+      ],
+      "id": "organ",
+      "pos": [
+        174,
+        -90
+      ]
+    }
+  ],
+  "placement_zones": [
+    {
+      "max": [
+        200,
+        142.8
+      ],
+      "min": [
+        0,
+        0
+      ]
+    },
+    {
+      "concentrated": true,
+      "max": [
+        160,
+        103
+      ],
+      "min": [
+        105,
+        65
+      ],
+      "priority": 2
+    },
+    {
+      "concentrated": true,
+      "max": [
+        194,
+        68
+      ],
+      "min": [
+        148,
+        20
+      ],
+      "priority": 2
+    }
+  ],
+  "region": "capillary",
+  "schema": 2,
+  "spawn_points": [
+    {
+      "id": "p0",
+      "lane_id": "main",
+      "pos": [
+        -118,
+        112
+      ],
+      "radius": 9.52
+    }
+  ],
+  "squad_paths": [
+    {
+      "half_width": 4,
+      "id": "first_bend_route",
+      "lane_id": "main",
+      "points": [
+        [
+          -118,
+          112
+        ],
+        [
+          -40,
+          112
+        ],
+        [
+          0,
+          110
+        ],
+        [
+          40,
+          107
+        ],
+        [
+          76,
+          102
+        ],
+        [
+          108,
+          94
+        ],
+        [
+          135,
+          83
+        ],
+        [
+          153,
+          70
+        ],
+        [
+          166,
+          56
+        ],
+        [
+          172,
+          42
+        ],
+        [
+          174,
+          22
+        ],
+        [
+          174,
+          -32
+        ],
+        [
+          174,
+          -90
+        ]
+      ]
+    }
+  ],
+  "tags": [
+    "campaign"
+  ],
+  "vessels": [
+    {
+      "id": "main",
+      "points": [
+        {
+          "p": [
+            -140,
+            112
+          ],
+          "w": 32
+        },
+        {
+          "p": [
+            -40,
+            112
+          ],
+          "w": 32
+        },
+        {
+          "p": [
+            0,
+            110
+          ],
+          "w": 32
+        },
+        {
+          "p": [
+            40,
+            107
+          ],
+          "w": 32
+        },
+        {
+          "p": [
+            76,
+            102
+          ],
+          "w": 32
+        },
+        {
+          "p": [
+            108,
+            94
+          ],
+          "w": 32
+        },
+        {
+          "p": [
+            135,
+            83
+          ],
+          "w": 32
+        },
+        {
+          "p": [
+            153,
+            70
+          ],
+          "w": 32
+        },
+        {
+          "p": [
+            166,
+            56
+          ],
+          "w": 32
+        },
+        {
+          "p": [
+            172,
+            42
+          ],
+          "w": 32
+        },
+        {
+          "p": [
+            174,
+            22
+          ],
+          "w": 32
+        },
+        {
+          "p": [
+            174,
+            -32
+          ],
+          "w": 32
+        },
+        {
+          "p": [
+            174,
+            -104
+          ],
+          "w": 32
+        }
+      ]
+    }
+  ],
+  "waves": [
+    {
+      "atp_reward": 45,
+      "name": "campaign_01_first_bend_wave_1",
+      "prep_time": 12,
+      "spawns": [
+        {
+          "count": 138,
+          "duration": 4,
+          "family": "virus",
+          "spawn_point_id": "p0",
+          "squad_paths": [
+            "first_bend_route"
+          ],
+          "squad_size": 48
+        }
+      ]
+    }
+  ],
+  "world": {
+    "max": [
+      200,
+      142.8
+    ],
+    "min": [
+      0,
+      0
+    ]
+  }
+}

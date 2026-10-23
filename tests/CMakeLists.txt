@@ -4,7 +4,6 @@
 file(GLOB IMMUNE_TEST_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/test_*.cpp")
 
 add_executable(immune_tests ${IMMUNE_TEST_SOURCES})
-add_dependencies(immune_tests immune) # CLI integration checks launch the game executable.
 
 target_link_libraries(immune_tests PRIVATE
   immune_app

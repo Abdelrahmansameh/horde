@@ -1,0 +1,171 @@
+{
+  "schema": 1,
+  "kind": "late_earned_paid_controller_qualification",
+  "name": "Final campaign first authored wave: paid drain-hold reference",
+  "scope": {
+    "level": "FIRST AUTHORED WAVE ONLY; not a full L10 clear",
+    "profile": "Late earned diagnostic: actual first profile after nine campaign clears, not fresh progression",
+    "affordability": "Deployments and reinforcements pay normal costs from the original 950 opening and actual staged income. This is not a fresh/full-campaign affordability proof.",
+    "physics": "Verified on pinned V9 flat-health runtime. Current base config must match the pinned fingerprint; changed physics/config require requalification.",
+    "automatic_controller": "Scripted feasibility anchor only. An automatic controller must independently clear the same bounded level under the exact earned profile/config before its failure can support map difficulty claims."
+  },
+  "files": {
+    "level": "assets/balance/levels/campaign_final_first_wave_reference.json",
+    "paid_spec": "assets/balance/references/final_first_wave_paid_actions.json"
+  },
+  "source": {
+    "campaign_level": "assets/levels/campaign_10_core_breach.json",
+    "origin": "V8 staged-income economy journey, first L10 attempt immediately after nine earned clears",
+    "source_attempt_index": 18,
+    "level_attempt": 1,
+    "seed": 31031,
+    "completed_level_ids": [
+      "campaign_01_first_bend",
+      "campaign_02_island_climb",
+      "campaign_03_two_chambers",
+      "campaign_04_twin_channels",
+      "campaign_05_ring_road",
+      "campaign_06_circuit_board",
+      "campaign_07_chevron_sieve",
+      "campaign_08_blob_field",
+      "campaign_09_funnel_walls"
+    ],
+    "earned_profile_sha256": "7be5196bcbc1bfacecf619f7e24ed0f3d44f304148415a2ffdf8eceb614b6f59",
+    "full_staged_level_document_sha256": "42fb00bd692a1e6628bb929d4f9ae80653f5574a7f6f8456e283c8932c894e1b",
+    "source_staged_level_file_sha256": "e0b58597caf8fbe516e7094054a09c1d1ea3ab0280db37236844767cedb10961",
+    "source_journey_sha256": "7c54c760e36b776cdcb09e037087b5db825afaae27039fcab685be995812fec8",
+    "source_journey_path": "scratch/progression-rework/training-v8-staged-income/runs/training-tactical-economy-31013-538e105b01a9.report.json",
+    "reference_report_sha256": "8eb72ade1e23ba0e565bf7d956bdc15b12f259698dde6d644f0a92025799271e"
+  },
+  "provenance": {
+    "runtime_sha256": "f652b308b2979eed66fb18844f0e393147d548f1fb87f3fa0c0c4a370f3e530b",
+    "base_config_fingerprint": 10585889450267739244,
+    "base_config_file_sha256": {
+      "towers": "c80c719b2c17bc4868bb18d5769b1608c762225732fc34e3186de94fa93191cf",
+      "enemies": "5d8a2238c3d9d3d6b15216f9b06b3713ca6850a3c8153a14e92434eeca6d1a27",
+      "sim": "09afa9ac9e317d342ed7c6dc6121758edef8de0afa612ebbb92e5611742e6d5f",
+      "economy": "0610e446a979cc7fa3a38ac124f0ca68addebe018e5990a9f89832010edf24dd",
+      "abilities": "4a077baecc85de03eff2f423e1ce0e0bdf7dc1530935975980e988106d7882b5",
+      "meta": "b403a6b502cc6541ee5d47e5dc0ac4323b7641a5fe7f0d6b77a5757dfd8cdb71"
+    },
+    "reference_level_sha256": "0dfa514d8fc0eec929537aa2668757768ceebbaf6cbf2316cb682c1a7777380b",
+    "paid_spec_sha256": "2a60d518487cbabaf411f91a40a932751699867851907d9975761af33ee1fa19",
+    "diagnostic_geometry_unchanged": true,
+    "authored_first_wave_unchanged": true,
+    "only_future_waves_omitted": true,
+    "debug_grants": false,
+    "opening_atp_override": false,
+    "income_override": false,
+    "income_multiplier_in_source_level": 0.262144,
+    "base_atp_per_density": 0.85,
+    "projectile_capacity": 65536
+  },
+  "plan": {
+    "public_actual_flow_holds": [
+      [
+        160,
+        35
+      ],
+      [
+        310,
+        35
+      ]
+    ],
+    "unsuccessful_authored_path_junctions": [
+      [
+        190,
+        105
+      ],
+      [
+        333,
+        110
+      ]
+    ],
+    "initial_units": {
+      "neutrophil": 42,
+      "macrophage": 10,
+      "fibroblast": 2,
+      "cytotoxic_t": 4,
+      "goblet_cell": 4
+    },
+    "initial_cells": 62,
+    "initial_atp_cost": 944,
+    "opening_atp": 950,
+    "minimum_ticks_between_individual_deployments": 11,
+    "placement_interval_seconds": 0.18,
+    "auto_start": true,
+    "prep_seconds": 10,
+    "ability_used": "One normally owned Fever cast; no free/forced ability activation",
+    "later_buys": "Optional single-cell buy attempts require sufficient actual ATP; refusals remain visible."
+  },
+  "observed": {
+    "summary": {
+      "abilities_used": 1,
+      "actions_rejected": 172,
+      "antibodies": 1,
+      "atp_remaining": 96,
+      "atp_seconds_unspent": 5055.250000000408,
+      "atp_spent": 1416,
+      "clearing_timeout_advances": 0,
+      "combat_metrics_available": true,
+      "denied_spawns": 0,
+      "density_removed": 1415.177684161812,
+      "deploy_capacity_rejected": 0,
+      "duration_seconds": 50.233333333333334,
+      "duration_ticks": 3014,
+      "friendly_alive": 91,
+      "friendly_killed": 9,
+      "kills": 2204,
+      "leaks": 39,
+      "memory_cells": 96,
+      "objective_integrity": 76.60005950927734,
+      "peak_enemies": 1673,
+      "prep_seconds": 10.0,
+      "sampled_danger_seconds": 0.0,
+      "sampled_slow_enemy_seconds": 0.0,
+      "status": "cleared",
+      "unable_to_afford_seconds": 29.716666666666665,
+      "valid": true,
+      "wave_reached": 0,
+      "waves_cleared": 1
+    },
+    "enemy_survivors": 0,
+    "economy": {
+      "atp": 96,
+      "damage_income": 472,
+      "fractional_income": 0.9999485015869141,
+      "opening_atp": 950,
+      "refunds": 0,
+      "spent": 1416,
+      "wave_income": 90
+    },
+    "pool_denials": {
+      "cells": 0,
+      "fluid": 0,
+      "projectiles": 0
+    },
+    "state_hash": 12311812063630814078,
+    "errors": [],
+    "warnings": []
+  },
+  "qualification_requirements": {
+    "same_profile_sha256": "7be5196bcbc1bfacecf619f7e24ed0f3d44f304148415a2ffdf8eceb614b6f59",
+    "same_base_config_fingerprint": 10585889450267739244,
+    "same_seed": 31031,
+    "minimum_waves_cleared": 1,
+    "expected_status": "cleared",
+    "require_valid": true,
+    "require_zero_enemy_survivors": true,
+    "require_zero_damaging_pool_denials": true,
+    "require_zero_clearing_timeout_advances": true,
+    "single_seed_scope": "This reference does not estimate a win rate or human difficulty."
+  },
+  "local_evidence": {
+    "bounded_clear": "scratch/progression-rework/l10-paid-reference/first_wave_only_drains.report.json",
+    "preserved_full_level_100_second_timeout": "scratch/progression-rework/l10-paid-reference/drain_holds.report.json",
+    "unsuccessful_authored_junctions": "scratch/progression-rework/l10-paid-reference/two_pockets_reinforced.report.json",
+    "failed_pocket_replay": "scratch/progression-rework/l10-paid-reference/t1900.png",
+    "successful_drain_replay": "scratch/progression-rework/l10-paid-reference/drain_holds_t1900.png"
+  },
+  "command": "immune --balance-run assets/balance/references/final_first_wave_paid_actions.json --config assets/config --out scratch/final-first-wave-reference.report.json --quiet"
+}

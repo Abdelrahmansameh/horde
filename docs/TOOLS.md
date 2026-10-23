@@ -1,13 +1,13 @@
 # Developer tools
 
-The helpers in [tools/](../tools) cover builds, tuning, reports, debug pictures, and generated UI assets. Run the examples from the repository root. Use Python 3.10 or newer for the scripts; most need only the standard library. The exceptions are font generation (`fontTools`) and the optional tree-layout PNG preview (`Pillow`). None of these Python helpers is automatically run by CTest.
+The helpers documented here cover builds, performance reports, debug pictures, and generated UI assets. Run the examples from the repository root. Use Python 3.10 or newer for the scripts; most need only the standard library. The exceptions are font generation (`fontTools`) and the optional tree-layout PNG preview (`Pillow`). None of these Python helpers is automatically run by CTest.
 
 | Tool | Input | Output / purpose | Extra requirement |
 |---|---|---|---|
 | [build.bat](../tools/build.bat) | CMake preset and operation | Configure/build/test Windows binaries | MSVC, CMake, Ninja for release, vcpkg |
-| [config_editor.py](../tools/config_editor.py) | Tuning JSON and source schema tables | Browser editor that saves tuning files | None |
-| [balance_sweep.py](../tools/balance_sweep.py) | Executable, levels, profiles, seeds | Per-run autoplay reports and summary CSV/Markdown | Built `immune.exe` |
 | [bench_report.py](../tools/bench_report.py) | Executable and benchmark scenarios | Budget table and optional local history | Built `immune.exe`; GL for render timings |
+| [balance_lab.py](../tools/balance_lab.py) | Experiment manifests and pinned run reports | Paired combat tests, campaigns, growth calibration and HTML reports | Built `immune.exe` |
+| [balance_catalog.py](../tools/balance_catalog.py) | Executable upgrade/config catalog | Controlled rank probes and coverage reports | Built `immune.exe` |
 | [preview_level.py](../tools/preview_level.py) | Binary `.imff` flow-field dump | Debug PNG | None |
 | [extract_icons.py](../tools/extract_icons.py) | Committed HTML design snapshot | SVG icons | None |
 | [gen_tree_layout.py](../tools/gen_tree_layout.py) | C++ progression catalog/edges | Tree layout JSON, optional preview PNG | Pillow only for `--preview` |
@@ -18,28 +18,17 @@ The helpers in [tools/](../tools) cover builds, tuning, reports, debug pictures,
 
 ```powershell
 .\tools\build.bat all windows-release
-python tools/balance_sweep.py --help
 python tools/bench_report.py --help
 ```
 
-See [Building](BUILDING.md) for compiler setup, presets, isolated builds, output paths, and every game CLI option. See [Balance](BALANCE.md) for autoplay profiles, sweep selection, telemetry, benchmark budgets, and the differences between headless and interactive sessions. Those documents are the command references for these helpers.
+See [Building](BUILDING.md) for compiler setup, presets, isolated builds, output paths, and game CLI options. See [Performance benchmarks](TESTING.md#performance-benchmarks) for benchmark commands, reports, and budgets.
 
-Both report scripts resolve the executable from `--exe`, then `IMMUNE`, then `%LOCALAPPDATA%\horde-build\windows-release\bin\immune.exe`. Supply `--exe` when comparing a separate build. Balance sweeps write under `tools/balance/` by default; benchmark history defaults to `tools/bench_history.csv`. These outputs are ignored by Git and depend on local hardware/tuning. Keep the revision, inputs, and config hash with any report used to justify a change.
+The benchmark report script resolves the executable from `--exe`, then `IMMUNE`, then `%LOCALAPPDATA%\horde-build\windows-release\bin\immune.exe`. Supply `--exe` when comparing a separate build. Benchmark history defaults to the Git-ignored `tools/bench_history.csv`. Results depend on local hardware and configuration; keep the revision and inputs with performance comparisons.
 
-## Browser tuning editor
-
-```powershell
-python tools/config_editor.py
-python tools/config_editor.py --config scratch/config --port 9000 --no-browser
-```
-
-The default directory is `assets/config`, the default host is `127.0.0.1`, and the default port is `8765`. The browser opens automatically unless `--no-browser` is supplied. `--host` changes the bind address. Stop the server with Ctrl+C.
-
-The helper reads field descriptions and enum spellings from the C++ `IMMUNE_CONFIG_FIELD`/`IMMUNE_CONFIG_ENUM_FIELD` and `EnumEntry` tables. It presents booleans, numbers, colors, enums, and repeated object arrays with appropriate controls. `schema` and `kind` are displayed but read-only. Saving retains integer versus floating-point representation based on the loaded value, sorts JSON keys, uses two-space indentation, and ends with a newline.
-
-**Save and Auto-save write the selected JSON files.** Use a copied config directory for an isolated experiment. The UI's Git revert action discards the selected tracked file's local edits; it is not an editor undo history.
-
-Interactive game tuning is polled on the configured reload interval (currently 0.5 seconds), with additional limitations for values captured when a world is created. Starting the game with `--config DIR` pins tuning and disables automatic reloading; `config reload` is an explicit console action. See [Configuration](CONFIGURATION.md) for validation, atomic reload behavior, field ownership, and which settings need a restart. The helper's browser controls do not replace the game's loader validation.
+For automated balance measurements, paid player actions, TTK, progression journeys,
+human recordings and replay captures, use the [Balance lab](BALANCE_LAB.md).
+Controller calibration and gameplay conclusions are separate: a losing bot does
+not establish that a human-beatable encounter is too difficult.
 
 ## Flow-field debug pictures
 

@@ -115,8 +115,10 @@ Level and explicit config paths are ordinary filesystem paths. Give the full lev
 | Play | `immune` or `immune --level <file>` | Windowed front end/game |
 | Benchmark | `immune --bench <scenario>` | Timing JSON on stdout |
 | Simulation script | `immune --sim-test <script.json>` | Assertion JSON on stdout, exit 0/1 |
+| Balance run or campaign | `immune --balance-run <spec.json> --out <report.json>` | Paid real-session actions and metrics, isolated progression |
+| Balance replay capture | `immune --balance-replay <report.json> --tick N --out <image.png>` | Pinned action replay through the game renderer |
+| Balance catalog | `immune --balance-catalog --out <catalog.json>` | Upgrade prices/effects and tuning registry |
 | Screenshot | `immune --screenshot <level.json>` | PNG plus state JSON on stdout |
-| Autoplay | `immune --autoplay --level <file>` | Balance JSON on stdout or `--report` path |
 | Scenario list | `immune --list-scenarios` | JSON array of benchmark scenarios |
 | Default config export | `immune --dump-config <dir>` | Compiled default tuning files |
 | Editor | `immune --editor [file.json]` | Windowed editor; template when no file is supplied |
@@ -130,7 +132,7 @@ Level and explicit config paths are ordinary filesystem paths. Give the full lev
 |---|---|
 | `--seed N` | Unsigned integer; fixed default `0x123456789abcdef0`; decimal or `0x` syntax |
 | `--threads N` | `1` means fully serial (zero workers); values above 1 create `N-1` workers; `0`/omitted uses automatic worker selection |
-| `--level PATH` | Level file for play/bench; script `level` overrides it; autoplay requires it |
+| `--level PATH` | Level file for play/bench; script `level` overrides it |
 | `--config DIR` | Alternate tuning directory; disables interactive hot reload |
 | `--width N`, `--height N` | Positive framebuffer dimensions; defaults 1600 by 900 |
 | `--ui-scale F` | UI multiplier from 0.75 through 1.5; default 1 |
@@ -143,6 +145,11 @@ Level and explicit config paths are ordinary filesystem paths. Give the full lev
 
 ### Mode-specific options
 
+`--record-balance <directory>` records an ordinary Play session for later
+measurement/replay. Balance runs, replays and recordings use serial simulation.
+See [Balance lab](BALANCE_LAB.md) for specifications, experiment commands and
+the limits of automated-player evidence.
+
 | Option | Applies to | Meaning |
 |---|---|---|
 | `--ticks N` / `--tick N` | Bench / screenshot | Aliases for the same tick count; bench defaults to 600, screenshot to 0 |
@@ -153,12 +160,9 @@ Level and explicit config paths are ordinary filesystem paths. Give the full lev
 | `--ui` | Screenshot | Render the HUD and use the full level-session tick loop |
 | `--focus x,y` | Screenshot | Override camera center |
 | `--view-height H` | Screenshot | Override view height in world units; zero uses level/world framing |
-| `--profile NAME` | Autoplay | `greedy-cheapest`, `spread-coverage`, or `single-type:<type>`; greedy is the default |
-| `--report PATH` | Autoplay | Write report to a file instead of stdout |
-| `--max-ticks N` | Autoplay | Stop at this tick limit; zero uses 108,000 ticks (30 simulated minutes) |
 | `--check` | Level formatting | Do not write; exit 1 if any file would change |
 
-Arguments rejected by the parser return exit 2. Operational mode failures generally return 1. A successful autoplay run returns 0 even if the bot loses or reaches its tick limit: inspect its report's `result`.
+Arguments rejected by the parser return exit 2. Operational mode failures generally return 1.
 
 ## Troubleshooting
 

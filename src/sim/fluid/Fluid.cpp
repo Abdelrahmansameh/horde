@@ -114,9 +114,13 @@ void FluidBuffers::reserve(usize max_particles) {
     visual_id.assign(max_particles, 0u);
     burst_id.assign(max_particles, 0u);
     owner.assign(max_particles, EntityId{});
+    source.assign(max_particles, TowerType::Count);
 }
 
 bool FluidBuffers::spawn(Vec2 position, Vec2 velocity, const FluidJetParams& jet) {
+    if (combat_metrics_) combat_metrics_->record_spawn(CombatSpawnPool::Fluid,
+        {jet.owner, jet.source, CombatDamageSource::Fluid}, 1, count_ < capacity_ ? 1 : 0,
+        count_ < capacity_ ? count_ + 1 : count_);
     if (count_ >= capacity_) return false;
     const usize i = count_++;
     pos_x[i] = position.x;
@@ -139,6 +143,7 @@ bool FluidBuffers::spawn(Vec2 position, Vec2 velocity, const FluidJetParams& jet
     visual_id[i] = jet.visual_id;
     burst_id[i] = jet.burst_id;
     owner[i] = jet.owner;
+    source[i] = jet.source;
     return true;
 }
 
@@ -174,6 +179,7 @@ usize FluidBuffers::compact() {
             visual_id[i] = visual_id[last];
             burst_id[i] = burst_id[last];
             owner[i] = owner[last];
+            source[i] = source[last];
         }
         flags[last] = 0;
         --count_;
@@ -215,8 +221,12 @@ void FluidSystem::configure(const Rect& world_bounds, const FluidTuning& tuning)
     coverage_dps_.assign(cov_cells, 0.0f);
     coverage_slow_duration_.assign(cov_cells * kFamilyCount, 0.0f);
     coverage_slow_factor_.assign(cov_cells * kFamilyCount, 1.0f);
-    coverage_owner_.assign(cov_cells, EntityId{});
-    coverage_owner_mass_.assign(cov_cells, 0.0f);
+    if (!metric_contributions_.empty()) metric_heads_.assign(cov_cells, -1);
+}
+
+void FluidSystem::prepare_combat_metrics(usize max_particles) {
+    metric_heads_.assign(coverage_.size(), -1);
+    metric_contributions_.resize(max_particles * 4);
 }
 
 // ---------------------------------------------------------------------------
@@ -293,6 +303,7 @@ u32 FluidSystem::emit(FluidBuffers& fluid, const FluidJetParams& jet, f32 dt) co
         if (!fluid.spawn(p, launch * speed, jet)) break; // store full; drop the rest
         ++emitted;
     }
+    if (emitted < count) fluid.record_denied(jet, static_cast<u64>(count - emitted - 1));
     return emitted;
 }
 
@@ -324,6 +335,7 @@ u32 FluidSystem::splash(FluidBuffers& fluid, const FluidJetParams& jet, Vec2 ori
         if (!fluid.spawn(p, radial * launch, jet)) break;   // store full; drop the rest
         ++emitted;
     }
+    if (emitted < count) fluid.record_denied(jet, static_cast<u64>(count - emitted - 1));
     return emitted;
 }
 
@@ -736,6 +748,12 @@ FluidStats FluidSystem::update(FluidBuffers& fluid,
     }
 
     // ---- 7. Coverage splat ------------------------------------------------
+    CombatMetrics* metrics = chaff.combat_metrics();
+    const bool attribute_fluid = metrics && metric_heads_.size() == coverage_.size() &&
+                                 metric_contributions_.size() >= n * 4;
+    usize contribution_count = 0;
+    if (attribute_fluid) std::fill(metric_heads_.begin(), metric_heads_.end(), -1);
+    else if (metrics) metrics->note_attribution_overflow();
     // Every particle deposits its mass and its share of the damage rate into
     // the four nearest cells. One pass, no pair tests, and this grid is what
     // every consumer below reads.
@@ -743,10 +761,6 @@ FluidStats FluidSystem::update(FluidBuffers& fluid,
     std::fill(coverage_dps_.begin(), coverage_dps_.end(), 0.0f);
     std::fill(coverage_slow_duration_.begin(), coverage_slow_duration_.end(), 0.0f);
     std::fill(coverage_slow_factor_.begin(), coverage_slow_factor_.end(), 1.0f);
-    if (attribution_ != nullptr) {
-        std::fill(coverage_owner_.begin(), coverage_owner_.end(), EntityId{});
-        std::fill(coverage_owner_mass_.begin(), coverage_owner_mass_.end(), 0.0f);
-    }
     const f32 cov_cs = math::max(tuning_.coverage_cell_size, 1e-3f);
     const i32 cov_w = coverage_dims_.x;
     const i32 cov_h = coverage_dims_.y;
@@ -774,6 +788,11 @@ FluidStats FluidSystem::update(FluidBuffers& fluid,
             const f32 m = w[c] * weight;
             coverage_[idx] += m;
             coverage_dps_[idx] += m * rate;
+            if (attribute_fluid && m * rate > 0.0f) {
+                metric_contributions_[contribution_count] =
+                    DamageContribution{fluid.owner[i], fluid.source[i], m * rate, metric_heads_[idx]};
+                metric_heads_[idx] = static_cast<i32>(contribution_count++);
+            }
             if (m > 1e-4f && fluid.slow_duration[i] > 0.0f) {
                 for (u8 family = 0; family < kFamilyCount; ++family) {
                     if ((fluid.family_mask[i] & static_cast<u8>(1u << family)) == 0) continue;
@@ -784,10 +803,6 @@ FluidStats FluidSystem::update(FluidBuffers& fluid,
                         coverage_slow_factor_[slow_idx],
                         math::clamp(fluid.slow_factor[i], 0.0f, 1.0f));
                 }
-            }
-            if (attribution_ != nullptr && m > coverage_owner_mass_[idx]) {
-                coverage_owner_mass_[idx] = m;
-                coverage_owner_[idx] = fluid.owner[i];
             }
         }
     }
@@ -824,15 +839,24 @@ FluidStats FluidSystem::update(FluidBuffers& fluid,
         const f32 amount = (coverage_dps_[idx] / mass) * wetness * dt;
 
         const f32 before = chaff.density[a];
-        chaff.apply_density_loss(a, amount);
+        chaff.apply_density_loss(a, amount,
+            {{}, TowerType::Count, CombatDamageSource::Fluid, attribute_fluid});
         const f32 removed = before - chaff.density[a];
         stats.density_removed += removed;
-
-        // Off by default; see sim/Attribution.h and coverage_owner_'s note.
-        if (attribution_ != nullptr && removed > 0.0f && coverage_owner_[idx].valid()) {
-            const bool killed = (chaff.flags[a] & chaff_flags::kPendingKill) != 0;
-            attribution_->record_chaff(coverage_owner_[idx], chaff.family[a], removed, killed);
+        if (attribute_fluid && amount > 0.0f && coverage_dps_[idx] > 0.0f) {
+            const bool immune = chaff.burrow_state[a] != burrow_state::kSurface;
+            const f64 attempted = immune ? amount :
+                amount * ((chaff.flags[a] & chaff_flags::kSlowed) != 0 ? chaff.slowed_damage_multiplier() : 1.0f);
+            for (i32 link = metric_heads_[idx]; link >= 0; ) {
+                const auto& contribution = metric_contributions_[static_cast<usize>(link)];
+                const f64 share = static_cast<f64>(contribution.weighted_dps) / coverage_dps_[idx];
+                metrics->record({contribution.owner, contribution.source, CombatDamageSource::Fluid},
+                    chaff.family[a], attempted * share, removed * share, immune ? attempted * share : 0.0,
+                    before > 0.0f && chaff.density[a] <= 0.0f ? share : 0.0, false);
+                link = contribution.next;
+            }
         }
+
         // Legacy damaging jets still mark. Goblet Cell splashes configure
         // zero damage, so this path does not mark or hurt their targets.
         if (amount > 0.0f) chaff.flags[a] |= chaff_flags::kMarked;

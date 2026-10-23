@@ -361,79 +361,119 @@ TEST_CASE("virus swipe: every aspect ratio draws only gameplay viruses without a
     }
 }
 
-TEST_CASE("virus swipe: Play hands off once under cover and unlocks the destination after reveal", "[ui][menu][virus_swipe]") {
+TEST_CASE("virus swipe: level entry hands off once under cover and unlocks the destination after reveal", "[ui][menu][virus_swipe]") {
     SwipeFile file;
     file.json["duration_seconds"] = 1.0;
     file.json["cover_fraction"] = 0.5;
     file.json["hold_seconds"] = 0.1;
     file.write();
     SwipeHarness h(file.path);
-    REQUIRE(h.gui.click("menu/play"));
+    h.model.campaign.push_back(CampaignLevel{1, "First Bend", 7, false, false});
+    h.frame(FrontScreen::LevelSelect);
+    h.front->finish_transitions();
+    h.frame(FrontScreen::LevelSelect);
+    REQUIRE(h.gui.click("levels/play"));
     REQUIRE(h.front->virus_swipe() != nullptr);
     REQUIRE(h.front->virus_swipe()->active());
-    CHECK(h.front->current() == FrontScreen::MainMenu);
+    CHECK(h.front->current() == FrontScreen::LevelSelect);
     CHECK(h.front->take_result().action == MenuAction::None);
-    (void)h.gui.click("menu/play");
-    (void)h.gui.click("menu/quit");
+    (void)h.gui.click("levels/play");
+    (void)h.gui.click("levels/back");
     CHECK(h.front->take_result().action == MenuAction::None);
 
-    h.advance(FrontScreen::MainMenu, 24);
+    h.advance(FrontScreen::LevelSelect, 24);
     CHECK(h.front->take_result().action == MenuAction::None);
     bool handed_off = false;
     for (int f = 0; f < 100; ++f) {
-        h.frame(FrontScreen::MainMenu);
+        h.frame(FrontScreen::LevelSelect);
         const MenuResult result = h.front->take_result();
         if (result.action == MenuAction::None) continue;
-        REQUIRE(result.action == MenuAction::OpenImmunityTree);
+        REQUIRE(result.action == MenuAction::StartLevel);
+        CHECK(result.level_index == 7);
         REQUIRE_FALSE(handed_off);
         handed_off = true;
         CHECK(h.front->virus_swipe()->ready_to_reveal());
     }
     REQUIRE(handed_off);
-    CHECK(h.front->current() == FrontScreen::MainMenu);
+    CHECK(h.front->current() == FrontScreen::LevelSelect);
     CHECK(h.front->virus_swipe()->active());
     CHECK(h.front->take_result().action == MenuAction::None);
 
-    h.frame(FrontScreen::Tree);
-    CHECK(h.front->current() == FrontScreen::Tree);
-    REQUIRE(h.gui.find("tree/play") != nullptr);
-    (void)h.gui.click("tree/play");
-    (void)h.gui.click("tree/back");
-    CHECK(h.front->take_result().action == MenuAction::None);
-    h.advance(FrontScreen::Tree, 120);
+    h.frame(FrontScreen::None);
+    CHECK(h.front->current() == FrontScreen::None);
+    // The outgoing selector is removed under cover, with the swarm still
+    // active over the gameplay destination until the reveal completes.
+    CHECK(h.gui.find("levels/play") == nullptr);
+    CHECK(h.front->virus_swipe()->active());
+    h.advance(FrontScreen::None, 120);
     REQUIRE_FALSE(h.front->virus_swipe()->active());
     CHECK(h.front->take_result().action == MenuAction::None);
-    REQUIRE(h.gui.click("tree/play"));
-    CHECK(h.front->take_result().action == MenuAction::OpenLevelSelect);
 }
 
-TEST_CASE("virus swipe: disabled Play navigates immediately", "[ui][menu][virus_swipe]") {
+TEST_CASE("virus swipe: disabled level entry navigates immediately", "[ui][menu][virus_swipe]") {
     SwipeFile file;
     file.json["enabled"] = false;
     file.write();
     SwipeHarness h(file.path);
-    REQUIRE(h.gui.click("menu/play"));
-    CHECK(h.front->take_result().action == MenuAction::OpenImmunityTree);
+    h.model.campaign.push_back(CampaignLevel{1, "First Bend", 7, false, false});
+    h.frame(FrontScreen::LevelSelect);
+    h.front->finish_transitions();
+    h.frame(FrontScreen::LevelSelect);
+    REQUIRE(h.gui.click("levels/play"));
+    CHECK(h.front->take_result().action == MenuAction::StartLevel);
     CHECK(h.front->take_result().action == MenuAction::None);
     REQUIRE(h.front->virus_swipe() != nullptr);
     CHECK_FALSE(h.front->virus_swipe()->active());
 }
 
-TEST_CASE("virus swipe: external navigation cancels a pending Play without a stale handoff", "[ui][menu][virus_swipe]") {
+TEST_CASE("virus swipe: external navigation cancels a pending level entry without a stale handoff", "[ui][menu][virus_swipe]") {
     SwipeFile file;
     SwipeHarness h(file.path);
-    REQUIRE(h.gui.click("menu/play"));
-    h.advance(FrontScreen::MainMenu, 6);
+    h.model.campaign.push_back(CampaignLevel{1, "First Bend", 7, false, false});
+    h.frame(FrontScreen::LevelSelect);
+    h.front->finish_transitions();
+    h.frame(FrontScreen::LevelSelect);
+    REQUIRE(h.gui.click("levels/play"));
+    h.advance(FrontScreen::LevelSelect, 6);
     REQUIRE(h.front->virus_swipe()->active());
-    h.frame(FrontScreen::None);
+    h.frame(FrontScreen::Tree);
     CHECK_FALSE(h.front->virus_swipe()->active());
     CHECK(h.front->take_result().action == MenuAction::None);
 
-    h.frame(FrontScreen::MainMenu);
+    h.frame(FrontScreen::LevelSelect);
     h.front->finish_transitions();
-    h.frame(FrontScreen::MainMenu);
-    REQUIRE(h.gui.click("menu/play"));
+    h.frame(FrontScreen::LevelSelect);
+    REQUIRE(h.gui.click("levels/play"));
     CHECK(h.front->virus_swipe()->active());
     CHECK_FALSE(h.front->virus_swipe()->ready_to_reveal());
     CHECK(h.front->take_result().action == MenuAction::None);
+}
+
+TEST_CASE("virus swipe: main-menu Play navigates immediately", "[ui][menu][virus_swipe]") {
+    SwipeFile file;
+    SwipeHarness h(file.path);
+    REQUIRE(h.gui.click("menu/play"));
+    CHECK(h.front->take_result().action == MenuAction::OpenImmunityTree);
+    CHECK_FALSE(h.front->virus_swipe()->active());
+}
+
+TEST_CASE("virus swipe: selected level cell queues its level and can recover from a failed load", "[ui][menu][virus_swipe]") {
+    SwipeFile file;
+    SwipeHarness h(file.path);
+    h.model.campaign.push_back(CampaignLevel{1, "First Bend", 7, false, false});
+    h.frame(FrontScreen::LevelSelect);
+    h.front->finish_transitions();
+    h.frame(FrontScreen::LevelSelect);
+    REQUIRE(h.gui.click("levels/cell1"));
+    CHECK(h.front->virus_swipe()->active());
+    CHECK(h.front->take_result().action == MenuAction::None);
+    h.front->finish_transitions();
+    const MenuResult result = h.front->take_result();
+    CHECK(result.action == MenuAction::StartLevel);
+    CHECK(result.level_index == 7);
+    h.front->finish_transitions(); // App releases the overlay when loading fails.
+    h.frame(FrontScreen::LevelSelect);
+    CHECK_FALSE(h.front->virus_swipe()->active());
+    REQUIRE(h.gui.click("levels/back"));
+    CHECK(h.front->take_result().action == MenuAction::OpenImmunityTree);
 }

@@ -1,0 +1,210 @@
+{
+  "schema": 1,
+  "seeds": [
+    101,
+    202,
+    303,
+    404,
+    505,
+    606,
+    707,
+    808
+  ],
+  "metric": "objective_integrity",
+  "policies": [
+    {
+      "name": "novice",
+      "controller": {
+        "policy": "novice"
+      }
+    },
+    {
+      "name": "competent",
+      "controller": {
+        "policy": "competent"
+      }
+    },
+    {
+      "name": "tactical",
+      "controller": {
+        "policy": "tactical"
+      }
+    }
+  ],
+  "name": "Equal ATP unit and support ablations",
+  "kind": "paired",
+  "base": {
+    "schema": 1,
+    "level": "assets/balance/levels/open_lane.json",
+    "max_ticks": 18000,
+    "sample_ticks": 60,
+    "controller": { "use_abilities": false },
+    "progression": {
+      "profile": "all_unlocked"
+    },
+    "opening_atp": 300,
+    "spend_limit": 300,
+    "income_enabled": false
+  },
+  "variants": [
+    {
+      "name": "baseline",
+      "patch": {
+        "controller": {
+          "weights": {
+            "neutrophil": 1,
+            "cytotoxic_t": 1,
+            "macrophage": 1,
+            "goblet_cell": 1,
+            "fibroblast": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "only_neutrophil",
+      "patch": {
+        "allowed_cells": [
+          "neutrophil"
+        ],
+        "controller": {
+          "weights": {
+            "neutrophil": 1,
+            "cytotoxic_t": 0,
+            "macrophage": 0,
+            "goblet_cell": 0,
+            "fibroblast": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "only_cytotoxic_t",
+      "patch": {
+        "allowed_cells": [
+          "cytotoxic_t"
+        ],
+        "controller": {
+          "weights": {
+            "neutrophil": 0,
+            "cytotoxic_t": 1,
+            "macrophage": 0,
+            "goblet_cell": 0,
+            "fibroblast": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "only_macrophage",
+      "patch": {
+        "allowed_cells": [
+          "macrophage"
+        ],
+        "controller": {
+          "weights": {
+            "neutrophil": 0,
+            "cytotoxic_t": 0,
+            "macrophage": 1,
+            "goblet_cell": 0,
+            "fibroblast": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "only_goblet_cell",
+      "patch": {
+        "allowed_cells": [
+          "goblet_cell"
+        ],
+        "controller": {
+          "weights": {
+            "neutrophil": 0,
+            "cytotoxic_t": 0,
+            "macrophage": 0,
+            "goblet_cell": 1,
+            "fibroblast": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "only_fibroblast",
+      "patch": {
+        "allowed_cells": [
+          "fibroblast"
+        ],
+        "controller": {
+          "weights": {
+            "neutrophil": 0,
+            "cytotoxic_t": 0,
+            "macrophage": 0,
+            "goblet_cell": 0,
+            "fibroblast": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "without_goblet_cell",
+      "patch": {
+        "allowed_cells": [
+          "neutrophil",
+          "cytotoxic_t",
+          "macrophage",
+          "fibroblast"
+        ],
+        "controller": {
+          "weights": {
+            "neutrophil": 1,
+            "cytotoxic_t": 1,
+            "macrophage": 1,
+            "goblet_cell": 0,
+            "fibroblast": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "without_fibroblast",
+      "patch": {
+        "allowed_cells": [
+          "neutrophil",
+          "cytotoxic_t",
+          "macrophage",
+          "goblet_cell"
+        ],
+        "controller": {
+          "weights": {
+            "neutrophil": 1,
+            "cytotoxic_t": 1,
+            "macrophage": 1,
+            "goblet_cell": 1,
+            "fibroblast": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "without_macrophage",
+      "patch": {
+        "allowed_cells": [
+          "neutrophil",
+          "cytotoxic_t",
+          "goblet_cell",
+          "fibroblast"
+        ],
+        "controller": {
+          "weights": {
+            "neutrophil": 1,
+            "cytotoxic_t": 1,
+            "macrophage": 0,
+            "goblet_cell": 1,
+            "fibroblast": 1
+          }
+        }
+      }
+    }
+  ]
+}

@@ -64,7 +64,7 @@
 #pragma once
 
 #include "core/Types.h"
-#include "sim/Attribution.h"
+#include "sim/CombatMetrics.h"
 
 #include <vector>
 
@@ -189,7 +189,6 @@ struct FluidJetParams {
     f32 slow_duration = 0.0f;
     f32 slow_factor = 1.0f;
     u8 family_mask = 0xFF;
-    EntityId owner{};
     /// Cosmetic tier selector, handed to the renderer untouched.
     u16 visual_id = 0;
     /// Which burst this belongs to. Bumped once per trigger pull; the renderer
@@ -199,6 +198,8 @@ struct FluidJetParams {
     /// Advance it every tick or every slab leaves the nozzle in identical
     /// formation and the emission rate quantizes to a whole number.
     u32 seed = 0;
+    EntityId owner{};
+    TowerType source = TowerType::Count;
 };
 
 /// The fluid particle store. One instance per sim world.
@@ -233,7 +234,9 @@ public:
     std::vector<u8>  flags;
     std::vector<u16> visual_id;
     std::vector<u16> burst_id;
+    /// Observer metadata; does not participate in physics or the state hash.
     std::vector<EntityId> owner;
+    std::vector<TowerType> source;
 
     /// Reserves every stream. Call once at level load.
     void reserve(usize max_particles);
@@ -246,6 +249,16 @@ public:
     /// missing droplet in a jet of hundreds is invisible, a mid-tick
     /// reallocation is not acceptable.
     bool spawn(Vec2 position, Vec2 velocity, const FluidJetParams& jet);
+    void set_combat_metrics(CombatMetrics* metrics) {
+        combat_metrics_ = metrics;
+        if (metrics) metrics->observe_pool(CombatSpawnPool::Fluid, count_);
+    }
+    /// Batch emission stops at its first full-store failure. Count the skipped
+    /// remainder without issuing fake spawn calls or changing emission jitter.
+    void record_denied(const FluidJetParams& jet, u64 count) {
+        if (combat_metrics_ && count) combat_metrics_->record_spawn(CombatSpawnPool::Fluid,
+            {jet.owner, jet.source, CombatDamageSource::Fluid}, count, 0, count_);
+    }
 
     /// Flags a particle for removal. Removal happens in compact(), so indices
     /// stay stable within a tick.
@@ -257,6 +270,7 @@ public:
     void clear();
 
 private:
+    CombatMetrics* combat_metrics_ = nullptr;
     usize count_ = 0;
     usize capacity_ = 0;
 };
@@ -277,6 +291,8 @@ public:
     /// the rest density from the tuning. Call at level load and again whenever
     /// the tuning changes; never during a tick.
     void configure(const Rect& world_bounds, const FluidTuning& tuning);
+    /// Optional attribution scratch. Call outside ticks, after configure().
+    void prepare_combat_metrics(usize max_particles);
 
     const FluidTuning& tuning() const { return tuning_; }
     /// Rest density derived from `tuning().rest_spacing`. Exposed for tests.
@@ -314,7 +330,7 @@ public:
     /// This is what a Goblet Cell swarmer turns into when it pops on a
     /// pathogen; the solver then owns everything after — spreading, pooling,
     /// coverage and timed slow — exactly as it does for a jet. `jet`
-    /// carries the per-droplet terms (lifetime, slow, mask, owner, visual,
+    /// carries the per-droplet terms (lifetime, slow, mask, visual,
     /// seed); its origin/direction/speed/nozzle fields are ignored.
     /// Returns the number actually spawned (the store may be full).
     u32 splash(FluidBuffers& fluid, const FluidJetParams& jet, Vec2 origin, f32 radius,
@@ -338,12 +354,6 @@ public:
                       CombatEventSink* events);
 
     const FluidStats& last_stats() const { return last_; }
-
-    /// Per-owner accounting sink, null by default. The Goblet Cell hurts
-    /// things only through the coverage grid, so a sink that skipped this path
-    /// would rank that tower at zero. See sim/Attribution.h, and the note on
-    /// coverage_owner_ below for the one approximation this path makes.
-    void set_attribution(DamageAttribution* sink) { attribution_ = sink; }
 
     // ---- Coverage grid -----------------------------------------------------
     // How wet each patch of the world is, rebuilt every tick from the live
@@ -378,25 +388,18 @@ private:
     IVec2 coverage_dims_{0, 0};
     std::vector<f32> coverage_;     ///< Particle mass per cell, normalized on read.
     std::vector<f32> coverage_dps_; ///< Damage rate per cell, mass-weighted.
+    struct DamageContribution {
+        EntityId owner{};
+        TowerType source = TowerType::Count;
+        f32 weighted_dps = 0.0f;
+        i32 next = -1;
+    };
+    std::vector<i32> metric_heads_;
+    std::vector<DamageContribution> metric_contributions_;
     /// One value per coverage cell and pathogen family, so overlapping
     /// splashes with different target masks keep their own effects.
     std::vector<f32> coverage_slow_duration_;
     std::vector<f32> coverage_slow_factor_;
-    /// Which emitter contributed the most mass to each cell. Attribution only:
-    /// nothing in the sim reads it, and it is only filled when a sink is
-    /// attached.
-    ///
-    /// This is the one place per-owner accounting is an APPROXIMATION rather
-    /// than an exact split. The coverage grid deliberately aggregates every
-    /// jet into one field -- that aggregation is the whole reason fluid damage
-    /// costs the same at 10 agents and 10,000 -- so a cell soaked by two
-    /// Goblet Cells at once has no exact per-owner share to recover. Crediting
-    /// the largest contributor is right whenever one jet dominates a cell,
-    /// which is the normal case; two jets overlapping is a placement the
-    /// planner's spacing rule already avoids.
-    std::vector<EntityId> coverage_owner_;
-    std::vector<f32> coverage_owner_mass_;
-    DamageAttribution* attribution_ = nullptr;
 };
 
 } // namespace immune::sim
