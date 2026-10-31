@@ -252,6 +252,26 @@ BurrowStats BurrowSystem::update(ChaffBuffers& chaff, const FlowField& flow,
     if (!active_ || dt <= 0.0f) return stats;
     if (animate) update_slither(chaff, flow, dt);
 
+    // Index defender positions once, then examine only discs that could reach
+    // the immediate path or a candidate exit. The maximum radius keeps the
+    // broad phase conservative even for unusually large tower ranges.
+    const Rect bounds = hash.bounds();
+    const Rect old_bounds = threat_hash_.bounds();
+    if (threat_hash_.grid_dims().x <= 0 ||
+        bounds.min.x != old_bounds.min.x || bounds.min.y != old_bounds.min.y ||
+        bounds.max.x != old_bounds.max.x || bounds.max.y != old_bounds.max.y) {
+        threat_hash_.configure(SpatialHashDesc{bounds, 32.0f});
+    }
+    threat_x_.resize(threats.size());
+    threat_y_.resize(threats.size());
+    f32 max_threat_radius = 0.0f;
+    for (usize j = 0; j < threats.size(); ++j) {
+        threat_x_[j] = threats[j].position.x;
+        threat_y_[j] = threats[j].position.y;
+        max_threat_radius = math::max(max_threat_radius, threats[j].radius);
+    }
+    threat_hash_.rebuild(threat_x_.data(), threat_y_.data(), threats.size());
+
     const usize n = chaff.count();
     for (usize i = 0; i < n; ++i) {
         const u32 f = chaff.family[i] < kFamilyCount ? chaff.family[i] : 0u;
@@ -276,7 +296,9 @@ BurrowStats BurrowSystem::update(ChaffBuffers& chaff, const FlowField& flow,
                     timer = roll_cooldown(bp, rng, dt);
                     break;
                 }
-                timer -= dt;
+                // A ready burrow is held in reserve until the approach is
+                // dangerous. Zero is distinct from the uninitialised -1.
+                timer = math::max(0.0f, timer - dt);
                 if (timer > 0.0f) break;
 
                 // Due -- but only where the player can see it: off-screen
@@ -308,6 +330,29 @@ BurrowStats BurrowSystem::update(ChaffBuffers& chaff, const FlowField& flow,
                     break;
                 }
                 fwd = math::normalize_safe(fwd);
+                const f32 threat_reach = max_threat_radius * math::max(bp.tower_range_scale, 0.0f);
+                const f32 query_radius = math::max(bp.min_range, 0.0f) + threat_reach;
+                threat_hash_.query_circle(p, math::max(query_radius, 0.0f), threat_indices_);
+                nearby_threats_.clear();
+                for (u32 index : threat_indices_) nearby_threats_.push_back(threats[index]);
+                // Watch the immediate approach as well as the ground under
+                // the parasite, so it can dive before reaching defenders.
+                // Defenders behind it do not consume a ready burrow unless
+                // their coverage still reaches it.
+                bool threatened = false;
+                const f32 lookahead = math::max(bp.min_range, 0.0f);
+                for (const BurrowThreat& threat : nearby_threats_) {
+                    const f32 radius = math::max(0.0f, threat.radius * bp.tower_range_scale);
+                    if (radius <= 0.0f) continue;
+                    const Vec2 offset = threat.position - p;
+                    const f32 along = math::clamp(offset.x * fwd.x + offset.y * fwd.y,
+                                                  0.0f, lookahead);
+                    if (math::length_sq(offset - fwd * along) <= radius * radius) {
+                        threatened = true;
+                        break;
+                    }
+                }
+                if (!threatened) break;
                 const f32 base = std::atan2(fwd.y, fwd.x);
                 const f32 half = bp.cone_half_angle * (math::kPi / 180.0f);
                 bool found = false;
@@ -319,8 +364,11 @@ BurrowStats BurrowSystem::update(ChaffBuffers& chaff, const FlowField& flow,
                     const f32 a = base + (half > 0.0f ? rng.range_f(-half, half) : 0.0f);
                     const f32 d = rng.range_f(bp.min_range, math::max(bp.min_range, bp.max_range));
                     const Vec2 exit = p + Vec2{std::cos(a), std::sin(a)} * d;
+                    threat_hash_.query_circle(exit, threat_reach, threat_indices_);
+                    nearby_threats_.clear();
+                    for (u32 index : threat_indices_) nearby_threats_.push_back(threats[index]);
                     f32 score = 0.0f;
-                    if (!score_exit(bp, p, from_cost, exit, chaff, flow, sdf, mask, hash, threats,
+                    if (!score_exit(bp, p, from_cost, exit, chaff, flow, sdf, mask, hash, nearby_threats_,
                                     score, play_area, body_half)) {
                         continue;
                     }

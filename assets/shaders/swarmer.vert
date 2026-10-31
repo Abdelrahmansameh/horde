@@ -72,6 +72,11 @@ void main() {
         float reach = max(i_arm0.x, max(i_arm1.x, i_arm2.x));
         half_extent = max(half_extent, (reach + 0.9 * i_radius) / world_per_local);
     }
+    // Render-only side branch: its root is the instance position and arm0.x
+    // is its current length in world units.
+    if (kind == 15u) {
+        half_extent = max(half_extent, (i_arm0.x + 0.7 * i_radius) / world_per_local);
+    }
     vec2 corner = a_corner * (2.0 * half_extent);
     vec2 offset = corner * world_per_local;
 

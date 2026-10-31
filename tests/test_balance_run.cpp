@@ -221,6 +221,34 @@ TEST_CASE_METHOD(immune::test::BalanceConfigIsolation, "balance run replay prese
     CHECK(replay["progression_after"] == original["progression_after"]);
 }
 
+TEST_CASE_METHOD(immune::test::BalanceConfigIsolation, "balance runs preserve long-track grants and paid purchases across stages",
+          "[balance][run][progression][stages]") {
+    const GameConfig config = run_test_config();
+    for (const bool paid : {false, true}) {
+        auto spec = tiny_spec();
+        if (paid) {
+            spec["progression"] = {{"memory_cells", 10000}, {"purchases", Json::array({
+                {{"key", "neutrophil.round_damage"}, {"levels", 5}},
+                {{"key", "neutrophil.squad_size"}, {"levels", 1}},
+                {{"key", "neutrophil.round_damage.stage2"}, {"levels", 2}}})}};
+        } else {
+            spec["progression"] = {{"grant_tree", {{"neutrophil.round_damage", 7}}}};
+        }
+        const auto report = balance::execute(spec, config);
+        require_status(report, "cleared");
+        MetaProgression before;
+        std::string error;
+        REQUIRE(before.from_json(report.at("provenance").at("progression").dump(), error));
+        CHECK(before.level(TreeNode::NeutrophilRoundDamage) == 5);
+        CHECK(before.level(TreeNode::NeutrophilRoundDamageStage2) == 2);
+        if (paid) CHECK(before.spent_memory_cells() > 0);
+        const auto replay = replay_report(report);
+        require_status(replay, "cleared");
+        CHECK(replay["state_hash"] == report["state_hash"]);
+        CHECK(replay["progression_after"] == report["progression_after"]);
+    }
+}
+
 TEST_CASE_METHOD(immune::test::BalanceConfigIsolation, "balance run replay retains partial optional deployment effects",
           "[balance][run][replay]") {
     const GameConfig config = run_test_config();

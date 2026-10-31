@@ -28,7 +28,8 @@ and GLM. The remaining libraries are:
 | `immune_game` / `src/game` | Levels, waves, deployed cells, abilities, economy, progression, editor, gym, config adapters | core, config, sim, render |
 | `immune_gui` / `src/gui` | Retained widgets, layout, hit testing, SDF drawing, text/icons | core, platform, render |
 | `immune_ui` / `src/ui` | Player screens and developer panels | core, platform, render, game, gui |
-| `immune_app` / `src/app` | Boot, state machine, input routing, wiring, command-line modes | core, platform, sim, render, game, ui |
+| `immune_audio` / `src/audio` | Procedural synth, mixer, SDL audio device, combat-event sound scene | core, sim |
+| `immune_app` / `src/app` | Boot, state machine, input routing, wiring, command-line modes | core, platform, sim, render, game, ui, audio |
 
 External dependencies include SDL2, glad, GLM, EnTT, nlohmann JSON, Dear ImGui,
 stb, nanosvg, and Catch2. This is a dependency graph, not a single linear chain.
@@ -38,7 +39,9 @@ game rules. Preserve these source boundaries:
 - Simulation receives plain data and explicit commands. It does not read SDL,
   widgets, JSON files, or renderer state.
 - The renderer consumes simulation state; drawing must not change gameplay.
-- VFX receives sim outputs and cannot feed results back into it.
+- VFX receives sim outputs and cannot feed results back into it. Audio
+  ([Audio](AUDIO.md)) reads the same drained combat-event span and the same
+  rule applies: muting, a missing device or dropped sounds never change a run.
 - `game/config` translates JSON-backed game configuration into structs accepted
   by sim/render/VFX. Generic `config` does not know enemy or tower rules.
 - UI screens consume models and return intents. App translates them into game

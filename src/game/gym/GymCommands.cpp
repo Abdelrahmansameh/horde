@@ -342,6 +342,8 @@ const std::vector<GymCommandInfo>& command_table() {
          "Set the organ's integrity (a critical-state HUD without losing a run)."},
         {"ui", "dump | click <path> | drag <path> <x> <y> | hover <path> | pointer <x> <y> | select <n> | cancel",
          "Drive the game UI by widget path, e.g. ui click hud/dock/neutrophil."},
+        {"audio", "[stats] | volume <0-1> | mute | unmute | cue <name> [variant]",
+         "Inspect or drive the procedural audio (docs/AUDIO.md); `audio cue list` names the cues."},
         {"field", "<radius> <kill_rate> [duration] [at <x,y|cursor>]",
          "Submit a raw damage field. Tests aggregate damage in isolation."},
         {"vfx", "<event|all|list> [at <x,y|cursor>]",
@@ -1729,6 +1731,10 @@ GymResult gym_execute(GymContext& ctx, std::string_view line) {
     if (cmd == "ui") {
         if (!ctx.ui) return fail("no game UI in this context");
         return ctx.ui(tok);
+    }
+    if (cmd == "audio") {
+        if (!ctx.audio) return fail("no audio in this context");
+        return ctx.audio(tok);
     }
     if (cmd == "field") return cmd_field(ctx, tok);
     if (cmd == "vfx") return cmd_vfx(ctx, tok);

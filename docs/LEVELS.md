@@ -105,6 +105,17 @@ Obstacles carve solid tissue out of the vessel lumen after rasterization. They a
 
 Obstacle `id` is optional and helps diagnostics. Unknown shape names fail parsing. Capsule/polygon points may be coordinate arrays; ridge widths require object points. An obstacle cannot swallow the center of a spawn or objective; geometry validation also detects sealed lanes after baking.
 
+### Enemy scaling
+
+Optional `enemy_scaling` contains `durability_multiplier` and
+`damage_multiplier`, each defaulting to 1 and restricted to finite values in
+`[0.01, 64]`. Identity scaling can be omitted when writing a level. Shared run
+setup applies durability to family density/HP and damage to hostile attacks,
+without changing agent counts, movement, ranges or authored routes. It divides
+damage-derived ATP per density by durability so increased HP alone does not
+inflate total income. Tree bonuses, map income, opening ATP and wave bounties
+remain separate. See [Campaign design](CAMPAIGN_DESIGN.md) for the current ramp.
+
 ### Wave fields
 
 `waves` is mandatory and nonempty. Each wave requires a nonempty `spawns` array. `region` is a grouping/presentation label; there is no runtime procedural wave generator or `waves.json` fallback.
@@ -115,7 +126,7 @@ Obstacle `id` is optional and helps diagnostics. Unknown shape names fail parsin
 | Wave `prep_time` | Seconds before spawning; default 20 |
 | Wave `atp_reward` | Completion reward; default 0 |
 | Wave `modifier` | `none`, `fever`, or `swarm`; omitted/empty means none |
-| Spawn `family` | `virus`, `bacteria`, or `parasite`; default virus; unknown names fail |
+| Spawn `family` | `virus`, `bacteria`, `parasite`, or `spore`; default virus; unknown names fail |
 | Spawn `count` | Number released; default 0 |
 | Spawn `start_time` | Seconds after spawning begins; default 0 |
 | Spawn `duration` | Release interval in seconds; default 1 |

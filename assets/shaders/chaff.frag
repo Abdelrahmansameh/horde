@@ -684,7 +684,7 @@ vec4 draw_worm(uint fs) {
 
     float px = max(length(fwidth(p)), 1e-4);   // one pixel, in local units
     float fade = v_tint.a;
-    if ((v_flags & FLAG_HIDDEN) != 0u) fade *= 0.35;   // held by a Macrophage arm
+    // Held prey stays visible so each grasp reads as a separate target.
     // Light comes from where the shadow does not go.
     vec2 L = -normalize(v_shadow_offset + vec2(1e-5));
 
@@ -992,7 +992,6 @@ void main() {
     // were the dark squares: not a blob artifact, the sprite pass fading out
     // the wrong half of itself.
     float sprite_fade = v_tint.a;
-    if ((v_flags & FLAG_HIDDEN) != 0u) sprite_fade *= 0.35;
 
     // Drop shadow. Weighted much harder than it used to be, because the
     // substrate is no longer a dark low-saturation floor that every agent

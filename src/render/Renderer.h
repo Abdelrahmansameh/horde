@@ -30,6 +30,7 @@
 #pragma once
 
 #include "core/Types.h"
+#include "core/CapacityDefaults.h"
 
 #include <memory>
 #include <string>
@@ -73,7 +74,7 @@ struct RendererDesc {
     i32 framebuffer_width = 1600;
     i32 framebuffer_height = 900;
     /// Max instances per family batch; sized from SimDesc::max_chaff.
-    u32 max_chaff_instances = 16384;
+    u32 max_chaff_instances = kDefaultChaffCapacity;
     u32 max_entity_instances = 4096;
     /// Live simulated rounds drawable in one frame.
     u32 max_projectile_instances = 65536;
@@ -82,7 +83,7 @@ struct RendererDesc {
     /// of maxed T-cells reaches.
     u32 max_swarmer_instances = 49152;
     /// Spore hoses drawn per frame; matches HostileTuning::max_harpoons.
-    u32 max_harpoon_instances = 1024;
+    u32 max_harpoon_instances = kDefaultHarpoonCapacity;
     /// Cosmetic particles drawable per blend mode per frame. Sized for the
     /// Gunner's "continuous stream" brief; this is the single biggest instance
     /// buffer in the renderer and is expected to run near full at high tiers.

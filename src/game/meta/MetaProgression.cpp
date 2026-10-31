@@ -10,6 +10,7 @@
 
 #include <utility>
 #include <algorithm>
+#include <limits>
 
 namespace immune::game {
 
@@ -118,6 +119,11 @@ MetaProgression::PurchaseResult MetaProgression::check_purchase(TreeNode node,
     if (levels_[node] >= d.max_level) return PurchaseResult::Maxed;
     // A tree (§4): a node opens once its parent is owned, at any level.
     if (d.parent != TreeNode::Count && !levels_.owned(d.parent)) return PurchaseResult::Locked;
+    // Continuations represent later ranks of the same line, so all ranks in
+    // the preceding stage must be purchased first.
+    const TreeNode previous = tree_previous_stage(node);
+    if (previous != TreeNode::Count && levels_[previous] < tree_node(previous).max_level)
+        return PurchaseResult::Locked;
     const TreeCost c = next_cost(node, cfg);
     if (antibodies_ < c.antibodies) return PurchaseResult::NeedAntibodies;
     if (memory_cells_ < c.memory_cells) return PurchaseResult::NeedMemoryCells;
@@ -229,6 +235,48 @@ bool refund_retired_node(const std::string& key, u32 level, u64& memory_cells, u
     return true;
 }
 
+// Before v5, purchasing a combined line also granted its secondary effects.
+// Mirror those ranks into the new individual tracks, without adding to the
+// actual paid ledger. Late effects only existed after their stated offsets.
+void migrate_split_effects(TreeLevels& levels) {
+    struct Split { TreeNode source, destination; u32 offset; };
+    using N = TreeNode;
+    constexpr Split splits[] = {
+        {N::NeutrophilRoundDamage, N::NeutrophilRelease, 0},
+        {N::NeutrophilRoundDamage, N::NeutrophilGranuleDamage, 12},
+        {N::NeutrophilVitality, N::NeutrophilSpeed, 0},
+        {N::CytotoxicStamina, N::CytotoxicStaminaHealth, 0},
+        {N::MacrophageArms, N::MacrophageIntakeRadius, 0},
+        {N::MacrophageCaptives, N::MacrophageCaptivesRadius, 0},
+        {N::MacrophageGrabSpeed, N::MacrophageGrabReach, 4},
+        {N::MacrophageGrabSpeed, N::MacrophageMobility, 4},
+        {N::MacrophageWall, N::MacrophageWallHealth, 0},
+        {N::FibroblastInflammation, N::FibroblastRegrowth, 0},
+        {N::AdaptiveMemory, N::AdaptiveWork, 0},
+        {N::SystemicPotency, N::CytokineDrain, 0},
+        {N::SystemicPotency, N::CytokineGobletSpeed, 0},
+        {N::AdaptiveMemory, N::AdaptiveDrain, 0},
+        {N::AdaptiveMemory, N::AdaptiveGobletSpeed, 0},
+    };
+    for (const auto& split : splits) {
+        u32 total = levels[split.source];
+        for (u32 i = 0; i < kTreeNodeCount; ++i) {
+            const auto n = static_cast<TreeNode>(i);
+            if (tree_node(n).effect_source == split.source) total += levels[n];
+        }
+        total = total > split.offset ? total - split.offset : 0;
+        levels[split.destination] = static_cast<u8>(
+            std::min(total, static_cast<u32>(tree_node(split.destination).max_level)));
+        for (u32 i = 0; i < kTreeNodeCount; ++i) {
+            const auto n = static_cast<TreeNode>(i);
+            const auto& def = tree_node(n);
+            if (def.effect_source != split.destination) continue;
+            const u32 rank = total > def.rank_offset ? total - def.rank_offset : 0;
+            levels[n] = static_cast<u8>(std::min(rank, static_cast<u32>(def.max_level)));
+        }
+    }
+}
+
 } // namespace
 
 std::string MetaProgression::to_json() const {
@@ -311,29 +359,33 @@ bool MetaProgression::from_json(const std::string& text, std::string& out_error)
                 const json& tree = j.at("tree");
                 if (!tree.is_object()) throw std::runtime_error("'tree' must be an object");
                 u32 legacy_trigger_ranks = 0;
+                u32 saved_levels[kTreeNodeCount] = {};
                 for (auto it = tree.begin(); it != tree.end(); ++it) {
                     if (it.key() == "neutrophil.trigger_rate") {
-                        legacy_trigger_ranks = std::min(it.value().get<u32>(), u32{4});
+                        if (version < 4) legacy_trigger_ranks = std::min(it.value().get<u32>(), u32{4});
                         continue;
                     }
                     if (refund_retired_node(it.key(), it.value().get<u32>(), memory_cells, antibodies,
-                                            spent_mc, spent_ab)) {
-                        continue;
-                    }
+                                            spent_mc, spent_ab)) continue;
                     TreeNode n{};
-                    // A node this build does not know (a newer catalog, or one
-                    // since removed) is skipped rather than failing the load:
-                    // the version gate above is what guards real format changes.
                     if (!find_tree_node(it.key(), n)) continue;
-                    const u32 lv = it.value().get<u32>();
-                    const u8 max = tree_node(n).max_level;
-                    levels[n] = static_cast<u8>(lv < max ? lv : max);
+                    saved_levels[static_cast<u32>(n)] = it.value().get<u32>();
                 }
-                // Save only the surviving key, so migration happens once.
-                // Keep the actual spend ledger intact for refunds.
-                levels[kTreeRoot] = static_cast<u8>(std::min(
-                    static_cast<u32>(tree_node(kTreeRoot).max_level),
-                    static_cast<u32>(levels[kTreeRoot]) + legacy_trigger_ranks));
+                u32& root_rank = saved_levels[static_cast<u32>(kTreeRoot)];
+                root_rank += std::min(legacy_trigger_ranks, std::numeric_limits<u32>::max() - root_rank);
+                for (u32 i = 0; i < kTreeNodeCount; ++i) {
+                    const TreeNode n = static_cast<TreeNode>(i);
+                    const auto& d = tree_node(n);
+                    u32 rank = saved_levels[i];
+                    // Before v4 each line was stored under one key. Distribute
+                    // the old total across its stages without changing spend.
+                    if (version < 4 && d.effect_source != TreeNode::Count) {
+                        const u32 original = saved_levels[static_cast<u32>(d.effect_source)];
+                        rank = original > d.rank_offset ? original - d.rank_offset : 0;
+                    }
+                    levels[n] = static_cast<u8>(std::min(rank, static_cast<u32>(d.max_level)));
+                }
+                if (version < 5) migrate_split_effects(levels);
             }
         } else {
             // v1/v2: one currency and a set of unlocked tower indices. The

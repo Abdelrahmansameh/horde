@@ -776,7 +776,7 @@
           0.17,
           1.0
         ],
-        "silhouette": 6.4,
+        "silhouette": 7.2,
         "tempo": 0.8,
         "wobble": 0
       },
@@ -884,9 +884,9 @@
       "max_speed": 10.125
     },
     "slow": {
-      "acceleration": 20.25,
+      "acceleration": 54.0,
       "jitter": 0.12,
-      "max_speed": 5.625
+      "max_speed": 15.0
     }
   }
 }

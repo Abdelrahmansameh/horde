@@ -1,4 +1,5 @@
 #include "BalanceTestIsolation.h"
+#include "TreeTestHelpers.h"
 #include "game/abilities/ActiveAbilities.h"
 #include "game/config/GameConfig.h"
 #include "game/economy/Economy.h"
@@ -86,21 +87,50 @@ struct RuntimeFixture {
 };
 
 struct Throughput { u64 shots; f64 applied; u64 kills; };
-Throughput magazine_throughput(u8 rank, u8 coordinated = 0) {
+Throughput magazine_throughput(u8 rank, u8 coordinated = 0, u8 adaptive = 0, f32 target_density = 0.6f) {
     TreeLevels levels;
-    levels[TreeNode::NeutrophilRoundDamage] = rank;
+    immune::test::set_tree_track(levels, TreeNode::NeutrophilRoundDamage, rank);
     levels[TreeNode::SystemicPotency] = coordinated;
+    immune::test::set_tree_track(levels, TreeNode::AdaptiveWork, adaptive);
     RuntimeFixture fixture(shipped(), levels);
     fixture.cell(TowerType::Neutrophil);
     for (u32 i = 0; i < 80; ++i)
         fixture.virus({58.0f + static_cast<f32>(i % 8) * 0.9f,
-                       35.5f + static_cast<f32>(i / 8) * 0.9f});
+                       35.5f + static_cast<f32>(i / 8) * 0.9f}, target_density);
     for (u32 tick = 0; tick < 720; ++tick) fixture.world.tick();
     const auto& total = fixture.world.combat_metrics().totals();
     REQUIRE(total.pools.projectiles.denied == 0);
     REQUIRE(fixture.economy.snapshot().total_spent == fixture.towers.stats(TowerType::Neutrophil).build_cost);
     return {total.pools.projectiles.spawned, total.damage.density_removed,
             fixture.world.snapshot().chaff_killed_by_family[0]};
+}
+
+Throughput plateau_target_damage(u8 rank) {
+    auto base = shipped();
+    auto& shooter = base.towers.mechanics[static_cast<u32>(TowerType::Neutrophil)];
+    shooter.swarm.speed = 0;
+    shooter.shooter.round_spread = 0;
+    shooter.shooter.volley_cone = 0;
+    TreeLevels levels;
+    immune::test::set_tree_track(levels, TreeNode::NeutrophilGranuleDamage, rank);
+    immune::test::set_tree_track(levels, TreeNode::NeutrophilRoundDamage, 15);
+    immune::test::set_tree_track(levels, TreeNode::NeutrophilSquadSize, 6);
+    levels[TreeNode::SystemicPotency] = 3;
+    immune::test::set_tree_track(levels, TreeNode::AdaptiveWork, 20);
+    RuntimeFixture fixture(base, levels);
+    fixture.cell(TowerType::Neutrophil);
+    // One durable, stationary target and exact aim isolate landed output
+    // from acquisition, overkill and spread. This is a synthetic delivery
+    // check with the normal native magazine and projectile systems.
+    fixture.virus({58.0f, 40.0f}, 10000.0f);
+    for (u32 tick = 0; tick < 120; ++tick) fixture.world.tick();
+    const auto before = fixture.world.combat_metrics().totals();
+    for (u32 tick = 0; tick < 600; ++tick) fixture.world.tick();
+    const auto& after = fixture.world.combat_metrics().totals();
+    REQUIRE(after.pools.projectiles.denied == 0);
+    REQUIRE(fixture.world.snapshot().chaff_killed_by_family[0] == 0);
+    return {after.pools.projectiles.spawned - before.pools.projectiles.spawned,
+            after.damage.density_removed - before.damage.density_removed, 0};
 }
 
 struct Survival { Tick death; f64 applied; f64 ttk; };
@@ -142,11 +172,18 @@ u64 first_cluster(u8 rank, u8 coordinated = 0, Tick* first_death = nullptr) {
     levels[TreeNode::MacrophageGrabSpeed] = 1;
     levels[TreeNode::MacrophageArms] = rank;
     levels[TreeNode::SystemicPotency] = coordinated;
-    RuntimeFixture fixture(shipped(), levels);
+    auto base = shipped();
+    auto& grab = base.towers.mechanics[static_cast<u32>(TowerType::Macrophage)].arbor_grabber;
+    // Isolate capacity from the independently purchased collection radius and
+    // competing arms. Both scenarios see the same large capture radius.
+    grab.arm_count = 1;
+    grab.cluster_radius = 20.0f;
+    RuntimeFixture fixture(base, levels);
     fixture.cell(TowerType::Macrophage);
-    for (u32 i = 0; i < 12; ++i)
-        fixture.virus({54.0f + static_cast<f32>(i % 4) * 0.2f,
-                       39.7f + static_cast<f32>(i / 4) * 0.2f});
+    // Provide more eligible targets than either capacity.
+    for (u32 i = 0; i < 32; ++i)
+        fixture.virus({54.0f + static_cast<f32>(i % 8) * 0.1f,
+                       39.7f + static_cast<f32>(i / 8) * 0.1f});
     while (fixture.world.tick_index() < 120 && fixture.world.snapshot().chaff_killed_by_family[0] == 0)
         fixture.world.tick();
     const auto kills = fixture.world.snapshot().chaff_killed_by_family[0];
@@ -180,7 +217,7 @@ f64 drain_ttk(u8 coordinated) {
     TreeLevels levels;
     levels[TreeNode::NeutrophilRoundDamage] = 1;
     levels[TreeNode::CytotoxicRoot] = 1;
-    levels[TreeNode::SystemicPotency] = coordinated;
+    levels[TreeNode::CytokineDrain] = coordinated;
     RuntimeFixture fixture(shipped(), levels);
     fixture.cell(TowerType::CytotoxicT);
     sim::ChaffSpawnParams enemy;
@@ -205,7 +242,7 @@ Tick mucus_delivery(u8 coordinated) {
     TreeLevels levels;
     levels[TreeNode::NeutrophilRoundDamage] = 1;
     levels[TreeNode::GobletRoot] = 1;
-    levels[TreeNode::SystemicPotency] = coordinated;
+    levels[TreeNode::CytokineGobletSpeed] = coordinated;
     RuntimeFixture fixture(base, levels);
     fixture.cell(TowerType::GobletCell);
     fixture.virus({58,40}); // inside the shipped 14-unit acquisition radius
@@ -255,7 +292,7 @@ ToxinSurvival specialist_toxin_survival(TowerType type, TreeNode health, u8 rank
     levels[TreeNode::NeutrophilRoundDamage] = 1;
     const auto root = tower_root(type);
     if (root != TreeNode::Count) levels[root] = 1;
-    levels[health] = rank;
+    immune::test::set_tree_track(levels, health, rank);
     RuntimeFixture fixture(base, levels, true);
     fixture.cell(type);
     sim::ChaffSpawnParams enemy;
@@ -322,14 +359,15 @@ TEST_CASE_METHOD(immune::test::BalanceConfigIsolation, "each specialist resilien
     }
 }
 
-TEST_CASE_METHOD(immune::test::BalanceConfigIsolation, "each vitality and stamina rank survives another shipped toxin hit with longer actual TTK",
+TEST_CASE_METHOD(immune::test::BalanceConfigIsolation, "foundation vitality crosses toxin thresholds and veteran ranks extend actual survival",
                  "[balance][meta][tree][upgrade-runtime][toxin-health]") {
     for (const auto type : {TowerType::Neutrophil, TowerType::CytotoxicT}) {
-        const auto health = type == TowerType::Neutrophil ? TreeNode::NeutrophilVitality : TreeNode::CytotoxicStamina;
+        const auto health = type == TowerType::Neutrophil ? TreeNode::NeutrophilVitality : TreeNode::CytotoxicStaminaHealth;
         auto previous = specialist_toxin_survival(type, health, 0);
         REQUIRE(previous.hits == 2);
         REQUIRE(previous.applied == Catch::Approx(10.0));
-        for (u8 rank = 1; rank <= tree_node(health).max_level; ++rank) {
+        const u8 foundation = type == TowerType::Neutrophil ? 4 : 3;
+        for (u8 rank = 1; rank <= foundation; ++rank) {
             const auto current = specialist_toxin_survival(type, health, rank);
             CAPTURE(static_cast<u32>(type), rank, previous.hits, current.hits, previous.ttk, current.ttk);
             CHECK(current.hits == previous.hits + 1);
@@ -337,6 +375,12 @@ TEST_CASE_METHOD(immune::test::BalanceConfigIsolation, "each vitality and stamin
             CHECK(current.applied == Catch::Approx(10.0 + 9.0 * rank));
             previous = current;
         }
+        REQUIRE(tree_node(health).max_level > foundation);
+        const auto veteran = specialist_toxin_survival(type, health, static_cast<u8>(immune::test::tree_track_max(health)));
+        CAPTURE(veteran.hits, previous.hits, veteran.ttk, previous.ttk);
+        CHECK(veteran.applied > previous.applied);
+        CHECK(veteran.hits > previous.hits);
+        CHECK(veteran.ttk > previous.ttk);
     }
 }
 
@@ -356,19 +400,80 @@ TEST_CASE_METHOD(immune::test::BalanceConfigIsolation, "starter replenishment in
     CHECK(maximum.kills > first.kills);
 }
 
-TEST_CASE_METHOD(immune::test::BalanceConfigIsolation, "reserve and membrane upgrades improve actual friendly damage-death TTK",
+TEST_CASE_METHOD(immune::test::BalanceConfigIsolation, "cycling and Adaptive Work increase actual deployed-cell shots across stages",
+                 "[balance][meta][tree][upgrade-runtime][veteran][adaptive-memory]") {
+    const auto foundation = magazine_throughput(5);
+    const auto veteran = magazine_throughput(static_cast<u8>(immune::test::tree_track_max(TreeNode::NeutrophilRoundDamage)));
+    const auto adaptive = magazine_throughput(5, 0, 5);
+    CAPTURE(foundation.shots, veteran.shots, adaptive.shots, foundation.kills, veteran.kills, adaptive.kills);
+    CHECK(veteran.shots > foundation.shots);
+    CHECK(adaptive.shots > foundation.shots);
+    // This fixed-target fixture measures delivery, not a full campaign win.
+    CHECK(veteran.kills >= foundation.kills);
+    CHECK(adaptive.kills >= foundation.kills);
+}
+
+TEST_CASE_METHOD(immune::test::BalanceConfigIsolation, "reserve and wall-health upgrades improve actual friendly damage-death TTK",
                  "[balance][meta][tree][upgrade-runtime]") {
     const auto reserve0 = under_pressure(TreeNode::EliteResponse, 0, TowerType::Neutrophil);
     const auto reserve1 = under_pressure(TreeNode::EliteResponse, 1, TowerType::Neutrophil);
-    const auto wall0 = under_pressure(TreeNode::MacrophageWall, 0, TowerType::Macrophage);
-    const auto wall3 = under_pressure(TreeNode::MacrophageWall, 3, TowerType::Macrophage);
+    const auto wall0 = under_pressure(TreeNode::MacrophageWallHealth, 0, TowerType::Macrophage);
+    const auto wall3 = under_pressure(TreeNode::MacrophageWallHealth, 3, TowerType::Macrophage);
     CAPTURE(reserve0.death, reserve1.death, wall0.death, wall3.death);
     CHECK(reserve1.death > reserve0.death);
     CHECK(reserve1.ttk > reserve0.ttk);
     CHECK(reserve1.applied == Catch::Approx(reserve0.applied * 1.15).margin(1e-3));
     CHECK(wall3.death > wall0.death);
     CHECK(wall3.ttk > wall0.ttk);
-    CHECK(wall3.applied == Catch::Approx(wall0.applied * 1.6).margin(1e-3));
+    CHECK(wall3.applied == Catch::Approx(wall0.applied * 1.5).margin(1e-3));
+}
+
+TEST_CASE_METHOD(immune::test::BalanceConfigIsolation, "late work ranks increase delivered fire and final-rank pseudopod reach",
+                 "[balance][meta][tree][upgrade-runtime][veteran][adaptive-memory]") {
+    SECTION("new firing and Adaptive Memory tails survive fixed-tick delivery") {
+        // A durable stationary target bank prevents a faster magazine from
+        // ending this delivery probe early by exhausting all its targets.
+        const auto old_cycle = magazine_throughput(12, 0, 0, 100.0f);
+        const auto new_cycle = magazine_throughput(20, 0, 0, 100.0f);
+        const auto old_adaptive = magazine_throughput(12, 0, 10, 100.0f);
+        const auto new_adaptive = magazine_throughput(12, 0, 20, 100.0f);
+        CAPTURE(old_cycle.shots, new_cycle.shots, old_adaptive.shots, new_adaptive.shots);
+        CHECK(new_cycle.shots > old_cycle.shots);
+        CHECK(new_adaptive.shots > old_adaptive.shots);
+    }
+    SECTION("a quantized cadence plateau still gains real applied damage") {
+        const auto rank14 = plateau_target_damage(0);
+        const auto rank15 = plateau_target_damage(8);
+        CAPTURE(rank14.shots, rank15.shots, rank14.applied, rank15.applied);
+        REQUIRE(rank14.shots > 0);
+        CHECK(rank15.shots == rank14.shots);
+        CHECK(rank15.applied > rank14.applied);
+    }
+    SECTION("the last Pseudopod Reach rank reaches a target the prior rank cannot") {
+        auto base = shipped();
+        auto& macro = base.towers.mechanics[static_cast<u32>(TowerType::Macrophage)];
+        macro.swarm.speed = 0; // Isolate reach from the independently growing mobility.
+        TreeLevels previous_levels;
+        previous_levels[TreeNode::MacrophageRoot] = 1;
+        immune::test::set_tree_track(previous_levels, TreeNode::MacrophageGrabReach, 11);
+        TreeLevels final_levels = previous_levels;
+        immune::test::set_tree_track(final_levels, TreeNode::MacrophageGrabReach, 12);
+        auto previous = base, final = base;
+        apply_immunity_tree(previous_levels, previous);
+        apply_immunity_tree(final_levels, final);
+        const auto m = static_cast<u32>(TowerType::Macrophage);
+        const f32 distance = (previous.towers.mechanics[m].swarm.attach_radius +
+                              final.towers.mechanics[m].swarm.attach_radius) * 0.5f;
+        auto captures = [&](const TreeLevels& levels) {
+            RuntimeFixture fixture(base, levels);
+            fixture.cell(TowerType::Macrophage);
+            fixture.virus({45.0f + distance, 40.0f});
+            for (u32 tick = 0; tick < 120; ++tick) fixture.world.tick();
+            return fixture.world.snapshot().chaff_killed_by_family[0];
+        };
+        CHECK(captures(previous_levels) == 0);
+        CHECK(captures(final_levels) == 1);
+    }
 }
 
 TEST_CASE_METHOD(immune::test::BalanceConfigIsolation, "cluster intake increases actual enemies swallowed by the same fixed arms",

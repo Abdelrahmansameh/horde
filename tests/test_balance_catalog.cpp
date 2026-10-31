@@ -1,4 +1,5 @@
 #include "BalanceTestIsolation.h"
+#include "TreeTestHelpers.h"
 #include "game/balance/BalanceCatalog.h"
 #include "config/Registry.h"
 #include "game/meta/ImmunityTree.h"
@@ -115,6 +116,47 @@ TEST_CASE_METHOD(immune::test::BalanceConfigIsolation, "balance catalog reports 
             for (const auto& change : node["rank_effects"][0]["config_changes"])
                 if (change["path"] == std::string("towers.") + tower_type_name(TowerType::CytotoxicT) + ".swarm.speed") found = true;
             CHECK(found);
+        }
+    }
+}
+
+TEST_CASE_METHOD(immune::test::BalanceConfigIsolation, "catalog continuation effects use the preceding stages as their baseline", "[balance][catalog][meta]") {
+    const auto base = catalog_config();
+    const auto catalog = balance::describe_catalog(base);
+    for (unsigned stage = 2; stage <= 4; ++stage) {
+        const auto node = immune::test::tree_stage(TreeNode::NeutrophilRoundDamage, stage);
+        const auto& def = tree_node(node);
+        const auto& item = catalog["tree"]["nodes"][static_cast<u32>(node)];
+        TreeLevels prior_levels;
+        immune::test::set_tree_track(prior_levels, TreeNode::NeutrophilRoundDamage, def.rank_offset);
+        auto prior = base;
+        apply_immunity_tree(prior_levels, prior);
+        config::Registry prior_registry;
+        bind_game_config(prior_registry, prior);
+        for (const u8 rank : {u8{1}, def.max_level}) {
+            TreeLevels levels;
+            immune::test::set_tree_track(levels, TreeNode::NeutrophilRoundDamage, def.rank_offset + rank);
+            auto upgraded = base;
+            apply_immunity_tree(levels, upgraded);
+            config::Registry upgraded_registry;
+            bind_game_config(upgraded_registry, upgraded);
+            const auto& changes = item["rank_effects"][rank - 1]["config_changes"];
+            bool changed = false;
+            for (const auto& path : prior_registry.field_paths()) {
+                std::string before, after, error;
+                REQUIRE(prior_registry.get(path, before, error));
+                REQUIRE(upgraded_registry.get(path, after, error));
+                bool found = false;
+                for (const auto& change : changes) {
+                    if (change["path"] != path) continue;
+                    CHECK(change["from"] == before);
+                    CHECK(change["value"] == after);
+                    found = true;
+                }
+                CHECK(found == (before != after));
+                changed = changed || found;
+            }
+            CHECK(changed);
         }
     }
 }

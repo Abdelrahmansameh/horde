@@ -72,20 +72,33 @@ class ShippedCampaignContracts(unittest.TestCase):
         self.assertEqual(pressure.curve_errors(curve), [])
         for first, second in zip(curve["levels"], curve["levels"][1:]):
             ratio = second["peak_density_per_second"] / first["peak_density_per_second"]
-            self.assertGreaterEqual(ratio, 1.30)
-            self.assertLessEqual(ratio, 1.35)
+            self.assertGreaterEqual(ratio, 1.39)
+            self.assertLessEqual(ratio, 1.41)
+            self.assertGreater(second["population"], first["population"])
+        self.assertGreaterEqual(curve["levels"][8]["population"], 43774)
+        self.assertGreaterEqual(curve["levels"][8]["peak_density_per_second"], 2290)
+        self.assertGreaterEqual(curve["levels"][9]["population"], 1.35 * curve["levels"][8]["population"])
+        self.assertGreaterEqual(curve["levels"][9]["peak_density_per_second"],
+                                1.35 * curve["levels"][8]["peak_density_per_second"])
 
-    def test_before_after_artifact_matches_shipped_schedule_and_preserves_payloads(self):
+    def test_historical_timing_artifact_preserves_its_own_payloads_and_metrics(self):
         report = pressure.read_json(ROOT / "assets/balance/campaign_pressure.json")
-        densities = pressure.family_densities(ROOT)
-        self.assertEqual(report["family_base_densities"], densities)
+        # This archived timing/income intervention deliberately predates the
+        # new population, spore mix and durability ramp. Check its own inputs
+        # rather than asserting that historical outcomes describe live maps.
+        densities = report["family_base_densities"]
+        self.assertEqual(report["hypothesis"]["level_peak_density_factor"], 1.32)
         self.assertEqual(len(report["levels"]), 10)
         wallets = [300, 335, 370, 410, 455, 505, 560, 620, 685, 750]
         for index, row in enumerate(report["levels"]):
-            actual = pressure.level_metrics(pressure.read_json(ROOT / row["path"]), densities)
-            self.assertEqual(row["after"], actual)
+            actual = row["after"]
             self.assertEqual(row["before"]["population"], actual["population"])
             self.assertEqual(actual["starting_atp"], wallets[index])
+            for part in (row["before"], actual):
+                self.assertEqual(part["population"], sum(w["population"] for w in part["waves"]))
+                for wave in part["waves"]:
+                    measured = pressure.wave_metrics({"name": wave["name"], "spawns": wave["cohorts"]}, densities)
+                    self.assertEqual(measured, wave)
             for before, after in zip(row["before"]["waves"], actual["waves"]):
                 self.assertGreaterEqual(after["peak_density_per_second"] + 1e-8, before["peak_density_per_second"])
                 for old, new in zip(before["cohorts"], after["cohorts"]):
@@ -93,10 +106,6 @@ class ShippedCampaignContracts(unittest.TestCase):
                                      {k: v for k, v in new.items() if k not in {"start_time", "duration"}})
                     self.assertLessEqual(new["duration"], old["duration"])
         self.assertEqual(report["levels"][0]["before"]["waves"][0], report["levels"][0]["after"]["waves"][0])
-        economy = pressure.read_json(ROOT / "assets/config/economy.json")
-        towers = pressure.read_json(ROOT / "assets/config/towers.json")
-        self.assertEqual(economy["atp_per_density"], .85)
-        self.assertEqual(towers["towers"]["macrophage"]["stats"]["build_cost"], 35)
 
     def test_retry_experiments_keep_frozen_strategies_and_disjoint_seed_samples(self):
         directory = ROOT / "assets/balance/experiments"
@@ -110,12 +119,18 @@ class ShippedCampaignContracts(unittest.TestCase):
             stream = set(range(seed, seed + heldout["base"]["campaign"]["max_total_attempts"]))
             self.assertFalse(allocated & stream, "Held-out campaign seed streams overlap")
             allocated.update(stream)
-        self.assertEqual(train["training_protocol"]["heldout_seeds"], heldout["seeds"])
+        # Each reserved training stream must also stay disjoint from every
+        # evaluation stream, not merely have a different initial seed.
+        for seed in train["seeds"]:
+            stream = set(range(seed, seed + train["base"]["campaign"]["max_total_attempts"]))
+            self.assertFalse(allocated & stream, "Training and held-out campaign streams overlap")
         self.assertEqual(train["variants"], heldout["variants"])
         self.assertEqual(train["base"], heldout["base"])
         self.assertEqual([v["name"] for v in train["variants"]], ["control", "economy", "offense"])
         self.assertEqual(len(train["base"]["campaign"]["levels"]), 10)
-        self.assertEqual(train["base"]["campaign"]["max_attempts_per_level"], 5)
+        self.assertEqual(train["base"]["campaign"]["max_attempts_per_level"], 10)
+        self.assertEqual(train["base"]["campaign"]["max_total_attempts"], 100)
+        self.assertEqual(train["base"]["controller"]["max_prep_ticks"], 3600)
         self.assertEqual(train["progression_targets"]["median_attempts_min"], 2)
         self.assertEqual(train["progression_targets"]["median_attempts_max"], 4)
         catalog = (ROOT / "src/game/meta/ImmunityTree.cpp").read_text(encoding="utf-8")
@@ -132,13 +147,18 @@ class ShippedCampaignContracts(unittest.TestCase):
         self.assertNotIn("overrides", train["base"])
         self.assertNotIn("progression_snapshot", train["base"])
 
-    def test_late_income_decay_preserves_opening_levels_and_the_selected_curve(self):
+    def test_current_income_is_normalized_while_historical_decay_remains_archived(self):
         report = pressure.read_json(ROOT / "assets/balance/campaign_pressure.json")
         self.assertEqual(report["interventions"]["late_income_factor"], .75)
         levels = pressure.inspect_campaign(ROOT)["levels"]
         for index, level in enumerate(levels):
-            expected = 1.0 if index < 4 else round(.75 ** (index - 3), 8)
-            self.assertAlmostEqual(level["income_multiplier"], expected)
+            self.assertEqual(level["income_multiplier"], 1.0)
+            historical = report["levels"][index]["after"]["income_multiplier"]
+            self.assertAlmostEqual(historical, 1.0 if index < 4 else round(.75 ** (index - 3), 8))
+        economy_config = pressure.read_json(ROOT / "assets/config/economy.json")
+        towers = pressure.read_json(ROOT / "assets/config/towers.json")
+        self.assertEqual(economy_config["atp_per_density"], .85)
+        self.assertEqual(towers["towers"]["macrophage"]["stats"]["build_cost"], 35)
         experiment = pressure.read_json(ROOT / "assets/balance/experiments/retry_progression_training.json")
         economy = next(v for v in experiment["variants"] if v["name"] == "economy")
         priority = economy["patch"]["campaign"]["purchase_policy"]["priority"]

@@ -40,6 +40,7 @@ overrides and permanent upgrades. Source and data take precedence over prose.
 | Tick ordering, chaff, ECS, fields, movement, damage, and capacities | [Simulation](SIMULATION.md) |
 | Draw passes, shaders, camera, instance data, visual effects, and LOD | [Rendering](RENDERING.md) |
 | Window/platform, input, and file lookup | [Platform](PLATFORM.md) |
+| Procedural sounds, mixer, horde sound strategy, audition renderer | [Audio](AUDIO.md) |
 | Tuning schemas, registry, reload, dumps, and config hashes | [Configuration](CONFIGURATION.md) |
 | Retained widgets, models, screens, events, theme, and GUI rendering | [UI framework](UI_FRAMEWORK.md) |
 | Asset folders, licenses, generators, and visual reference workflow | [Assets](ASSETS.md) |
@@ -72,6 +73,7 @@ the relevant headers and point to tests; they are not copies of every function.
 | `src/sim/CombatEvents.h` | [Rendering](RENDERING.md) |
 | `src/render/`, `src/vfx/`, `assets/shaders/` | [Rendering](RENDERING.md) |
 | `src/gui/` | [UI framework](UI_FRAMEWORK.md) |
+| `src/audio/` | [Audio](AUDIO.md) |
 | `src/ui/hud/`, `src/ui/front/`, `src/ui/Intent.h`, `src/ui/Menu.h` | [UI framework](UI_FRAMEWORK.md) |
 | `src/ui/editor/`, `src/ui/GymPanel.*`, `src/ui/DevUi.*` | [Level editor](LEVEL_EDITOR.md), [Gym](GYM.md), [UI](UI_FRAMEWORK.md) |
 | `assets/config/` | [Configuration](CONFIGURATION.md) |

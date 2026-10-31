@@ -77,6 +77,19 @@ class DistanceField;
 class TissueMask;
 class SpatialHash;
 
+/// Real authored waves may expand beyond their marker's requested radius.
+/// Optional geometry guards keep unsafe birth sites on a reachable approach;
+/// unconstrained packing/gym callers retain their existing placement contract.
+struct ChaffSpawnGuard {
+    const TissueMask* mask = nullptr;
+    const DistanceField* sdf = nullptr;
+    const FlowField* flow = nullptr;
+};
+struct ChaffSpawnSiteStats {
+    u32 reprojected = 0;
+    u32 denied_geometry = 0;
+};
+
 /// Per-family movement tuning. Loaded from data by Wave 2C; the layout is
 /// fixed here so the movement kernel can index it with a u8 family id.
 struct ChaffFamilyParams {
@@ -273,6 +286,10 @@ struct ChaffUpdateStats {
     /// knows *why* an agent is retiring -- is where the split has to be made.
     u32 despawned_at_goal_by_family[kFamilyCount] = {};
     u32 despawned_out_of_bounds_by_family[kFamilyCount] = {};
+    /// Diagnostic only: CSR entries examined, including ineligible/identical
+    /// bodies. These counters do not feed movement, targeting or state_hash.
+    u64 neighbour_candidate_entries = 0;
+    u32 max_neighbour_candidates_per_agent = 0;
 };
 
 /// Stateless-by-design: all mutable state lives in ChaffBuffers. This class
@@ -281,6 +298,7 @@ class ChaffSystem {
 public:
     void set_tuning(const ChaffTuning& tuning) { tuning_ = tuning; }
     const ChaffTuning& tuning() const { return tuning_; }
+    const ChaffUpdateStats& last_update_stats() const { return last_update_stats_; }
 
     /// One fixed 60 Hz step. Order within a tick is fixed and must not change:
     ///   1. hash.rebuild(...)      (caller, profiled as spatial_hash)
@@ -333,10 +351,14 @@ public:
     /// `pattern_offset` and `pattern_count` let a streamed wave fill stable
     /// slots in one shared formation instead of stamping a fresh overlapping
     /// mini-burst every tick. A negative `pattern_phase` draws one from `rng`.
+    /// A guard preserves legal sites and reprojects only unsafe ones with no
+    /// extra RNG draws. Geometry shortfalls are explicit, just like pool ones.
     u32 spawn_burst(ChaffBuffers& buffers, PathogenFamily family, Vec2 spawn_pos,
                     f32 spawn_point_radius, u32 count, Rng& rng,
                     u16 squad_id = kNoSquad, u32 pattern_offset = 0,
-                    u32 pattern_count = 0, f32 pattern_phase = -1.0f) const;
+                    u32 pattern_count = 0, f32 pattern_phase = -1.0f,
+                    const ChaffSpawnGuard* guard = nullptr,
+                    ChaffSpawnSiteStats* site_stats = nullptr) const;
 
     /// Despawn bounds. Agents leaving this rect are removed; the level loader
     /// sets it to the tissue bounds plus a margin.
@@ -360,6 +382,7 @@ public:
     }
 
 private:
+    ChaffUpdateStats last_update_stats_{};
     // ---- Per-tick scratch (Wave 1B). Sized to buffers.capacity() on first use
     // and never after: reserved-once, no-alloc-in-tick per docs/CONVENTIONS.md.
     // Private implementation detail; does not change the public contract.

@@ -252,7 +252,7 @@ struct ChaffBatchParams {
     /// Instance slots reserved per family. The destination buffer is
     /// kFamilyCount * per_family_capacity entries, so family f owns
     /// [f * capacity, f * capacity + count_f) and needs no prefix-sum pass.
-    u32 per_family_capacity = 16384;
+    u32 per_family_capacity = kDefaultChaffCapacity;
     /// Seconds since renderer init. Folded into anim_phase so the shader needs
     /// no per-family tempo uniform.
     f32 time = 0.0f;
@@ -573,9 +573,8 @@ inline ChaffBatchResult build_chaff_batches(const sim::ChaffBuffers& chaff,
         // which kFamilyCount (4) leaves empty: the family mask in chaff.frag
         // (CHAFF_FAMILY_MASK) stops short of it. Mirrored by FLAG_LATCHED.
         constexpr u32 kVisualLatched = 1u << 15;
-        // A burrowing worm's kHidden is the burrow's, and the burrow draws
-        // itself (the dive, the mound, the emergence); the generic "hidden"
-        // dimming in chaff.frag is for a captive held in a Macrophage arm.
+        // A burrowing worm's kHidden belongs to the burrow; the burrow draws
+        // itself (the dive, the mound, the emergence).
         const bool burrowing = worm && burrow_state[i] != sim::burrow_state::kSurface;
         const u32 sim_bits = burrowing ? (static_cast<u32>(flg[i]) & ~sim::chaff_flags::kHidden)
                                        : static_cast<u32>(flg[i]);

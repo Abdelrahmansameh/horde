@@ -234,8 +234,19 @@ target_link_libraries(immune_ui PUBLIC immune_core immune_platform immune_render
   PRIVATE imgui::imgui)
 
 
+# Procedural audio (docs/AUDIO.md): synth, mixer, SDL device, and the scene
+# that turns combat events into a bounded set of sounds. Reads sim/ event
+# types only; never feeds anything back into the sim.
+add_library(immune_audio STATIC
+  src/audio/AudioEngine.cpp
+  src/audio/Mixer.cpp
+  src/audio/Patches.cpp
+  src/audio/SoundScape.cpp)
+target_link_libraries(immune_audio PUBLIC immune_core immune_sim PRIVATE ${IMMUNE_SDL2_TARGET})
+
 add_library(immune_app STATIC
   src/app/App.cpp
+  src/app/AudioRender.cpp
   src/app/BalanceMode.cpp
   src/app/Cli.cpp
   src/app/EditorMode.cpp
@@ -244,7 +255,7 @@ add_library(immune_app STATIC
   src/app/Modes.cpp
   src/app/UiBridge.cpp)
 target_link_libraries(immune_app PUBLIC
-  immune_core immune_platform immune_sim immune_render immune_game immune_ui
+  immune_core immune_platform immune_sim immune_render immune_game immune_ui immune_audio
   nlohmann_json::nlohmann_json)
 
 # ---------------------------------------------------------------------------

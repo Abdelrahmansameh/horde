@@ -19,6 +19,7 @@
 #include "config/ConfigStore.h"
 #include "config/Field.h"
 #include "config/Registry.h"
+#include "core/CapacityDefaults.h"
 #include "game/abilities/ActiveAbilities.h"
 #include "game/economy/Economy.h"
 #include "game/enemies/EnemyRoster.h"
@@ -420,7 +421,7 @@ struct EnemyConfig {
 // ---------------------------------------------------------------------------
 
 struct SimCapacities {
-    u32 max_chaff = 16384;
+    u32 max_chaff = kDefaultChaffCapacity;
     u32 max_damage_fields = 512;
     u32 max_projectiles = 8192;
     u32 max_swarmers = 32768;
@@ -471,6 +472,8 @@ struct HostileGlobals {
     bool enabled = true;
     u32 max_attackers = 128;
     u32 max_latch_events = 64;
+    u32 max_toxin_shots = kDefaultToxinShotCapacity;
+    u32 max_harpoons = kDefaultHarpoonCapacity;
 };
 
 struct SimConfig {
@@ -517,6 +520,8 @@ struct AbilityTuning {
     /// Complement Cascade only: hops the chain may take. 0 = the damage
     /// system's default (sim::DamageField::chain_links).
     u32 chain_links = 0;
+    /// Tree-only multiplier for direct-cell healing, independent of legacy cooldown relief.
+    f32 fever_healing_mult = 1.0f;
     /// Fever Response only: after the instant relief, every tower's cooldown
     /// keeps running this many extra seconds per second, for this long.
     f32 fever_linger_seconds = 0.0f;
@@ -533,11 +538,11 @@ struct AbilityConfig {
 /// (game/meta/ImmunityTree.cpp) -- this block is only the pacing.
 struct MetaConfig {
     u32 base_run_reward = 30;
-    u32 per_wave_reward = 15;
+    u32 per_wave_reward = 20;
     u32 per_elite_reward = 8;
     u32 per_boss_reward = 50;
-    u32 chaff_per_point = 200;
-    u32 win_bonus = 40;
+    u32 chaff_per_point = 125;
+    u32 win_bonus = 60;
     /// Antibodies for a level's FIRST clear. Replays pay none, at any grade.
     u32 first_clear_antibodies = 1;
     /// Memory Cells for level 1 of a standard stat line, and the increase per

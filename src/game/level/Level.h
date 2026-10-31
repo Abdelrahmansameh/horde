@@ -334,6 +334,17 @@ struct LevelEconomy {
     f32 income_multiplier = 1.0f; ///< Scales ATP per density destroyed.
 };
 
+/// Public authored pressure, independent of global enemy config and earned
+/// player upgrades. Durability changes density/HP, never body/count/speed.
+/// Kill ATP is compensated by the same factor in the shared level rules.
+struct EnemyScaling {
+    static constexpr f32 kMinimum = 0.01f;
+    static constexpr f32 kMaximum = 64.0f;
+    f32 durability_multiplier = 1.0f;
+    f32 damage_multiplier = 1.0f;
+};
+bool valid_enemy_scaling(const EnemyScaling& scaling);
+
 /// Per-level camera framing (schema 2). Without it, framing is "the whole
 /// level", which is wrong for a long capillary: the lane ends up a ribbon three
 /// pixels tall. 0 means "derive it from the world bounds", i.e. today's rule.
@@ -380,6 +391,7 @@ struct LevelDef {
     /// level that is ABOUT the Goblet Cell. Names match parse_tower_type().
     std::vector<std::string> allowed_towers;
     LevelEconomy economy;
+    EnemyScaling enemy_scaling;
     LevelCamera camera;
     LevelWin win;
     LevelEditorState editor;

@@ -234,7 +234,7 @@ EnemyConfig& mutable_enemy_config() {
     static EnemyConfig cfg = [] {
         EnemyConfig seed;
         seed.speed_tiers[static_cast<u32>(SpeedTier::Slow)] =
-            SpeedProfileParams{5.625f, 20.25f, 0.12f};
+            SpeedProfileParams{15.0f, 54.0f, 0.12f};
         seed.speed_tiers[static_cast<u32>(SpeedTier::Normal)] =
             SpeedProfileParams{10.125f, 36.0f, 0.30f};
         seed.speed_tiers[static_cast<u32>(SpeedTier::Fast)] =
@@ -396,6 +396,8 @@ sim::HostileTuning hostile_tuning(const HostileGlobals& globals) {
     t.enabled = globals.enabled;
     t.max_attackers = globals.max_attackers;
     t.max_latch_events = globals.max_latch_events;
+    t.max_toxin_shots = globals.max_toxin_shots;
+    t.max_harpoons = globals.max_harpoons;
     return t;
 }
 

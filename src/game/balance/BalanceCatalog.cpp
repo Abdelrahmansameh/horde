@@ -55,6 +55,7 @@ json rules(const TreeEffects& effects, const GameConfig& config) {
             {"slowed_damage_mult", t.slowed_damage_mult}, {"inflammation_radius", t.inflammation_radius},
             {"inflammation_damage_mult", t.inflammation_damage_mult},
             {"inflammation_reload_mult", t.inflammation_reload_mult}}}};
+    result["fever_healing_mult"] = config.abilities.ability[static_cast<u32>(AbilityId::FeverResponse)].fever_healing_mult;
     for (u32 i = 0; i < kTowerTypeCount; ++i) {
         const auto& c = config.towers.mechanics[i].capstone;
         result["unit_capstones"][tower_type_name(static_cast<TowerType>(i))] = {
@@ -83,7 +84,7 @@ config::Json describe_catalog(const GameConfig& input) {
         {"tree", {{"root", tree_node(kTreeRoot).key},
             {"capstone_threshold", 0},
             {"branch_points_rule", "stat ranks are descriptive; discoveries require their parent and one Antibody, without a branch-point gate"},
-            {"rank_effects_scope", "target node granted alone against the zero tree; eligibility prerequisites are supplied separately in experiments"},
+            {"rank_effects_scope", "target node granted against the zero tree; continuations include all prior ranks of their line"},
             {"nodes", json::array()}}},
         {"registry", {{"value_encoding", "Registry::get text, accepted verbatim by Registry::set; vectors are comma-separated"},
             {"fields", json::array()}}}, {"cells", json::array()}, {"abilities", json::array()}};
@@ -94,8 +95,6 @@ config::Json describe_catalog(const GameConfig& input) {
 
     GameConfig zero_config = base;
     const TreeEffects zero_effects = apply_immunity_tree(TreeLevels{}, zero_config);
-    config::Registry zero_registry;
-    bind_game_config(zero_registry, zero_config);
     result["tree"]["zero_rules"] = rules(zero_effects, zero_config);
     for (u32 i = 0; i < kTreeNodeCount; ++i) {
         const auto node = static_cast<TreeNode>(i);
@@ -116,8 +115,22 @@ config::Json describe_catalog(const GameConfig& input) {
             item["runtime_constraint"] = {{"field","towers.macrophage.payload.max_captives"},
                 {"configured_baseline",configured},{"engine_ceiling",sim::kArborMaxCaptives},
                 {"runtime_baseline",std::min(configured,sim::kArborMaxCaptives)},
-                {"scope","Captive capacity is capped by the runtime; this discovery also increases the collection radius"}};
+                {"scope","Captive capacity is capped by the runtime"}};
         }
+        TreeLevels prior_levels;
+        if (def.effect_source != TreeNode::Count) {
+            prior_levels[def.effect_source] = tree_node(def.effect_source).max_level;
+            for (u32 j = 0; j < kTreeNodeCount; ++j) {
+                const auto earlier = static_cast<TreeNode>(j);
+                const auto& ed = tree_node(earlier);
+                if (ed.effect_source == def.effect_source && ed.rank_offset < def.rank_offset)
+                    prior_levels[earlier] = ed.max_level;
+            }
+        }
+        GameConfig prior_config = base;
+        apply_immunity_tree(prior_levels, prior_config);
+        config::Registry prior_registry;
+        bind_game_config(prior_registry, prior_config);
         u64 cumulative_mc = 0, cumulative_ab = 0;
         for (u32 rank = 1; rank <= def.max_level; ++rank) {
             const TreeCost price = tree_node_cost(base.meta, node, static_cast<u8>(rank - 1));
@@ -126,7 +139,7 @@ config::Json describe_catalog(const GameConfig& input) {
             item["rank_prices"].push_back({{"rank", rank}, {"memory_cells", price.memory_cells},
                 {"antibodies", price.antibodies}, {"cumulative_memory_cells", cumulative_mc},
                 {"cumulative_antibodies", cumulative_ab}});
-            TreeLevels levels;
+            TreeLevels levels = prior_levels;
             levels[node] = static_cast<u8>(rank);
             GameConfig upgraded = base;
             const TreeEffects effects = apply_immunity_tree(levels, upgraded);
@@ -134,7 +147,7 @@ config::Json describe_catalog(const GameConfig& input) {
             bind_game_config(upgraded_registry, upgraded);
             json changes = json::array();
             for (const auto& path : paths) {
-                const auto before = read(zero_registry, path);
+                const auto before = read(prior_registry, path);
                 const auto after = read(upgraded_registry, path);
                 if (before != after) changes.push_back({{"path", path}, {"from", before}, {"value", after}});
             }

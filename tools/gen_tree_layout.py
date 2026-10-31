@@ -46,8 +46,8 @@ SOURCE = ROOT / "src" / "game" / "meta" / "ImmunityTree.cpp"
 OUT = ROOT / "assets" / "ui" / "tree_layout.json"
 
 # Tree units.
-RING_1 = 480.0
-RING_STEP = 300.0
+RING_1 = 720.0
+RING_STEP = 400.0
 PETAL_GAP = math.radians(4.0)
 HUB = "neutrophil.round_damage"
 
@@ -61,7 +61,7 @@ def read_catalog():
     block = block[:block.index("Count,")]
     enum = re.findall(r"^\s*([A-Z]\w*)(?:\s*=\s*0)?,", block, re.M)
     source = SOURCE.read_text(encoding="utf-8")
-    nodes = re.findall(r'node\("([a-z_.]+)", "[^"]*", "[^"]*", K::(\w+),', source)
+    nodes = re.findall(r'node\("([a-z0-9_.]+)", "[^"]*", "[^"]*", K::(\w+),', source)
     if len(enum) != len(nodes):
         sys.exit(f"TreeNode has {len(enum)} entries but kCatalog has {len(nodes)}")
     key_of = {name: key for name, (key, _) in zip(enum, nodes)}
@@ -88,6 +88,7 @@ ICON = {
     "hub.efficient_clearance": "stat_atp",
     "hub.field_requisition": "stat_atp",
     "hub.systemic_potency": "stat_damage",
+    "hub.adaptive_memory": "stat_damage",
     "hub.elite_response": "stat_health",
     "hub.homeostasis": "stat_health",
     "hub.membrane_resilience": "stat_health",
@@ -138,7 +139,28 @@ ICON = {
     "fibroblast.build_rate": "stat_cadence",
     "fibroblast.scar_count": "stat_count",
     "fibroblast.capstone": "stat_fire",
+    "neutrophil.release": "stat_cadence",
+    "neutrophil.granule_damage": "stat_damage",
+    "neutrophil.speed": "stat_time",
+    "cytotoxic.stamina_health": "stat_health",
+    "macrophage.intake_radius": "stat_reach",
+    "macrophage.captives_radius": "stat_reach",
+    "macrophage.grab_reach": "stat_reach",
+    "macrophage.mobility": "stat_time",
+    "macrophage.wall_health": "stat_health",
+    "fibroblast.regrowth": "stat_cadence",
+    "hub.adaptive_work": "stat_cadence",
+    "cytotoxic.cytokine_drain": "stat_damage",
+    "goblet.cytokine_speed": "stat_time",
+    "cytotoxic.adaptive_drain": "stat_damage",
+    "goblet.adaptive_speed": "stat_time",
 }
+
+# Continuations use the same glyph as the original upgrade.
+for key in KEYS:
+    base = re.sub(r"\.stage[234]$", "", key)
+    if base != key and base in ICON:
+        ICON[key] = ICON[base]
 
 # ---------------------------------------------------------------- the layout
 

@@ -27,13 +27,14 @@
   "progression_targets": {
     "median_attempts_min": 2,
     "median_attempts_max": 4,
-    "maximum_attempts_per_level": 5,
+    "maximum_attempts_per_level": 10,
     "minimum_post_loss_purchase_rate": 0.8
   },
   "base": {
     "schema": 1,
     "max_ticks": 72000,
     "sample_ticks": 120,
+    "controller": {"max_prep_ticks": 3600},
     "progression": {
       "memory_cells": 0,
       "antibodies": 0
@@ -51,8 +52,8 @@
         "assets/levels/campaign_09_funnel_walls.json",
         "assets/levels/campaign_10_core_breach.json"
       ],
-      "max_attempts_per_level": 5,
-      "max_total_attempts": 50
+      "max_attempts_per_level": 10,
+      "max_total_attempts": 100
     }
   },
   "variants": [
@@ -61,9 +62,9 @@
       "expected_discovery_order": [
         "macrophage.unlock",
         "goblet.unlock",
+        "cytotoxic.unlock",
         "ability.fever.unlock",
         "neutrophil.capstone",
-        "cytotoxic.unlock",
         "fibroblast.unlock",
         "ability.complement.unlock",
         "ability.clot.unlock",
@@ -84,9 +85,9 @@
               "macrophage.captives",
               "macrophage.health",
               "goblet.unlock",
+              "cytotoxic.unlock",
               "ability.fever.unlock",
               "neutrophil.capstone",
-              "cytotoxic.unlock",
               "fibroblast.unlock",
               "ability.complement.unlock",
               "ability.clot.unlock",
@@ -102,6 +103,7 @@
               "hub.field_requisition",
               "hub.elite_response",
               "hub.systemic_potency",
+              "hub.adaptive_memory",
               "hub.homeostasis",
               "hub.membrane_resilience",
               "macrophage.search",
@@ -141,9 +143,9 @@
       "expected_discovery_order": [
         "macrophage.unlock",
         "fibroblast.unlock",
+        "cytotoxic.unlock",
         "ability.clot.unlock",
         "goblet.unlock",
-        "cytotoxic.unlock",
         "ability.complement.unlock",
         "ability.fever.unlock",
         "neutrophil.capstone",
@@ -162,11 +164,12 @@
               "hub.field_requisition",
               "hub.elite_response",
               "hub.systemic_potency",
+              "hub.adaptive_memory",
               "macrophage.unlock",
               "fibroblast.unlock",
+              "cytotoxic.unlock",
               "ability.clot.unlock",
               "goblet.unlock",
-              "cytotoxic.unlock",
               "ability.complement.unlock",
               "ability.fever.unlock",
               "neutrophil.capstone",
@@ -258,6 +261,7 @@
               "hub.field_requisition",
               "hub.elite_response",
               "hub.systemic_potency",
+              "hub.adaptive_memory",
               "hub.homeostasis",
               "hub.membrane_resilience",
               "macrophage.health",
@@ -318,23 +322,6 @@
       }
     ]
   },
-  "training_protocol": {
-    "training_seeds": [
-      31013,
-      31019,
-      31033
-    ],
-    "heldout_seeds": [
-      72011,
-      82019,
-      92031,
-      102043,
-      112059
-    ],
-    "freeze": "Keep all three purchase priorities and controller parameters fixed before viewing held-out outcomes. Tune only using training runs; retain failed strategies in the held-out report.",
-    "interpretation": "Separate experiment directories preserve split identity. These are conditional controller samples, not player skill percentiles.",
-    "input_revision": "Selected 30 MC minimum reward, stat cost step 15, 0.85 baseline ATP per density, and level multipliers of 1 through level 4, then 0.75^(level-4). Opening wallets rise from 300 to 750; peak release pressure grows about 1.32x per level; Macrophages cost 35 ATP. Original V15 control and offense complete all ten levels. Economy alone receives a training-selected role-aware purchase priority; its fresh result and held-out evaluation are pending."
-  },
   "expectations": {
     "pacing": "Aim for a journey median of 2-4 attempts per cleared level, with most levels cleared by 5; strong builds may clear first try. No forced failure.",
     "losses": "Typical substantial losses should fund one to three useful ranks. The 30 MC floor lets even a zero-wave defeat buy the first 20 MC starter rank; assess later costs separately. Observed purchases do not by themselves establish combat value.",
@@ -343,40 +330,74 @@
     "limits": "Unqualified controller routing, invalid reports, capacity denials and timeouts prevent a gameplay-balance conclusion. Full ten-level targets are hypotheses until measured.",
     "income": "Damage-income multiplier stays at 1 through level 4, then multiplies by 0.75 per level. Wave bounties and opening wallets retain their separate authored curves."
   },
-  "revision": 7,
-  "preregistration_amendments": [
-    {
-      "amended_at_utc": "2026-10-23T04:46:27.518072+00:00",
-      "scope": "Seed allocation only; no priority, controller, gameplay, retry-budget or outcome-dependent selection change.",
-      "before_heldout_execution": true,
-      "before_heldout_outcome_inspection": true,
-      "previous_base_seeds": [
-        72011,
-        72019,
-        72031,
-        72043,
-        72059
+  "focused_revision_note": "Current veteran progression adds AdaptiveMemory after its SystemicPotency prerequisite in every paid priority order. Historical frozen runs retain their original trees and inputs.",
+  "spore_policy_revision": "Cytotoxic T is the third paid discovery in control/economy, available after L3 for the L4 spore introduction. Offense keeps its first-discovery T choice. Ordinary Antibody earnings and prerequisites apply; no grants. Original frozen campaign audit and revision2 development results retain the old orders.",
+  "historical_protocol_metadata": {
+    "training_protocol": {
+      "training_seeds": [
+        31013,
+        31019,
+        31033
       ],
-      "replacement_base_seeds": [
+      "heldout_seeds": [
         72011,
         82019,
         92031,
         102043,
         112059
       ],
-      "reason": "Campaign attempts use base_seed + attempt_index. The prior base values were closer than the maximum50attempts and could share numeric attempt seeds. New values separate all maximum50attempt ranges while retaining first-two selection and paired strategy seeds.",
-      "authorized_by": "Root instruction before execution/outcome inspection."
+      "freeze": "Keep all three purchase priorities and controller parameters fixed before viewing held-out outcomes. Tune only using training runs; retain failed strategies in the held-out report.",
+      "interpretation": "Separate experiment directories preserve split identity. These are conditional controller samples, not player skill percentiles.",
+      "input_revision": "Selected 30 MC minimum reward, stat cost step 15, 0.85 baseline ATP per density, and level multipliers of 1 through level 4, then 0.75^(level-4). Opening wallets rise from 300 to 750; peak release pressure grows about 1.32x per level; Macrophages cost 35 ATP. Original V15 control and offense complete all ten levels. Economy alone receives a training-selected role-aware purchase priority; its fresh result and held-out evaluation are pending."
     },
-    {
-      "amended_at_utc": "2026-10-23T05:57:21.109323+00:00",
-      "scope": "Training-selected income and economy purchase priority only. Control/offense priorities and all discovery orders/controller weights stay unchanged.",
-      "before_heldout_execution": true,
-      "before_heldout_outcome_inspection": true,
-      "previous_economy_variant_sha256": "9b43fe4a718320a779f5515462c7367fb4b9115f1a1e2e26af3443da5ea2728b",
-      "replacement_economy_variant_sha256": "fd936a01bb106c6d14f39277bb3f4df131c889177d5e096da7bf7c11844a69a3",
-      "reason": "Original V15 control and offense at the selected income curve complete all ten levels. The stalled economy journey on level 7 resumes its earned bank of 68 MC and clears all nine waves after three 20-MC Macro role purchases. Move owned Macro throughput, reach and health before leak mitigation in fresh training, preserving previous failures and the original five-attempt bound.",
-      "authorized_by": "Root selection on training evidence; heldout remains unexecuted pending freshE training."
-    }
-  ],
-  "focused_revision_note": "Firing Cycle merges the old reload and Trigger Rate nodes. Removed duplicate purchase priorities for the current tree. Historical V15 reports and frozen input copies remain unchanged; no new balance pass was run."
+    "preregistration_amendments": [
+      {
+        "amended_at_utc": "2026-10-23T04:46:27.518072+00:00",
+        "scope": "Seed allocation only; no priority, controller, gameplay, retry-budget or outcome-dependent selection change.",
+        "before_heldout_execution": true,
+        "before_heldout_outcome_inspection": true,
+        "previous_base_seeds": [
+          72011,
+          72019,
+          72031,
+          72043,
+          72059
+        ],
+        "replacement_base_seeds": [
+          72011,
+          82019,
+          92031,
+          102043,
+          112059
+        ],
+        "reason": "Campaign attempts use base_seed + attempt_index. The prior base values were closer than the maximum50attempts and could share numeric attempt seeds. New values separate all maximum50attempt ranges while retaining first-two selection and paired strategy seeds.",
+        "authorized_by": "Root instruction before execution/outcome inspection."
+      },
+      {
+        "amended_at_utc": "2026-10-23T05:57:21.109323+00:00",
+        "scope": "Training-selected income and economy purchase priority only. Control/offense priorities and all discovery orders/controller weights stay unchanged.",
+        "before_heldout_execution": true,
+        "before_heldout_outcome_inspection": true,
+        "previous_economy_variant_sha256": "9b43fe4a718320a779f5515462c7367fb4b9115f1a1e2e26af3443da5ea2728b",
+        "replacement_economy_variant_sha256": "fd936a01bb106c6d14f39277bb3f4df131c889177d5e096da7bf7c11844a69a3",
+        "reason": "Original V15 control and offense at the selected income curve complete all ten levels. The stalled economy journey on level 7 resumes its earned bank of 68 MC and clears all nine waves after three 20-MC Macro role purchases. Move owned Macro throughput, reach and health before leak mitigation in fresh training, preserving previous failures and the original five-attempt bound.",
+        "authorized_by": "Root selection on training evidence; heldout remains unexecuted pending freshE training."
+      }
+    ],
+    "revision": 7
+  },
+  "current_curve_declaration": {
+    "scope": "Current executable/config/level inputs define gameplay. Historical V15 training narratives below are superseded and are not execution controls.",
+    "enemy_count_and_peak_factor": 1.4,
+    "level9_authored_count": 44274,
+    "level10_authored_count": 61983,
+    "map_income_multiplier": 1.0,
+    "late_enemy_scaling": "L1–L4 identity; from L5 durability 1.35^(level-4), damage 1.12^(level-4). Damage-derived ATP is divided by durability so toughness alone does not increase total kill income.",
+    "controller_max_prep_ticks": 3600,
+    "family_schedule": "Virus only on L1; bacteria from L2; spores from L4.",
+    "upgrades": "Firing and drain through rank 20, Macrophage work through 16, and shared Adaptive Memory through 20. Other health/support lines retain their useful caps.",
+    "attempt_limits": "10 per level,100 total.",
+    "qualification": "Native validity plus explicitly declared integrity, grace and denial criteria.",
+    "metadata_cleanup": "Historical narrative was relabelled after the R4 freeze. RunSpec, seeds, controller, priorities, metrics and thresholds are unchanged."
+  }
 }

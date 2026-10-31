@@ -35,6 +35,7 @@ sim::SimDesc make_level_sim_desc(const GameConfig& base, const EnemyRoster& enem
     desc.squad_tuning = base.sim.squads;
     desc.swarmer_collision = base.sim.swarmer_collision;
     desc.hostile_tuning = hostile_tuning(base.sim.hostile);
+    desc.hostile_tuning.damage_taken_mult *= level.enemy_scaling.damage_multiplier;
     desc.burrow_tuning = burrow_tuning();
     desc.spatial_cell_size = base.sim.globals.spatial_cell_size;
     desc.flow_rebake_budget_ms = base.sim.globals.flow_rebake_budget_ms;
@@ -43,6 +44,10 @@ sim::SimDesc make_level_sim_desc(const GameConfig& base, const EnemyRoster& enem
     desc.flow_wall_falloff = base.sim.globals.flow_wall_falloff;
     desc.flow_wall_exponent = base.sim.globals.flow_wall_exponent;
     enemies.apply_to_tuning(desc.chaff_tuning);
+    if (level.enemy_scaling.durability_multiplier != 1.0f) {
+        for (auto& family : desc.chaff_tuning.family)
+            family.base_density *= level.enemy_scaling.durability_multiplier;
+    }
     desc.chaff_tuning.max_replications_per_tick = base.sim.globals.max_replications_per_tick;
     desc.chaff_tuning.max_neighbors_sampled = base.sim.globals.max_neighbors_sampled;
     desc.chaff_tuning.ambient_drift = level.ambient_drift != Vec2{0.0f, 0.0f}
@@ -56,11 +61,18 @@ void apply_run_tuning(const GameConfig& base, const RunTuning& run,
                       ActiveAbilitySystem& abilities, bool sandbox) {
     apply_tower_config(towers, run.config.towers);
     apply_enemy_config(enemies, base.enemies);
+    // Reconstruct only the level-owned density field from the fresh base.
+    // Reapplication/hot reload must not multiply an already scaled world.
+    auto chaff = world.chaff_system().tuning();
+    for (u32 f = 0; f < kFamilyCount; ++f)
+        chaff.family[f].base_density = base.enemies.families[f].behavior.base_density *
+                                      level.enemy_scaling.durability_multiplier;
+    world.chaff_system().set_tuning(chaff);
     apply_ability_config(abilities, run.config.abilities);
     towers.set_unlocked_towers(sandbox ? TowerSystem::kAllTowersMask : run.tree.tower_mask);
     abilities.set_unlocked(sandbox ? ActiveAbilitySystem::kAllAbilitiesMask : run.tree.ability_mask);
     auto hostile = hostile_tuning(base.sim.hostile);
-    hostile.damage_taken_mult = run.tree.hostile_damage_taken_mult;
+    hostile.damage_taken_mult = run.tree.hostile_damage_taken_mult * level.enemy_scaling.damage_multiplier;
     world.hostile().set_tuning(hostile);
     world.burrow().set_tuning(burrow_tuning());
     world.set_immunity(run.tree.immunity);

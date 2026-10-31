@@ -73,6 +73,8 @@ struct WaveMetrics {
     u64 requested = 0;
     u64 spawned = 0;
     u64 denied = 0;
+    u64 spawn_sites_reprojected = 0;
+    u64 spawn_sites_denied_geometry = 0;
     bool completed = false;
     bool clearing_timeout = false;
     u64 survivors_on_completion = 0;

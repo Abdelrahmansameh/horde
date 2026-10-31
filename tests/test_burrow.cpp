@@ -10,6 +10,7 @@
 #include "sim/flowfield/FlowField.h"
 #include "sim/spatial/SpatialHash.h"
 #include "sim/SimWorld.h"
+#include "sim/ecs/Components.h"
 
 #include "core/Math.h"
 #include "core/Rng.h"
@@ -123,7 +124,7 @@ u32 tick_until_not(BurrowSystem& sys, Lane& lane, ChaffBuffers& chaff, usize i, 
 
 } // namespace
 
-TEST_CASE("a parasite burrows on its cooldown and resurfaces further down the lane",
+TEST_CASE("a parasite burrows when ready near a threat and resurfaces further down the lane",
           "[sim][burrow]") {
     Lane lane;
     ChaffBuffers chaff;
@@ -131,7 +132,7 @@ TEST_CASE("a parasite burrows on its cooldown and resurfaces further down the la
     const BurrowParams bp = test_burrow();
     BurrowSystem sys = make_system(bp);
     Rng rng(7);
-    const std::vector<BurrowThreat> none;
+    const std::vector<BurrowThreat> threats{BurrowThreat{Vec2{40.0f, 20.0f}, 2.0f}};
 
     const Vec2 start{40.0f, 20.0f};
     const usize i = spawn_parasite(chaff, start);
@@ -139,7 +140,7 @@ TEST_CASE("a parasite burrows on its cooldown and resurfaces further down the la
 
     // Arms on the first tick, then waits out the cooldown on the surface.
     const u32 surface_ticks =
-        tick_until_not(sys, lane, chaff, i, burrow_state::kSurface, none, rng, 600);
+        tick_until_not(sys, lane, chaff, i, burrow_state::kSurface, threats, rng, 600);
     REQUIRE(chaff.burrow_state[i] == burrow_state::kDiving);
     CHECK(static_cast<f32>(surface_ticks) * kDt == Catch::Approx(bp.cooldown).margin(3.0f * kDt));
     CHECK((chaff.flags[i] & chaff_flags::kHidden) != 0);
@@ -159,19 +160,57 @@ TEST_CASE("a parasite burrows on its cooldown and resurfaces further down the la
     CHECK(lane.sdf.sample(exit) >= bp.wall_clearance);
 
     // Under: parked at the exit, still hidden.
-    tick_until_not(sys, lane, chaff, i, burrow_state::kDiving, none, rng, 600);
+    tick_until_not(sys, lane, chaff, i, burrow_state::kDiving, threats, rng, 600);
     REQUIRE(chaff.burrow_state[i] == burrow_state::kUnderground);
     CHECK(chaff.pos_x[i] == exit.x);
     CHECK(chaff.pos_y[i] == exit.y);
     CHECK(chaff.prev_pos_x[i] == exit.x);
 
-    tick_until_not(sys, lane, chaff, i, burrow_state::kUnderground, none, rng, 600);
+    tick_until_not(sys, lane, chaff, i, burrow_state::kUnderground, threats, rng, 600);
     REQUIRE(chaff.burrow_state[i] == burrow_state::kEmerging);
-    tick_until_not(sys, lane, chaff, i, burrow_state::kEmerging, none, rng, 600);
+    tick_until_not(sys, lane, chaff, i, burrow_state::kEmerging, threats, rng, 600);
     REQUIRE(chaff.burrow_state[i] == burrow_state::kSurface);
     CHECK((chaff.flags[i] & chaff_flags::kHidden) == 0);
     // Re-armed for the next one.
     CHECK(chaff.burrow_timer[i] == Catch::Approx(bp.cooldown).margin(1e-4f));
+}
+
+TEST_CASE("a ready parasite saves its burrow until a threat is ahead", "[sim][burrow]") {
+    Lane lane;
+    ChaffBuffers chaff;
+    chaff.reserve(4);
+    const BurrowParams bp = test_burrow();
+    BurrowSystem sys = make_system(bp);
+    Rng rng(71);
+    const usize i = spawn_parasite(chaff, Vec2{40.0f, 20.0f});
+    const std::vector<BurrowThreat> no_threats;
+
+    // Once ready, the cooldown stays available throughout a safe approach.
+    for (u32 t = 0; t < 180; ++t) {
+        lane.rehash(chaff);
+        sys.update(chaff, lane.flow, lane.sdf, lane.mask, lane.hash, no_threats, rng, kDt);
+    }
+    REQUIRE(chaff.burrow_state[i] == burrow_state::kSurface);
+    CHECK(chaff.burrow_timer[i] == Catch::Approx(0.0f).margin(1e-5f));
+
+    // Coverage safely behind the parasite is no reason to spend it.
+    const std::vector<BurrowThreat> behind{BurrowThreat{Vec2{25.0f, 20.0f}, 3.0f}};
+    for (u32 t = 0; t < 60; ++t) {
+        lane.rehash(chaff);
+        sys.update(chaff, lane.flow, lane.sdf, lane.mask, lane.hash, behind, rng, kDt);
+    }
+    CHECK(chaff.burrow_state[i] == burrow_state::kSurface);
+    CHECK(chaff.burrow_timer[i] == Catch::Approx(0.0f).margin(1e-5f));
+
+    // A threat on its immediate path triggers the saved burrow without waiting
+    // through another cooldown, and the exit avoids that threat's coverage.
+    const std::vector<BurrowThreat> ahead{BurrowThreat{Vec2{50.0f, 20.0f}, 3.0f}};
+    lane.rehash(chaff);
+    sys.update(chaff, lane.flow, lane.sdf, lane.mask, lane.hash, ahead, rng, kDt);
+    REQUIRE(chaff.burrow_state[i] == burrow_state::kDiving);
+    const Vec2 exit{chaff.burrow_target_x[i], chaff.burrow_target_y[i]};
+    CHECK(math::length(exit - ahead[0].position) > ahead[0].radius);
+    CHECK(lane.flow.sample_cost(exit) < lane.flow.sample_cost(Vec2{40.0f, 20.0f}));
 }
 
 TEST_CASE("a burrowed parasite takes no damage", "[sim][burrow]") {
@@ -218,7 +257,8 @@ TEST_CASE("a parasite prefers open ground to a crowd", "[sim][burrow]") {
     bp.cone_half_angle = 0.0f;       // a line: only the distance varies
     bp.min_range = 14.0f;
     bp.max_range = 40.0f;
-    bp.progress_weight = 0.0f;       // isolate the crowd term
+    bp.progress_weight = 0.0f;
+    bp.tower_weight = 0.0f;       // isolate the crowd term
     bp.crowd_weight = 5.0f;
     bp.crowd_radius = 6.0f;
     BurrowSystem sys = make_system(bp);
@@ -234,8 +274,8 @@ TEST_CASE("a parasite prefers open ground to a crowd", "[sim][burrow]") {
             p.family = PathogenFamily::Virus;
             chaff.spawn(p);
         }
-    const std::vector<BurrowThreat> none;
-    tick_until_not(sys, lane, chaff, i, burrow_state::kSurface, none, rng, 600);
+    const std::vector<BurrowThreat> threats{BurrowThreat{Vec2{40.0f, 20.0f}, 2.0f}};
+    tick_until_not(sys, lane, chaff, i, burrow_state::kSurface, threats, rng, 600);
     REQUIRE(chaff.burrow_state[i] == burrow_state::kDiving);
     CHECK(chaff.burrow_target_x[i] < 66.0f - bp.crowd_radius);
 }
@@ -249,14 +289,14 @@ TEST_CASE("with no legal exit a parasite stays up and retries", "[sim][burrow]")
     bp.retry_delay = 0.25f;
     BurrowSystem sys = make_system(bp);
     Rng rng(5);
-    const std::vector<BurrowThreat> none;
+    const std::vector<BurrowThreat> threats{BurrowThreat{Vec2{40.0f, 20.0f}, 2.0f}};
     const usize i = spawn_parasite(chaff, Vec2{40.0f, 20.0f});
 
     BurrowStats total{};
     for (u32 t = 0; t < 120; ++t) {
         lane.rehash(chaff);
         const BurrowStats s =
-            sys.update(chaff, lane.flow, lane.sdf, lane.mask, lane.hash, none, rng, kDt);
+            sys.update(chaff, lane.flow, lane.sdf, lane.mask, lane.hash, threats, rng, kDt);
         total.failed += s.failed;
         total.dives += s.dives;
     }
@@ -686,6 +726,12 @@ TEST_CASE("parasites burrow in a running world, deterministically", "[sim][burro
         FlowFieldBakeDesc fd;
         fd.goals = {FlowGoal{mask.world_to_cell(Vec2{198.0f, 20.0f})}};
         world.flow().bake(mask, fd);
+        // A live defence gives the parasites a reason to use their burrow.
+        auto& registry = world.ecs().registry();
+        const auto tower = registry.create();
+        registry.emplace<comp::Transform>(tower, comp::Transform{Vec2{30.0f, 20.0f}});
+        registry.emplace<comp::Health>(tower);
+        registry.emplace<comp::Tower>(tower, comp::Tower{TowerType::Macrophage, 10.0f});
         Rng rng(seed);
         world.chaff_system().spawn_burst(world.chaff(), PathogenFamily::Parasite,
                                          Vec2{20.0f, 20.0f}, 6.0f, 12, rng);
@@ -825,7 +871,8 @@ TEST_CASE("parasites only burrow inside the play area", "[sim][burrow]") {
     bp.edge_margin = 8.0f;
     BurrowSystem sys = make_system(bp);
     Rng rng(13);
-    const std::vector<BurrowThreat> none;
+    const std::vector<BurrowThreat> threats{BurrowThreat{Vec2{30.0f, 20.0f}, 2.0f},
+                                         BurrowThreat{Vec2{80.0f, 20.0f}, 2.0f}};
     // The play area is only the middle of the corridor; the lane runs on
     // either side of it off-screen, the way a level's spawn points do.
     const Rect play{Vec2{60.0f, 0.0f}, Vec2{140.0f, 40.0f}};
@@ -834,7 +881,7 @@ TEST_CASE("parasites only burrow inside the play area", "[sim][burrow]") {
     const usize off = spawn_parasite(chaff, Vec2{30.0f, 20.0f});
     for (u32 t = 0; t < 300; ++t) {
         lane.rehash(chaff);
-        sys.update(chaff, lane.flow, lane.sdf, lane.mask, lane.hash, none, rng, kDt, play);
+        sys.update(chaff, lane.flow, lane.sdf, lane.mask, lane.hash, threats, rng, kDt, play);
     }
     CHECK(chaff.burrow_state[off] == burrow_state::kSurface);
 
@@ -843,7 +890,7 @@ TEST_CASE("parasites only burrow inside the play area", "[sim][burrow]") {
     u32 n = 0;
     while (chaff.burrow_state[on] == burrow_state::kSurface && n++ < 600) {
         lane.rehash(chaff);
-        sys.update(chaff, lane.flow, lane.sdf, lane.mask, lane.hash, none, rng, kDt, play);
+        sys.update(chaff, lane.flow, lane.sdf, lane.mask, lane.hash, threats, rng, kDt, play);
     }
     REQUIRE(chaff.burrow_state[on] == burrow_state::kDiving);
     CHECK(chaff.burrow_target_x[on] <= play.max.x - bp.edge_margin);
@@ -861,7 +908,7 @@ TEST_CASE("a parasite does not dive with its head over the lane wall", "[sim][bu
     BurrowSystem sys;
     sys.set_tuning(t);
     Rng rng(17);
-    const std::vector<BurrowThreat> none;
+    const std::vector<BurrowThreat> threats{BurrowThreat{Vec2{60.0f, 10.0f}, 2.0f}};
 
     // Lying across the lane near its lower wall (y = 5), head pointing into it.
     const usize i = spawn_parasite(chaff, Vec2{60.0f, 10.0f});
@@ -869,7 +916,7 @@ TEST_CASE("a parasite does not dive with its head over the lane wall", "[sim][bu
     chaff.body_heading[i] = -0.5f * math::kPi;  // facing -y: head at y = 2
     for (u32 n = 0; n < 300; ++n) {
         lane.rehash(chaff);
-        sys.update(chaff, lane.flow, lane.sdf, lane.mask, lane.hash, none, rng, kDt);
+        sys.update(chaff, lane.flow, lane.sdf, lane.mask, lane.hash, threats, rng, kDt);
     }
     CHECK(chaff.burrow_state[i] == burrow_state::kSurface);
 
@@ -878,7 +925,7 @@ TEST_CASE("a parasite does not dive with its head over the lane wall", "[sim][bu
     u32 n = 0;
     while (chaff.burrow_state[i] == burrow_state::kSurface && n++ < 600) {
         lane.rehash(chaff);
-        sys.update(chaff, lane.flow, lane.sdf, lane.mask, lane.hash, none, rng, kDt);
+        sys.update(chaff, lane.flow, lane.sdf, lane.mask, lane.hash, threats, rng, kDt);
     }
     CHECK(chaff.burrow_state[i] == burrow_state::kDiving);
 }
@@ -902,7 +949,7 @@ TEST_CASE("an exit keeps the whole surfacing body, tail hole included, on the la
     t.body_half_length[kParasite] = half;
     BurrowSystem sys;
     sys.set_tuning(t);
-    const std::vector<BurrowThreat> none;
+    const std::vector<BurrowThreat> threats{BurrowThreat{Vec2{50.0f, 14.0f}, 4.0f}};
 
     u32 dives = 0;
     for (u64 seed = 1; seed <= 20; ++seed) {
@@ -910,7 +957,7 @@ TEST_CASE("an exit keeps the whole surfacing body, tail hole included, on the la
         chaff.reserve(4);
         Rng rng(seed);
         const usize i = spawn_parasite(chaff, Vec2{50.0f, 14.0f});
-        tick_until_not(sys, lane, chaff, i, burrow_state::kSurface, none, rng, 600);
+        tick_until_not(sys, lane, chaff, i, burrow_state::kSurface, threats, rng, 600);
         if (chaff.burrow_state[i] != burrow_state::kDiving) continue;
         ++dives;
         const Vec2 exit{chaff.burrow_target_x[i], chaff.burrow_target_y[i]};

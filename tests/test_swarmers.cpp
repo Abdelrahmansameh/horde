@@ -31,6 +31,50 @@
 using namespace immune;
 using namespace immune::sim;
 
+TEST_CASE("burrow threats follow live mobile defenders", "[sim][burrow][swarm]") {
+    SimDesc desc;
+    desc.world_bounds = Rect{{0.0f, 0.0f}, {128.0f, 128.0f}};
+    desc.max_swarmers = 8;
+    SimWorld world;
+    world.init(desc, nullptr);
+    SwarmerProfile attacker;
+    attacker.kind = SwarmerKind::Shooter;
+    attacker.search_radius = 12.0f;
+    attacker.attach_radius = 20.0f;
+    world.swarmers().set_profile(0, attacker);
+    SwarmerProfile builder;
+    builder.kind = SwarmerKind::Builder;
+    world.swarmers().set_profile(1, builder);
+
+    SwarmerSpawnParams unit;
+    unit.position = {40.0f, 50.0f};
+    unit.persistent = true;
+    REQUIRE(world.swarmers().spawn(unit));
+    unit.profile = 1;
+    REQUIRE(world.swarmers().spawn(unit));
+    unit.profile = 0;
+    unit.family_mask = static_cast<u8>(1u << static_cast<u32>(PathogenFamily::Virus));
+    REQUIRE(world.swarmers().spawn(unit));
+
+    world.build_burrow_threats();
+    REQUIRE(world.burrow_threats().size() == 1);
+    CHECK(world.burrow_threats()[0].position.x == Catch::Approx(40.0f));
+    CHECK(world.burrow_threats()[0].position.y == Catch::Approx(50.0f));
+    CHECK(world.burrow_threats()[0].radius == Catch::Approx(20.0f));
+
+    world.swarmers().pos_x[0] = 70.0f;
+    world.build_burrow_threats();
+    REQUIRE(world.burrow_threats().size() == 1);
+    CHECK(world.burrow_threats()[0].position.x == Catch::Approx(70.0f));
+    world.swarmers().health[0] = 0.0f;
+    world.build_burrow_threats();
+    CHECK(world.burrow_threats().empty());
+    world.swarmers().health[0] = attacker.max_health;
+    world.swarmers().kill(0);
+    world.build_burrow_threats();
+    CHECK(world.burrow_threats().empty());
+}
+
 namespace {
 
 constexpr f32 kDt = 1.0f / 60.0f;
@@ -904,7 +948,7 @@ TEST_CASE("an arbor arm captures and pulls a configurable nearby chaff chunk",
 
     const usize lead = f.add_chaff(Vec2{45.0f, 40.0f}, 100.0f);
     const usize follower_a = f.add_chaff(Vec2{46.0f, 40.5f}, 100.0f);
-    const usize follower_b = f.add_chaff(Vec2{44.4f, 39.6f}, 100.0f);
+    const usize follower_b = f.add_chaff(Vec2{45.4f, 39.6f}, 100.0f);
     const usize outside = f.add_chaff(Vec2{48.0f, 40.0f}, 100.0f);
     f.add_swarmer(Vec2{40.0f, 40.0f}, Vec2{}, kArbor);
 
@@ -920,13 +964,20 @@ TEST_CASE("an arbor arm captures and pulls a configurable nearby chaff chunk",
 
     const Vec2 lead_before = f_pos(f, lead);
     const Vec2 follower_before = f_pos(f, follower_a);
+    // The main arm begins pulling while its smaller branches reach for the
+    // followers, which hold their positions until those branches make contact.
+    f.step(5);
+    REQUIRE(f_pos(f, lead).x < lead_before.x);
+    REQUIRE(f_pos(f, follower_a).x == Catch::Approx(follower_before.x).margin(0.001f));
+    REQUIRE(f_pos(f, follower_a).y == Catch::Approx(follower_before.y).margin(0.001f));
     f.step(10);
     const Vec2 lead_delta = f_pos(f, lead) - lead_before;
     const Vec2 follower_delta = f_pos(f, follower_a) - follower_before;
-    // The cluster travels as one body: the follower retains its offset from
-    // the lead rather than converging separately on the macrophage.
-    REQUIRE(follower_delta.x == Catch::Approx(lead_delta.x).margin(0.001f));
-    REQUIRE(follower_delta.y == Catch::Approx(lead_delta.y).margin(0.001f));
+    // Once contacted, each captive converges toward the macrophage from its
+    // own starting position instead of translating as a rigid clump.
+    REQUIRE(follower_delta.x < 0.0f);
+    REQUIRE(follower_delta.y < 0.0f);
+    REQUIRE(follower_delta.x != Catch::Approx(lead_delta.x).margin(0.001f));
 
     u32 swallowed = 0;
     for (int tick = 0; tick < 60; ++tick) {
@@ -936,6 +987,50 @@ TEST_CASE("an arbor arm captures and pulls a configurable nearby chaff chunk",
     REQUIRE(swallowed == 3u);
     REQUIRE(f.chaff.count() == 1);
     REQUIRE(f.chaff.density[0] == Catch::Approx(100.0f));
+}
+
+TEST_CASE("macrophages ignore spores when seeking and gathering prey",
+          "[swarm][sim][arbor_grabber][spore]") {
+    Fixture f;
+    SwarmerProfile pr = f.swarm.profile_at(kArbor);
+    pr.arbor_arm_count = 1;
+    pr.arbor_max_captives = 3;
+    pr.arbor_cluster_radius = 3.0f;
+    pr.arbor_extend_seconds = 0.001f;
+    pr.arbor_latch_seconds = 0.001f;
+    f.swarm.set_profile(kArbor, pr);
+
+    const usize spore = f.add_chaff(Vec2{42.0f, 40.0f}, 100.0f);
+    f.chaff.family[spore] = static_cast<u8>(PathogenFamily::Spore);
+    const usize prey = f.add_chaff(Vec2{44.0f, 40.0f}, 100.0f);
+    NamedTarget named_spore = f.make_named(42u, Vec2{41.0f, 40.0f}, 100.0f);
+    named_spore.family = static_cast<u8>(PathogenFamily::Spore);
+    std::vector<NamedTarget> named{named_spore};
+    f.add_swarmer(Vec2{40.0f, 40.0f}, Vec2{}, kArbor);
+
+    f.step(3, nullptr, &named);
+    const ArborArmState& arm = f.swarm.arbor_grabber[0].arms[0];
+    REQUIRE(arm.phase == ArborArmPhase::Pulling);
+    REQUIRE(arm.captive.chaff_count == 1u);
+    CHECK(arm.captive.chaff[0].handle.index == prey);
+    CHECK((f.chaff.flags[spore] & chaff_flags::kHidden) == 0);
+    CHECK(named[0].health == Catch::Approx(100.0f));
+}
+
+TEST_CASE("a lone spore is ignored by macrophages but targeted by other defenders",
+          "[swarm][sim][arbor_grabber][spore]") {
+    Fixture f;
+    const usize spore = f.add_chaff(Vec2{44.0f, 40.0f}, 100.0f);
+    f.chaff.family[spore] = static_cast<u8>(PathogenFamily::Spore);
+    f.add_swarmer(Vec2{40.0f, 40.0f}, Vec2{}, kArbor);
+    f.add_swarmer(Vec2{40.0f, 41.0f}, Vec2{}, kLatch);
+
+    f.step(1);
+    CHECK_FALSE(f.swarm.target(0).valid());
+    CHECK_FALSE(f.swarm.target_named[0].valid());
+    CHECK(f.swarm.arbor_grabber[0].arms[0].phase == ArborArmPhase::Idle);
+    REQUIRE(f.swarm.target(1).valid());
+    CHECK(f.swarm.target(1).index == spore);
 }
 
 // ---------------------------------------------------------------------------
@@ -1438,7 +1533,7 @@ TEST_CASE("an arbor arm reaches off-board prey while its body stays on the board
     }
 }
 
-TEST_CASE("an arbor cluster swallows a follower its pull carries past the edge",
+TEST_CASE("an arbor cluster swallows a follower near the edge",
           "[swarm][sim][bounds][arbor_grabber][cluster]") {
     Fixture f;
     f.playable_bounds = Rect{Vec2{32, 32}, Vec2{96, 96}};
@@ -1464,8 +1559,8 @@ TEST_CASE("an arbor cluster swallows a follower its pull carries past the edge",
     f.step(1);
     REQUIRE(f.swarm.arbor_grabber[0].arms[0].phase == ArborArmPhase::Extending);
 
-    // The follower's -2.35 offset from the lead carries it past x=32 as the
-    // pull closes; it stays captured and is swallowed with the lead.
+    // The follower is close to the edge and remains captured while its own
+    // side branch pulls it toward the macrophage.
     const usize follower_slot = f.add_chaff(Vec2{34.0f, 64}, 100.0f);
     const ChaffHandle follower{static_cast<u32>(follower_slot), f.chaff.generation[follower_slot]};
     f.step(2);
@@ -2444,4 +2539,26 @@ TEST_CASE("swarmer spawn size jitter: each unit rolls its own body within +-jitt
     for (usize i = 0; i < sw.count(); ++i) {
         if (sw.generation[i] == gen) REQUIRE(sw.body_size(i) == body);
     }
+}
+
+TEST_CASE("Inflammation boosts shooter hits on named enemies", "[swarm][sim][shooter][inflammation]") {
+    const auto damage_dealt = [](bool inside_zone) {
+        Fixture f;
+        SwarmerProfile shooter = f.swarm.profile_at(kShooter);
+        shooter.speed = 0.0f;
+        shooter.round_spread = 0.0f;
+        shooter.volley_cone = 0.0f;
+        f.swarm.set_profile(kShooter, shooter);
+        f.add_swarmer(Vec2{40.0f, 40.0f}, Vec2{0.0f, 0.0f}, kShooter);
+        std::vector<NamedTarget> agents{f.make_named(11u, Vec2{43.0f, 40.0f}, 1000.0f, 1.0f)};
+        const std::vector<InflamedZone> zones{{inside_zone ? Vec2{40.0f, 40.0f} : Vec2{80.0f, 80.0f}, 5.0f}};
+        f.system.set_inflamed_zones(&zones, 1.5f, 1.0f);
+        f.step(60, nullptr, &agents);
+        return 1000.0f - agents[0].health;
+    };
+    const f32 outside = damage_dealt(false);
+    const f32 inside = damage_dealt(true);
+    REQUIRE(outside > 0.0f);
+    // Each shot does 3 damage, or 4.5 in the aura, before the target's 1 armor.
+    CHECK(inside == Catch::Approx(outside * 3.5f / 2.0f).margin(0.001f));
 }

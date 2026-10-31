@@ -14,7 +14,7 @@ The campaign should feel like defending living tissue against an infection that 
 7. **Express body regions through geometry and color.** Vessel types control the renderer palette; region names alone do not. Gold lymph, blood-filled marrow pools, violet renal lobes, and coral intestinal fields accompany biological silhouettes. Preserve contrast for cells and pathogens.
 8. **Raise pressure as well as population.** Increase the sum of concurrently released density per second through successive waves and levels. More enemies released over a proportionately longer duration only extend a fight. Preserve readable port gaps when compressing durations and rebuild dependent start times; do not overlap different families at one entrance to manufacture a pressure peak.
 
-## Review of the previous levels
+## Historical review of the previous levels
 
 All ten levels were reviewed through real OpenGL captures. Capture evidence is in `scratch/level-review/early`, `middle`, and `late`.
 
@@ -33,7 +33,7 @@ All ten levels were reviewed through real OpenGL captures. Capture evidence is i
 
 ## Progression and immunity development
 
-Wins and losses grant at least 30 Memory Cells, with wave and kill rewards on top. First clears grant an Antibody for a selectable new cell, ability or capstone. The intended rhythm is an initially small defense, useful permanent improvements after a loss, then a new tactical option after a clear. Unlocks are elective. A median of two to four attempts per level remains a tuning target: measured journeys include first-try clears and five-loss stalls. The game does not force a loss. See [Progression](PROGRESSION.md) for the purchase graph and rewards.
+Wins and losses grant at least 30 Memory Cells, with wave and kill rewards on top. First clears grant an Antibody for a selectable new cell, ability or capstone. The intended rhythm is an initially small defense, useful permanent improvements after a loss, then a new tactical option after a clear. Unlocks are elective. A median of two to four attempts per level remains a tuning target; historical journeys include first-try clears and five-loss stalls. The game does not force a loss. See [Progression](PROGRESSION.md) for the current upgrades, purchase graph and rewards.
 
 | Level | Spatial lesson |
 | --- | --- |
@@ -48,43 +48,97 @@ Wins and losses grant at least 30 Memory Cells, with wave and kill rewards on to
 | 9 | Three fronts entering a funnel |
 | 10 | Four breaches into two defended drains |
 
-The retry pacing revision preserves all existing wave populations, family
-populations, routes, geometry and wave rewards. It changes release durations,
-dependent start times, opening wallets and later damage-income multipliers.
-The first campaign wave stays unchanged.
-Peak authored density/sec rises by roughly 1.32 times per level and also rises
-within each level, removing the former mid-campaign troughs and later-wave
-release-rate resets.
+## Current exponential population and release curve
 
-| Level | Waves | Total authored agents | Opening ATP | Peak authored density/sec | Income multiplier |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| 1 | 6 | 2,884 | 300 | 80.83 | 1 |
-| 2 | 6 | 3,705 | 335 | 106.69 | 1 |
-| 3 | 7 | 5,640 | 370 | 140.84 | 1 |
-| 4 | 7 | 7,335 | 410 | 185.91 | 1 |
-| 5 | 8 | 10,776 | 455 | 245.40 | 0.75 |
-| 6 | 8 | 13,604 | 505 | 323.94 | 0.5625 |
-| 7 | 9 | 18,737 | 560 | 427.63 | 0.421875 |
-| 8 | 9 | 22,702 | 620 | 564.48 | 0.31640625 |
-| 9 | 10 | 30,200 | 685 | 745.15 | 0.23730469 |
-| 10 | 10 | 35,822 | 750 | 983.60 | 0.17797852 |
+The current revision targets `round(3000 * 1.4^(level - 1))` authored agents
+and approximately 1.4 times peak authored density/sec at each transition.
+Pressure also rises between waves within a level. It changes populations,
+family mix and release schedules while retaining geometry, wave counts, prep
+times, authored opening ATP and wave bounties. Homogeneous cohorts at the same
+port retain at least 1.25 seconds between releases.
 
-Density uses the loaded family base densities; this is a scheduling measure,
-not measured contact DPS or a human difficulty rating. For example, level 6's
-final release now takes about 15.25 seconds instead of the original 31.60, with the same
-3,100 enemies and preserved per-port gaps. The exact before/after cohorts and
-metrics are in [campaign_pressure.json](../assets/balance/campaign_pressure.json).
-The income multiplier affects damage-derived ATP, not starting wallets or wave
-bounties. It slows reinforcement accumulation while the permanent tree and new
-tools increase efficiency. Authored counts exclude enemies created by hostile
-replication; actual campaign reports retain those additional agents.
+| Level | Waves | Total authored agents | Spore agents | Opening ATP | Base peak authored density/sec | Income multiplier |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 6 | 3,000 | 0 | 300 | 155.22 | 1.0 |
+| 2 | 6 | 4,200 | 0 | 335 | 217.31 | 1.0 |
+| 3 | 7 | 5,880 | 0 | 370 | 304.23 | 1.0 |
+| 4 | 7 | 8,232 | 12 | 410 | 425.92 | 1.0 |
+| 5 | 8 | 11,525 | 20 | 455 | 596.29 | 1.0 |
+| 6 | 8 | 16,135 | 32 | 505 | 834.81 | 1.0 |
+| 7 | 9 | 22,589 | 48 | 560 | 1,168.74 | 1.0 |
+| 8 | 9 | 31,624 | 72 | 620 | 1,636.23 | 1.0 |
+| 9 | 10 | 44,274 | 108 | 685 | 2,290.72 | 1.0 |
+| 10 | 10 | 61,983 | 162 | 750 | 3,207.01 | 1.0 |
+
+The table uses current campaign counts and baseline family densities before
+the late-map durability multipliers below:
+virus and bacteria 0.9, parasite 1.6, spore 3.0. Level 1 contains only viruses;
+bacteria begin at level 2 wave 2. Parasites retain their authored introduction
+waves. Harpoon spores first appear at level 4 wave 3, then level 5 wave 2,
+and from wave 1 on levels 6–10. Their small cohorts introduce a ranged siege
+interaction; equal released density does not imply equal hostile damage.
+
+The design record is
+[level-design.json](../scratch/balance/exponential-growth-2026-10-28/level-design.json);
+current [level assets](../assets/levels) remain authoritative. The peak curve
+is anchored at 2,290.72 density/sec on level 9 and extends to 3,207.01 on
+level 10. Authored counts exclude hostile replication. These are scheduling
+targets, not measured contact DPS, controller capacity or human difficulty.
+
+The map income multiplier is now 1.0 throughout. Damage-derived income starts
+at 0.85 ATP per baseline density before Efficient Clearance and the durability
+compensation below, while wave bounties
+and opening wallets remain separate. Continued paid upgrades and Adaptive
+Memory are intended to grow player capacity alongside the larger horde; this
+requires matched earned-profile combat evidence rather than multiplying every
+cell statistic by the population factor.
+
+### Late-map durability and hostile damage
+
+Levels 1–4 retain ordinary per-agent tuning. From level 5 onward, each map adds
+another 35% durability and 12% hostile attack damage, compounded. The public
+level fields are `enemy_scaling.durability_multiplier` and
+`enemy_scaling.damage_multiplier`, both defaulting to 1. This raises individual
+pathogen endurance and contact threat after early upgrades would otherwise
+turn most hits into immediate kills. It preserves all authored counts,
+cohorts, release timing, geometry, wave rewards and opening wallets.
+
+| Level | Durability multiplier | Attack damage multiplier | Durability-weighted peak density/sec |
+| --- | ---: | ---: | ---: |
+| 1–4 | 1.000000 | 1.000000 | Base table above |
+| 5 | 1.350000 | 1.120000 | 805.00 |
+| 6 | 1.822500 | 1.254400 | 1,521.45 |
+| 7 | 2.460375 | 1.404928 | 2,875.53 |
+| 8 | 3.321506 | 1.573519 | 5,434.75 |
+| 9 | 4.484033 | 1.762342 | 10,271.68 |
+| 10 | 6.053445 | 1.973823 | 19,413.48 |
+
+Shared run setup divides ATP per removed density by the same durability factor.
+Thus an otherwise identical pathogen costs more damage to kill without paying
+more total ATP merely because its HP increased. Efficient Clearance, authored
+map income, wave bounties and kill-count Memory Cell rewards remain separate.
+The weighted peak is damageable mass released per second, not hostile attack
+DPS or measured difficulty. The roughly 1.4-times base release increase and
+1.35-times durability increase combine to about 1.89 times this late-map load;
+fresh matched-runtime earned-profile checks must establish the resulting play.
+
+## Historical timing and income experiments
+
+The earlier retry-pacing revision retained populations and family mix while
+compressing release timing and changing opening wallets. Its peak authored
+density rose about 1.32 times per level, and its late damage-income multiplier
+decayed by 0.75 per level after level 4. Those are historical settings, not the
+current table. For example, its level-6 final release took about 15.25 seconds
+instead of 31.60 with the same 3,100 enemies. The before/after cohorts and old
+income curve remain in
+[campaign_pressure.json](../assets/balance/campaign_pressure.json).
 
 The earlier timing-only v2 curve is retained in
 [campaign_pressure_v2.json](../assets/balance/history/campaign_pressure_v2.json).
 Its training prefixes showed useful early retries followed by excessive growth
-in the offense path. The current revision couples the stronger pressure curve with
-smaller opening-wallet increases, 0.85 baseline ATP per density removed, a
-35-ATP Macrophage price. The selected later income decay starts after level 4.
+in the offense path. That retry revision coupled the stronger pressure curve with
+smaller opening-wallet increases, 0.85 baseline ATP per density removed, and a
+35-ATP Macrophage price. Its selected later income decay started after level 4.
 Permanent reserve,
 income and work-rate upgrades still grow player power. These are explicit tuning
 interventions, not evidence that a whole human difficulty curve has been proven.
@@ -95,11 +149,11 @@ did not meet the intended retry rhythm across all builds.
 A same-runtime first-level reward experiment kept waves and ATP income fixed:
 a 30-Memory-Cell floor cleared the three training paths in four, three and three
 attempts on seed 31013. A 40-point floor took four attempts on each path. The
-smaller 30-point change is now selected. These early results used historical
+smaller 30-point floor was selected and remains current. These early results used historical
 controllers and do not establish the current whole-campaign difficulty.
 
-With the V15 controller and selected 0.75 decay, fresh control and offense
-journeys complete all ten levels in 23 and 20 attempts on training seed 31013.
+With the historical V15 controller and selected 0.75 decay, fresh control and offense
+journeys completed all ten levels in 23 and 20 attempts on training seed 31013.
 Control attempts by level are 5, 1, 4, 1, 2, 1, 1, 3, 1, 4; offense attempts
 are 3, 1, 1, 1, 1, 1, 5, 2, 1, 4. These include first-try clears and difficult
 spikes, not a guarantee of two to four tries on every map. The original economy
@@ -108,7 +162,7 @@ ranks and clears that level next attempt; this motivates a training-only economy
 priority revision. Its fresh journey still stops at level 7; the continuation
 does not replace that failure.
 
-The final frozen held-out check uses both seeds 72011 and 82019 on all three
+That revision's frozen held-out check used both seeds 72011 and 82019 on all three
 paths with five attempts per level. Control and economy complete all ten levels
 on 82019 in 19 and 24 attempts. On 72011, control stops at level 3 and economy
 and offense stop at level 8; offense also stops at level 8 on 82019. All 105
@@ -147,7 +201,7 @@ Level 3 remains the compact confluence reference. The next three maps use distin
 - **Renal Lobes:** four arrivals feed two unequal chambers separated by tissue. A long upper septum and a curved lower septum create different holding positions. The lower feeders have deliberately different approach lengths. Wine-violet and lilac palettes distinguish the lobes.
 - **Intestinal Battlefield:** four ordered left breaches enter one continuous field. Upper, middle, and lower approaches fan around attached folds and a central island toward two broad drains. Waves activate two, then three, then four sectors before sustained simultaneous pressure. The center also provides space for reserves.
 
-The approved shapes are implemented with ordinary variable-width vessel sweeps and polygon obstacles. Outer tissue polygons trim the broad sweeps to the biological silhouettes; they do not create extra gameplay barriers. That geometry revision retained the existing level identities, opening ATP, wave populations, family populations, rewards, and release times. The later retry pacing revision above compresses release timing and changes opening budgets while retaining the geometry, populations and wave rewards. Each port releases homogeneous cohorts with at least a 1.25-second gap before its next release, and every authored route variant is used.
+The approved shapes are implemented with ordinary variable-width vessel sweeps and polygon obstacles. Outer tissue polygons trim the broad sweeps to the biological silhouettes; they do not create extra gameplay barriers. That geometry revision retained the existing level identities, opening ATP, wave populations, family populations, rewards, and release times. The subsequent historical retry revision compressed timing and changed opening budgets. The current exponential revision changes populations, family mix and timing while retaining those shapes, current opening budgets and wave rewards. Each port releases homogeneous cohorts with at least a 1.25-second gap before its next release, and every authored route variant is used.
 
 Each map has two offscreen exits sharing one offscreen primary organ footprint. A hidden collector keeps the organ center on tissue where needed. This preserves one integrity pool and avoids the runtime's unsupported independent objective leakage.
 

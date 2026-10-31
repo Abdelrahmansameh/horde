@@ -17,7 +17,7 @@ Related references: [gameplay](GAMEPLAY.md), [immune cells](IMMUNE_CELLS.md),
 | Virus | Bright green, smaller rounded body | 0.9 | Fast / 16.875 | Replication, lunge and latch attacks |
 | Bacteria | Yellow-green, larger body | 0.9 | Fast / 16.875 | Toxin-pellet magazines |
 | Parasite | Bright lavender, long slithering worm | 1.6 | Normal / 10.125 | Forward burrowing; no crowd collisions or baseline hostile attack |
-| Spore | Marigold, the largest round body, coil inside | 3.0 | Slow / 5.625 | Long-range harpoon: plants and pumps toxin into the biggest cell in range |
+| Spore | Marigold, the largest round body, coil inside | 3.0 | Slow / 15.0 (just under bacteria) | Long-range harpoon: plants and pumps toxin into the biggest cell in range |
 
 Parasite UI icons use the matching lavender palette; the spore's
 (`pathogen_spore`) its marigold.
@@ -105,6 +105,9 @@ A parasite cycles through surface cooldown, dive, underground travel,
 telegraphed exit, and emergence. Current defaults are a 5-second surface
 cooldown with ±1.5-second jitter, 1.2-second dive, 1.4 seconds underground,
 a visible exit telegraph during the last 0.6 seconds, and 1-second emergence.
+Once ready, it saves its burrow until immune coverage reaches it or its
+immediate path toward the objective. Defenders left behind do not trigger a
+dive unless their reach still covers the parasite.
 The hidden flag starts with the dive and remains through underground travel
 and emergence, clearing only on return to the surface. Throughout those phases
 the parasite cannot be targeted or damaged by the current roster. There is no
@@ -119,11 +122,9 @@ defensive coverage. No suitable candidate means stay surfaced and retry after
 0.5 seconds. Diving normally leaves the old squad, so it does not wait for a
 cohort it has jumped ahead of.
 
-The current coverage penalty is built from live ECS spawner towers in
-`SimWorld::build_burrow_threats()`. Directly deployed cells are not included in
-that list. Do not promise that parasites actively score and avoid normal
-cell coverage; forward progress and crowd avoidance still apply in normal
-play. Slither heading and body waves are cosmetic, driven by movement, and
+Defensive coverage includes live spawner towers and mobile immune cells. Exits
+inside overlapping coverage are penalized, so parasites prefer safer ground
+while still making progress. Slither heading and body waves are cosmetic, driven by movement, and
 do not introduce additional attack or reach.
 
 The slither phase follows signed **actual displacement**, including wall and
@@ -153,7 +154,8 @@ and campaign movement, crowds and authored waves; see [Testing](TESTING.md).
 ## Spore: the harpoon
 
 The spore is the horde's siege piece, built to beat the Macrophage and to lose
-to a swarm of Cytotoxic T cells. It is ordinary chaff with one behavior,
+to a swarm of Cytotoxic T cells. Macrophages cannot target or capture spores;
+other immune cells can still attack them. It is ordinary chaff with one behavior,
 [Harpoon.h](../src/sim/hostile/Harpoon.h), run by
 [HostileAttacks.cpp](../src/sim/hostile/HostileAttacks.cpp) after the friendly
 walks and before deaths. Unlike latch and toxin it is driven from the
@@ -174,8 +176,8 @@ target lives: `pulses` 0 means no fixed volley) and RECOVER (6 s reload,
 which is also how long before it can attach to anything else). **A slug deals its 84 damage when it reaches the target, not when it
 leaves**, so what the player sees arrive is what hurts. Two slugs (168) kill an
 unupgraded Macrophage (120); a tougher cell just takes more of them. The hose
-lets go only when the target dies or gets past `break_range` (56). A spore that dies or is
-swallowed mid-shot severs its hose, which does no more damage.
+lets go only when the target dies or gets past `break_range` (56). A spore that dies
+mid-shot severs its hose, which does no more damage.
 
 A spore stands its ground (`hold` 1) while it fights and while it reloads with
 a target still in range, so it stops at the edge of its range and sieges a

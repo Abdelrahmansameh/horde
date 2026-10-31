@@ -1,0 +1,135 @@
+{
+  "schema": 1,
+  "name": "Current full L5 automatic calibration with a verified earned first-entry profile",
+  "kind": "paired",
+  "baseline": "automatic",
+  "evaluation_split": "evaluation",
+  "metric": "objective_integrity",
+  "metrics": [
+    "summary.waves_cleared",
+    "summary.friendly_killed",
+    "summary.atp_spent",
+    "summary.duration_seconds",
+    "summary.kills",
+    "summary.clearing_timeout_advances"
+  ],
+  "seeds": [
+    761203,
+    761217
+  ],
+  "policies": [
+    {
+      "name": "tactical",
+      "controller": {
+        "policy": "tactical"
+      }
+    }
+  ],
+  "variants": [
+    {
+      "name": "automatic",
+      "patch": {}
+    }
+  ],
+  "base": {
+    "schema": 1,
+    "level": "assets/levels/campaign_05_ring_road.json",
+    "max_ticks": 36000,
+    "sample_ticks": 120,
+    "progression_snapshot": {
+      "antibodies": 0,
+      "memory_cells": 9,
+      "progress": {
+        "completed_level_ids": [
+          "campaign_01_first_bend",
+          "campaign_02_island_climb",
+          "campaign_03_two_chambers",
+          "campaign_04_twin_channels"
+        ],
+        "levels_completed": 4,
+        "unlocked_regions": []
+      },
+      "spent_antibodies": 4,
+      "spent_memory_cells": 2165,
+      "tree": {
+        "cytotoxic.unlock": 1,
+        "goblet.unlock": 1,
+        "hub.bone_marrow_reserve": 8,
+        "hub.efficient_clearance": 1,
+        "hub.elite_response": 1,
+        "hub.field_requisition": 1,
+        "macrophage.arms": 1,
+        "macrophage.captives": 3,
+        "macrophage.grab_speed": 5,
+        "macrophage.health": 5,
+        "macrophage.unlock": 1,
+        "neutrophil.accuracy": 2,
+        "neutrophil.aggro_range": 2,
+        "neutrophil.round_damage": 7,
+        "neutrophil.squad_size": 1,
+        "neutrophil.vitality": 2,
+        "ability.fever.unlock": 1
+      },
+      "version": 3
+    }
+  },
+  "controller_calibration": {
+    "schema": 1,
+    "references": [
+      {
+        "name": "Full current L5 is achievable with this exact earned first-entry profile",
+        "level": "campaign_05_ring_road",
+        "profile": "any",
+        "policies": [
+          "tactical"
+        ],
+        "variants": [
+          "automatic"
+        ],
+        "minimum_waves_cleared": 8,
+        "minimum_integrity": 90,
+        "require_no_clearing_timeout": true,
+        "require_zero_denials": true,
+        "expected_status": "cleared",
+        "minimum_samples": 2,
+        "minimum_success_rate": 1.0,
+        "require_standard_rules": true,
+        "automatic_controller_only": true,
+        "source": "Native revision3 control training attempt12 paid before-state and full action stream reproduced exactly on original seed401015; declared new seeds761203/761217 both clean100. Source later times out on L6, which is separate and does not erase this valid L5 prefix.",
+        "evidence": {
+          "earned_profile_reference": "assets/balance/references/l5_earned_profile.json",
+          "earned_profile_canonical_sha256": "8b5cbe37427545f6182cf7c369803eedd617de6a6040b47fc4f6b8d082d8c15c",
+          "known_feasible_seed": 401015,
+          "known_feasible_state_hash": 11512767291686748418,
+          "evaluation_seeds": [
+            761203,
+            761217
+          ],
+          "source_native_attempt_index": 12,
+          "source_native_journey": "scratch/balance/exponential-growth-2026-10-28/revision-3/training/runs/training-tactical-control-401003-3983a001e986.report.json",
+          "source_before_and_full_action_stream_confirmed": true,
+          "criterion": "Valid full8-wave clear>=90integrity, no grace or any action/spawn/deployment/pool/replication/harpoon/toxin denial or overflow.",
+          "completed_qualification": "Both declared independent seeds finish100integrity/0leaks/0grace under the recorded revision3 runtime. Future reruns after changes are regression checks, not a newly independent sample.",
+          "runtime_sha256": "281587ad7baad0d6fdaf070b628dcae36709d5e811617b16d18a99df5f9207a1",
+          "frozen_controller_source_sha256": "865bbaad0648231a1306cb9a8288dfa7e80734d155defb83461f79107bed4e02",
+          "scope": "Only this exact normally earned current L5 profile; no human-rating or general-entry-build claim."
+        }
+      }
+    ]
+  },
+  "expectations": {
+    "scope": "Known-achievable original seed reproduced exactly; two declared independent seeds both clean100. This scopes controller feasibility to this exact profile/current encounter, not all entry builds, full campaign success or human difficulty.",
+    "controls": "Ordinary authored wallet/income, current loaded configuration, automatic Tactical paid actions. No action script, grant, wallet/income override or synthetic progression.",
+    "input_freshness": "Level is loaded at execution time, not embedded. Changed authored/tuning/runtime inputs require verification; recorded old outcomes do not qualify future changes.",
+    "independence": "Original seed401015 is a known-achievable reproduction. Seeds761203/761217 were declared before execution and both passed; subsequent runs are regressions.",
+    "validity": "Retain invalids/timeouts and all grace/denial counters; never conflate raw completion with clean control.",
+    "verification_status": "Source full native before-state, purchases, normal reward/progress chain and entire original-seed action stream confirmed; two independent8wave100integrity/zero-leak/zero-grace/zero-denial cases complete."
+  },
+  "frozen_controller": {
+    "revision": "Exponential growth revision3 current-map earned reference",
+    "source_path": "src/game/balance/BalanceController.cpp",
+    "source_file_sha256": "865bbaad0648231a1306cb9a8288dfa7e80734d155defb83461f79107bed4e02",
+    "runtime_sha256": "281587ad7baad0d6fdaf070b628dcae36709d5e811617b16d18a99df5f9207a1",
+    "verification_status": "Completed source reproduction plus two-seed qualification. Future game/controller/map changes must pass current-asset CI again."
+  }
+}

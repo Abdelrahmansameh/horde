@@ -89,7 +89,7 @@ struct FamilyTables {
         // A long thread of a worm: the sprite is big, the body inside it is thin.
         visual[static_cast<u32>(PathogenFamily::Parasite)]    = FamilyVisual{9.0f, 1.0f, 0.0f};
         // The heaviest single body in the horde: its threat is its reach.
-        visual[static_cast<u32>(PathogenFamily::Spore)]       = FamilyVisual{6.4f, 0.8f, 0.0f};
+        visual[static_cast<u32>(PathogenFamily::Spore)]       = FamilyVisual{7.2f, 0.8f, 0.0f};
     }
 };
 
@@ -2636,6 +2636,63 @@ void Renderer::submit_swarmers(const sim::SwarmerBuffers& swarmers) {
         base[i] = inst;
     }
 
+    // Extra captive branches use the same instanced pass as their parent.
+    // Append them only after all bodies, so capacity pressure never replaces
+    // a real swarmer with a cosmetic branch.
+    u32 total_drawn = draw_count;
+    for (u32 i = 0; i < draw_count && total_drawn < imp.max_swarmer_instances; ++i) {
+        const sim::SwarmerProfile& pr = swarmers.profile_of(i);
+        if (pr.kind != sim::SwarmerKind::ArborGrabber || base[i].a <= 0.0f) continue;
+        const Vec2 center{swarmers.pos_x[i], swarmers.pos_y[i]};
+        const f32 body_rim = swarmers.body_size(i) * sim::kWallContactFraction;
+        const sim::ArborGrabberState& arbor = swarmers.arbor_grabber[i];
+        for (u32 a = 0; a < sim::kArborMaxArms && total_drawn < imp.max_swarmer_instances; ++a) {
+            const sim::ArborArmState& arm = arbor.arms[a];
+            if (arm.phase != sim::ArborArmPhase::Pulling) continue;
+            const f32 t = math::saturate(arm.time / math::max(pr.arbor_pull_seconds, 0.001f));
+            const f32 extension = math::smoothstep01(math::saturate(t / 0.25f));
+            const f32 pull = math::smoothstep01(math::saturate((t - 0.25f) / 0.75f));
+            for (u32 c = 1; c < arm.captive.chaff_count && c < sim::kArborMaxCaptives &&
+                            total_drawn < imp.max_swarmer_instances; ++c) {
+                const auto& captive = arm.captive.chaff[c];
+                if (!captive.handle.valid()) continue;
+                const Vec2 outward = math::normalize_safe(captive.offset);
+                const Vec2 target = center + captive.offset * (1.0f - pull) +
+                                    outward * (body_rim * 0.08f * pull);
+                // Continue one of the two tiny twigs on the *outermost*
+                // side branch, rather than splitting from the main trunk.
+                // These calculations mirror arbor_tree's animated geometry.
+                constexpr f32 along = 0.76f;
+                const f32 world_per_local = 2.0f * base[i].radius * 1.35f;
+                const f32 reach = math::max(arm.reach / world_per_local, 0.22f);
+                const f32 phase = (base[i].phase + imp.time * 6.0f) * 0.6f;
+                const f32 sway = std::sin(phase * 0.72f + static_cast<f32>(a) * 2.17f) * reach * 0.055f;
+                const Vec2 side{-arm.heading.y, arm.heading.x};
+                const Vec2 origin = center + arm.heading * (world_per_local * (0.12f * (1.0f - along) + reach * along)) +
+                                    side * (world_per_local * sway * (0.28f * along + std::sin(along * 3.14159f)));
+                const f32 sign_side = (a % 2u == 0u) ? -1.0f : 1.0f;
+                const f32 branch_angle = sign_side * (0.54f + 0.08f * std::sin(phase * 0.55f + 2.0f + static_cast<f32>(a)));
+                const Vec2 branch_dir = arm.heading * std::cos(branch_angle) + side * std::sin(branch_angle);
+                const Vec2 branch_side{-branch_dir.y, branch_dir.x};
+                const f32 branch_len = reach * 0.14f * world_per_local;
+                const f32 twig_side = ((c - 1u) % 2u == 0u) ? -1.0f : 1.0f;
+                const Vec2 twig_dir = math::normalize_safe(branch_dir * 0.78f + branch_side * (twig_side * 0.48f));
+                const Vec2 root = origin + branch_dir * branch_len + twig_dir * (branch_len * 0.42f);
+                const Vec2 delta = (target - root) * extension;
+                const f32 length = math::length(delta);
+                if (length < 0.01f) continue;
+                SwarmerGpuInstance branch = base[i];
+                branch.x = root.x; branch.y = root.y;
+                branch.vx = delta.x / length; branch.vy = delta.y / length;
+                // Kind 15 is a render-only branch, not a simulation kind.
+                branch.flags = (15u << 8);
+                branch.arm[0][0] = length;
+                branch.arm[0][1] = extension;
+                base[total_drawn++] = branch;
+            }
+        }
+    }
+
     const ShaderProgram prog = imp.shaders.get("swarmer");
     if (prog.valid()) {
         glUseProgram(prog.gl_id);
@@ -2645,7 +2702,7 @@ void Renderer::submit_swarmers(const sim::SwarmerBuffers& swarmers) {
         glEnable(GL_BLEND);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
         imp.swarmer_vao.bind();
-        glDrawArraysInstancedBaseInstance(GL_TRIANGLE_FAN, 0, 4, static_cast<GLsizei>(draw_count),
+        glDrawArraysInstancedBaseInstance(GL_TRIANGLE_FAN, 0, 4, static_cast<GLsizei>(total_drawn),
                                           imp.swarmer_region * imp.max_swarmer_instances);
         ++stats_.draw_calls;
     }

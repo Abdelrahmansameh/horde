@@ -14,7 +14,7 @@ ownership. Follow the user's task scope and existing authorization.
 
 Check implementation and call sites when docs/headers disagree. Names such as
 `TowerSystem` remain from an earlier model: **normal play deploys cells directly**.
-Five cell types and virus/bacteria/parasite are active; shipped elite/boss content
+Five cell types and virus/bacteria/parasite/spore are active; shipped elite/boss content
 is empty. Campaign and sandbox apply different unlock/reward rules.
 
 ## Build and verify

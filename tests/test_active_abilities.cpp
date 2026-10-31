@@ -1,5 +1,8 @@
 // Tests for the new game/abilities/ module (DESIGN.md §5.6).
 #include "game/abilities/ActiveAbilities.h"
+#include "game/abilities/AbilityConfigApply.h"
+#include "game/config/GameConfig.h"
+#include "game/meta/ImmunityTree.h"
 
 #include "game/towers/TowerSystem.h"
 #include "sim/SimWorld.h"
@@ -9,8 +12,10 @@
 #include "sim/swarm/Swarmers.h"
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/catch_approx.hpp>
 
 #include <cmath>
+#include <utility>
 
 using namespace immune;
 using namespace immune::sim;
@@ -118,6 +123,39 @@ TEST_CASE("Fever Response heals directly deployed cells", "[abilities][deploymen
     REQUIRE(abilities.cast(world, AbilityId::FeverResponse, Vec2{}));
     REQUIRE(world.swarmers().health[0] > 5.0f);
     REQUIRE(world.swarmers().health[0] <= profile.max_health);
+}
+
+TEST_CASE("Healing Strength increases only direct-cell healing", "[abilities][meta]") {
+    struct RestoreAbilityConfig {
+        AbilityConfig previous = ability_config();
+        ~RestoreAbilityConfig() { ActiveAbilitySystem system; apply_ability_config(system, previous); }
+    } restore;
+    auto run = [](u8 ranks) {
+        SimWorld world = make_world();
+        auto cfg = default_game_config();
+        TreeLevels levels;
+        levels[TreeNode::FeverMagnitude] = ranks;
+        apply_immunity_tree(levels, cfg);
+        ActiveAbilitySystem abilities;
+        apply_ability_config(abilities, cfg.abilities);
+        SwarmerProfile profile;
+        profile.max_health = 100.0f;
+        world.swarmers().set_profile(0, profile);
+        SwarmerSpawnParams cell;
+        cell.profile = 0;
+        cell.position = Vec2{50.0f, 50.0f};
+        cell.persistent = true;
+        REQUIRE(world.swarmers().spawn(cell));
+        world.swarmers().health[0] = 1.0f;
+        auto& reg = world.ecs().registry();
+        const auto tower = reg.create();
+        reg.emplace<comp::Tower>(tower, comp::Tower{TowerType::Macrophage, 8.0f, 20.0f, 1.0f});
+        REQUIRE(abilities.cast(world, AbilityId::FeverResponse, Vec2{}));
+        return std::pair<float, float>{world.swarmers().health[0] - 1.0f, reg.get<comp::Tower>(tower).cooldown};
+    };
+    const auto base = run(0), enhanced = run(3);
+    CHECK(enhanced.first == Catch::Approx(base.first * 1.75f));
+    CHECK(enhanced.second == Catch::Approx(base.second));
 }
 
 TEST_CASE("ability_name returns a real string for every id", "[abilities]") {

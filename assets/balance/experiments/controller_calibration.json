@@ -11,14 +11,14 @@
     "summary.kills"
   ],
   "seeds": [
-    1101,
-    1202,
-    1303,
-    1404,
-    1505,
-    1606,
-    1707,
-    1808
+    2101,
+    2202,
+    2303,
+    2404,
+    2505,
+    2606,
+    2707,
+    2808
   ],
   "policies": [
     {
@@ -72,7 +72,7 @@
         "minimum_samples": 8,
         "minimum_success_rate": 1,
         "require_standard_rules": true,
-        "source": "Player-confirmed achievable first wave; paid early-cohort reference cleared 9/9 seeds 101–909 with 70–100 integrity, 300 ATP, no upgrades, abilities or reinforcements.",
+        "source": "Current fixed-300-ATP reference uses fifteen baseline Neutrophils at 20 ATP each. Frozen R5 regression clears 8 of 9 reused paid-script seeds, with 3\u2013100 integrity among clears and a valid seed-404 defeat. The older 9/9 at 53\u201393 integrity is historical pre-spawn-guard evidence. Automatic R5 regression clears 16/16 with ordinary income; these are controller regressions, not fresh independent qualification.",
         "evidence": {
           "spec": "assets/balance/references/fresh_first_wave_paid_actions.json",
           "observed_seeds": [
@@ -87,18 +87,39 @@
             909
           ],
           "observed_integrity_range": [
-            70,
+            3,
             100
           ],
-          "role": "Establishes achievable play; scripted reference results do not count as an automatic controller passing calibration."
+          "role": "Fixed paid scripted feasibility, including retained failure; automatic controller evidence is reported separately.",
+          "placement_selection_seed": 1101,
+          "historical_observed_integrity_range": [
+            53,
+            93
+          ],
+          "current_runtime_regression": {
+            "runtime_sha256": "ec4da5d21d3c7d3a157ba5745761fd50a8a9bf97e9429a194b5839ba5fa0fab6",
+            "paid_records": 9,
+            "paid_clears": 8,
+            "paid_defeat_seeds": [
+              404
+            ],
+            "automatic_records": 16,
+            "automatic_clears": 16,
+            "automatic_integrity_range": [
+              63,
+              100
+            ],
+            "no_grace_or_denials": true,
+            "scope": "Previously used seeds; no new independent qualification. Paid and automatic evidence have different reinforcement budgets."
+          }
         }
       }
     ]
   },
   "expectations": {
     "purpose": "Validate adequate placement and reinforcement policy before drawing gameplay-balance conclusions. Failing an achievable reference identifies a controller/input mismatch.",
-    "controls": "This scenario truncates the original campaign after its first authored wave; original map geometry, enemy release,300ATP and progression are preserved.",
-    "independence": "Automatic controller seeds are held out from the nine paid reference seeds. The automatic base intentionally has no action script.",
+    "controls": "Exact current first authored campaign wave and geometry,300ATP,normal paid unit prices and earnedreinforcement income,zero upgrades.",
+    "independence": "Automaticseeds2101\u20132808 differ from the paidreference verificationseeds101\u2013909 and placementselectionseed1101.",
     "inference": "No result automatically recommends weakening enemies, granting stats or changing economy."
   }
 }

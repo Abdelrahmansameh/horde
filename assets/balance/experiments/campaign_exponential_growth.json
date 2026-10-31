@@ -1,0 +1,362 @@
+{
+  "schema": 1,
+  "name": "Exponential campaign progression: rising hordes, veteran upgrades and spores",
+  "kind": "campaign",
+  "baseline": "control",
+  "evaluation_split": "evaluation",
+  "metric": "levels_cleared",
+  "metrics": [
+    "summary.attempts",
+    "summary.duration_seconds",
+    "summary.memory_cells",
+    "summary.antibodies"
+  ],
+  "seeds": [
+    1141021,
+    1151031,
+    1161043
+  ],
+  "policies": [
+    {
+      "name": "tactical",
+      "controller": {
+        "policy": "tactical"
+      }
+    }
+  ],
+  "progression_targets": {
+    "median_attempts_min": 1,
+    "median_attempts_max": 4,
+    "maximum_attempts_per_level": 10,
+    "minimum_post_loss_purchase_rate": 0.8
+  },
+  "base": {
+    "schema": 1,
+    "max_ticks": 72000,
+    "sample_ticks": 120,
+    "controller": {"max_prep_ticks": 3600},
+    "progression": {
+      "memory_cells": 0,
+      "antibodies": 0
+    },
+    "campaign": {
+      "levels": [
+        "assets/levels/campaign_01_first_bend.json",
+        "assets/levels/campaign_02_island_climb.json",
+        "assets/levels/campaign_03_two_chambers.json",
+        "assets/levels/campaign_04_twin_channels.json",
+        "assets/levels/campaign_05_ring_road.json",
+        "assets/levels/campaign_06_circuit_board.json",
+        "assets/levels/campaign_07_chevron_sieve.json",
+        "assets/levels/campaign_08_blob_field.json",
+        "assets/levels/campaign_09_funnel_walls.json",
+        "assets/levels/campaign_10_core_breach.json"
+      ],
+      "max_attempts_per_level": 10,
+      "max_total_attempts": 100
+    }
+  },
+  "variants": [
+    {
+      "name": "control",
+      "patch": {
+        "campaign": {
+          "purchase_policy": {
+            "priority": [
+              "neutrophil.round_damage",
+              "hub.bone_marrow_reserve",
+              "macrophage.unlock",
+              "macrophage.grab_speed",
+              "macrophage.arms",
+              "macrophage.captives",
+              "macrophage.health",
+              "goblet.unlock",
+              "cytotoxic.unlock",
+              "ability.fever.unlock",
+              "neutrophil.capstone",
+              "fibroblast.unlock",
+              "ability.complement.unlock",
+              "ability.clot.unlock",
+              "macrophage.capstone",
+              "goblet.capstone",
+              "cytotoxic.capstone",
+              "fibroblast.capstone",
+              "neutrophil.aggro_range",
+              "neutrophil.squad_size",
+              "neutrophil.vitality",
+              "neutrophil.accuracy",
+              "hub.efficient_clearance",
+              "hub.field_requisition",
+              "hub.elite_response",
+              "hub.systemic_potency",
+              "hub.adaptive_memory",
+              "hub.homeostasis",
+              "hub.membrane_resilience",
+              "macrophage.search",
+              "macrophage.wall",
+              "goblet.splash_radius",
+              "goblet.slow_strength",
+              "goblet.weakness",
+              "goblet.slow_duration",
+              "goblet.tower_health",
+              "cytotoxic.drain",
+              "cytotoxic.attach_speed",
+              "cytotoxic.search",
+              "cytotoxic.stamina",
+              "cytotoxic.tower_health",
+              "fibroblast.scar_health",
+              "fibroblast.inflammation",
+              "fibroblast.build_rate",
+              "fibroblast.scar_count",
+              "fibroblast.scar_size",
+              "fibroblast.reinforce",
+              "fibroblast.build_radius",
+              "fibroblast.tower_health",
+              "ability.complement.cooldown",
+              "ability.complement.chain",
+              "ability.fever.cooldown",
+              "ability.fever.magnitude",
+              "ability.clot.cooldown",
+              "ability.clot.duration"
+            ],
+            "repeat": true
+          }
+        }
+      }
+    },
+    {
+      "name": "economy",
+      "patch": {
+        "campaign": {
+          "purchase_policy": {
+            "priority": [
+              "neutrophil.round_damage",
+              "hub.bone_marrow_reserve",
+              "hub.efficient_clearance",
+              "hub.field_requisition",
+              "hub.elite_response",
+              "hub.systemic_potency",
+              "hub.adaptive_memory",
+              "macrophage.unlock",
+              "fibroblast.unlock",
+              "cytotoxic.unlock",
+              "ability.clot.unlock",
+              "goblet.unlock",
+              "ability.complement.unlock",
+              "ability.fever.unlock",
+              "neutrophil.capstone",
+              "macrophage.capstone",
+              "goblet.capstone",
+              "cytotoxic.capstone",
+              "fibroblast.capstone",
+              "neutrophil.aggro_range",
+              "neutrophil.squad_size",
+              "neutrophil.vitality",
+              "neutrophil.accuracy",
+              "macrophage.grab_speed",
+              "macrophage.captives",
+              "macrophage.arms",
+              "macrophage.search",
+              "macrophage.health",
+              "hub.homeostasis",
+              "hub.membrane_resilience",
+              "macrophage.wall",
+              "goblet.splash_radius",
+              "goblet.slow_strength",
+              "goblet.weakness",
+              "goblet.slow_duration",
+              "goblet.tower_health",
+              "cytotoxic.drain",
+              "cytotoxic.attach_speed",
+              "cytotoxic.search",
+              "cytotoxic.stamina",
+              "cytotoxic.tower_health",
+              "fibroblast.scar_health",
+              "fibroblast.inflammation",
+              "fibroblast.build_rate",
+              "fibroblast.scar_count",
+              "fibroblast.scar_size",
+              "fibroblast.reinforce",
+              "fibroblast.build_radius",
+              "fibroblast.tower_health",
+              "ability.complement.cooldown",
+              "ability.complement.chain",
+              "ability.fever.cooldown",
+              "ability.fever.magnitude",
+              "ability.clot.cooldown",
+              "ability.clot.duration"
+            ],
+            "repeat": true
+          }
+        }
+      }
+    },
+    {
+      "name": "offense",
+      "patch": {
+        "campaign": {
+          "purchase_policy": {
+            "priority": [
+              "neutrophil.round_damage",
+              "neutrophil.squad_size",
+              "neutrophil.aggro_range",
+              "neutrophil.vitality",
+              "cytotoxic.unlock",
+              "neutrophil.capstone",
+              "ability.complement.unlock",
+              "macrophage.unlock",
+              "ability.fever.unlock",
+              "goblet.unlock",
+              "fibroblast.unlock",
+              "ability.clot.unlock",
+              "cytotoxic.capstone",
+              "macrophage.capstone",
+              "goblet.capstone",
+              "fibroblast.capstone",
+              "neutrophil.accuracy",
+              "hub.bone_marrow_reserve",
+              "hub.efficient_clearance",
+              "hub.field_requisition",
+              "hub.elite_response",
+              "hub.systemic_potency",
+              "hub.adaptive_memory",
+              "hub.homeostasis",
+              "hub.membrane_resilience",
+              "macrophage.health",
+              "macrophage.grab_speed",
+              "macrophage.arms",
+              "macrophage.captives",
+              "macrophage.search",
+              "macrophage.wall",
+              "goblet.splash_radius",
+              "goblet.slow_strength",
+              "goblet.weakness",
+              "goblet.slow_duration",
+              "goblet.tower_health",
+              "cytotoxic.drain",
+              "cytotoxic.attach_speed",
+              "cytotoxic.search",
+              "cytotoxic.stamina",
+              "cytotoxic.tower_health",
+              "fibroblast.scar_health",
+              "fibroblast.inflammation",
+              "fibroblast.build_rate",
+              "fibroblast.scar_count",
+              "fibroblast.scar_size",
+              "fibroblast.reinforce",
+              "fibroblast.build_radius",
+              "fibroblast.tower_health",
+              "ability.complement.cooldown",
+              "ability.complement.chain",
+              "ability.fever.cooldown",
+              "ability.fever.magnitude",
+              "ability.clot.cooldown",
+              "ability.clot.duration"
+            ],
+            "repeat": true
+          }
+        }
+      }
+    }
+  ],
+  "controller_calibration": {
+    "schema": 1,
+    "references": [
+      {
+        "name": "Fresh campaign first wave is achievable",
+        "level": "campaign_01_first_bend",
+        "profile": "fresh",
+        "policies": [
+          "tactical"
+        ],
+        "variants": [
+          "control"
+        ],
+        "minimum_waves_cleared": 1,
+        "minimum_samples": 3,
+        "minimum_success_rate": 1,
+        "require_standard_rules": true,
+        "source": "Player-confirmed achievable first wave and independent automatic calibration. This anchor qualifies opening-wave play only; later-route adequacy must be assessed separately."
+      }
+    ]
+  },
+  "growth_targets": {
+    "enemy_factor_per_level": 1.4,
+    "player_factor_per_level": 1.4
+  },
+  "expectations": {
+    "scope": "Fresh paid earned progression, three predeclared purchase strategies. Counts and peak release-density targets grow about 1.4x per level; actual player capacity must be probed from the earned snapshots. This is not a calibrated human difficulty rating.",
+    "controller_validity": "Any pool/action/telemetry error invalidates the attempt. Grace advances and damaged victories remain explicit. Later walls require matched earned-profile placement/cadence/composition checks before balance conclusions.",
+    "family_schedule": "Level1 virus only; bacteria from level2; real harpoon spores from level4.",
+    "independence": "R7 evaluation seeds 1141021, 1151031 and 1161043 are declared before final cap-extension runtime qualification or campaign outcomes. Earlier R2–R6 development results remain separate. Training seed 901003, if used, is not an independent evaluation sample."
+  },
+  "spore_policy_revision": "Cytotoxic T is the third paid discovery in control/economy, available after L3 for the L4 spore introduction. Offense keeps its first-discovery T choice. Ordinary Antibody earnings and prerequisites apply; no grants. Original frozen campaign audit and revision2 development results retain the old orders.",
+  "historical_protocol_metadata": {
+    "training_protocol": {
+      "training_seeds": [
+        31013,
+        31019,
+        31033
+      ],
+      "heldout_seeds": [
+        72011,
+        82019,
+        92031,
+        102043,
+        112059
+      ],
+      "freeze": "Keep all three purchase priorities and controller parameters fixed before viewing held-out outcomes. Tune only using training runs; retain failed strategies in the held-out report.",
+      "interpretation": "Separate experiment directories preserve split identity. These are conditional controller samples, not player skill percentiles.",
+      "input_revision": "Selected 30 MC minimum reward, stat cost step 15, 0.85 baseline ATP per density, and level multipliers of 1 through level 4, then 0.75^(level-4). Opening wallets rise from 300 to 750; peak release pressure grows about 1.32x per level; Macrophages cost 35 ATP. Original V15 control and offense complete all ten levels. Economy alone receives a training-selected role-aware purchase priority; its fresh result and held-out evaluation are pending."
+    },
+    "preregistration_amendments": [
+      {
+        "amended_at_utc": "2026-10-23T04:46:27.518072+00:00",
+        "scope": "Seed allocation only; no priority, controller, gameplay, retry-budget or outcome-dependent selection change.",
+        "before_heldout_execution": true,
+        "before_heldout_outcome_inspection": true,
+        "previous_base_seeds": [
+          72011,
+          72019,
+          72031,
+          72043,
+          72059
+        ],
+        "replacement_base_seeds": [
+          72011,
+          82019,
+          92031,
+          102043,
+          112059
+        ],
+        "reason": "Campaign attempts use base_seed + attempt_index. The prior base values were closer than the maximum50attempts and could share numeric attempt seeds. New values separate all maximum50attempt ranges while retaining first-two selection and paired strategy seeds.",
+        "authorized_by": "Root instruction before execution/outcome inspection."
+      },
+      {
+        "amended_at_utc": "2026-10-23T05:57:21.109323+00:00",
+        "scope": "Training-selected income and economy purchase priority only. Control/offense priorities and all discovery orders/controller weights stay unchanged.",
+        "before_heldout_execution": true,
+        "before_heldout_outcome_inspection": true,
+        "previous_economy_variant_sha256": "9b43fe4a718320a779f5515462c7367fb4b9115f1a1e2e26af3443da5ea2728b",
+        "replacement_economy_variant_sha256": "fd936a01bb106c6d14f39277bb3f4df131c889177d5e096da7bf7c11844a69a3",
+        "reason": "Original V15 control and offense at the selected income curve complete all ten levels. The stalled economy journey on level 7 resumes its earned bank of 68 MC and clears all nine waves after three 20-MC Macro role purchases. Move owned Macro throughput, reach and health before leak mitigation in fresh training, preserving previous failures and the original five-attempt bound.",
+        "authorized_by": "Root selection on training evidence; heldout remains unexecuted pending freshE training."
+      }
+    ],
+    "revision": 7
+  },
+  "current_curve_declaration": {
+    "scope": "Current executable/config/level inputs define gameplay. Historical V15 training narratives below are superseded and are not execution controls.",
+    "enemy_count_and_peak_factor": 1.4,
+    "level9_authored_count": 44274,
+    "level10_authored_count": 61983,
+    "map_income_multiplier": 1.0,
+    "late_enemy_scaling": "L1–L4 identity; from L5 durability 1.35^(level-4), damage 1.12^(level-4). Damage-derived ATP is divided by durability so toughness alone does not increase total kill income.",
+    "controller_max_prep_ticks": 3600,
+    "family_schedule": "Virus only on L1; bacteria from L2; spores from L4.",
+    "upgrades": "Firing and drain through rank 20, Macrophage work through 16, and shared Adaptive Memory through 20. Other health/support lines retain their useful caps.",
+    "attempt_limits": "10 per level,100 total.",
+    "qualification": "Native validity plus explicitly declared integrity, grace and denial criteria.",
+    "metadata_cleanup": "Historical narrative was relabelled after the R4 freeze. RunSpec, seeds, controller, priorities, metrics and thresholds are unchanged."
+  }
+}

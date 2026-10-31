@@ -407,8 +407,14 @@ ui::TreeModel make_tree_model(const game::MetaProgression& meta, const game::Met
             case PR::NeedMemoryCells:
             case PR::NeedAntibodies: v.state = ui::TreeNodeState::Short; break;
         }
-        if (r == PR::Locked && d.parent != game::TreeNode::Count) {
-            v.requirement = std::string("Needs ") + game::tree_node(d.parent).name;
+        if (r == PR::Locked) {
+            const auto previous = game::tree_previous_stage(n);
+            if (d.parent != game::TreeNode::Count && !meta.level(d.parent)) {
+                v.requirement = std::string("Needs ") + game::tree_node(d.parent).name;
+            } else if (previous != game::TreeNode::Count &&
+                       meta.level(previous) < game::tree_node(previous).max_level) {
+                v.requirement = std::string("Fully grow ") + game::tree_node(previous).name;
+            }
         }
         if (v.state != ui::TreeNodeState::Maxed) {
             const game::TreeCost c = meta.next_cost(n, cfg);

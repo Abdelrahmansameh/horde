@@ -4,12 +4,14 @@
 #include "game/balance/RunRecording.h"
 #include "game/balance/BalanceCatalog.h"
 #include "game/level/Level.h"
+#include "game/towers/TowerSystem.h"
 #include "platform/FileIO.h"
 #include "platform/Window.h"
 #include "render/Camera.h"
 #include "render/Renderer.h"
 #include "render/Screenshot.h"
 #include "sim/SimWorld.h"
+#include "sim/ecs/Components.h"
 #include <algorithm>
 #include <cstdio>
 #include <filesystem>
@@ -126,7 +128,46 @@ int run_balance_replay(const Options& options) {
             return a.at("tick").get<u64>() >= ticks;
         }),actions.end());
         bool captured = false;
+        json observations;
         const auto callback = [&](const game::balance::CaptureView& view) {
+            // Read-only diagnostic state at the requested capture tick. This
+            // output is never a controller input and changes no simulation.
+            constexpr usize kObservationLimit = 256;
+            const auto point = [](Vec2 p) { return json::array({p.x, p.y}); };
+            observations = {{"scope","captured diagnostic state; not controller knowledge"},
+                {"world_min",point(view.world.desc().world_bounds.min)},
+                {"world_max",point(view.world.desc().world_bounds.max)},
+                {"chaff",json::array()},{"friendlies",json::array()},{"scars",json::array()}};
+            const auto& chaff = view.world.chaff();
+            observations["chaff_total"] = chaff.count();
+            for (usize i = 0; i < chaff.count() && i < kObservationLimit; ++i) {
+                const Vec2 p{chaff.pos_x[i],chaff.pos_y[i]};
+                observations["chaff"].push_back({{"index",i},{"family",chaff.family[i]},
+                    {"position",point(p)},{"density",chaff.density[i]},{"flags",chaff.flags[i]},
+                    {"in_playable_bounds",view.world.desc().world_bounds.contains(p)},
+                    {"tissue_clearance",view.world.sdf().sample(p)},
+                    {"flow",point(view.world.flow().sample(p))},{"remaining_cost",view.world.flow().sample_cost(p)}});
+            }
+            const auto& allies = view.world.swarmers();
+            observations["friendly_total"] = allies.count();
+            for (usize i = 0; i < allies.count() && i < kObservationLimit; ++i) {
+                observations["friendlies"].push_back({{"index",i},
+                    {"type",game::tower_type_name(allies.profile_of(i).source)},
+                    {"position",point(Vec2{allies.pos_x[i],allies.pos_y[i]})},
+                    {"health",allies.health[i]},{"flags",allies.flags[i]},
+                    {"target_index",allies.target_index[i]},{"target_generation",allies.target_generation[i]}});
+            }
+            const auto scars = view.world.ecs().registry().view<const sim::comp::Scar,const sim::comp::Transform>();
+            usize scar_count = 0;
+            for (const auto entity : scars) {
+                if (scar_count++ >= kObservationLimit) continue;
+                const auto& bar = scars.get<const sim::comp::Scar>(entity);
+                const auto& transform = scars.get<const sim::comp::Transform>(entity);
+                observations["scars"].push_back({{"center",point(transform.position)},
+                    {"half_extents",point(bar.half_extents)},{"rotation",transform.rotation}});
+            }
+            observations["scar_total"] = scar_count;
+            observations["observation_limit_per_group"] = kObservationLimit;
             platform::Window window;
             if (!platform::create_headless_gl(window,options.width,options.height))
                 throw std::runtime_error("replay GL context: "+window.error());
@@ -134,6 +175,10 @@ int run_balance_replay(const Options& options) {
             render::RendererDesc rd;
             rd.framebuffer_width = window.width(); rd.framebuffer_height = window.height();
             rd.max_chaff_instances = static_cast<u32>(view.world.desc().max_chaff);
+            rd.max_projectile_instances = std::max(static_cast<u32>(view.world.desc().max_projectiles),
+                view.world.hostile().tuning().max_toxin_shots);
+            rd.max_swarmer_instances = static_cast<u32>(view.world.desc().max_swarmers);
+            rd.max_harpoon_instances = view.world.hostile().tuning().max_harpoons;
             if (!renderer.init(rd)) throw std::runtime_error("replay renderer: "+renderer.error());
             render::Camera camera;
             camera.set_viewport(window.width(),window.height());
@@ -175,7 +220,8 @@ int run_balance_replay(const Options& options) {
             result["diagnostics"]["errors"].push_back("terminal replay differs from the recorded gameplay/economy/wave state");
         }
         result["capture"] = {{"path",options.out_path},{"tick",result.at("summary").at("duration_ticks")},
-            {"compared_to_recorded_terminal",at_end},{"terminal_state_matches",matches}};
+            {"compared_to_recorded_terminal",at_end},{"terminal_state_matches",matches},
+            {"observations",std::move(observations)}};
         // Full results remain available in the original report; replay stdout is concise.
         json output = {{"schema",1},{"summary",result.at("summary")},{"capture",result.at("capture")},
             {"state_hash",result.at("state_hash")},{"diagnostics",result.at("diagnostics")}};

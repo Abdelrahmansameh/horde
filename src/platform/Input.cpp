@@ -34,6 +34,7 @@ void InputState::bind_defaults() {
     bind(Action::CastAbility3, SDL_SCANCODE_E);
     bind(Action::Screenshot, SDL_SCANCODE_F12);
     bind(Action::Quit, SDL_SCANCODE_UNKNOWN);
+    bind(Action::ToggleMute, SDL_SCANCODE_M);
     bound_ = true;
 }
 

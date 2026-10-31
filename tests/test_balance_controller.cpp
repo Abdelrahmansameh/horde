@@ -16,6 +16,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <set>
 
 using namespace immune;
 using namespace immune::game;
@@ -117,6 +118,33 @@ f32 path_remaining(Vec2 position, const config::Json& path) {
         total += length;
     }
     return total - matched;
+}
+
+void check_upstream_of_first_fork_island(Vec2 position, const config::Json& a, const config::Json& b) {
+    const auto& first = a.at("points");
+    const auto& second = b.at("points");
+    REQUIRE(first.size() == second.size());
+    usize split = 0;
+    while (split < first.size() && first[split] == second[split]) ++split;
+    REQUIRE(split > 0);
+    REQUIRE(split < first.size());
+    usize join = split;
+    while (join < first.size() && first[join] != second[join]) ++join;
+    REQUIRE(join < first.size());
+    f32 separation = -1.0f;
+    Vec2 island{};
+    for (usize i = split; i < join; ++i) {
+        const Vec2 p{first[i][0].get<f32>(), first[i][1].get<f32>()};
+        const Vec2 q{second[i][0].get<f32>(), second[i][1].get<f32>()};
+        if (math::length_sq(p - q) > separation) {
+            separation = math::length_sq(p - q);
+            island = (p + q) * 0.5f;
+        }
+    }
+    const Vec2 shared{first[split - 1][0].get<f32>(), first[split - 1][1].get<f32>()};
+    const Vec2 incoming = math::normalize_safe(island - shared);
+    const Vec2 offset = position - island;
+    CHECK(offset.x * incoming.x + offset.y * incoming.y < 0.0f);
 }
 
 // Independent, fine-step observation of the public navigation field. Unlike
@@ -266,6 +294,125 @@ TEST_CASE_METHOD(immune::test::BalanceConfigIsolation, "balance controller obser
                                            c->position, threatened.economy.atp()).valid());
 }
 
+TEST_CASE_METHOD(immune::test::BalanceConfigIsolation, "completed wave scheduling still funds legal cleanup of a visible ranged survivor",
+          "[balance][controller][terminal-cleanup][regression]") {
+    ControllerFixture fixture;
+    fixture.init(600);
+    WaveDef last;
+    last.name = "last";
+    last.prep_time = 0;
+    fixture.waves.set_waves({last});
+    fixture.waves.set_auto_start(true);
+    fixture.waves.start(fixture.world);
+    Rng rng(901);
+    for (u32 i = 0; i < 4; ++i) fixture.waves.tick(fixture.world, rng, 1.0f / 60.0f);
+    REQUIRE(fixture.waves.status().all_waves_complete);
+    REQUIRE(fixture.waves.status().phase == WavePhase::Complete);
+
+    REQUIRE(deploy_cells(fixture.towers, fixture.world, fixture.economy,
+                         TowerType::Neutrophil, {120, 50}, 4) == 4);
+    sim::ChaffSpawnParams enemy;
+    enemy.position = {30, 50};
+    enemy.family = PathogenFamily::Spore;
+    enemy.density = 3;
+    REQUIRE(fixture.world.chaff().spawn(enemy).valid());
+    REQUIRE(fixture.world.desc().world_bounds.contains(enemy.position));
+
+    fixture.abilities.set_unlocked(1u << static_cast<u32>(AbilityId::FeverResponse));
+    REQUIRE(fixture.abilities.cast(fixture.world, AbilityId::FeverResponse, {120, 50}));
+    REQUIRE_FALSE(fixture.abilities.ready(AbilityId::FeverResponse));
+    for (usize i = 0; i < fixture.world.swarmers().count(); ++i)
+        fixture.world.swarmers().health[i] *= 0.4f;
+
+    ControllerParams params;
+    params.policy = Policy::Tactical;
+    params.weights = {1, 0, 0, 0, 0};
+    SECTION("cleanup keeps normal spending and ability cooldown rules") {
+        const auto before = fixture.economy.snapshot();
+        BalanceController controller(params);
+        const auto actions = controller.decide(fixture.view());
+        const auto* action = deploy_action(actions);
+        REQUIRE(action != nullptr);
+        const f32 reach = fixture.world.swarmers().profile_of(0).attach_radius;
+        CHECK(math::length_sq(action->position - enemy.position) <= reach * reach);
+        CHECK(fixture.towers.validate_deploy(fixture.world, action->tower, action->position, before.atp).valid());
+        CHECK(std::none_of(actions.begin(), actions.end(), [](const Action& a) { return a.kind == ActionKind::CastAbility; }));
+        REQUIRE(deploy_cells(fixture.towers, fixture.world, fixture.economy,
+                             action->tower, action->position, action->quantity) == action->quantity);
+        CHECK(fixture.economy.atp() == before.atp - fixture.towers.stats(action->tower).build_cost * action->quantity);
+        CHECK(controller.decide(fixture.view()).empty()); // reaction cadence remains in force
+    }
+    SECTION("cleanup cannot exceed the experiment spending limit") {
+        auto view = fixture.view();
+        view.spending_remaining = 0;
+        BalanceController controller(params);
+        CHECK(deploy_action(controller.decide(view)) == nullptr);
+    }
+    SECTION("an unseen survivor does not authorize a cleanup deployment") {
+        fixture.world.chaff().flags[0] |= sim::chaff_flags::kHidden;
+        BalanceController controller(params);
+        CHECK(deploy_action(controller.decide(fixture.view())) == nullptr);
+    }
+}
+
+TEST_CASE_METHOD(immune::test::BalanceConfigIsolation, "visible long-range siege recruits an in-range paid counter before bypassing the army",
+          "[balance][controller][siege-response][regression]") {
+    // The same public capability on another family must get the same
+    // response. This is a range/coverage contract, not a Spore name bonus.
+    for (const auto family : {PathogenFamily::Spore, PathogenFamily::Virus}) {
+        CAPTURE(static_cast<u32>(family));
+        ControllerFixture fixture;
+        fixture.init(600);
+        REQUIRE(deploy_cells(fixture.towers, fixture.world, fixture.economy,
+                             TowerType::Neutrophil, {110, 50}, 6) == 6);
+        // Keep ordinary traffic a different family, otherwise assigning the
+        // public range trait to Virus would also turn this whole cohort into
+        // thirty siege enemies and legitimately change the priority.
+        for (u32 i = 0; i < 30; ++i) {
+            sim::ChaffSpawnParams ordinary;
+            ordinary.position = {112.0f + static_cast<f32>(i % 5) * 0.3f, 50.0f};
+            ordinary.family = PathogenFamily::Bacteria;
+            ordinary.density = 1;
+            REQUIRE(fixture.world.chaff().spawn(ordinary).valid());
+        }
+        sim::ChaffSpawnParams siege;
+        siege.position = {70, 50};
+        siege.family = family;
+        siege.density = 3;
+        REQUIRE(fixture.world.chaff().spawn(siege).valid());
+        auto public_rules = fixture.world.hostile().tuning();
+        public_rules.enabled = true;
+        auto& ranged = public_rules.harpoon[static_cast<u32>(family)];
+        ranged.enabled = true;
+        ranged.range = 60;
+        ranged.pulse_damage = 20;
+        fixture.world.hostile().set_tuning(public_rules);
+        fixture.waves.request_early_start();
+        Rng rng(902);
+        fixture.waves.tick(fixture.world, rng, 1.0f / 60.0f);
+        REQUIRE_FALSE(fixture.waves.status().all_waves_complete);
+        REQUIRE(fixture.waves.status().phase == WavePhase::Spawning);
+
+        ControllerParams params;
+        params.policy = Policy::Tactical;
+        params.weights = {1, 0, 0, 0, 0};
+        params.use_abilities = false;
+        BalanceController controller(params);
+        const auto actions = controller.decide(fixture.view());
+        const auto* action = deploy_action(actions);
+        REQUIRE(action != nullptr);
+        const auto& profile = fixture.world.swarmers().profile_of(0);
+        REQUIRE(math::length_sq(Vec2{110, 50} - siege.position) > profile.attach_radius * profile.attach_radius);
+        CHECK(math::length_sq(action->position - siege.position) <= profile.attach_radius * profile.attach_radius);
+        CHECK(fixture.towers.validate_deploy(fixture.world, action->tower,
+                                             action->position, fixture.economy.atp()).valid());
+        const auto before = fixture.economy.atp();
+        REQUIRE(deploy_cells(fixture.towers, fixture.world, fixture.economy,
+                             action->tower, action->position, action->quantity) == action->quantity);
+        CHECK(fixture.economy.atp() == before - fixture.towers.stats(action->tower).build_cost * action->quantity);
+    }
+}
+
 TEST_CASE_METHOD(immune::test::BalanceConfigIsolation, "balance controller replay decisions use independent deterministic placement variation",
           "[balance][controller][determinism]") {
     ControllerFixture fixture;
@@ -402,7 +549,7 @@ TEST_CASE_METHOD(immune::test::BalanceConfigIsolation, "balance controller prepa
     CHECK(report.at("wave_status").at("phase") == static_cast<u32>(WavePhase::Prep));
 }
 
-TEST_CASE_METHOD(immune::test::BalanceConfigIsolation, "balance controller intercepts public fork alternatives before the current wave switches branches",
+TEST_CASE_METHOD(immune::test::BalanceConfigIsolation, "a placeable synthetic approach intercepts public fork alternatives before branch switching",
           "[balance][controller][formation][fork]") {
     config::ConfigStore store;
     GameConfig base;
@@ -411,6 +558,10 @@ TEST_CASE_METHOD(immune::test::BalanceConfigIsolation, "balance controller inter
     const auto text = platform::read_text_file(platform::asset_path("levels/campaign_04_twin_channels.json"));
     REQUIRE(text.has_value());
     auto level = config::Json::parse(*text);
+    // Current L4's playable rim starts after these paths separate beyond a
+    // Macro's common reach. This decision fixture explicitly restores a
+    // placeable upstream approach; it does not qualify current-map control.
+    level["world"]["min"][0] = 0;
     const auto dorsal = level["squad_paths"][2], ventral = level["squad_paths"][3];
     bool weak_support = false;
     SECTION("only the dorsal branch appears in the current wave") {}
@@ -440,13 +591,13 @@ TEST_CASE_METHOD(immune::test::BalanceConfigIsolation, "balance controller inter
         ++lower;
         CHECK(path_distance(position, dorsal) <= 15.0f);
         CHECK(path_distance(position, ventral) <= 15.0f);
-        CHECK(position.x < 70.0f);
+        check_upstream_of_first_fork_island(position, dorsal, ventral);
     }
     CHECK(lower >= 5);
     CHECK(report.at("summary").at("actions_rejected") == 0);
 }
 
-TEST_CASE_METHOD(immune::test::BalanceConfigIsolation, "a large wrong-branch cohort cannot attract the next purchase away from shared interception",
+TEST_CASE_METHOD(immune::test::BalanceConfigIsolation, "a wrong-branch cohort cannot attract purchases away from a placeable synthetic fork approach",
           "[balance][controller][formation][fork]") {
     config::ConfigStore store;
     GameConfig base;
@@ -455,6 +606,9 @@ TEST_CASE_METHOD(immune::test::BalanceConfigIsolation, "a large wrong-branch coh
     const auto text = platform::read_text_file(platform::asset_path("levels/campaign_04_twin_channels.json"));
     REQUIRE(text.has_value());
     auto level = config::Json::parse(*text);
+    // Preserve the upstream shared-interception contract on a legal test
+    // approach; the shipped L4 bounds intentionally lack that Macro site.
+    level["world"]["min"][0] = 0;
     level["waves"][0]["spawns"] = config::Json::array({level["waves"][0]["spawns"][1]});
     config::Json spec = {{"schema", 1}, {"level_document", level}, {"seed", 7133},
         {"max_ticks", 1}, {"opening_atp", 2000},
@@ -482,7 +636,7 @@ TEST_CASE_METHOD(immune::test::BalanceConfigIsolation, "a large wrong-branch coh
     REQUIRE(action != nullptr);
     CHECK(path_distance(action->position, level["squad_paths"][2]) <= 15.0f);
     CHECK(path_distance(action->position, level["squad_paths"][3]) <= 15.0f);
-    CHECK(action->position.x < 70.0f);
+    check_upstream_of_first_fork_island(action->position, level["squad_paths"][2], level["squad_paths"][3]);
 }
 
 TEST_CASE_METHOD(immune::test::BalanceConfigIsolation, "fork planning preserves pure mobile and builder specialist placements",
@@ -528,8 +682,13 @@ TEST_CASE_METHOD(immune::test::BalanceConfigIsolation, "a fork split outside pla
       "waves":[{"name":"two_branches","prep_time":12,"spawns":[
         {"family":"virus","count":30,"duration":1,"spawn_point_id":"p0","squad_paths":["upper_route","lower_route"]}]}]
     })JSON");
+    const u32 wallet = 300;
+    const u32 cost = base.towers.stats[static_cast<u32>(TowerType::Neutrophil)].build_cost;
+    REQUIRE(cost > 0);
+    const u32 affordable = wallet / cost;
+    REQUIRE(affordable >= 4);
     const config::Json spec = {{"schema", 1}, {"level_document", level}, {"seed", 7133},
-        {"max_ticks", 20}, {"opening_atp", 300},
+        {"max_ticks", affordable + 5}, {"opening_atp", wallet},
         {"controller", {{"policy", "specialist"}, {"weights", {{"neutrophil", 1}}},
                         {"reaction_ticks", 1}, {"prep_ticks", 1000}, {"use_abilities", false}}}};
     const auto report = execute(spec, base);
@@ -541,9 +700,11 @@ TEST_CASE_METHOD(immune::test::BalanceConfigIsolation, "a fork split outside pla
         if (action["position"][1].get<f32>() > 50.0f) ++upper;
         else ++lower;
     }
-    CHECK(upper >= 8);
-    CHECK(lower >= 8);
-    CHECK(std::max(upper, lower) - std::min(upper, lower) <= 3);
+    CHECK(upper + lower == affordable);
+    CHECK(upper >= affordable / 2);
+    CHECK(lower >= affordable / 2);
+    CHECK(std::max(upper, lower) - std::min(upper, lower) <= 1);
+    CHECK(report.at("economy").at("spent") == affordable * cost);
 }
 
 TEST_CASE_METHOD(immune::test::BalanceConfigIsolation, "undefended balance policy starts authored waves without free defenses",
@@ -586,6 +747,124 @@ TEST_CASE_METHOD(immune::test::BalanceConfigIsolation, "balance controller start
     REQUIRE(actions.size() == 1);
     CHECK(actions[0].kind == ActionKind::StartWave);
     CHECK(fixture.economy.atp() == 300);
+}
+
+TEST_CASE_METHOD(immune::test::BalanceConfigIsolation, "default preparation bound advances while another paid deployment remains legal",
+          "[balance][controller][waves][bounded-prep][regression]") {
+    ControllerFixture fixture;
+    fixture.init(100000);
+    const u32 mask = 1u << static_cast<u32>(TowerType::Neutrophil);
+    fixture.towers.set_unlocked_towers(mask);
+    fixture.towers.set_allowed_towers(mask);
+    ControllerParams params;
+    params.policy = Policy::Tactical;
+    params.reaction_ticks = 1;
+    params.prep_ticks = 3;
+    params.use_abilities = false;
+    BalanceController controller(params);
+
+    // A large wallet does not require filling the board to reproduce this
+    // scheduling failure. Keep real paid defenders and prove that another
+    // legal, affordable purchase remains available at the preparation bound.
+    const auto initial = controller.decide(fixture.view());
+    const Action* first = deploy_action(initial);
+    REQUIRE(first != nullptr);
+    REQUIRE(deploy_cells(fixture.towers, fixture.world, fixture.economy,
+                         first->tower, first->position, first->quantity) == 1);
+    for (Tick checkpoint : {Tick{3}, Tick{3599}, Tick{3600}}) {
+        while (fixture.world.tick_index() < checkpoint) fixture.world.tick();
+        const auto before = fixture.economy.snapshot();
+        const auto hash = fixture.world.state_hash();
+        const auto actions = controller.decide(fixture.view());
+        const Action* paid = deploy_action(actions);
+        REQUIRE(paid != nullptr);
+        REQUIRE(fixture.towers.validate_deploy(fixture.world, paid->tower,
+                                               paid->position, before.atp).valid());
+        CHECK(fixture.world.state_hash() == hash);
+        CHECK(fixture.economy.atp() == before.atp);
+        const auto starts = std::count_if(actions.begin(), actions.end(), [](const Action& action) {
+            return action.kind == ActionKind::StartWave;
+        });
+        CHECK(starts == (checkpoint == 3600 ? 1 : 0));
+        if (checkpoint != 3600) continue;
+        const u32 cost = fixture.towers.stats(paid->tower).build_cost;
+        REQUIRE(deploy_cells(fixture.towers, fixture.world, fixture.economy,
+                             paid->tower, paid->position, paid->quantity) == 1);
+        CHECK(fixture.economy.atp() == before.atp - cost);
+        CHECK(fixture.economy.snapshot().total_spent == before.total_spent + cost);
+        fixture.waves.request_early_start();
+        fixture.waves.tick(fixture.world, fixture.world.rng(), kFixedDt);
+        CHECK(fixture.waves.status().phase == WavePhase::Spawning);
+    }
+}
+
+TEST_CASE_METHOD(immune::test::BalanceConfigIsolation, "native preparation cap honors explicit minimums without unpaid purchases",
+          "[balance][controller][waves][bounded-prep][regression]") {
+    config::ConfigStore store;
+    GameConfig base;
+    std::string error;
+    REQUIRE(load_game_config(store, platform::asset_path("config"), base, error));
+    u32 minimum = 2, cap = 6, expected_start = 6;
+    SECTION("large wallet does not delay a wave until it is exhausted") {}
+    SECTION("explicit minimum longer than the cap takes precedence") {
+        minimum = 12;
+        expected_start = 12;
+    }
+    SECTION("zero cap means the explicit minimum rather than unlimited prep") {
+        minimum = 8;
+        cap = 0;
+        expected_start = 8;
+    }
+    const config::Json spec = {{"schema", 1},
+        {"level", platform::asset_path("levels/campaign_01_first_bend.json")},
+        {"seed", 8279}, {"max_ticks", expected_start + 3}, {"sample_ticks", 1},
+        {"opening_atp", 100000}, {"income_enabled", false}, {"allowed_cells", {"neutrophil"}},
+        {"controller", {{"policy", "tactical"}, {"reaction_ticks", 2},
+                        {"prep_ticks", minimum}, {"max_prep_ticks", cap}, {"use_abilities", false}}}};
+    const auto report = execute(spec, base);
+    INFO(report.at("diagnostics").dump());
+    REQUIRE(report.at("summary").at("valid") == true);
+    CHECK(report.at("summary").at("actions_rejected") == 0);
+    CHECK(report.at("summary").at("deploy_capacity_rejected") == 0);
+    CHECK_FALSE(report.at("spec").contains("actions"));
+    u32 starts = 0, deployments = 0;
+    Tick last_deployment = 0;
+    for (const auto& action : report.at("actions")) {
+        REQUIRE(action.at("accepted") == true);
+        const Tick tick = action.at("tick").get<Tick>();
+        if (action.at("kind") == "start_wave") {
+            ++starts;
+            CHECK(tick == expected_start);
+            CHECK(tick >= minimum);
+        } else if (action.at("kind") == "deploy") {
+            CHECK(action.at("quantity") == 1);
+            if (deployments > 0) CHECK(tick - last_deployment >= 2);
+            last_deployment = tick;
+            ++deployments;
+        }
+    }
+    CHECK(starts == 1);
+    REQUIRE(deployments > 0);
+    const u32 cost = base.towers.stats[static_cast<u32>(TowerType::Neutrophil)].build_cost;
+    CHECK(report.at("economy").at("spent") == deployments * cost);
+    CHECK(report.at("units").at("neutrophil").at("deployed") == deployments);
+    CHECK(report.at("economy").at("damage_income") == 0);
+    CHECK(report.at("economy").at("wave_income") == 0);
+    CHECK(report.at("economy").at("atp").get<u32>() >= 90000);
+}
+
+TEST_CASE_METHOD(immune::test::BalanceConfigIsolation, "native preparation cap rejects malformed experiment bounds",
+          "[balance][controller][bounded-prep][validation]") {
+    config::Json spec = {{"schema", 1},
+        {"level", platform::asset_path("levels/campaign_01_first_bend.json")},
+        {"max_ticks", 1}, {"controller", {{"max_prep_ticks", -1}}}};
+    SECTION("negative bound") {}
+    SECTION("fractional bound") { spec["controller"]["max_prep_ticks"] = 1.5; }
+    SECTION("bound beyond supported observation interval") { spec["controller"]["max_prep_ticks"] = 36001; }
+    const auto report = execute(spec, GameConfig{});
+    CHECK(report.at("summary").at("valid") == false);
+    CHECK(report.at("summary").at("status") == "invalid");
+    CHECK(report.at("diagnostics").at("errors").dump().find("max_prep_ticks") != std::string::npos);
 }
 
 TEST_CASE_METHOD(immune::test::BalanceConfigIsolation, "balance controller uses unlocked emergency abilities only on visible danger",
@@ -829,7 +1108,14 @@ TEST_CASE_METHOD(immune::test::BalanceConfigIsolation, "blob field pooling prese
             if (id == "upper_island_route" || id == "cross_island_route")
                 spawns.erase(spawns.begin() + i);
         }
-        REQUIRE(spawns.size() == 2);
+        std::set<std::string> active_paths;
+        for (const auto& spawn : spawns) {
+            for (const auto& path : spawn["squad_paths"]) active_paths.insert(path.get<std::string>());
+        }
+        // Family cohorts can share one physical approach. The contract is
+        // two remaining route alternatives, not exactly two spawn records.
+        const std::set<std::string> expected_paths{"lower_island_route", "middle_island_route"};
+        REQUIRE(active_paths == expected_paths);
     }
     // This actual first-entry V11 control profile exposed a false common
     // pocket: successful pure-flow samples chose the lower branch, while
@@ -963,7 +1249,7 @@ TEST_CASE_METHOD(immune::test::BalanceConfigIsolation, "last-second convergence 
     GameConfig base;
     std::string error;
     REQUIRE(load_game_config(store, platform::asset_path("config"), base, error));
-    const auto level = config::Json::parse(R"JSON({
+    auto level = config::Json::parse(R"JSON({
       "schema":2,"name":"late_junction_controller","region":"capillary",
       "world":{"min":[0,0],"max":[180,100],"cell_size":1},
       "vessels":[
@@ -980,6 +1266,15 @@ TEST_CASE_METHOD(immune::test::BalanceConfigIsolation, "last-second convergence 
         {"family":"virus","count":30,"duration":1,"spawn_point_id":"p0","squad_paths":["upper_route"]},
         {"family":"virus","count":30,"duration":1,"spawn_point_id":"p1","squad_paths":["lower_route"]}]}]
     })JSON");
+    SECTION("an in-bounds organ leaves the original late convergence unsafe") {}
+    SECTION("an off-screen organ cannot invent playable room beyond the junction") {
+        // Same two approaches and same paid budget. Only the final public
+        // drain/organ extends off-board; it must not turn ten visible units
+        // of runway into a safe 160-unit common interception hold.
+        level["objectives"][0]["pos"][0]=330;
+        for (auto& vessel:level["vessels"]) vessel["points"].back()["p"][0]=330;
+        for (auto& path:level["squad_paths"]) path["points"].back()[0]=330;
+    }
     const u32 cost = base.towers.stats[static_cast<u32>(TowerType::Neutrophil)].build_cost;
     const config::Json spec = {{"schema", 1}, {"level_document", level}, {"seed", 4133},
         {"max_ticks", 20}, {"opening_atp", 20 * cost},
@@ -1001,4 +1296,271 @@ TEST_CASE_METHOD(immune::test::BalanceConfigIsolation, "last-second convergence 
     CHECK(upper >= 8);
     CHECK(lower >= 8);
     CHECK(std::max(upper, lower) - std::min(upper, lower) <= 3);
+}
+
+TEST_CASE_METHOD(immune::test::BalanceConfigIsolation, "ring road reinforcements intercept visible traffic beyond healthy entrance cohorts",
+          "[balance][controller][campaign][routes][live-front][regression]") {
+    bool nearby_support = false;
+    SECTION("healthy damaging cohorts are still upstream") {}
+    SECTION("nearby mucus cells do not replace a damaging interception cohort") { nearby_support = true; }
+    config::ConfigStore store;
+    GameConfig base;
+    std::string error;
+    REQUIRE(load_game_config(store, platform::asset_path("config"), base, error));
+    const auto text = platform::read_text_file(platform::asset_path("levels/campaign_05_ring_road.json"));
+    REQUIRE(text.has_value());
+
+    ControllerFixture fixture;
+    const auto parsed = LevelLoader{}.load_string(*text, fixture.level);
+    INFO(parsed.error);
+    REQUIRE(parsed.ok);
+    sim::SimDesc desc;
+    desc.seed = 72011;
+    desc.max_chaff = 1024;
+    desc.max_swarmers = 512;
+    desc.max_fluid_particles = 128;
+    desc.world_bounds = fixture.level.world_bounds;
+    desc.sim_bounds = level_sim_bounds(fixture.level);
+    fixture.world.init(desc, nullptr);
+    REQUIRE(LevelLoader{}.instantiate(fixture.level, fixture.world).ok);
+    apply_tower_config(fixture.towers, base.towers);
+    fixture.towers.register_systems(fixture.world);
+    const auto type = TowerType::Neutrophil;
+    const auto support = TowerType::GobletCell;
+    const u32 roster = (1u << static_cast<u32>(type)) |
+        (nearby_support ? 1u << static_cast<u32>(support) : 0u);
+    fixture.towers.set_unlocked_towers(roster);
+    fixture.towers.set_allowed_towers(roster);
+    const u32 cost = fixture.towers.stats(type).build_cost;
+    const u32 support_budget = nearby_support ? 3u * fixture.towers.stats(support).build_cost : 0u;
+    auto economy_config = base.economy;
+    economy_config.starting_atp = cost * (10 * static_cast<u32>(fixture.level.spawn_points.size()) + 1) + support_budget;
+    fixture.economy.configure(economy_config);
+    fixture.abilities.load_defaults();
+    fixture.abilities.set_unlocked(0);
+
+    // Isolate the authored second wave's public preview and active phase.
+    // Paid feeder cohorts represent survivors of the previous release; no
+    // strength grant or whole-level clear is an assertion of this regression.
+    REQUIRE(fixture.level.waves.size() >= 2);
+    fixture.waves.set_waves({fixture.level.waves[1]});
+    fixture.waves.set_auto_start(false);
+    fixture.waves.start(fixture.world);
+    std::vector<Vec2> holding;
+    config::Json traffic;
+    for (const auto& spawn : fixture.level.spawn_points) {
+        const auto route = navigation_path(fixture.world, spawn.position);
+        REQUIRE(route["complete"] == true);
+        if (traffic.is_null()) traffic = route;
+        bool found = false;
+        for (const auto& point : route["points"]) {
+            const Vec2 position{point[0].get<f32>(), point[1].get<f32>()};
+            if (!fixture.world.desc().world_bounds.contains(position)) continue;
+            if (!fixture.towers.validate_deploy(fixture.world, type, position, fixture.economy.atp()).valid()) continue;
+            REQUIRE(deploy_cells(fixture.towers, fixture.world, fixture.economy, type, position, 10) == 10);
+            holding.push_back(position);
+            found = true;
+            break;
+        }
+        REQUIRE(found);
+    }
+    REQUIRE(fixture.economy.atp() == cost + support_budget);
+    fixture.waves.request_early_start();
+    fixture.waves.tick(fixture.world, fixture.world.rng(), kFixedDt);
+    REQUIRE(fixture.waves.status().phase == WavePhase::Spawning);
+
+    // Observe a real navigable downstream approach independently of the
+    // controller's cached route scoring. It must leave room for an intercept
+    // and be outside every feeder cohort's physical engagement radius.
+    const f32 reach = swarmer_profile(type).attach_radius;
+    Vec2 threat{};
+    bool found_threat = false;
+    for (const auto& point : traffic["points"]) {
+        const Vec2 position{point[0].get<f32>(), point[1].get<f32>()};
+        const f32 remaining = fixture.world.flow().sample_cost(position);
+        if (!fixture.world.desc().world_bounds.contains(position) || remaining > reach * 3.5f || remaining < reach * 2.0f) continue;
+        if (std::any_of(holding.begin(), holding.end(), [&](Vec2 p) { return math::length_sq(position - p) <= 9.0f * reach * reach; })) continue;
+        if (!fixture.towers.validate_deploy(fixture.world, type, position, cost).valid()) continue;
+        threat = position;
+        found_threat = true;
+        break;
+    }
+    REQUIRE(found_threat);
+    const Vec2 forward = math::normalize_safe(fixture.world.flow().sample(threat));
+    REQUIRE(math::length_sq(forward) > 0.0f);
+    if (nearby_support) {
+        // Three legal, paid mucus cells ahead of the horde can slow it, but
+        // none deals baseline damage. Their presence must not hide this
+        // uncovered front from the next damaging reinforcement decision.
+        const Vec2 support_position = threat + forward * (reach * 0.5f);
+        REQUIRE(fixture.towers.validate_deploy(fixture.world, support, support_position,
+                                             fixture.economy.atp()).valid());
+        REQUIRE(deploy_cells(fixture.towers, fixture.world, fixture.economy,
+                             support, support_position, 3) == 3);
+    }
+    REQUIRE(fixture.economy.atp() == cost);
+    fixture.spawn(threat, 60);
+
+    ControllerParams params;
+    params.policy = Policy::Specialist;
+    params.weights = {1, 0, 0, 0, 0};
+    params.use_abilities = false;
+    BalanceController controller(params);
+    const auto before_hash = fixture.world.state_hash();
+    const auto before_spent = fixture.economy.snapshot().total_spent;
+    const auto actions = controller.decide(fixture.view());
+    const auto* action = deploy_action(actions);
+    REQUIRE(action != nullptr);
+    INFO("visible traffic " << threat.x << "," << threat.y);
+    INFO("proposed intercept " << action->position.x << "," << action->position.y);
+    CHECK(action->tower == type);
+    CHECK(fixture.towers.validate_deploy(fixture.world, type, action->position, cost).valid());
+    CHECK(math::length_sq(action->position - threat) <= reach * reach);
+    const Vec2 intercept_offset = action->position - threat;
+    CHECK(intercept_offset.x * forward.x + intercept_offset.y * forward.y >= -2.0f * fixture.world.flow().cell_size());
+    CHECK(fixture.world.state_hash() == before_hash);
+    CHECK(fixture.economy.snapshot().total_spent == before_spent);
+    REQUIRE(deploy_cells(fixture.towers, fixture.world, fixture.economy, type, action->position, action->quantity) == 1);
+    CHECK(fixture.economy.atp() == 0);
+    CHECK(fixture.economy.snapshot().total_spent == before_spent + cost);
+}
+
+TEST_CASE_METHOD(immune::test::BalanceConfigIsolation, "earned ring road reference clears every current wave through paid automatic play",
+          "[balance][controller][campaign][l5-calibration][regression]") {
+    config::ConfigStore store;
+    GameConfig base;
+    std::string error;
+    REQUIRE(load_game_config(store, platform::asset_path("config"), base, error));
+    const auto text = platform::read_text_file(platform::asset_path("balance/experiments/controller_l5_calibration.json"));
+    REQUIRE(text.has_value());
+    const auto experiment = config::Json::parse(*text);
+    auto spec = experiment.at("base");
+    const auto level_path = spec.at("level").get<std::string>();
+    REQUIRE(level_path.starts_with("assets/"));
+    spec["level"] = platform::asset_path(level_path.substr(7));
+    spec["controller"] = experiment.at("policies").at(0).at("controller");
+    spec["seed"] = experiment.at("controller_calibration").at("references").at(0)
+        .at("evidence").at("known_feasible_seed");
+
+    // This is the known-achievable development seed and immutable earned
+    // profile, not one of the independent evaluation seeds or a human rating.
+    // Resolve the shipped level at execution time so CI exercises all current
+    // authored waves rather than a historical embedded slice.
+    REQUIRE(spec.at("controller").at("policy") == "tactical");
+    REQUIRE(spec.contains("progression_snapshot"));
+    REQUIRE_FALSE(spec.contains("level_document"));
+    REQUIRE_FALSE(spec.contains("actions"));
+    REQUIRE_FALSE(spec.contains("overrides"));
+    REQUIRE_FALSE(spec.value("progression", config::Json::object()).contains("grant_tree"));
+    const auto report = execute(spec, base);
+    INFO(report.at("diagnostics").dump());
+    INFO(report.at("summary").dump());
+    REQUIRE(report.at("summary").at("valid") == true);
+    REQUIRE(report.at("summary").at("status") == "cleared");
+    CHECK(report.at("summary").at("waves_cleared") == 8);
+    CHECK(report.at("waves").size() == 8);
+    CHECK(report.at("summary").at("objective_integrity").get<f32>() >= 90.0f);
+    CHECK(report.at("summary").at("leaks") == 0);
+    CHECK(report.at("summary").at("clearing_timeout_advances") == 0);
+    CHECK(report.at("summary").at("actions_rejected") == 0);
+    CHECK(report.at("summary").at("denied_spawns") == 0);
+    CHECK(report.at("summary").at("deploy_capacity_rejected") == 0);
+    CHECK(report.at("summary").at("atp_spent").get<u64>() > 0);
+    CHECK(report.at("state").at("alive") == 0);
+    CHECK(report.at("provenance").at("experimental_rules") == false);
+    CHECK(report.at("provenance").at("synthetic_progression") == false);
+    CHECK_FALSE(report.at("spec").contains("actions"));
+    for (const char* metric : {"replications_denied_capacity", "replications_denied_tick_budget",
+                               "harpoons_denied_capacity", "toxin_shots_denied_capacity", "overflow"})
+        CHECK(report.at("combat").at(metric) == 0);
+    for (const auto& pool : report.at("combat").at("pools").items()) CHECK(pool.value().at("denied") == 0);
+    for (const auto& wave : report.at("waves")) {
+        CHECK(wave.at("completed") == true);
+        CHECK(wave.at("clearing_timeout") == false);
+        CHECK(wave.at("survivors_on_completion") == 0);
+        CHECK(wave.at("denied") == 0);
+    }
+}
+
+TEST_CASE_METHOD(immune::test::BalanceConfigIsolation, "arriving traffic preserves a paid cohort at a shared downstream interception",
+          "[balance][controller][junction][live-front][shared-cohort][regression]") {
+    config::ConfigStore store;
+    GameConfig base;
+    std::string error;
+    REQUIRE(load_game_config(store, platform::asset_path("config"), base, error));
+    const auto level = config::Json::parse(R"JSON({
+      "schema":2,"name":"converging_entrances_controller","region":"capillary",
+      "world":{"min":[0,0],"max":[240,160],"cell_size":1},
+      "vessels":[
+        {"id":"upper","points":[{"p":[-20,125],"w":30},{"p":[80,125],"w":30},{"p":[120,80],"w":36},{"p":[228,80],"w":36}]},
+        {"id":"lower","points":[{"p":[-20,35],"w":30},{"p":[80,35],"w":30},{"p":[120,80],"w":36},{"p":[228,80],"w":36}]}],
+      "spawn_points":[{"id":"upper_entry","pos":[-10,125],"radius":4,"lane_id":"upper"},
+        {"id":"lower_entry","pos":[-10,35],"radius":4,"lane_id":"lower"}],
+      "objectives":[{"id":"organ","pos":[224,80],"half_extents":[6,18]}],
+      "placement_zones":[{"min":[2,2],"max":[218,158]}],
+      "squad_paths":[
+        {"id":"upper_route","lane_id":"upper","points":[[-10,125],[80,125],[120,80],[224,80]],"half_width":3},
+        {"id":"lower_route","lane_id":"lower","points":[[-10,35],[80,35],[120,80],[224,80]],"half_width":3}],
+      "waves":[{"name":"two_arriving_columns","prep_time":12,"spawns":[
+        {"family":"virus","count":30,"duration":2,"spawn_point_id":"upper_entry","squad_paths":["upper_route"]},
+        {"family":"virus","count":30,"duration":2,"spawn_point_id":"lower_entry","squad_paths":["lower_route"]}]}]
+    })JSON");
+    const Vec2 holding{140.0f, 80.0f};
+    const u32 cohort = 12;
+    const u32 cost = base.towers.stats[static_cast<u32>(TowerType::Neutrophil)].build_cost;
+    const config::Json spec = {{"schema", 1}, {"level_document", level}, {"seed", 8273},
+        {"max_ticks", 180}, {"sample_ticks", 180}, {"opening_atp", cost * (cohort + 1)},
+        {"allowed_cells", {"neutrophil"}},
+        {"actions", config::Json::array({
+            {{"tick", 0}, {"kind", "deploy"}, {"tower", "neutrophil"},
+                {"position", {holding.x, holding.y}}, {"quantity", cohort / 2}},
+            {{"tick", 0}, {"kind", "deploy"}, {"tower", "neutrophil"},
+                {"position", {holding.x, holding.y}}, {"quantity", cohort - cohort / 2}},
+            {{"tick", 0}, {"kind", "start_wave"}}})}};
+    bool captured = false;
+    const auto report = execute(spec, base, [&](const CaptureView& view) {
+        captured = true;
+        REQUIRE(view.waves.status().phase != WavePhase::Prep);
+        REQUIRE(view.waves.status().phase != WavePhase::Complete);
+        REQUIRE(view.world.swarmers().count() == cohort);
+        REQUIRE(view.economy.atp() == cost);
+        const f32 reach = swarmer_profile(TowerType::Neutrophil).attach_radius;
+        REQUIRE(view.world.flow().sample_cost(holding) >= 2.0f * reach);
+        for (const auto& spawn : view.level.spawn_points)
+            for (const auto& corridor : navigation_corridors(view.world, spawn))
+                REQUIRE(path_distance(holding, corridor) <= reach);
+        u32 visible_upstream = 0;
+        const auto& chaff = view.world.chaff();
+        for (usize i = 0; i < chaff.count(); ++i) {
+            const Vec2 position{chaff.pos_x[i], chaff.pos_y[i]};
+            if (!view.world.desc().world_bounds.contains(position) ||
+                (chaff.flags[i] & (sim::chaff_flags::kHidden | sim::chaff_flags::kPendingKill)) != 0) continue;
+            REQUIRE(math::length_sq(position - holding) > 4.0f * reach * reach);
+            REQUIRE(view.world.flow().sample_cost(position) > view.world.flow().sample_cost(holding));
+            ++visible_upstream;
+        }
+        REQUIRE(visible_upstream >= 6);
+        ControllerParams params;
+        params.policy = Policy::Specialist;
+        params.weights = {1, 0, 0, 0, 0};
+        params.use_abilities = false;
+        BalanceController controller(params);
+        const auto hash = view.world.state_hash();
+        const auto actions = controller.decide({view.world, view.level, view.towers, view.economy, view.waves, view.abilities});
+        const auto* action = deploy_action(actions);
+        REQUIRE(action != nullptr);
+        CHECK(action->tower == TowerType::Neutrophil);
+        CHECK(view.towers.validate_deploy(view.world, action->tower, action->position, view.economy.atp()).valid());
+        // A new cell joins the existing cohort's physical support range;
+        // earlier visible arrivals do not justify another detached fight.
+        INFO("proposed reinforcement " << action->position.x << "," << action->position.y);
+        CHECK(math::length_sq(action->position - holding) <= reach * reach);
+        CHECK(view.world.state_hash() == hash);
+        CHECK(view.economy.atp() == cost);
+    });
+    INFO(report.at("diagnostics").dump());
+    REQUIRE(report.at("summary").at("valid") == true);
+    REQUIRE(captured);
+    CHECK(report.at("summary").at("actions_rejected") == 0);
+    CHECK(report.at("economy").at("spent") == cohort * cost);
 }

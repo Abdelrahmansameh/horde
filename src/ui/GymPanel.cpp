@@ -522,7 +522,7 @@ void GymPanel::draw_log(game::GymContext& ctx) {
 // The window
 // ---------------------------------------------------------------------------
 
-void GymPanel::build(game::GymContext& ctx) {
+void GymPanel::build(game::GymContext& ctx, RecordingUi& recording) {
     // Owns its own toggle rather than going through platform::Action, so it
     // works identically in any game state and needs no change to the frozen
     // input binding table. Backtick, or F2 where backtick is a dead key. NOT F1:
@@ -547,10 +547,22 @@ void GymPanel::build(game::GymContext& ctx) {
         return;
     }
 
+    ImGui::Checkbox("Record balance run", &recording.enabled);
+    ImGui::TextDisabled("Recording starts with the next level or restart. Turning it off saves the current run.");
+    if (!recording.status.empty()) ImGui::TextWrapped("%s", recording.status.c_str());
+    if (!recording.directory.empty()) ImGui::TextWrapped("Recordings: %s", recording.directory.c_str());
+    ImGui::Separator();
+
+    // Gym commands can change the simulation outside the recorded player
+    // actions. Keep them unavailable while a run is being recorded.
+    ImGui::BeginDisabled(recording.read_only);
+    if (recording.read_only) ImGui::TextDisabled("Gym controls are disabled while recording.");
+
     if (ctx.world == nullptr) {
         ImGui::TextColored(kColorErr, "No level loaded.");
         ImGui::TextDisabled("Load one to get the controls: 'level gym' in the box below.");
         draw_log(ctx);
+        ImGui::EndDisabled();
         ImGui::End();
         return;
     }
@@ -596,6 +608,7 @@ void GymPanel::build(game::GymContext& ctx) {
     ImGui::Separator();
     draw_log(ctx);
 
+    ImGui::EndDisabled();
     ImGui::End();
 }
 

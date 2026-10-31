@@ -72,7 +72,7 @@ The script harness in [Modes.cpp](../src/app/Modes.cpp) creates the world, runs 
 }
 ```
 
-`schema` is required and must be 1. Current defaults are `name: unnamed`, 600 ticks, capacity 16,384, and the CLI seed. The script's `seed` and `level` override CLI values. Its `ticks` controls duration; CLI `--ticks` is not the script duration. Missing `level` uses CLI `--level`, then the built-in test lane.
+`schema` is required and must be 1. Current defaults are `name: unnamed`, 600 ticks, the loaded config's enemy capacity (65,536 in the shipped config), and the CLI seed. An explicit `max_chaff` remains a script input, including zero. The script's `seed` and `level` override CLI values. Its `ticks` controls duration; CLI `--ticks` is not the script duration. Missing `level` uses CLI `--level`, then the built-in test lane.
 
 The minimal assertions above illustrate the format, not a meaningful regression specification. For a real scenario, assert an observable behavior such as damage, successful traversal, a surviving objective, or a bounded count at the relevant ticks.
 
@@ -202,9 +202,9 @@ Level checking reports semantic/baked errors and warnings; formatting checks can
 python tools/bench_report.py --ticks 1200 --scenario chaff10k --scenario mixed --no-history
 ```
 
-Registered scenarios are `empty`, `chaff1k`, `chaff10k`, `chaff10k_towers`, `named200`, and `mixed`. They seed 0/1,000/10,000 ordinary agents, 0/200 named agents, and optionally 16 long-lived damage fields. Despite its name, `chaff10k_towers` adds damage fields rather than purchasing a defense plan. Benchmarks tick the sim and submit rendering without playing authored waves.
+Registered scenarios are `empty`, `chaff1k`, `chaff10k`, `chaff10k_towers`, `chaff16k`, `chaff32k`, `chaff64k`, `named200`, and `mixed`. The large-horde probes seed 16,384/32,768/65,536 ordinary agents in the same default world with a 65,536-agent reservation; legacy 10k cases keep their 16k reservations for comparison. These crowd probes omit spores. Despite its name, `chaff10k_towers` adds damage fields rather than purchasing a defense plan. Benchmarks tick the sim and submit rendering without playing authored waves. See [Horde capacity](HORDE_CAPACITY.md) for reservation, hostile-damage deferral and stress-workload limits.
 
-Benchmark JSON contains `scenario`, `ticks`, `seed`, final `agents.chaff/named`, and `timings_ms`. Timing entries contain `avg`, `p50`, `p99`, `min`, `max`, and `samples`. Standard keys are `chaff_update`, `spatial_hash`, `ecs_tick`, `render_submit`, and `frame_total`; additional recorded subsystem keys are retained.
+Benchmark JSON contains `scenario`, `ticks`, `seed`, final `agents.chaff/named`, and `timings_ms`. It also records config directory/hash, actual threads, renderer availability, reservations, initial/peak live chaff and peak spatial-cell occupancy. Timing entries contain `avg`, `p50`, `p99`, `min`, `max`, and `samples`. Standard keys are `chaff_update`, `spatial_hash`, `ecs_tick`, `render_submit`, and `frame_total`; additional recorded subsystem keys are retained. Dense 32k/64k seeded stress is not a measurement of an authored campaign's frame performance.
 
 The [report helper](../tools/bench_report.py) grades averages against strict thresholds:
 

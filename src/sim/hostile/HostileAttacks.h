@@ -73,6 +73,8 @@
 // on a string, without a per-passenger offset stream.
 #pragma once
 
+#include "core/CapacityDefaults.h"
+
 #include "core/Types.h"
 #include "sim/chaff/ChaffBuffers.h"
 #include "sim/hostile/Harpoon.h"
@@ -144,12 +146,15 @@ struct HostileTuning {
     u32 max_attackers = 128;
     /// PathogenLatch events raised per tick, out of the shared sink.
     u32 max_latch_events = 64;
-    u32 max_toxin_shots = 4096;
+    u32 max_toxin_shots = kDefaultToxinShotCapacity;
     /// Hoses alive at once. A spore that would make one more stays ready and
     /// searches again later.
-    u32 max_harpoons = 1024;
+    u32 max_harpoons = kDefaultHarpoonCapacity;
     /// HarpoonPulse events raised per tick, out of the shared sink.
     u32 max_harpoon_events = 64;
+    /// ToxinFired + ToxinHit events raised per tick, out of the shared sink.
+    /// Audio cues only (audio/SoundScape.h rate-limits far below this).
+    u32 max_toxin_events = 64;
     /// Multiplier on every hit point the pass takes off a tower, scar or
     /// swarmer. Membrane Resilience (game/meta/ImmunityTree.h) lowers it; 1
     /// is the pass exactly as the families configure it.
@@ -206,6 +211,8 @@ struct HostileStats {
     u32 toxin_hits = 0;
     u32 harpoons_fired = 0;   ///< Hoses that left a nozzle this tick.
     u32 harpoon_hits = 0;     ///< Slugs that reached their target this tick.
+    u32 toxin_shots_denied_capacity = 0; ///< Ready damage-producing shots deferred by storage.
+    u32 harpoons_denied_capacity = 0; ///< Ready, in-range spore hoses deferred by storage.
     u32 swarmers_killed = 0;
     f32 swarmer_damage = 0.0f;
     f32 tower_damage = 0.0f;  ///< Queued against towers; SimWorld lands it.
@@ -229,8 +236,15 @@ public:
     void set_tuning(const HostileTuning& t) {
         tuning_ = t;
         toxin_shots_.reserve(t.max_toxin_shots);
+        harpoons_.reserve(t.max_harpoons);
     }
     const HostileTuning& tuning() const { return tuning_; }
+    /// Harpoon siege is legal only inside the playable arena, not merely the
+    /// larger simulation/spawn apron. Bare system fixtures retain no bounds.
+    void set_playable_bounds(const Rect& bounds) {
+        playable_bounds_ = bounds;
+        restrict_siege_to_playable_ = bounds.size().x > 0.0f && bounds.size().y > 0.0f;
+    }
 
     /// Pathogen body radius per family, for the contact distances. Same
     /// hand-over SwarmerSystem::set_chaff_radii makes, for the same reason:
@@ -258,6 +272,9 @@ public:
     const std::vector<HarpoonLine>& harpoons() const { return harpoons_; }
 
 private:
+    bool siege_playable(Vec2 position) const {
+        return !restrict_siege_to_playable_ || playable_bounds_.contains(position);
+    }
     /// The harpoon pass (Harpoon.h): first every live hose, then every
     /// shooter. Runs after the friendly walks, before deaths.
     void update_harpoons(ChaffBuffers& chaff, SwarmerBuffers& sw, FriendlyTowerList& towers,
@@ -265,6 +282,8 @@ private:
 
     HostileTuning tuning_{};
     HostileStats last_{};
+    Rect playable_bounds_{};
+    bool restrict_siege_to_playable_ = false;
     f32 chaff_radius_[kFamilyCount]{};
     /// Passengers per swarmer slot this tick. Sized to the swarmer store's
     /// capacity on first use and never after.

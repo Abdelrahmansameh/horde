@@ -322,6 +322,7 @@ bool needs_schema_2(const LevelDef& d) {
     if (!d.display_name.empty() || !d.description.empty() || !d.author.empty()) return true;
     if (d.difficulty != 0 || !d.tags.empty() || !d.allowed_towers.empty()) return true;
     if (d.economy.starting_atp != 0 || d.economy.income_multiplier != 1.0f) return true;
+    if (d.enemy_scaling.durability_multiplier != 1.0f || d.enemy_scaling.damage_multiplier != 1.0f) return true;
     if (d.camera.has_center || d.camera.view_height != 0.0f ||
         d.camera.min_view_height != 0.0f || d.camera.max_view_height != 0.0f) {
         return true;
@@ -386,6 +387,14 @@ std::string level_to_json(const LevelDef& def) {
         e.add_if(def.economy.income_multiplier != 1.0f, "income_multiplier",
                  num(def.economy.income_multiplier));
         top.push_back("\"economy\": " + e.inline_object());
+    }
+    if (def.enemy_scaling.durability_multiplier != 1.0f || def.enemy_scaling.damage_multiplier != 1.0f) {
+        Fields e;
+        e.add_if(def.enemy_scaling.durability_multiplier != 1.0f, "durability_multiplier",
+                 num(def.enemy_scaling.durability_multiplier));
+        e.add_if(def.enemy_scaling.damage_multiplier != 1.0f, "damage_multiplier",
+                 num(def.enemy_scaling.damage_multiplier));
+        top.push_back("\"enemy_scaling\": " + e.inline_object());
     }
     if (!def.allowed_towers.empty()) {
         std::vector<std::string> t;
@@ -496,6 +505,8 @@ bool level_equal(const LevelDef& a, const LevelDef& b, f32 eps) {
     if (a.tags != b.tags || a.allowed_towers != b.allowed_towers) return false;
     if (a.economy.starting_atp != b.economy.starting_atp) return false;
     if (!near_eq(a.economy.income_multiplier, b.economy.income_multiplier, eps)) return false;
+    if (!near_eq(a.enemy_scaling.durability_multiplier,b.enemy_scaling.durability_multiplier,eps)) return false;
+    if (!near_eq(a.enemy_scaling.damage_multiplier,b.enemy_scaling.damage_multiplier,eps)) return false;
     if (a.camera.has_center != b.camera.has_center) return false;
     if (a.camera.has_center && !near_eq(a.camera.center, b.camera.center, eps)) return false;
     if (!near_eq(a.camera.view_height, b.camera.view_height, eps)) return false;

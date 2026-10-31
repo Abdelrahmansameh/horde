@@ -30,7 +30,7 @@ struct BenchScenario {
     u32 chaff_count = 0;       ///< Agents spawned at t=0.
     u32 named_count = 0;       ///< Named ECS agents spawned at t=0.
     u32 damage_fields = 0;     ///< Persistent damage fields active.
-    usize max_chaff = 16384;
+    usize max_chaff = kDefaultChaffCapacity;
 };
 
 /// All registered scenarios, in a stable order.

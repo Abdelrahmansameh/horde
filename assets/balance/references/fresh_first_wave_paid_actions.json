@@ -4,163 +4,46 @@
   },
   "level": "assets/balance/levels/campaign_first_wave_reference.json",
   "level_document": {
+    "schema": 2,
+    "name": "campaign_01_first_bend",
+    "display_name": "First Bend",
+    "description": "Current campaign first-wave calibration slice: exact shipped geometry, economy and first wave. Requalify paid placement and automatic controllers after authoring changes.",
+    "difficulty": 1,
+    "tags": [
+      "campaign"
+    ],
+    "region": "capillary",
+    "world": {
+      "min": [
+        0,
+        30
+      ],
+      "max": [
+        200,
+        130
+      ]
+    },
     "camera": {
       "center": [
         100,
         71.4
       ],
-      "max_view_height": 108,
+      "view_height": 108,
       "min_view_height": 82.08,
-      "view_height": 108
+      "max_view_height": 108
     },
-    "description": "Diagnostic reference slice: exact first authored campaign wave, with the original geometry, starting ATP and release timing. One broad vessel sweeps from the upper left to the lower right. Hold the bend before the horde escapes below.",
-    "difficulty": 1,
-    "display_name": "First Bend",
     "economy": {
-      "starting_atp": 300
+      "starting_atp": 300,
+      "income_multiplier": 1.0
     },
-    "name": "campaign_01_first_bend",
-    "objectives": [
-      {
-        "half_extents": [
-          14,
-          4
-        ],
-        "id": "organ",
-        "pos": [
-          174,
-          -90
-        ]
-      }
-    ],
-    "placement_zones": [
-      {
-        "max": [
-          200,
-          142.8
-        ],
-        "min": [
-          0,
-          0
-        ]
-      },
-      {
-        "concentrated": true,
-        "max": [
-          160,
-          103
-        ],
-        "min": [
-          105,
-          65
-        ],
-        "priority": 2
-      },
-      {
-        "concentrated": true,
-        "max": [
-          194,
-          68
-        ],
-        "min": [
-          148,
-          20
-        ],
-        "priority": 2
-      }
-    ],
-    "region": "capillary",
-    "schema": 2,
-    "spawn_points": [
-      {
-        "id": "p0",
-        "lane_id": "main",
-        "pos": [
-          -118,
-          112
-        ],
-        "radius": 9.52
-      }
-    ],
-    "squad_paths": [
-      {
-        "half_width": 4,
-        "id": "first_bend_route",
-        "lane_id": "main",
-        "points": [
-          [
-            -118,
-            112
-          ],
-          [
-            -40,
-            112
-          ],
-          [
-            0,
-            110
-          ],
-          [
-            40,
-            107
-          ],
-          [
-            76,
-            102
-          ],
-          [
-            108,
-            94
-          ],
-          [
-            135,
-            83
-          ],
-          [
-            153,
-            70
-          ],
-          [
-            166,
-            56
-          ],
-          [
-            172,
-            42
-          ],
-          [
-            174,
-            22
-          ],
-          [
-            174,
-            -32
-          ],
-          [
-            174,
-            -90
-          ]
-        ]
-      }
-    ],
-    "tags": [
-      "campaign"
-    ],
     "vessels": [
       {
         "id": "main",
         "points": [
           {
             "p": [
-              -140,
-              112
-            ],
-            "w": 32
-          },
-          {
-            "p": [
-              -40,
-              112
+              -18,
+              111
             ],
             "w": 32
           },
@@ -230,48 +113,148 @@
           {
             "p": [
               174,
-              -32
-            ],
-            "w": 32
-          },
-          {
-            "p": [
-              174,
-              -104
+              12
             ],
             "w": 32
           }
         ]
+      }
+    ],
+    "spawn_points": [
+      {
+        "id": "p0",
+        "pos": [
+          -38,
+          112
+        ],
+        "radius": 9.52,
+        "lane_id": "main"
+      }
+    ],
+    "objectives": [
+      {
+        "id": "organ",
+        "pos": [
+          174,
+          8
+        ],
+        "half_extents": [
+          18.7,
+          4
+        ]
+      }
+    ],
+    "placement_zones": [
+      {
+        "min": [
+          0,
+          14
+        ],
+        "max": [
+          201,
+          142.8
+        ]
+      },
+      {
+        "min": [
+          105,
+          65
+        ],
+        "max": [
+          160,
+          103
+        ],
+        "concentrated": true,
+        "priority": 2
+      },
+      {
+        "min": [
+          148,
+          20
+        ],
+        "max": [
+          194,
+          68
+        ],
+        "concentrated": true,
+        "priority": 2
+      }
+    ],
+    "squad_paths": [
+      {
+        "id": "first_bend_route",
+        "lane_id": "main",
+        "points": [
+          [
+            -39,
+            112
+          ],
+          [
+            0,
+            110
+          ],
+          [
+            40,
+            107
+          ],
+          [
+            76,
+            102
+          ],
+          [
+            108,
+            94
+          ],
+          [
+            135,
+            83
+          ],
+          [
+            153,
+            70
+          ],
+          [
+            166,
+            56
+          ],
+          [
+            172,
+            42
+          ],
+          [
+            174,
+            22
+          ],
+          [
+            174,
+            13
+          ]
+        ],
+        "half_width": 4
       }
     ],
     "waves": [
       {
-        "atp_reward": 45,
         "name": "campaign_01_first_bend_wave_1",
         "prep_time": 12,
+        "atp_reward": 45,
         "spawns": [
           {
+            "family": "virus",
             "count": 138,
             "duration": 4,
-            "family": "virus",
             "spawn_point_id": "p0",
+            "squad_size": 48,
             "squad_paths": [
               "first_bend_route"
-            ],
-            "squad_size": 48
+            ]
           }
         ]
       }
     ],
-    "world": {
-      "max": [
-        200,
-        142.8
-      ],
-      "min": [
-        0,
-        0
-      ]
+    "enemy_scaling": {
+      "durability_multiplier": 1.0,
+      "damage_multiplier": 1.0
     }
   },
   "max_ticks": 6000,
@@ -281,15 +264,23 @@
   },
   "sample_ticks": 300,
   "schema": 1,
-  "seed": 101,
   "actions": [
     {
       "tick": 0,
       "kind": "deploy",
       "tower": "neutrophil",
       "position": [
-        70.31622776601684,
-        103
+        39.262413024902344,
+        107.0553207397461
+      ]
+    },
+    {
+      "tick": 15,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        39.262413024902344,
+        107.0553207397461
       ]
     },
     {
@@ -297,8 +288,17 @@
       "kind": "deploy",
       "tower": "neutrophil",
       "position": [
-        69.59612643227423,
-        103.36998127154284
+        39.262413024902344,
+        107.0553207397461
+      ]
+    },
+    {
+      "tick": 45,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        39.262413024902344,
+        107.0553207397461
       ]
     },
     {
@@ -306,8 +306,17 @@
       "kind": "deploy",
       "tower": "neutrophil",
       "position": [
-        70.0618193227975,
-        102.29560070178282
+        39.262413024902344,
+        107.0553207397461
+      ]
+    },
+    {
+      "tick": 75,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        39.262413024902344,
+        107.0553207397461
       ]
     },
     {
@@ -315,8 +324,17 @@
       "kind": "deploy",
       "tower": "neutrophil",
       "position": [
-        70.50905647357094,
-        103.66397402563317
+        39.262413024902344,
+        107.0553207397461
+      ]
+    },
+    {
+      "tick": 105,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        39.262413024902344,
+        107.0553207397461
       ]
     },
     {
@@ -324,8 +342,17 @@
       "kind": "deploy",
       "tower": "neutrophil",
       "position": [
-        69.06581876311614,
-        102.83475649285329
+        39.262413024902344,
+        107.0553207397461
+      ]
+    },
+    {
+      "tick": 135,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        39.262413024902344,
+        107.0553207397461
       ]
     },
     {
@@ -333,8 +360,17 @@
       "kind": "deploy",
       "tower": "neutrophil",
       "position": [
-        70.88493801888966,
-        102.43707486934437
+        39.262413024902344,
+        107.0553207397461
+      ]
+    },
+    {
+      "tick": 165,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        39.262413024902344,
+        107.0553207397461
       ]
     },
     {
@@ -342,8 +378,17 @@
       "kind": "deploy",
       "tower": "neutrophil",
       "position": [
-        69.70400555130138,
-        104.10108459545106
+        39.262413024902344,
+        107.0553207397461
+      ]
+    },
+    {
+      "tick": 195,
+      "kind": "deploy",
+      "tower": "neutrophil",
+      "position": [
+        39.262413024902344,
+        107.0553207397461
       ]
     },
     {
@@ -351,124 +396,19 @@
       "kind": "deploy",
       "tower": "neutrophil",
       "position": [
-        69.43550648529394,
-        101.91310208765735
+        39.262413024902344,
+        107.0553207397461
       ]
     },
     {
       "tick": 240,
-      "kind": "deploy",
-      "tower": "neutrophil",
-      "position": [
-        71.22472513085086,
-        103.44726765349438
-      ]
-    },
-    {
-      "tick": 270,
-      "kind": "deploy",
-      "tower": "neutrophil",
-      "position": [
-        68.72587757904185,
-        103.52593921360909
-      ]
-    },
-    {
-      "tick": 300,
-      "kind": "deploy",
-      "tower": "neutrophil",
-      "position": [
-        70.61421119966028,
-        101.68746634244607
-      ]
-    },
-    {
-      "tick": 330,
-      "kind": "deploy",
-      "tower": "neutrophil",
-      "position": [
-        70.45388645329997,
-        104.44706153549556
-      ]
-    },
-    {
-      "tick": 360,
-      "kind": "deploy",
-      "tower": "neutrophil",
-      "position": [
-        68.63198096003505,
-        102.20720500361482
-      ]
-    },
-    {
-      "tick": 390,
-      "kind": "deploy",
-      "tower": "neutrophil",
-      "position": [
-        71.60484205775488,
-        102.64717997553842
-      ]
-    },
-    {
-      "tick": 420,
-      "kind": "deploy",
-      "tower": "neutrophil",
-      "position": [
-        69.02058987407646,
-        104.39311011956646
-      ]
-    },
-    {
-      "tick": 450,
-      "kind": "deploy",
-      "tower": "neutrophil",
-      "position": [
-        69.77373358199436,
-        101.25391766858407
-      ]
-    },
-    {
-      "tick": 480,
-      "kind": "deploy",
-      "tower": "neutrophil",
-      "position": [
-        71.38905388111166,
-        104.17069608155516
-      ]
-    },
-    {
-      "tick": 510,
-      "kind": "deploy",
-      "tower": "neutrophil",
-      "position": [
-        68.13076889327881,
-        103.07729857479842
-      ]
-    },
-    {
-      "tick": 540,
-      "kind": "deploy",
-      "tower": "neutrophil",
-      "position": [
-        71.36346060183358,
-        101.64317459220148
-      ]
-    },
-    {
-      "tick": 570,
-      "kind": "deploy",
-      "tower": "neutrophil",
-      "position": [
-        69.90877920333367,
-        104.97273383056498
-      ]
-    },
-    {
-      "tick": 600,
       "kind": "start_wave"
     }
   ],
   "auto_start": false,
-  "name": "Fresh first-wave paid placement reference",
-  "description": "Known achievable paid-action reference: twenty baseline Neutrophils,300ATP,no upgrades or abilities,no reinforcements. Tight early cohort; same placement cadence as the failed scattered controller."
+  "name": "Current paid 300ATP cohort feasibility",
+  "description": "Fifteen baseline20ATP Neutrophils, opening300ATP, no income, upgrades, abilities or reinforcements. Placement extracted from current public early-cohort policy, then frozen before independentseedchecks.",
+  "opening_atp": 300,
+  "spend_limit": 300,
+  "income_enabled": false
 }

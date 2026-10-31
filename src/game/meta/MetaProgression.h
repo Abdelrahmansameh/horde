@@ -73,7 +73,8 @@ public:
     /// a loadout) migrate: their points become Memory Cells, their unlocked
     /// towers become owned tower roots, and the memories/loadout are dropped.
     /// v2 itself renumbered tower indices when a roster slot was cut.
-    static constexpr i32 kSaveVersion = 3;
+    /// v5 splits multi-effect upgrades into separate purchasable tracks.
+    static constexpr i32 kSaveVersion = 5;
 
     // Memory Cell payout defaults. meta.json is the live source
     // (MetaConfig); these seed it and are what default_game_config() writes.

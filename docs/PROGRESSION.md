@@ -21,8 +21,8 @@ final balance commitments. Source and config are authoritative.
 
 `reset_to_new_game()` starts with every tree level at zero, zero balances, and
 no campaign clears. Neutrophil is available innately without an unlock node.
-Firing Cycle is the unbought root and the only initial upgrade. Other cell
-types and all four abilities require tree unlocks. There is no equipped
+Degranulation Cycle is the unbought root and the only initial upgrade. Other cell
+types and all three abilities require tree unlocks. There is no equipped
 loadout: every owned capability and stat effect applies to each campaign run
 automatically.
 
@@ -47,14 +47,14 @@ loss. The current reward formula is:
 
 ```text
 Memory Cells = 30
-             + 15 * waves_cleared
-             + floor(chaff_killed_total / 200)
+             + 20 * waves_cleared
+             + floor(chaff_killed_total / 125)
              + 8 * elites_killed
              + 50 * bosses_killed
-             + (won ? 40 : 0)
+             + (won ? 60 : 0)
 ```
 
-The 30-point floor funds the first 30-point Firing Cycle rank even
+The 30-point floor funds the first 30-point Degranulation Cycle rank even
 after a zero-wave defeat. More cleared waves and kills fund further purchases.
 The intended loop is to struggle against later waves, buy useful permanent
 improvements after a loss, clear the level, choose a new tool, and bring it into
@@ -78,10 +78,12 @@ no ongoing post-campaign Antibody trickle.
 
 ## Purchase rules and prices
 
-Each node has exactly one parent except the Firing Cycle root. Firing Cycle is
-the central hub with seven children; every other node has at most five children.
-Owning any level of a parent opens its children. A purchase must be below the
-node's maximum level and satisfy the parent and both currency requirements. Refused
+Each node has exactly one parent except the Degranulation Cycle root. Degranulation Cycle is
+the central hub with nine children; every other node has at most five children.
+Owning any level of a parent opens its ordinary children. A continuation upgrade
+requires the preceding stage to be fully ranked. Every stage has at most five
+ranks. A purchase must be below the node's maximum level and satisfy the parent
+and both currency requirements. Refused
 purchases leave balances and levels unchanged.
 
 | Node kind | Current price / additional requirement |
@@ -91,10 +93,12 @@ purchases leave balances and levels unchanged.
 | Leveled cell, hub, or ability line | Memory Cells: `(20 + 15 * current_level) * cost_weight / 100`, rounded to nearest integer by the positive integer calculation `(base * weight + 50) / 100` |
 | Cell capstone | One Antibody, no Memory Cells; related cell root owned, or the starter for Neutrophil; no branch-point quota |
 
-`current_level` is zero for the first purchase. At weight 100 the consecutive
+`current_level` counts earlier stages of the same line as well as ranks in the
+current stage, so the price curve continues across upgrades. It is zero for the
+first purchase of a line. At weight 100 the consecutive
 prices are 20, 35, 50, 65, 80. Branch points remain available as descriptive
 counts of purchased cell-stat levels; they no longer gate capstones.
-Every purchasable cell unlock grows directly from Firing Cycle, a Memory Cell
+Every purchasable cell unlock grows directly from Degranulation Cycle, a Memory Cell
 upgrade, so players choose the cell-unlock order independently. Each ability
 instead grows directly from its related cell root and therefore requires that
 cell's Antibody unlock before its own ability unlock. Capstones follow the
@@ -105,7 +109,7 @@ offer records its required preparation purchase and cost explicitly.
 The tree screen reveals owned nodes and their next available children,
 including ancestors needed to connect imported ownership. Hidden future
 nodes still exist in the catalog; appearance does not change prerequisites.
-The radial layout centers on Firing Cycle. Its nine first-layer spokes
+The radial layout centers on Degranulation Cycle. Its nine first-layer spokes
 have sectors weighted by the square root of their leaf counts, with gaps
 between sectors. Each occupies its own region around the
 full circle and grows outward through concentric rings, with ability branches
@@ -113,129 +117,121 @@ distributed among the cell upgrades.
 There is no starter node or reserved inlet gap. The view can pan/zoom
 independently of the purchase graph.
 
-## Hub and ability nodes
+## Upgrade catalog
 
-Firing Cycle has no parent and is the only upgrade initially available.
-Buying its first level opens Bone Marrow Reserve as the single economy branch,
-Granule Capacity, Accuracy and Aggro Range as Neutrophil's stat choices, its capstone, and all four other cell
-unlocks. Abilities and other capstones connect directly to their related cell
-roots. The following
-table lists the next parent, maximum level, cost weight, and effect **per
-purchased level**.
+Every numeric upgrade has one stated effect and the same fixed bonus per rank.
+Direct bonuses are measured against the unupgraded base, not multiplied per rank.
+Conditional aura and vulnerability bonuses apply to the current damage or rate;
+their own per-rank bonuses remain additive.
+Rate upgrades add to the base rate; the corresponding duration is the base
+duration divided by the resulting rate multiplier. Related internal fields may
+move together when they represent one player-facing effect, such as both dimensions
+of a scar. Unlocks and capstones retain their individual one-time effects.
 
-| Hub line | Parent | Max | Weight | Effect per level |
-| --- | --- | ---: | ---: | --- |
-| Bone Marrow Reserve | Firing Cycle | 5 | 100 | +40 starting ATP |
-| Efficient Clearance | Bone Marrow Reserve | 5 | 100 | +10% baseline ATP per density removed |
-| Field Requisition | Bone Marrow Reserve | 3 | 125 | -7% baseline cell price; maximum 21%, rounded, minimum 1 ATP |
-| Coordinated Response | Efficient Clearance | 3 | 150 | -6% role-specific attack/work time; faster mucus delivery |
-| Homeostasis | Efficient Clearance | 4 | 125 | -10% baseline integrity lost per leaked agent |
-| Emergency Reserves | Field Requisition | 4 | 100 | +15% baseline health for every direct cell |
-| Membrane Resilience | Field Requisition | 4 | 125 | -8% hostile damage taken by cells, scars, and legacy towers |
+Long lines are split into successive nodes with at most five ranks each.
+The table lists the total ranks across stages. Continuations require the previous
+stage to be fully purchased and their connected parent to be owned; they continue
+the original price curve. Degranulation Cycle II is connected after Granule Capacity.
 
-Coordinated Response multiplies shooter volley/gather/reload times, attachment
-time, all Macrophage grab phases, and builder cooldown/secretion times by
-`max(0.1, 1 - 0.06 * rank)`. Cytotoxic drain and Goblet movement speed divide by
-that factor. The Goblet chase fuse stays unchanged. It does not increase nominal
-per-shot damage or capstone damage.
+### Hub and abilities
 
-All seven hub lines belong to the economy subtree beneath Bone Marrow Reserve.
-No cell or ability unlock is inside that subtree. Macrophage, Cytotoxic T,
-Goblet Cell, and Fibroblast roots each grow directly from Firing Cycle.
-Neutrophil's magazine, accuracy and range choices grow directly beneath
-Firing Cycle.
-
-| Ability unlock | Parent | Children (all max 3, weight 120) |
-| --- | --- | --- |
-| Complement Cascade Burst | Cytotoxic T root | Cooldown Reduction: -10% baseline cooldown/level; Chain Links: +2 hops/level from default eight |
-| Fever Response | Macrophage root | Cooldown Reduction: -10%/level; Healing Strength: +25% baseline healing magnitude/level |
-| Fibrin Clot | Fibroblast root | Cooldown Reduction: -10%/level; Barrier Duration: +20% baseline lifetime/level |
-
-Ability stat lines grow directly from their unlock; neither sibling stat
-requires the other. Unlocks themselves have maximum level one.
-
-## Cell branches
-
-Effects scale baseline values by `1 + magnitude * level` for growth and
-`max(0.1, 1 - magnitude * level)` for reductions, unless the table gives a
-flat addition. These are not compounded once per purchased level; different
-applicable lines can multiply one another. All cell stat lines use weight
-100 unless noted.
+| Upgrade | Key | Total ranks | Effect per rank |
+| --- | --- | ---: | --- |
+| Bone Marrow Reserve | `hub.bone_marrow_reserve` | 8 | +40 starting ATP per rank |
+| Efficient Clearance | `hub.efficient_clearance` | 8 | +10% base ATP from kills per rank |
+| Hematopoiesis | `hub.field_requisition` | 3 | -7% cell placement cost |
+| Cytokine Signaling | `hub.systemic_potency` | 3 | +6% work rate per rank for Neutrophil, Cytotoxic T, Macrophage and Fibroblast |
+| Emergency Reserves | `hub.elite_response` | 4 | +15% health for every cell |
+| Homeostasis | `hub.homeostasis` | 4 | -10% integrity lost per leak |
+| Membrane Resilience | `hub.membrane_resilience` | 4 | -8% damage taken from pathogen attacks |
+| Complement Cascade Burst | `ability.complement.unlock` | 1 | Unlock: complement proteins rupture a target, then cascade to the next one and the next |
+| Cooldown Reduction | `ability.complement.cooldown` | 6 | -8% base cooldown per rank |
+| Extended Cascade | `ability.complement.chain` | 4 | +2 targets the cascade spreads to, up to 16 |
+| Fever Response | `ability.fever.unlock` | 1 | Unlock: a fever surge that heals all deployed cells |
+| Cooldown Reduction | `ability.fever.cooldown` | 6 | -8% base cooldown per rank |
+| Healing Strength | `ability.fever.magnitude` | 6 | +25% base healing per rank |
+| Fibrin Clot | `ability.clot.unlock` | 1 | Unlock: a temporary bar across the lane |
+| Cooldown Reduction | `ability.clot.cooldown` | 6 | -8% base cooldown per rank |
+| Barrier Duration | `ability.clot.duration` | 6 | +20% base barrier duration per rank |
+| Adaptive Memory | `hub.adaptive_memory` | 20 | +6% base cell health per rank |
+| Adaptive Work | `hub.adaptive_work` | 20 | +4% work rate per rank for Neutrophil, Cytotoxic T, Macrophage and Fibroblast |
 
 ### Neutrophil
 
-| Line | Parent | Max | Effect per level |
+| Upgrade | Key | Total ranks | Effect per rank |
 | --- | --- | ---: | --- |
-| Firing Cycle | None (tree root) | 5 | -14% reload time and -6% firing/gathering time; weight 150 |
-| Accuracy | Firing Cycle | 3 | -20% round spread and volley cone |
-| Aggro Range | Firing Cycle | 3 | +10% search radius |
-| Granule Capacity | Firing Cycle | 3 | +2 magazine rounds; weight 130 |
-| Cell Vitality | Aggro Range | 4 | +9 base cell HP and +10% speed |
-
-**Granule Priming**, parent Firing Cycle: neutrophil rounds deal 25% more damage.
+| Degranulation Cycle | `neutrophil.round_damage` | 20 | +10% granule regrowth rate per rank |
+| Chemotaxis | `neutrophil.aggro_range` | 6 | +10% base sensing range per rank |
+| Granule Capacity | `neutrophil.squad_size` | 6 | +1 granule per rank |
+| Directed Release | `neutrophil.accuracy` | 6 | -10% base spread per rank |
+| Cell Vitality | `neutrophil.vitality` | 10 | +9 base health per rank |
+| Granule Priming | `neutrophil.capstone` | 1 | +25% base granule damage |
+| Rapid Release | `neutrophil.release` | 20 | +5% release rate per rank |
+| Granule Damage | `neutrophil.granule_damage` | 8 | +5% granule damage per rank |
+| Cell Speed | `neutrophil.speed` | 10 | +10% movement speed per rank |
 
 ### Cytotoxic T
 
-| Line | Parent | Max | Effect per level |
+| Upgrade | Key | Total ranks | Effect per rank |
 | --- | --- | ---: | --- |
-| Attach Speed | Cytotoxic T root | 3 | -25% attachment time |
-| Drain DPS | Cytotoxic T root | 5 | +15% drain |
-| Search Radius | Cytotoxic T root | 3 | +10% search radius |
-| Cell Stamina | Attach Speed | 3 | +9 base cell HP and +10% speed |
-| Cell Resilience | Search Radius | 4 | +10 cell HP |
-
-**Rapid Pursuit**, parent Cytotoxic T root: doubles the cell's movement speed
-(after Stamina). It replaced Lytic Rupture's kill pulse, which was too strong;
-the save key `cytotoxic.capstone` is unchanged. Resilience adds 10 base HP
-per rank, then Stamina adds 9 HP per rank. Emergency Reserves multiplies
-the resulting health along with every other cell's health.
+| Cytotoxic T | `cytotoxic.unlock` | 1 | Unlock: killer T cells that bind to a pathogen and break it down from within |
+| Perforin Potency | `cytotoxic.drain` | 20 | +15% base bound damage per rank |
+| Receptor Affinity | `cytotoxic.attach_speed` | 3 | +25% binding rate per rank |
+| Search Radius | `cytotoxic.search` | 6 | +10% base hunt radius per rank |
+| Cell Stamina | `cytotoxic.stamina` | 8 | +10% base movement speed per rank |
+| Cell Resilience | `cytotoxic.tower_health` | 10 | +10 base health per rank |
+| Rapid Pursuit | `cytotoxic.capstone` | 1 | +100% base cell movement speed |
+| Cell Vitality | `cytotoxic.stamina_health` | 8 | +9 base health per rank |
+| Cytokine Potency | `cytotoxic.cytokine_drain` | 3 | +6% bound damage per rank |
+| Adaptive Potency | `cytotoxic.adaptive_drain` | 20 | +4% bound damage per rank |
 
 ### Macrophage
 
-| Line | Parent | Max | Effect per level |
+| Upgrade | Key | Total ranks | Effect per rank |
 | --- | --- | ---: | --- |
-| Extend / Latch / Pull / Recover | Macrophage root | 4 | -10% duration of every grab phase |
-| Captive Capacity | Macrophage root | 3 | +1 captive per pull and +0.4 cluster radius |
-| Body Health | Macrophage root | 4 | +20% cell HP |
-| Cluster Intake | Grab-cycle line | 1 | +2 captives per pull and +0.6 capture radius; weight 200 |
-| Search Radius | Grab-cycle line | 3 | +10% reach |
-| Defensive Membrane | Body Health | 3 | +20% cell HP and +3 percentage points of body blocking, capped at 100% |
-
-**Phagocytic Sustain**, parent Macrophage root: each swallowed enemy heals
-the directly deployed Macrophage by 4 HP, capped at its maximum. Legacy
-nonpersistent units instead heal their releasing tower.
+| Macrophage | `macrophage.unlock` | 1 | Unlock: engulfs the horde with pseudopods while its body blocks the lane |
+| Cluster Intake | `macrophage.arms` | 1 | +2 enemies per pull |
+| Pseudopod Speed | `macrophage.grab_speed` | 16 | +10% pseudopod work rate per rank |
+| Phagosome Capacity | `macrophage.captives` | 3 | +1 enemy per pull |
+| Search Radius | `macrophage.search` | 6 | +10% base target reach per rank |
+| Body Health | `macrophage.health` | 10 | +20% base health per rank |
+| Defensive Membrane | `macrophage.wall` | 6 | +1 percentage point blocking per rank |
+| Phagocytic Nourishment | `macrophage.capstone` | 1 | Each enemy engulfed heals the cell |
+| Cluster Radius | `macrophage.intake_radius` | 1 | +0.6 capture radius per rank |
+| Capture Radius | `macrophage.captives_radius` | 3 | +0.4 capture radius per rank |
+| Pseudopod Reach | `macrophage.grab_reach` | 12 | +3% reach per rank |
+| Cell Mobility | `macrophage.mobility` | 12 | +3% movement speed per rank |
+| Reinforced Body | `macrophage.wall_health` | 6 | +20% health per rank |
 
 ### Goblet Cell
 
-| Line | Parent | Max | Effect per level |
+| Upgrade | Key | Total ranks | Effect per rank |
 | --- | --- | ---: | --- |
-| Splash Radius | Goblet Cell root | 3 | +15% splash radius |
-| Slow Strength | Goblet Cell root | 4 | -15% remaining-speed factor, making the slow stronger |
-| Cell Resilience | Goblet Cell root | 4 | +10 cell HP |
-| Weakening Mucus | Splash Radius | 3 | Slowed targets take +10% damage; weight 150 |
-| Slow Duration | Slow Strength | 4 | +20% timed slow duration |
-
-**Anaphylactic Shock**, parent Goblet Cell root: a slowed chaff death spreads
-its slow factor to nearby chaff within radius 3.5 for 2.5 seconds. The world
-caps spreading deaths per tick. Weakening Mucus is tied to the timed slow;
-it does not restore the old permanent marked-target mechanic.
+| Goblet Cell | `goblet.unlock` | 1 | Unlock: secretes globs of mucus that slow whatever they coat |
+| Slow Strength | `goblet.slow_strength` | 6 | -10% base remaining speed per rank |
+| Splash Radius | `goblet.splash_radius` | 6 | +15% base splash radius per rank |
+| Slow Duration | `goblet.slow_duration` | 8 | +20% base slow duration per rank |
+| Weakening Mucus | `goblet.weakness` | 8 | +10% damage to slowed enemies per rank |
+| Cell Resilience | `goblet.tower_health` | 10 | +10 base health per rank |
+| Clinging Mucus | `goblet.capstone` | 1 | When a slowed target dies, its mucus coats nearby chaff and slows them too |
+| Cytokine Mobility | `goblet.cytokine_speed` | 3 | +6% movement speed per rank |
+| Adaptive Mobility | `goblet.adaptive_speed` | 20 | +4% movement speed per rank |
 
 ### Fibroblast
 
-| Line | Parent | Max | Effect per level |
+| Upgrade | Key | Total ranks | Effect per rank |
 | --- | --- | ---: | --- |
-| Territory | Fibroblast root | 3 | +12% site search radius, roaming leash radius, and display/search reach |
-| Scar Health | Fibroblast root | 5 | +20% scar HP |
-| Cell Resilience | Fibroblast root | 4 | +20% builder-cell HP |
-| Scar Size | Territory | 3 | +10% scar half-length and half-width |
-| Scar Network | Scar Size | 2 | +1 wall each Fibroblast keeps standing (`max_scars`); weight 150 |
-| Rapid Fibrosis | Cell Resilience | 4 | -12% rest between walls (`build_cooldown`) |
-| Reinforce Rate | Scar Health | 3 | +30% HP restored per completed reinforcement |
-| Inflammation | Scar Health | 3 | Scars create inflamed zones with radius `scar.half_extents.x + 8` (14 with the default half length); allied cell damage and shooter reload speed there gain +10%; weight 150 |
-
-**Fibrotic Bulwark**, parent Fibroblast root: doubles scar half length and
-half width (after Scar Size). It replaced Inflammatory Scarring's contact
-damage, which was too strong; the save key `fibroblast.capstone` is unchanged.
+| Fibroblast | `fibroblast.unlock` | 1 | Unlock: a builder that keeps walling the lane near its post until the horde kills it |
+| Scar Health | `fibroblast.scar_health` | 10 | +20% base scar integrity per rank |
+| Reinforce Rate | `fibroblast.reinforce` | 6 | +30% base repair per rank |
+| Scar Size | `fibroblast.scar_size` | 6 | +10% base scar dimensions per rank |
+| Territory | `fibroblast.build_radius` | 6 | +12% base build reach per rank |
+| Inflammation | `fibroblast.inflammation` | 6 | +10% ally damage near scars per rank |
+| Cell Resilience | `fibroblast.tower_health` | 10 | +20% base health per rank |
+| Rapid Fibrosis | `fibroblast.build_rate` | 8 | +12% construction rate per rank |
+| Scar Network | `fibroblast.scar_count` | 4 | +1 wall each Fibroblast keeps standing |
+| Fibrotic Bulwark | `fibroblast.capstone` | 1 | +100% base scar length and width |
+| Inflammatory Regrowth | `fibroblast.regrowth` | 6 | +10% ally granule regrowth near scars per rank |
 
 ## Applying purchases to a run
 
@@ -246,30 +242,24 @@ supplies the remaining unlock masks, hostile damage multiplier, and world-wide
 cell types and income overrides. Fresh copies prevent bonuses from compounding
 across reloads or level transitions.
 
-Current authored opening wallets are 300, 335, 370, 410, 455, 505, 560, 620,
-685 and 750 ATP; Bone Marrow Reserve adds up to 200. Damage-income starts at
-0.85 ATP per density removed. Level multipliers are 1 for levels 1-4, then
-0.75, 0.5625, 0.421875, 0.31640625, 0.23730469 and 0.17797852. Efficient
-Clearance multiplies the resulting rate by up to 1.5; level 10 therefore pays
-about 0.1513 ATP per density before that upgrade, or 0.2269 at rank five.
-Wave bounties are separate and unchanged. Macrophages cost 35 ATP before
-placement discounts. These values reduce the former entry-budget and income
-snowball while retaining growth from waves, purchased efficiency and new tools.
-V15 training on seed 31013 completes all ten levels in 23 control attempts and
-20 offense attempts with real rewards and purchases. The original economy
-priority stalls; a continuation spends 60 earned MC on three Macro role ranks
-and clears level 7 on its next attempt. This is training evidence for spending
-adaptation, beyond the original five-attempt limit. Its revised fresh economy
-priority still stops at level 7 after five losses. The frozen held-out check
-contains six journeys on bases 72011 and 82019: control and economy complete all
-ten levels on 82019, while the other four stop at level 3 or 8 after five losses.
-All 105 attempts are valid; all 58 losses with an observed next attempt lead to
-paid ranks, but a purchase alone does not prove a useful improvement. There are
-22 flagged grace advances with surviving enemies, retained in the reports.
-First-try clears and stalls mean the two-to-four-attempt target is not met
-consistently. These results are conditional on the tested controllers and seeds;
-human playtests remain necessary. See [Balance Lab](BALANCE_LAB.md) for the
-frozen inputs, per-level ledgers, TTK sample counts and evidence limits.
+The Bone Marrow Reserve adds 40 ATP per rank to the loaded baseline. Run
+setup adds that bonus to each map's authored opening wallet. Efficient Clearance
+adds 10% of base kill income per rank. Separate enemy-scaling rules affect the
+campaign independently; see [Campaign design](CAMPAIGN_DESIGN.md).
+
+The simplified upgrades change balance relative to historical campaign runs.
+Prices and tracked spending remain intact for existing purchases. Earlier saves
+also receive the split-out nodes corresponding to combined effects they owned;
+those migrated ranks do not add to the refund ledger. The new fixed bonuses do
+not reproduce the exact old compounded effects, so current progression still
+needs an earned campaign balance pass.
+
+Historical V15 and earlier fixed-controller campaign results use their own
+frozen inputs and remain evidence for those revisions. They are not win-rate
+or power-growth measurements of this overhaul. New earned-profile, matched
+pressure and full-campaign checks must distinguish no-grace valid clears from
+capacity-censored, interrupted and failed cases. See [Balance Lab](BALANCE_LAB.md)
+for the evidence contract. Human playtests are still needed for feel and pacing.
 
 Most upgrades are numeric config edits. Per-cell capstones travel in the
 `SwarmerProfile`; global rules such as slow weakness,
@@ -284,10 +274,10 @@ govern magazine capacity or the direct cell's health; `fibroblast.build_radius`
 is shown as Territory. Preserve stable keys
 when relabeling a node unless an explicit migration is supplied.
 
-The same compatibility rule preserves `neutrophil.round_damage` for Granule
-Replenishment, `macrophage.arms` for Cluster Intake, `macrophage.wall` for
+The same compatibility rule preserves `neutrophil.round_damage` for Degranulation
+Cycle, `macrophage.arms` for Cluster Intake, `macrophage.wall` for
 Defensive Membrane, `hub.elite_response` for Emergency Reserves and
-`hub.systemic_potency` for Coordinated Response. These keys keep their purchased
+`hub.systemic_potency` for Cytokine Signaling. These keys keep their purchased
 ranks while applying the current effects.
 
 ## Respec and persistence
@@ -295,14 +285,14 @@ ranks while applying the current effects.
 Respec is implemented. It requires at least one tracked purchase and enough
 Memory Cells after refund to pay the configured 25-Memory-Cell fee. It refunds
 the tracked Memory Cells and Antibodies, subtracts the fee, and resets every
-tree level to zero, including Firing Cycle. Neutrophil remains available
+tree level to zero, including Degranulation Cycle. Neutrophil remains available
 innately. Respec preserves campaign clears and does not repay first-clear
 Antibodies from replayed levels.
 
 The default save is `save.json` inside the platform user-data directory from
 `SDL_GetPrefPath("IMMUNE", "IMMUNE")`; use `--save <path>` for an explicit
 file. App saves after purchases/respec and terminal campaign results. The
-current JSON save version is 3, with:
+current JSON save version is 5, with:
 
 - `memory_cells`, `antibodies`, and tracked `spent_memory_cells` /
   `spent_antibodies` balances.
@@ -315,10 +305,13 @@ Version 1/2 saves migrate their old `antibody_points` to Memory Cells and
 unlocked tower indices to owned roots where an unlock node exists. Version 1
 remaps indices around a removed roster slot. Old memories/loadouts have no
 successor and are dropped. Unknown node keys in a supported save, including
-the removed `neutrophil.unlock`, are skipped. Saved levels are clamped to each
-current maximum. Loading never grants a free Firing Cycle level; Neutrophil
+the removed `neutrophil.unlock`, are skipped. Older saves with long lines distribute purchased ranks across stages. Saves
+from before the single-effect redesign also receive corresponding split-off ranks;
+the original spending ledger remains unchanged, while effect magnitudes use the
+new linear bonuses. Saved levels are otherwise
+clamped to each current maximum. Loading never grants a free Degranulation Cycle level; Neutrophil
 availability is innate. Skill reset and developer edits likewise do not force
-ownership of Firing Cycle. Imported old purchases have no reconstructed spend
+ownership of Degranulation Cycle. Imported old purchases have no reconstructed spend
 history to refund.
 
 Malformed JSON, a missing version, or a newer unsupported version fails
@@ -341,8 +334,9 @@ prices, change `meta.json`; when changing an effect or max level, change the
 catalog/application code and this reference. A tree-layout edit alone cannot
 change prerequisites or gameplay.
 
-The focused Firing Cycle merge removes Trigger Rate. The five merged ranks cost
-30, 53, 75, 98 and 120 MC at current settings. Old purchased ranks from both
-keys add together up to rank five; actual paid refund balances are preserved.
-The previous campaign results retain their original runtime and tree. This
-merge uses an estimate of the old combined strength; no new balance pass was run.
+The earlier Degranulation Cycle merge removed Trigger Rate. Its first five ranks still
+cost 30, 53, 75, 98 and 120 MC. Old purchased ranks from both keys add together
+up to the line maximum of twenty across its stages; actual paid refund balances are preserved.
+An already-migrated five-rank save remains rank five, with new paid ranks
+available; loading does not invent veteran ranks or Adaptive Memory ownership.
+New keys are appended to the enum so existing numeric node indices stay stable.

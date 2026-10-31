@@ -180,6 +180,11 @@ def validate_experiment(experiment: dict) -> None:
         rate = probe.get("minimum_clear_rate", 1.0)
         if not finite_number(rate) or not 0 <= rate <= 1:
             raise ValueError("Power probe minimum_clear_rate must be in [0,1]")
+        integrity = probe.get("minimum_integrity", 0)
+        if not finite_number(integrity) or not 0 <= integrity <= 100:
+            raise ValueError("Power probe minimum_integrity must be in [0,100]")
+        if type(probe.get("require_no_clearing_timeout", False)) is not bool:
+            raise ValueError("Power probe require_no_clearing_timeout must be a boolean")
         if type(probe.get("every_n_clears", 1)) is not int or probe.get("every_n_clears", 1) < 1:
             raise ValueError("every_n_clears must be a positive integer")
         modes = probe.get("wallet_modes", [probe.get("wallet_mode", "fixed")])
@@ -209,6 +214,12 @@ def validate_experiment(experiment: dict) -> None:
         rate = reference.get("minimum_success_rate", 1.0)
         if not finite_number(rate) or not 0 <= rate <= 1:
             raise ValueError("Controller reference minimum_success_rate must be in [0,1]")
+        integrity = reference.get("minimum_integrity", 0)
+        if not finite_number(integrity) or not 0 <= integrity <= 100:
+            raise ValueError("Controller reference minimum_integrity must be in [0,100]")
+        for key in ("require_no_clearing_timeout", "require_zero_denials"):
+            if type(reference.get(key, False)) is not bool:
+                raise ValueError(f"Controller reference {key} must be a boolean")
 
 
 def expand_variants(experiment: dict) -> list[dict]:
@@ -772,13 +783,22 @@ def power_calibrations(records: list[dict], experiment: dict) -> list[dict]:
     results = []
     scales, seeds = sorted(probe.get("pressure_scales", [])), probe.get("seeds", [])
     required = probe.get("minimum_clear_rate", 1.0)
+    minimum_integrity = probe.get("minimum_integrity", 0)
+    require_no_timeout = probe.get("require_no_clearing_timeout", False)
+
+    def passes(record: dict) -> bool:
+        summary = get_path(record, "report.summary", {})
+        return (record.get("status") in SUCCESS
+                and (minimum_integrity == 0 or summary.get("objective_integrity", -1) >= minimum_integrity)
+                and (not require_no_timeout or summary.get("clearing_timeout_advances") == 0))
+
     for (journey_id, snapshot, wallet_mode), rows in groups.items():
         grid = []
         for scale in scales:
             samples = [r for r in rows if r["probe"]["pressure_scale"] == scale]
             terminal = [r for r in samples if is_terminal(r)]
             complete = len(terminal) == len(seeds) and {r["seed"] for r in terminal} == set(seeds)
-            wins = sum(r["status"] in SUCCESS for r in terminal)
+            wins = sum(passes(r) for r in terminal)
             rate = wins / len(terminal) if terminal else None
             grid.append({"pressure_scale": scale, "complete": complete, "terminal": len(terminal),
                          "clear_rate": rate, "ci95": wilson(wins, len(terminal)),
@@ -792,13 +812,14 @@ def power_calibrations(records: list[dict], experiment: dict) -> list[dict]:
             failed_at = None
             for r in sorted([r for r in rows if r["seed"] == seed and is_terminal(r)], key=lambda r: r["probe"]["pressure_scale"]):
                 scale = r["probe"]["pressure_scale"]
-                if r["status"] not in SUCCESS:
+                if not passes(r):
                     failed_at = scale
                 elif failed_at is not None:
                     violations.append({"seed": seed, "failed_pressure": failed_at, "cleared_pressure": scale})
         unresolved = [g["pressure_scale"] for g in grid if not g["complete"]]
         bracketed = lower > 0 and upper is not None and not violations and not unresolved
         results.append({**rows[0]["probe"], "wallet_mode": wallet_mode, "grid": grid, "minimum_clear_rate": required,
+                        "minimum_integrity": minimum_integrity, "require_no_clearing_timeout": require_no_timeout,
                         "capacity_lower_scale": lower, "capacity_upper_scale": upper,
                         "capacity_estimate_scale": math.sqrt(lower * upper) if bracketed else None,
                         "right_censored": upper is None and bool(passing), "left_censored": not passing and upper is not None,
@@ -925,9 +946,23 @@ def controller_adequacy(records: list[dict], experiment: dict) -> dict:
             fresh = isinstance(tree, dict) and not any(finite_number(rank) and rank > 0 for rank in tree.values())
             fresh = fresh and get_path(attempt, "provenance.synthetic_progression") is not True
             fresh = fresh and get_path(attempt, "spec.progression.profile", "campaign") != "all_unlocked"
+            quality = {"telemetry_available": get_path(attempt, "summary.combat_metrics_available"),
+                       "denials": {key: get_path(attempt, path) for key, path in (
+                           ("authored_spawns", "summary.denied_spawns"),
+                           ("player_actions", "summary.actions_rejected"),
+                           ("deploy_capacity", "summary.deploy_capacity_rejected"),
+                           ("replication_capacity", "combat.replications_denied_capacity"),
+                           ("replication_tick_budget", "combat.replications_denied_tick_budget"),
+                           ("toxin_capacity", "combat.toxin_shots_denied_capacity"),
+                           ("harpoon_capacity", "combat.harpoons_denied_capacity"),
+                           ("attribution_overflow", "combat.overflow"),
+                           ("cell_emissions", "combat.pools.cells.denied"),
+                           ("projectile_emissions", "combat.pools.projectiles.denied"),
+                           ("fluid_emissions", "combat.pools.fluid.denied"))}}
             observations.append({"record_id": record["id"], "attempt_index": index, "policy": record["policy"],
                                  "variant": record["variant"], "seed": get_path(attempt, "provenance.seed", record["seed"]),
                                  "level": level, "fresh": fresh, "summary": attempt.get("summary", {}),
+                                 "quality": quality,
                                  "automatic_input": "actions" not in attempt.get("spec", {}),
                                  "standard_rules": get_path(attempt, "provenance.experimental_rules") is False
                                      and not get_path(attempt, "spec.overrides", {})})
@@ -943,10 +978,27 @@ def controller_adequacy(records: list[dict], experiment: dict) -> dict:
                 candidates = [o for o in candidates if o["automatic_input"]]
             if reference.get("require_standard_rules", True):
                 candidates = [o for o in candidates if o["standard_rules"]]
-            terminal = [o for o in candidates if o["summary"].get("valid") is True and o["summary"].get("status") in {"cleared", "defeated"}]
+            native_terminal = [o for o in candidates if o["summary"].get("valid") is True and o["summary"].get("status") in {"cleared", "defeated"}]
+            def quality_available(observation):
+                summary = observation["summary"]
+                if reference.get("minimum_integrity", 0) > 0 and not finite_number(summary.get("objective_integrity")):
+                    return False
+                if reference.get("require_no_clearing_timeout", False) and not finite_number(summary.get("clearing_timeout_advances")):
+                    return False
+                if reference.get("require_zero_denials", False):
+                    return (observation["quality"]["telemetry_available"] is True
+                            and all(finite_number(value) for value in observation["quality"]["denials"].values()))
+                return True
+            terminal = [o for o in native_terminal if quality_available(o)]
             def meets(observation):
                 summary = observation["summary"]
                 if summary.get("waves_cleared", 0) < reference.get("minimum_waves_cleared", 1):
+                    return False
+                if reference.get("minimum_integrity", 0) > 0 and summary["objective_integrity"] < reference["minimum_integrity"]:
+                    return False
+                if reference.get("require_no_clearing_timeout", False) and summary.get("clearing_timeout_advances") != 0:
+                    return False
+                if reference.get("require_zero_denials", False) and any(value != 0 for value in observation["quality"]["denials"].values()):
                     return False
                 return "expected_status" not in reference or summary.get("status") == reference["expected_status"]
             successes = sum(meets(o) for o in terminal)
@@ -955,10 +1007,15 @@ def controller_adequacy(records: list[dict], experiment: dict) -> dict:
             status = "inconclusive" if not enough or len(terminal) != len(candidates) else "passed" if rate >= reference.get("minimum_success_rate", 1.0) else "failed"
             checks.append({"name": reference["name"], "policy": policy, "level": level, "profile": reference.get("profile", "fresh"),
                            "source": reference["source"], "criteria": reference, "status": status, "observed": len(candidates),
-                           "terminal": len(terminal), "successful": successes, "success_rate": rate,
+                           "native_terminal": len(native_terminal), "terminal": len(terminal),
+                           "missing_required_quality": len(native_terminal) - len(terminal),
+                           "successful": successes, "success_rate": rate,
                            "success_rate_ci95": wilson(successes, len(terminal)),
                            "observations": [{"record_id": o["record_id"], "attempt_index": o["attempt_index"], "seed": o["seed"],
-                                             "status": o["summary"].get("status"), "waves_cleared": o["summary"].get("waves_cleared", 0)} for o in candidates]})
+                                             "status": o["summary"].get("status"), "waves_cleared": o["summary"].get("waves_cleared", 0),
+                                             "objective_integrity": o["summary"].get("objective_integrity"),
+                                             "clearing_timeout_advances": o["summary"].get("clearing_timeout_advances"),
+                                             "quality": o["quality"]} for o in candidates]})
     if not references:
         status = "uncalibrated"
         interpretation = "No known-achievable reference anchors were supplied. Controller losses do not establish that the game or progression is too difficult."

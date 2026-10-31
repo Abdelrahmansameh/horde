@@ -183,6 +183,9 @@ struct GymContext {
     /// The `ui` command: drives the game UI by widget path. Bound where a
     /// UI exists (interactive play, --screenshot --ui); unset elsewhere.
     std::function<GymResult(const std::vector<std::string>& tokens)> ui;
+    /// The `audio` command: stats, volume, mute, and playing any cue. Bound
+    /// in interactive play; unset headlessly, where nothing is heard.
+    std::function<GymResult(const std::vector<std::string>& tokens)> audio;
 
     /// The level editor's document, when one is open. Absent otherwise, in
     /// which case `edit` reports that rather than pretending.

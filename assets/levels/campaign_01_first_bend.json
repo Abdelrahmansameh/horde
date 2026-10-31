@@ -8,7 +8,8 @@
   "region": "capillary",
   "world": { "min": [0, 30], "max": [200, 130] },
   "camera": { "center": [100, 71.4], "view_height": 108, "min_view_height": 82.08, "max_view_height": 108 },
-  "economy": { "starting_atp": 300 },
+  "economy": {"starting_atp": 300, "income_multiplier": 1.0},
+  "enemy_scaling": {"durability_multiplier": 1.0, "damage_multiplier": 1.0},
   "vessels": [
     {
       "id": "main",
@@ -47,7 +48,7 @@
       "prep_time": 12,
       "atp_reward": 45,
       "spawns": [
-        { "family": "virus", "count": 138, "duration": 4, "spawn_point_id": "p0", "squad_size": 48, "squad_paths": ["first_bend_route"] }
+        {"family": "virus", "count": 138, "duration": 4, "spawn_point_id": "p0", "squad_size": 48, "squad_paths": ["first_bend_route"]}
       ]
     },
     {
@@ -55,7 +56,7 @@
       "prep_time": 11.3,
       "atp_reward": 64,
       "spawns": [
-        { "family": "virus", "count": 259, "duration": 4.07, "spawn_point_id": "p0", "squad_size": 48, "squad_paths": ["first_bend_route"] }
+        {"family": "virus", "count": 210, "duration": 4.411871, "spawn_point_id": "p0", "squad_size": 48, "squad_paths": ["first_bend_route"]}
       ]
     },
     {
@@ -63,8 +64,8 @@
       "prep_time": 10.6,
       "atp_reward": 83,
       "spawns": [
-        { "family": "virus", "count": 274, "duration": 3.946, "spawn_point_id": "p0", "squad_size": 48, "squad_paths": ["first_bend_route"] },
-        { "family": "bacteria", "count": 124, "start_time": 5.376, "duration": 3.946, "spawn_point_id": "p0", "squad_size": 48, "squad_paths": ["first_bend_route"] }
+        {"family": "virus", "count": 219, "duration": 3.334803, "spawn_point_id": "p0", "squad_size": 48, "squad_paths": ["first_bend_route"]},
+        {"family": "virus", "count": 99, "start_time": 4.585803, "duration": 3.334803, "spawn_point_id": "p0", "squad_size": 48, "squad_paths": ["first_bend_route"]}
       ]
     },
     {
@@ -72,8 +73,8 @@
       "prep_time": 9.9,
       "atp_reward": 102,
       "spawns": [
-        { "family": "virus", "count": 375, "duration": 4.158, "spawn_point_id": "p0", "squad_size": 48, "squad_paths": ["first_bend_route"] },
-        { "family": "bacteria", "count": 169, "start_time": 5.639, "duration": 4.158, "spawn_point_id": "p0", "squad_size": 48, "squad_paths": ["first_bend_route"] }
+        {"family": "virus", "count": 334, "duration": 3.686338, "spawn_point_id": "p0", "squad_size": 48, "squad_paths": ["first_bend_route"]},
+        {"family": "virus", "count": 150, "start_time": 4.99934, "duration": 3.686338, "spawn_point_id": "p0", "squad_size": 48, "squad_paths": ["first_bend_route"]}
       ]
     },
     {
@@ -81,8 +82,8 @@
       "prep_time": 9.2,
       "atp_reward": 121,
       "spawns": [
-        { "family": "virus", "count": 479, "duration": 4.276, "spawn_point_id": "p0", "squad_size": 48, "squad_paths": ["first_bend_route"] },
-        { "family": "bacteria", "count": 216, "start_time": 5.774, "duration": 4.276, "spawn_point_id": "p0", "squad_size": 48, "squad_paths": ["first_bend_route"] }
+        {"family": "virus", "count": 506, "duration": 4.047825, "spawn_point_id": "p0", "squad_size": 48, "squad_paths": ["first_bend_route"]},
+        {"family": "virus", "count": 228, "start_time": 5.46589, "duration": 4.047825, "spawn_point_id": "p0", "squad_size": 48, "squad_paths": ["first_bend_route"]}
       ]
     },
     {
@@ -90,8 +91,8 @@
       "prep_time": 8.5,
       "atp_reward": 140,
       "spawns": [
-        { "family": "virus", "count": 586, "duration": 4.35, "spawn_point_id": "p0", "squad_size": 48, "squad_paths": ["first_bend_route"] },
-        { "family": "bacteria", "count": 264, "start_time": 5.85, "duration": 4.35, "spawn_point_id": "p0", "squad_size": 48, "squad_paths": ["first_bend_route"] }
+        {"family": "virus", "count": 769, "duration": 4.458823, "spawn_point_id": "p0", "squad_size": 48, "squad_paths": ["first_bend_route"]},
+        {"family": "virus", "count": 347, "start_time": 5.996349, "duration": 4.458823, "spawn_point_id": "p0", "squad_size": 48, "squad_paths": ["first_bend_route"]}
       ]
     }
   ]

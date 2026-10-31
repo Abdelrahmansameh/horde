@@ -1,4 +1,5 @@
 #include "app/App.h"
+#include "app/AudioRender.h"
 #include "app/BalanceMode.h"
 #include "app/Cli.h"
 #include "app/LevelTools.h"
@@ -66,6 +67,9 @@ int main(int argc, char** argv) {
 
         case app::Mode::Screenshot:
             return app::run_screenshot(options);
+
+        case app::Mode::AudioRender:
+            return app::run_audio_render(options);
 
         // The editor is an interactive App state, not a headless mode: it needs
         // the window, the renderer and the real level-load path.

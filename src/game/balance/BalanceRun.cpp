@@ -217,6 +217,10 @@ json metrics_json(const sim::CombatMetrics& metrics, const sim::SimWorld& world)
     result["cells_killed_by_hostiles"] = t.cells_killed_by_hostiles;
     result["toxin_fired"] = t.toxin_fired;
     result["toxin_hits"] = t.toxin_hits;
+    result["toxin_shots_denied_capacity"] = t.toxin_shots_denied_capacity;
+    result["harpoons_denied_capacity"] = t.harpoons_denied_capacity;
+    result["hostile_capacities"] = {{"toxin_shots",world.hostile().tuning().max_toxin_shots},
+        {"harpoons",world.hostile().tuning().max_harpoons}};
     result["new_latches"] = t.new_latches;
     result["replications_denied_capacity"] = t.replications_denied_capacity;
     result["replications_denied_tick_budget"] = t.replications_denied_tick_budget;
@@ -315,10 +319,11 @@ json gameplay_conservation(const sim::SimWorld& world,const Economy& economy,jso
 ControllerParams controller_params(const json& spec) {
     ControllerParams p;
     const json c = spec.value("controller",json::object());
-    keys(c,{"policy","reaction_ticks","prep_ticks","reserve_atp","weights","placement_seed","use_abilities"},"controller");
+    keys(c,{"policy","reaction_ticks","prep_ticks","max_prep_ticks","reserve_atp","weights","placement_seed","use_abilities"},"controller");
     require(parse_policy(c.value("policy",std::string("competent")),p.policy),"unknown controller policy");
     p.reaction_ticks = static_cast<u32>(integer(c,"reaction_ticks",0,36000));
     p.prep_ticks = static_cast<u32>(integer(c,"prep_ticks",0,36000));
+    p.max_prep_ticks = static_cast<u32>(integer(c,"max_prep_ticks",3600,36000));
     p.reserve_atp = static_cast<u32>(integer(c,"reserve_atp",0));
     p.use_abilities = c.value("use_abilities",true);
     p.placement_seed = integer(c,"placement_seed",1,std::numeric_limits<u64>::max());
@@ -369,6 +374,19 @@ Action parse_action(const json& j) {
     }
     return a;
 }
+// A legacy line key still denotes all of its stages in experiment policies.
+std::vector<TreeNode> line_stages(TreeNode source) {
+    std::vector<TreeNode> stages{source};
+    if (tree_node(source).effect_source != TreeNode::Count) return stages;
+    for (u32 i = 0; i < kTreeNodeCount; ++i) {
+        const auto n = static_cast<TreeNode>(i);
+        if (tree_node(n).effect_source == source) stages.push_back(n);
+    }
+    std::sort(stages.begin() + 1, stages.end(), [](TreeNode a, TreeNode b) {
+        return tree_node(a).rank_offset < tree_node(b).rank_offset;
+    });
+    return stages;
+}
 void initialize_progression(const json& spec, const GameConfig& base, MetaProgression& meta) {
     meta.reset_to_new_game();
     const auto p = spec.value("progression",json::object());
@@ -391,9 +409,13 @@ void initialize_progression(const json& spec, const GameConfig& base, MetaProgre
         require(find_tree_node(item.at("key").get<std::string>(),node),"unknown progression purchase");
         const u64 n = integer(item,"levels",1,255);
         require(n > 0,"purchase levels must be positive");
-        for (u64 i = 0; i < n; ++i)
-            require(meta.purchase(node,base.meta) == MetaProgression::PurchaseResult::Ok,
-                    std::string("illegal progression purchase: ")+tree_node(node).key);
+        const auto stages = line_stages(node);
+        usize stage = 0;
+        for (u64 i = 0; i < n; ++i) {
+            while (stage + 1 < stages.size() && meta.level(stages[stage]) >= tree_node(stages[stage]).max_level) ++stage;
+            require(meta.purchase(stages[stage],base.meta) == MetaProgression::PurchaseResult::Ok,
+                    std::string("illegal progression purchase: ")+tree_node(stages[stage]).key);
+        }
     }
     if (p.contains("grant_tree")) {
         require(p.at("grant_tree").is_object(),"grant_tree must be a node-name object");
@@ -403,8 +425,20 @@ void initialize_progression(const json& spec, const GameConfig& base, MetaProgre
             require(find_tree_node(it.key(),n),"unknown grant_tree node '"+it.key()+"'");
             require(it.value().is_number_integer(),"grant_tree ranks must be integers");
             const auto v = it.value().get<i64>();
-            require(v >= 0 && v <= tree_node(n).max_level,"grant_tree rank exceeds node maximum");
-            meta.debug_set_skill(n,static_cast<u32>(v));
+            const auto stages = line_stages(n);
+            u32 capacity = 0;
+            for (const auto stage : stages) capacity += tree_node(stage).max_level;
+            require(v >= 0 && static_cast<u64>(v) <= capacity,"grant_tree rank exceeds node maximum");
+            if (v <= tree_node(n).max_level) {
+                meta.debug_set_skill(n,static_cast<u32>(v));
+            } else {
+                u32 remaining = static_cast<u32>(v);
+                for (const auto stage : stages) {
+                    const u32 rank = std::min(remaining, static_cast<u32>(tree_node(stage).max_level));
+                    meta.debug_set_skill(stage, rank);
+                    remaining -= rank;
+                }
+            }
         }
     }
 }
@@ -467,6 +501,7 @@ json run_level(const json& spec, const GameConfig& base, MetaProgression& meta,
         auto ec = run.config.economy;
         ec.starting_atp = static_cast<u32>(integer(spec,"opening_atp",0));
         ec.atp_per_density *= level.economy.income_multiplier;
+        ec.atp_per_density /= level.enemy_scaling.durability_multiplier;
         economy.configure(ec);
     }
     if (spec.contains("allowed_cells")) {
@@ -670,7 +705,7 @@ json run_level(const json& spec, const GameConfig& base, MetaProgression& meta,
         slow_enemy_seconds += a.at("slowed_enemies").get<f64>()*dt;
         if (a.at("enemies_near_objective").get<u64>() > 0) danger_seconds += dt;
     }
-    u64 denied = 0, timeout_advances = 0;
+    u64 denied = 0, timeout_advances = 0, spawn_reprojected = 0, spawn_denied_geometry = 0;
     Tick interval_start = 0;
     for (usize i = 0; i < waves.metrics().size(); ++i) {
         const auto& m = waves.metrics()[i];
@@ -679,16 +714,25 @@ json run_level(const json& spec, const GameConfig& base, MetaProgression& meta,
         interval_start += row.at("ticks").get<Tick>();
         row["end_tick"] = interval_start;
         row["requested"] = m.requested; row["spawned"] = m.spawned; row["denied"] = m.denied;
+        row["spawn_sites_reprojected"] = m.spawn_sites_reprojected;
+        row["spawn_sites_denied_geometry"] = m.spawn_sites_denied_geometry;
         row["completed"] = m.completed; row["clearing_timeout"] = m.clearing_timeout;
         row["survivors_on_completion"] = m.survivors_on_completion;
         row["accounting_scope"] = "activity during wave interval; carryover may belong to earlier waves";
         report["waves"].push_back(std::move(row));
         denied += m.denied; timeout_advances += m.clearing_timeout ? 1 : 0;
+        spawn_reprojected += m.spawn_sites_reprojected;
+        spawn_denied_geometry += m.spawn_sites_denied_geometry;
     }
     if (denied) report["diagnostics"]["errors"].push_back("authored enemy spawns were denied");
+    if (spawn_denied_geometry) report["diagnostics"]["errors"].push_back("authored enemy spawn geometry has no legal reachable body-clear site");
     if (measure && world.combat_metrics().overflow_count()) report["diagnostics"]["errors"].push_back("combat attribution capacity exceeded");
     if (world.combat_metrics().totals().replications_denied_capacity)
         report["diagnostics"]["errors"].push_back("replication was suppressed by enemy capacity");
+    if (world.combat_metrics().totals().toxin_shots_denied_capacity)
+        report["diagnostics"]["errors"].push_back("hostile toxin shots were suppressed by capacity");
+    if (world.combat_metrics().totals().harpoons_denied_capacity)
+        report["diagnostics"]["errors"].push_back("spore harpoons were suppressed by capacity");
     report["combat_conservation"] = combat_conservation(world,density_removed,report["diagnostics"]["errors"]);
     report["conservation"] = gameplay_conservation(world,economy,report["diagnostics"]["errors"]);
     if (!measure) report["diagnostics"]["warnings"].push_back("combat telemetry disabled; contribution and pool-capacity evidence unavailable");
@@ -713,6 +757,7 @@ json run_level(const json& spec, const GameConfig& base, MetaProgression& meta,
         {"friendly_alive",state.at("friendly_alive")},{"abilities_used",casts},{"actions_rejected",rejected},
         {"deploy_capacity_rejected",deploy_capacity_rejected},{"combat_metrics_available",measure},
         {"clearing_timeout_advances",timeout_advances},{"denied_spawns",denied},
+        {"spawn_sites_reprojected",spawn_reprojected},{"spawn_sites_denied_geometry",spawn_denied_geometry},
         {"unable_to_afford_seconds",unaffordable_ticks*kFixedDtSeconds},
         {"prep_seconds",waiting_ticks*kFixedDtSeconds},{"atp_seconds_unspent",atp_area},
         {"sampled_slow_enemy_seconds",slow_enemy_seconds},{"sampled_danger_seconds",danger_seconds}};
@@ -814,7 +859,9 @@ json buy_priorities(MetaProgression& meta, const GameConfig& base, const json& p
     for (const auto& key : priority) {
         TreeNode node;
         require(find_tree_node(key.get<std::string>(),node),"unknown campaign purchase key: "+key.get<std::string>());
-        nodes.push_back(node);
+        for (const auto stage : line_stages(node)) {
+            if (std::find(nodes.begin(), nodes.end(), stage) == nodes.end()) nodes.push_back(stage);
+        }
     }
     for (u32 pass = 0; pass < 256; ++pass) {
         bool bought = false;

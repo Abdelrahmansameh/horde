@@ -157,6 +157,8 @@ struct CombatMetricTotals {
     u64 cells_killed_by_hostiles = 0;
     u64 toxin_fired = 0;
     u64 toxin_hits = 0;
+    u64 toxin_shots_denied_capacity = 0;
+    u64 harpoons_denied_capacity = 0;
     u64 new_latches = 0;
     u64 replications_denied_capacity = 0;
     u64 replications_denied_tick_budget = 0;
@@ -325,7 +327,8 @@ public:
         if (auto* bucket = damage_bucket(tag)) add(bucket->projectile_outcomes);
     }
     void record_hostile(f32 cell_damage, f32 structure_damage, u32 killed,
-                        u32 fired, u32 hits, u32 latches) {
+                        u32 fired, u32 hits, u32 latches,
+                        u32 toxin_denied_capacity = 0, u32 harpoon_denied_capacity = 0) {
         if (!enabled_) return;
         totals_.hostile_requested_cell_damage += cell_damage;
         totals_.hostile_requested_structure_damage += structure_damage;
@@ -333,6 +336,8 @@ public:
         totals_.toxin_fired += fired;
         totals_.toxin_hits += hits;
         totals_.new_latches += latches;
+        totals_.toxin_shots_denied_capacity += toxin_denied_capacity;
+        totals_.harpoons_denied_capacity += harpoon_denied_capacity;
     }
 
 private:

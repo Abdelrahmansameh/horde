@@ -44,6 +44,7 @@ enum class Mode : u8 {
     BalanceRun,
     BalanceReplay,
     BalanceCatalog,
+    AudioRender,    ///< --audio-render <f.wav>: offline render of every sound + a horde stress run.
 };
 
 struct Options {
@@ -131,6 +132,13 @@ struct Options {
     bool verbose = false;
     bool quiet = false;
     bool vsync = true;
+
+    /// --volume F: master volume, 0 to 1 (0 is silent but keeps the device).
+    f32 volume = 0.8f;
+    /// --no-audio: never open an audio device.
+    bool no_audio = false;
+    /// --audio-render <f.wav>: where the offline audition goes.
+    std::string audio_render_path;
 
     std::string error;          ///< Non-empty when mode == Invalid.
 };

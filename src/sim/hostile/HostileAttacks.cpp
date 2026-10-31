@@ -414,6 +414,22 @@ HostileStats HostileSystem::update(ChaffBuffers& chaff, const SpatialHash& hash,
         }
     }
 
+    // Audio cues for the pellets (CombatEventType::ToxinFired/ToxinHit). Pure
+    // output, capped per tick like the latch and harpoon events.
+    u32 toxin_events = 0;
+    const auto toxin_event = [&](CombatEventType type, Vec2 at, Vec2 dir, u32 fam, f32 magnitude) {
+        if (events == nullptr || toxin_events >= tuning_.max_toxin_events) return;
+        ++toxin_events;
+        CombatEvent e;
+        e.type = type;
+        e.target_family = static_cast<PathogenFamily>(fam < kFamilyCount ? fam : 0u);
+        e.origin = at;
+        e.secondary = at;
+        e.direction = dir;
+        e.magnitude = magnitude;
+        events->push(e);
+    };
+
     // Fly last tick's pellets before spawning new ones. Each pellet keeps the
     // identity of its intended target, so a compacted swarmer slot or a
     // removed tower can never receive a stray hit.
@@ -439,6 +455,8 @@ HostileStats HostileSystem::update(ChaffBuffers& chaff, const SpatialHash& hash,
                     towers.damage[k] += damage;
                     stats.tower_damage += damage;
                     ++stats.toxin_hits;
+                    toxin_event(CombatEventType::ToxinHit, shot.position, math::normalize_safe(shot.velocity),
+                                static_cast<u32>(PathogenFamily::Bacteria), damage);
                     retire = true;
                 }
             }
@@ -456,6 +474,8 @@ HostileStats HostileSystem::update(ChaffBuffers& chaff, const SpatialHash& hash,
                     sw.health[k] -= damage;
                     stats.swarmer_damage += damage;
                     ++stats.toxin_hits;
+                    toxin_event(CombatEventType::ToxinHit, shot.position, math::normalize_safe(shot.velocity),
+                                static_cast<u32>(PathogenFamily::Bacteria), damage);
                     retire = true;
                 }
             }
@@ -477,7 +497,7 @@ HostileStats HostileSystem::update(ChaffBuffers& chaff, const SpatialHash& hash,
         const u32 fam = chaff.family[j] < kFamilyCount ? chaff.family[j] : 0u;
         const HostileFamilyParams& fp = tuning_.family[fam];
         if (fp.toxin_damage <= 0.0f || fp.toxin_range <= 0.0f || fp.toxin_speed <= 0.0f ||
-            toxin_shots_.size() >= tuning_.max_toxin_shots || shot_stamp_[j] == shot_tick_) return;
+            shot_stamp_[j] == shot_tick_) return;
         if (chaff.toxin_reload[j] >= 0.0f || chaff.toxin_rounds[j] == 0u ||
             chaff.toxin_cooldown[j] > 0.0f) return;
         const Vec2 origin{chaff.pos_x[j], chaff.pos_y[j]};
@@ -485,6 +505,13 @@ HostileStats HostileSystem::update(ChaffBuffers& chaff, const SpatialHash& hash,
         const Vec2 aim = target + target_velocity * travel;
         const Vec2 dir = math::normalize_safe(aim - origin);
         if (dir.x == 0.0f && dir.y == 0.0f) return;
+        if (toxin_shots_.size() >= tuning_.max_toxin_shots) {
+            // One ready shooter, once this tick; keep ammo/cooldown intact so
+            // the existing retry behavior is unchanged when storage is full.
+            shot_stamp_[j] = shot_tick_;
+            ++stats.toxin_shots_denied_capacity;
+            return;
+        }
         ToxinShot shot;
         shot.position = origin + dir * (chaff_radius_[fam] * chaff.size_scale[j] * 1.35f);
         shot.velocity = dir * fp.toxin_speed;
@@ -502,6 +529,7 @@ HostileStats HostileSystem::update(ChaffBuffers& chaff, const SpatialHash& hash,
         chaff.toxin_spit_pulse[j] = 1.0f;
         chaff.body_heading[j] = std::atan2(dir.y, dir.x);
         ++stats.toxin_fired;
+        toxin_event(CombatEventType::ToxinFired, shot.position, dir, fam, shot.damage);
     };
 
     // ---- 1. PASSENGERS ----------------------------------------------------
@@ -823,7 +851,7 @@ HostileStats HostileSystem::update(ChaffBuffers& chaff, const SpatialHash& hash,
         if (sw.health[i] > 0.0f) continue;
         sw.kill(i, CombatRetirement::Damage);
         ++stats.swarmers_killed;
-        raise_swarmer_death(sw, i, events);
+        raise_swarmer_death(sw, i, events, CombatRetirement::Damage);
     }
 
     last_ = stats;
@@ -954,6 +982,15 @@ void HostileSystem::update_harpoons(ChaffBuffers& chaff, SwarmerBuffers& sw, Fri
         }
 
         const Vec2 sp{chaff.pos_x[s], chaff.pos_y[s]};
+        if (!siege_playable(sp)) {
+            // A living shooter pushed out of the arena releases exactly as
+            // an out-of-range shot does. It must not keep dealing damage from
+            // an apron that defenders are forbidden to target.
+            let_go(line, s, hp);
+            if (line.reach <= 0.0f) { remove_line(li); continue; }
+            ++li;
+            continue;
+        }
         const Body target = body_of(line.target_index, line.target_generation, line.target_tower);
         const Vec2 to = target.p - sp;
         const f32 dist = math::length(to);
@@ -1111,6 +1148,15 @@ void HostileSystem::update_harpoons(ChaffBuffers& chaff, SwarmerBuffers& sw, Fri
             }
         }
 
+        if (!siege_playable(p)) {
+            // Reload clocks above still advance, but off-board spores cannot
+            // acquire or plant. Normal movement carries them into the arena.
+            chaff.harpoon_sighted[i] = 0u;
+            chaff.hold[i] = 0.0f;
+            chaff.harpoon_anim[i] = 0.0f;
+            continue;
+        }
+
         // Search: the BIGGEST friendly in range, nearest among equals. A
         // Cytotoxic T riding the spore itself is a legal target; it is only
         // ever the last one chosen.
@@ -1148,7 +1194,9 @@ void HostileSystem::update_harpoons(ChaffBuffers& chaff, SwarmerBuffers& sw, Fri
                 consider(t.position, t.radius, t.id.value, 0u, true);
             }
             chaff.harpoon_sighted[i] = best.ok ? 1u : 0u;
-            if (best.ok && st == harpoon_state::kReady && harpoons_.size() < tuning_.max_harpoons) {
+            if (best.ok && st == harpoon_state::kReady && harpoons_.size() >= tuning_.max_harpoons) {
+                ++stats.harpoons_denied_capacity;
+            } else if (best.ok && st == harpoon_state::kReady) {
                 const Vec2 dir = math::normalize_safe(best.p - p);
                 HarpoonLine line;
                 line.shooter = ChaffHandle{static_cast<u32>(i), chaff.generation[i]};

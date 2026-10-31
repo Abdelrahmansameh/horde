@@ -266,3 +266,42 @@ TEST_CASE("the harpoon pass is deterministic", "[sim][hostile][harpoon]") {
     };
     REQUIRE(run() == run());
 }
+
+TEST_CASE("off-board spores cannot acquire or plant until they enter the playable arena", "[sim][hostile][harpoon][play-bounds]") {
+    Fixture f;
+    f.hostile.set_playable_bounds({Vec2{68.0f,0.0f},Vec2{160.0f,160.0f}});
+    const usize spore = f.add_spore(Vec2{38.0f,80.0f});
+    const usize target = f.add_swarmer(Vec2{82.0f,80.0f},kBig);
+    auto& hp = f.tuning.harpoon[static_cast<u32>(PathogenFamily::Spore)];
+    hp.range = 44.0f;
+    hp.pulses = 1;
+    hp.pulse_damage = 7.25f;
+    f.hostile.set_tuning(f.tuning);
+    const f32 before = f.swarm.health[target];
+    for (int tick=0;tick<120;++tick) f.step();
+    CHECK(f.hostile.harpoons().empty());
+    CHECK(f.chaff.hold[spore] == 0.0f);
+    CHECK(f.chaff.harpoon_sighted[spore] == 0u);
+    CHECK(f.swarm.health[target] == before);
+
+    // Only position changes: entering the legal arena restores the same
+    // configured range and damage without exposing off-board targets.
+    f.chaff.pos_x[spore] = 70.0f;
+    for (int tick=0;tick<240 && f.swarm.health[target] == before;++tick) f.step();
+    CHECK(f.swarm.health[target] == Catch::Approx(before-7.25f));
+    CHECK(f.chaff.hold[spore] > 0.0f);
+}
+
+TEST_CASE("a spore leaving the playable arena releases its active damaging hose", "[sim][hostile][harpoon][play-bounds]") {
+    Fixture f;
+    f.hostile.set_playable_bounds({Vec2{68.0f,0.0f},Vec2{160.0f,160.0f}});
+    const usize spore = f.add_spore(Vec2{70.0f,80.0f});
+    const usize target = f.add_swarmer(Vec2{82.0f,80.0f},kBig);
+    REQUIRE(f.step_until(spore,harpoon_state::kPump));
+    const f32 before = f.swarm.health[target];
+    f.chaff.pos_x[spore] = 38.0f;
+    for (int tick=0;tick<60;++tick) f.step();
+    CHECK(f.hostile.harpoons().empty());
+    CHECK(f.chaff.hold[spore] == 0.0f);
+    CHECK(f.swarm.health[target] == before);
+}

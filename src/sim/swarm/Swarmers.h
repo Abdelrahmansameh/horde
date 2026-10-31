@@ -626,8 +626,8 @@ inline constexpr u32 kArborMaxCaptives = 8u;
 
 struct GrabberChaffCaptive {
     ChaffHandle handle{};
-    /// Initial offset from the macrophage. Followers keep their offset from
-    /// the lead captive while the whole cluster travels toward the body.
+    /// Offset from the macrophage when this particular captive is claimed.
+    /// Each side branch pulls its target along its own path from this point.
     Vec2 offset{0.0f, 0.0f};
 };
 
@@ -924,8 +924,8 @@ private:
 /// kind comes apart in the same burst, and the event's fields cannot drift
 /// between the kernel and the hostile pass. The one retirement that does not
 /// call it is leaving the world: nothing off the map is worth a burst. A null
-/// `events` raises nothing.
-void raise_swarmer_death(const SwarmerBuffers& sw, usize i, CombatEventSink* events);
+/// `events` raises nothing. `cause` lands in CombatEvent::cause.
+void raise_swarmer_death(const SwarmerBuffers& sw, usize i, CombatEventSink* events, CombatRetirement cause);
 
 struct SwarmerStats {
     u32 live = 0;

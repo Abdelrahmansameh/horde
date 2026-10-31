@@ -112,6 +112,7 @@ void WaveDirector::tick(sim::SimWorld& world, Rng& rng, f32 dt) {
         case WavePhase::Spawning: {
             wave_time_ += dt;
             bool all_entries_done = true;
+            const sim::ChaffSpawnGuard spawn_guard{&world.tissue(), &world.sdf(), &world.flow()};
 
             for (usize i = 0; i < wave.spawns.size(); ++i) {
                 const SpawnEntry& e = wave.spawns[i];
@@ -222,10 +223,13 @@ void WaveDirector::tick(sim::SimWorld& world, Rng& rng, f32 dt) {
                                 // centres that footprint on `at`, growing it
                                 // only when contact spacing requires more room.
                                 const Vec2 at = spawn_point->position;
+                                sim::ChaffSpawnSiteStats spawn_sites;
                                 const u32 got = world.chaff_system().spawn_burst(
                                     world.chaff(), e.family, at, spawn_point->radius, chunk, rng,
                                     squad, cursor.filled, squad_size,
-                                    cursor.pattern_phase);
+                                    cursor.pattern_phase, &spawn_guard, &spawn_sites);
+                                metrics.spawn_sites_reprojected += spawn_sites.reprojected;
+                                metrics.spawn_sites_denied_geometry += spawn_sites.denied_geometry;
                                 spawned += got;
                                 cursor.filled += got;
                                 left -= chunk;
@@ -237,9 +241,12 @@ void WaveDirector::tick(sim::SimWorld& world, Rng& rng, f32 dt) {
                             spawn_point = resolve_spawn_point(world, e.spawn_point_id,
                                                               spawn_point_cursor_[i]);
                         }
+                        sim::ChaffSpawnSiteStats spawn_sites;
                         const u32 got = world.chaff_system().spawn_burst(
                             world.chaff(), e.family, spawn_point->position, spawn_point->radius,
-                            chunk, rng, squad);
+                            chunk, rng, squad, 0, 0, -1.0f, &spawn_guard, &spawn_sites);
+                        metrics.spawn_sites_reprojected += spawn_sites.reprojected;
+                        metrics.spawn_sites_denied_geometry += spawn_sites.denied_geometry;
                         spawned += got;
                         left -= chunk;
                         if (got < chunk) break;   // at capacity; stop trying this tick

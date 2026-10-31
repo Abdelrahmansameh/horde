@@ -1,8 +1,8 @@
 # Platform services
 
 The platform layer owns OS-facing window/context, frame input, and filesystem
-helpers. It does not supply gameplay input to a simulation tick. The game has
-no audio. Core clocks/RNG/jobs/profiling are summarized in [ARCHITECTURE.md](ARCHITECTURE.md#core-services).
+helpers. It does not supply gameplay input to a simulation tick. Audio is a
+separate module; see [Audio](AUDIO.md). Core clocks/RNG/jobs/profiling are summarized in [ARCHITECTURE.md](ARCHITECTURE.md#core-services).
 
 ## Window and GL lifecycle
 

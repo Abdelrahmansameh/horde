@@ -1,9 +1,32 @@
 # Balance Lab
 
-The later focused Firing Cycle merge replaces Granule Replenishment and Trigger
-Rate with one five-rank upgrade. The retained campaign and power results below
-use the earlier V15 tree and runtime; they have not been rerun or relabeled for
-the merge. Its estimated effects and prices are in [Progression](PROGRESSION.md).
+The current campaign has staged upgrade lines with fixed, single-effect
+bonuses. Adaptive Memory provides shared cell health. Counts and peak authored
+release density rise about 1.4 times per level, with the old level-9 peak as the
+late-game reference and a higher level 10. Level 1 is virus-only, bacteria begin
+on level 2, and harpoon spores begin on level 4. Upgrade effects and paid rewards
+are in [Progression](PROGRESSION.md). The current paid strategy matrix is
+[`campaign_exponential_growth.json`](../assets/balance/experiments/campaign_exponential_growth.json).
+
+Historical V15, controller-repair and five-rank results below retain their
+original inputs. They do not qualify the new family mix, upgrade curve or
+larger capacity. New runs must pin the matched executable, configs, levels and
+earned progression; never relabel historical outcomes as current evidence.
+
+Controller preparation has a finite spending window. `controller.max_prep_ticks`
+defaults to 3,600 ticks (60 seconds); the effective upper bound is at least the
+policy's minimum `prep_ticks`. At that bound the controller sends the normal
+start-wave action even if another paid deployment is affordable. This prevents
+large late-game wallets from consuming the entire observation budget between
+waves. Setting the cap to zero uses the minimum preparation interval. It does
+not grant units, change prices or alter the player's manual preparation.
+
+Defensive junctions also need runway inside playable bounds. Public route
+projections stop counting fighting room at their first playable exit; a long
+off-screen drain or later re-entry cannot make a late interception safe. A
+rendered level-8 diagnostic exposed defenders clustered near the exit while an
+upper stream escaped beyond targeting bounds. Qualify the corrected placement
+on the same paid profile before interpreting that old loss as a power deficit.
 
 Balance Lab runs controlled automatic players through the actual level session,
 records what happened, and compares matched seeds. Its purpose is to make
@@ -34,11 +57,22 @@ opening wave should be weakened or the player should receive stronger stats.
 Calibrate formation, positioning and reinforcement behavior, then compare the
 reproduced play with a human recording before interpreting campaign difficulty.
 
-A paid-action reference now reproduces that achievable wave with twenty baseline
-Neutrophils and the same 300 ATP, deployment cadence, enemy release and geometry.
-Changing placement to a tight early cohort cleared all nine tested seeds with
-70–100 integrity, without upgrades, abilities or reinforcements. The reproducible
-spec is [`fresh_first_wave_paid_actions.json`](../assets/balance/references/fresh_first_wave_paid_actions.json).
+A current paid-action reference uses fifteen baseline Neutrophils at the
+20-ATP price, spending exactly 300 ATP without upgrades, abilities, income or
+reinforcements. On frozen revision 5 it clears eight of the nine reused seeds
+101–909, with 3–100 integrity among clears; seed 404 is a valid defeat. That
+same literal seed-404 spec matches revision 4 exactly, including combat and
+state hash. The older nine-of-nine, 53–93-integrity proof belongs to the
+historical pre-spawn-guard runtime. Its positions were frozen from the public
+cohort policy on selection seed 1101; they are not retuned to remove the failure.
+The reproducible spec is
+[`fresh_first_wave_paid_actions.json`](../assets/balance/references/fresh_first_wave_paid_actions.json).
+Revision-5 automatic regression uses separate seeds 2101–2808, with ordinary
+earned-income reinforcements: Competent and Tactical each clear eight of eight
+runs, with 63–100 integrity overall and no grace or denials. These are
+reused-seed controller regressions, not new independent campaign qualification
+or a universal 90-integrity opening claim. The former twenty-cell, 15-ATP reference and its
+70–100-integrity results belong to the historical tuning, not current prices.
 The automatic-controller calibration suite uses separate held-out seeds and
 intentionally contains no golden action script. A successful scripted reference
 establishes achievable play; it does not count as the automatic controller
@@ -53,7 +87,7 @@ documents from the current first level, retain only its first wave, and rerun
 the paid reference and held-out automatic calibration. Existing reports retain
 their historical embedded inputs and do not silently adopt new authored data.
 
-After the controller's cohesion correction, a verification run cleared all
+After an earlier controller cohesion correction, a historical verification run cleared all
 16 held-out first-wave cases: eight Competent and eight Tactical, each with
 100 integrity. Those automatic runs used the real earned-income reinforcement
 loop (420–435 ATP spent from an initial 300), whereas the scripted feasibility
@@ -76,8 +110,10 @@ confirmed the bypass.
 Recruitment uses current-wave counts and living cells' physical coverage. The
 controller prefers a shared early interception site before an actual fork, or
 separate cohorts when none exists. Distinct entrances can pool defenses at a
-shared corridor with room to fight before the objective. Coverage is fractional
-and never credits one cell more than once. Cached guidance refreshes during play;
+shared corridor with usable forward runway before the first playable exit on
+each relevant public route. Off-screen drain length does not count as
+interception space. Coverage is fractional and never credits one cell more
+than once. Cached guidance refreshes during play;
 normal deployment validation remains authoritative for every purchase.
 
 Pooling also has to cover the public authored alternatives of both approaches.
@@ -123,7 +159,89 @@ the fourth wave while suffering actual casualties. A routing correction does
 not guarantee a weak build wins, and an intermediate grace advance is not a
 clean per-wave elimination.
 
-`assets/balance/calibration/fresh_campaign.json` defines that explicit reference.
+### Current L5 live-front repair and earned-profile qualification
+
+The current live
+[`L5 experiment`](../assets/balance/experiments/controller_l5_calibration.json)
+and [`earned-profile reference`](../assets/balance/references/l5_earned_profile.json)
+use the exponential-revision-3 control journey's actual first-entry profile
+(2,165 MC spent, 9 banked). Its original
+seed 401015 reproduces the entire native paid action stream, before-state,
+result and reward/progress chain. Declared verification seeds 761203 and 761217
+both finish all eight waves at 100 integrity without leaks, grace or denials
+on the recorded runtime. The portable files retain the source hashes and
+qualified runtime; changed inputs require a current rerun. These observations
+qualify that profile and encounter, not every entry build or human difficulty.
+
+References may set `minimum_integrity`, `require_no_clearing_timeout` and
+`require_zero_denials`. Required but missing quality telemetry is inconclusive;
+it is never silently treated as zero. Native validity alone is insufficient to
+count a damaged/graced victory as clean qualification.
+
+#### Historical qualification before the exponential revision
+
+The October 28 audit found reinforcements returning to an entrance after visible
+traffic had passed it on the then-current Marrow Pools map. Surviving defenders did
+not establish that the escaping front was covered; those defeats diagnose the
+recorded controller, rather than proving the build needs stronger stats.
+
+That historical repair retained the prepared entrance and fork holds. Entrances could share
+one cohort when a legal damaging anchor could cover every authored/navigation
+approach with unobstructed attack lines and enough runway before the goal.
+The current playable-exit runway rule described above is a later correction.
+This check uses the smallest available damaging-anchor reach. Only genuinely
+separate fronts recruit proactively at undercovered visible traffic and bank
+surplus Clearing income once covered. A single or shared approach preserves
+its formation unless at least three compatible damaging allies are stranded
+more than twice their attack reach behind visible traffic. The entrance check
+resolves unique spawn markers from nonzero entries in the current public
+preview, including markers used by an empty spawn ID; repeated cohorts do not
+invent extra entrances.
+
+Goblets and builders do not establish damaging coverage. Thin traffic remains
+visible to the priority calculation, while role balance uses the nearby
+cohort rather than treating every traffic bin as an empty army. Decisions use
+visible enemies, living allies and public navigation and geometry, without
+hidden enemies, future waves or gameplay RNG. Runtime Clot/scar blocks permit
+friendly attack lines. Gameplay tuning and player controls remain unchanged.
+
+The [archived retry-profile provenance](../scratch/balance/exponential-growth-2026-10-28/revision-3/l5-reference-triage/historical-l5_earned_profile.json)
+and [frozen eight-seed summary](../scratch/balance/l5-controller-fix-2026-10-28/verified/summary.json)
+preserve the exact earned progression before the economy seed-72011 journey's
+fifth L5 attempt, after four paid losses (1,336 MC spent, 14 banked). The live
+references linked above now contain a different control first-entry profile.
+Historical results use their embedded original run specs and level documents,
+with the recorded configuration and runtime; they do not use today's live
+assets. That qualification used all eight waves authored at the time with
+normal costs, wallet and income, without scripts, grants or overrides. Development clears establish
+feasibility for this retry profile, not every entry build, full progression or
+human difficulty.
+
+The frozen final source passed all eight independent seeds
+`58013, 58037, 58041, 58059, 58073, 58089, 58107, 58119`: all eight authored waves
+cleared at 100 integrity, with zero leaks, grace advances, action rejections or
+capacity denials. The report's controller adequacy is `reference_passed` for
+this exact earned retry-profile encounter. The reference retains each report's
+hash, seed summary, runtime and config fingerprints. Earlier V4 530xx, failed
+V7 560xx and successful V8 570xx batches remain separate development evidence;
+their outcomes were not pooled into these eight final observations.
+
+Two fresh, real-reward L1–L5 prefix integrations on base seed 54011 also
+completed: economy took 11 attempts, clearing L5 first try; offense took nine,
+clearing L5 second try. These are one journey per priority, not full ten-level
+campaign verification or human difficulty estimates. Known earned L1 and L3
+clears preserve their exact pre-repair state hashes, respectively
+`2071385226664090712` and `8291824684584158814`.
+
+Broader checks retain explicit baseline failures: 79 of 81 C++ balance cases
+pass, with the same two pre-existing L4 coordinate-expectation failures; 49 of
+50 Python balance cases pass, with the unchanged old first-wave fixture
+mismatch. The new L5 contracts pass. The bounded qualification does not make
+these broader suites wholly green or qualify every possible build and map.
+
+### Apply reference definitions
+
+`assets/balance/calibration/fresh_campaign.json` defines the fresh opening reference.
 It checks actual fresh progression and standard rules, with no synthetic grants,
 modified wallets or config overrides. Apply it to an existing report without
 rewriting the recorded experiment:
@@ -177,6 +295,14 @@ performance or infrastructure and cannot establish that a defense loses.
 
 ## Record a human play session
 
+In the game, open the Gym panel with F2 or backtick and enable **Recording**.
+Start or restart a campaign level after enabling it so the recording includes
+the complete run from tick zero. The panel displays the output directory and
+recording status. Each finished, failed, or abandoned level is saved as a
+separate JSON file. Leave recording enabled to capture subsequent levels.
+
+The command-line alternative can choose an output directory explicitly:
+
 ```powershell
 & $immuneExe --record-balance scratch/balance/human --level assets/levels/campaign_01_first_bend.json
 & $immuneExe --balance-run scratch/balance/human/<recording>.json --out scratch/balance/human/replayed-report.json
@@ -208,26 +334,28 @@ branch-point quota. Related-cell prerequisites still keep each discovery in its
 own branch. This gives a clear a new tactical option instead of only another
 stat increment. Skilled builds may clear a level on their first attempt.
 
-The minimum completed-defeat reward is now 30 Memory Cells, enough for the first
-20-point starter rank even when no wave was cleared. Wave and kill rewards add to
+The minimum completed-defeat reward is 30 Memory Cells, enough for the first
+30-point starter rank even when no wave was cleared. Current additional rewards
+are 20 MC per cleared wave, one per 125 killed chaff and a 60-MC win bonus.
+Wave and kill rewards add to
 that floor, so substantial attempts can fund more progress. This does not make
 a timeout or invalid experiment eligible for a reward. Earlier v1 experiments
 used 10- or 20-point floors; retain their pinned inputs as separate revisions.
 
-The frozen retry experiments are
+The historical frozen retry experiments are
 [`retry_progression_training.json`](../assets/balance/experiments/retry_progression_training.json)
 and [`retry_progression_heldout.json`](../assets/balance/experiments/retry_progression_heldout.json).
 They compare control, economy and offense discovery orders with real purchases
 through all ten authored levels. Training seeds are 31013, 31019 and 31033;
 held-out base seeds are 72011, 82019, 92031, 102043 and 112059. Their maximum
-50-attempt ranges do not overlap. The seed allocation was amended before any
+100-attempt ranges do not overlap. The seed allocation was amended before any
 held-out execution or outcome inspection; the presets retain that amendment.
 Strategies deliberately share a base seed for paired comparisons. Freeze priorities and
 controller settings before looking at held-out outcomes. Keep the two splits in
 separate output directories; a policy's code name is not a player skill rating.
 
 Declared journey targets are a median of two to four attempts per cleared level,
-a maximum of five attempts per level, and purchases following at least 80% of
+a maximum of ten attempts per level, and purchases following at least 80% of
 observed losses with a following attempt. Typical substantial losses should fund
 one to three useful ranks; purchase counts alone do not prove those ranks help.
 Paired unit/rank experiments establish that combat value. The report joins each
@@ -235,7 +363,22 @@ attempt's waves, rewards, next purchases, discovery offers and observed TTK.
 These targets are design hypotheses. Later-route controller failures, incomplete
 journeys and unqualified human difficulty remain explicit limitations.
 
-The selected V15 training curve has completed fresh control and offense journeys
+On October 28 the campaign stall budget was raised to ten total attempts per
+level, with a 100-attempt campaign ceiling, in the journey and retry presets.
+Historical five-attempt reports retain their original limits. A resumed rerun
+must count earlier attempts toward the new ten-attempt limit, preserve the exact
+earned progression and uninterrupted seed sequence, and keep any attempts beyond
+that limit separate. Reusing inspected seeds is retrospective evaluation, not a
+new held-out sample.
+
+### Historical V15 timing, income and power evidence
+
+The following V15 results use the former upgrade caps, family mix, release
+curve and late-map income decay. The current 1.4-times population/pressure
+curve, uniform map income and veteran ranks are described in
+[Campaign design](CAMPAIGN_DESIGN.md) and [Progression](PROGRESSION.md).
+
+The selected V15 training curve completed fresh control and offense journeys
 on base seed 31013. Control cleared levels 1–10 in
 `5, 1, 4, 1, 2, 1, 1, 3, 1, 4` attempts (23 total); offense used
 `3, 1, 1, 1, 1, 1, 5, 2, 1, 4` (20 total). Their medians, 1.5 and 1,
@@ -255,7 +398,7 @@ separately from the frozen five-attempt failure. It motivates testing a fresh
 economy path that invests in the cells it deploys; it does not justify silently
 turning a failed journey into a success or granting extra currency.
 
-The current V15
+The historical V15
 [`retry-loop proof`](../scratch/progression-rework/training-v15-selected-prefix-proof/proof.json)
 records level-3 losses paying 97, 93 and 114 Memory Cells, actual paid work-cycle
 and captive-capacity purchases, then a seven-wave clear at 43 integrity paying
@@ -264,14 +407,14 @@ damage-death TTK rose from 11.58 seconds on the first loss to 13.90 on the clear
 survivors and consumed cells remain separate. Retry seeds and combat exposure
 differ, so that aggregate change is not an isolated health-upgrade effect.
 
-Authored pressure now has a separate, reproducible scheduling contract. Enemy
-counts, geometry and wave rewards were retained. Opening ATP now rises from
+V15 authored pressure had a separate, reproducible scheduling contract. Enemy
+counts, geometry and wave rewards were retained in that revision. Opening ATP rose from
 300 to 750, while release durations and dependent starts were compressed to remove level and later-wave pressure
 troughs. Every port retains distinct homogeneous cohorts separated by at least
 1.25 seconds. The first campaign wave is unchanged. Per-level peak authored
 density/sec is approximately 81, 107, 141, 186, 245, 324, 428, 564, 745 and 984.
 These scheduling rates do not measure how fast enemies contact the defense.
-The roughly 1.32x authored release curve is supported by actual fresh retry
+That historical 1.32x authored release curve was checked through fresh retry
 journeys; canonical combat-capacity probes and held-out journeys provide separate
 checks. Authored density alone is not a measure of experienced difficulty.
 
@@ -314,13 +457,15 @@ journeys are not six independent seed samples. Reserved base seeds 92031,
 persistent save and records human attempts for subsequent comparison.
 
 [`campaign_pressure.json`](../assets/balance/campaign_pressure.json) preserves
-exact before/after cohort timing and density metrics. Inspect the current curve
+its historical before/after cohort timing and density metrics. Inspect the current assets
 without launching the game:
 
 ```powershell
 python tools/campaign_pressure.py --check --out scratch/balance/pressure.json
 python -m unittest discover -s tests/python -p test_campaign_pressure.py
 ```
+
+### Designing current combat comparisons
 
 For a combat comparison, start with a fixed initial ATP wallet, a deployment
 spending cap and income disabled. Keep the map, seeds, controller and other
@@ -534,19 +679,15 @@ for scar health. Unlock-only opportunities apply to the upgraded arm because
 the baseline correctly lacks that cell or ability. A measured experiment can still show
 zero or non-monotone benefit under its controller; inspect actions and TTK.
 
-The former extra-arm node now grants Cluster Intake: more captives and a larger
-collection radius, without buying an unsupported arm channel. The catalog
-reports its actual captive ceiling separately. Emergency Reserves replaces the
-named-enemy-only line with actual cell health; Granule Replenishment improves
-reload throughput instead of ordinary one-hit overkill. Coordinated Response
-improves each role's actual work cycle, and Defensive Membrane changes health
-and real crowd displacement. Stable save keys remain unchanged, so old key names
-in experiment files are not the current player-facing descriptions.
+Cluster Intake increases captive capacity; capture radius is a separate
+upgrade. Degranulation Cycle increases regrowth rate, while release rate and
+granule damage have separate nodes. Defensive Membrane increases blocking and
+Reinforced Body increases health. Stable save keys remain unchanged, so old key
+names in experiment files are not always the current player-facing descriptions.
 
-Vitality and Stamina add nine base HP per rank alongside their speed bonus;
-Cyto and Goblet Resilience add ten. These flat additions cross actual shipped toxin
-hit thresholds, where the former small percentage health changes often did not.
-Global Emergency Reserves multiplies the resulting health.
+Cell health and speed are separate upgrades, and all per-rank bonuses use fixed
+base values. Earlier balance experiments predate this redesign; they cannot
+establish its current campaign difficulty.
 
 Healing and barriers need different opportunity contexts from damage abilities.
 The generated Fever probes pay for ten Neutrophils and use explicitly labelled,

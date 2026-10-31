@@ -1,3 +1,4 @@
+#include "TreeTestHelpers.h"
 // Tests for game/meta/MetaProgression.cpp: the two-currency Strengthen
 // Immunity loop (PROGRESSION.md §3) -- Memory Cells on every run, Antibodies
 // once per level on its first clear, tree purchases and their gates, respec,
@@ -587,7 +588,162 @@ TEST_CASE("merged firing cycle preserves old ranks and actual paid refunds", "[m
         priced.credit(price);
         REQUIRE(priced.purchase(kTreeRoot, MetaConfig{}) == MetaProgression::PurchaseResult::Ok);
     }
+    CHECK(priced.level(kTreeRoot) == 5);
     CHECK(priced.check_purchase(kTreeRoot, MetaConfig{}) == MetaProgression::PurchaseResult::Maxed);
+    // Degranulation Cycle II grows from Granule Capacity.
+    buy_levels(priced, TreeNode::NeutrophilSquadSize, 1, MetaConfig{});
+    u32 previous_price = prices[4];
+    for (unsigned stage = 2; stage <= 4; ++stage) {
+        const auto node = immune::test::tree_stage(kTreeRoot, stage);
+        REQUIRE(node != TreeNode::Count);
+        for (u8 rank = 0; rank < tree_node(node).max_level; ++rank) {
+            const auto cost = priced.next_cost(node, MetaConfig{});
+            REQUIRE(cost.memory_cells > previous_price);
+            previous_price = cost.memory_cells;
+            priced.credit(cost.memory_cells);
+            REQUIRE(priced.purchase(node, MetaConfig{}) == MetaProgression::PurchaseResult::Ok);
+        }
+    }
+}
+
+TEST_CASE("Adaptive Memory is earned through its connected branch and retains the exact paid ledger", "[meta][progression][adaptive-memory]") {
+    auto m = fresh();
+    const MetaConfig cfg;
+    REQUIRE(m.check_purchase(TreeNode::AdaptiveMemory, cfg) == MetaProgression::PurchaseResult::Locked);
+    for (const auto parent : {kTreeRoot, TreeNode::BoneMarrowReserve, TreeNode::EfficientClearance, TreeNode::SystemicPotency}) {
+        m.credit(m.next_cost(parent, cfg).memory_cells);
+        REQUIRE(m.purchase(parent, cfg) == MetaProgression::PurchaseResult::Ok);
+    }
+    const auto before = m.spent_memory_cells();
+    u64 paid = 0;
+    unsigned total_rank = 0;
+    for (unsigned stage = 1; stage <= 4; ++stage) {
+        const auto node = immune::test::tree_stage(TreeNode::AdaptiveMemory, stage);
+        REQUIRE(node != TreeNode::Count);
+        for (u8 rank = 1; rank <= tree_node(node).max_level; ++rank) {
+            const auto cost = m.next_cost(node, cfg);
+            REQUIRE(cost.antibodies == 0);
+            REQUIRE(m.check_purchase(node, cfg) == MetaProgression::PurchaseResult::NeedMemoryCells);
+            m.credit(cost.memory_cells);
+            paid += cost.memory_cells;
+            REQUIRE(m.purchase(node, cfg) == MetaProgression::PurchaseResult::Ok);
+            CHECK(m.memory_cells() == 0);
+            if (++total_rank == 10) CHECK(paid == 1750);
+        }
+    }
+    CHECK(total_rank == 20);
+    CHECK(paid == 6500);
+    CHECK(m.spent_memory_cells() == before + paid);
+    MetaProgression restored;
+    std::string error;
+    REQUIRE(restored.from_json(m.to_json(), error));
+    CHECK(restored.to_json() == m.to_json());
+    for (unsigned stage = 1; stage <= 4; ++stage) {
+        const auto node = immune::test::tree_stage(TreeNode::AdaptiveMemory, stage);
+        CHECK(restored.level(node) == tree_node(node).max_level);
+    }
+}
+
+TEST_CASE("Degranulation Cycle II needs both Granule Capacity and the fully grown first stage", "[meta][progression]") {
+    auto m = fresh();
+    const MetaConfig cfg{};
+    const auto next = TreeNode::NeutrophilRoundDamageStage2;
+    const auto branch = TreeNode::NeutrophilSquadSize;
+    REQUIRE(tree_node(next).parent == branch);
+    REQUIRE(tree_previous_stage(next) == kTreeRoot);
+    m.credit(10000);
+    CHECK(m.check_purchase(next, cfg) == MetaProgression::PurchaseResult::Locked);
+    REQUIRE(m.purchase(kTreeRoot, cfg) == MetaProgression::PurchaseResult::Ok);
+    REQUIRE(m.purchase(branch, cfg) == MetaProgression::PurchaseResult::Ok);
+    CHECK(m.check_purchase(next, cfg) == MetaProgression::PurchaseResult::Locked);
+    for (u8 rank = 2; rank <= tree_node(kTreeRoot).max_level; ++rank) {
+        REQUIRE(m.purchase(kTreeRoot, cfg) == MetaProgression::PurchaseResult::Ok);
+        if (rank < tree_node(kTreeRoot).max_level)
+            CHECK(m.check_purchase(next, cfg) == MetaProgression::PurchaseResult::Locked);
+    }
+    // Any rank of the branch parent is enough; it does not need to be maxed.
+    CHECK(m.level(branch) == 1);
+    CHECK(m.check_purchase(next, cfg) == MetaProgression::PurchaseResult::Ok);
+    REQUIRE(m.purchase(next, cfg) == MetaProgression::PurchaseResult::Ok);
+    CHECK(m.check_purchase(TreeNode::NeutrophilRoundDamageStage3, cfg) == MetaProgression::PurchaseResult::Locked);
+
+    auto no_branch = fresh();
+    no_branch.credit(10000);
+    buy_levels(no_branch, kTreeRoot, tree_node(kTreeRoot).max_level, cfg);
+    CHECK(no_branch.check_purchase(next, cfg) == MetaProgression::PurchaseResult::Locked);
+}
+
+TEST_CASE("legacy long tracks migrate every purchased rank across stages", "[meta][progression]") {
+    for (u32 i = 0; i < kTreeNodeCount; ++i) {
+        const auto first = static_cast<TreeNode>(i);
+        // v3 predates all separately purchasable effect tracks.
+        if (i >= static_cast<u32>(TreeNode::NeutrophilRelease)) continue;
+        if (immune::test::tree_stage(first, 2) == TreeNode::Count) continue;
+        const auto maximum = immune::test::tree_track_max(first);
+        for (const auto original : {5u, 6u, maximum}) {
+            CAPTURE(tree_node(first).key, original);
+            MetaProgression m;
+            std::string error;
+            const auto saved = std::string("{\"version\":3,\"memory_cells\":77,\"spent_memory_cells\":999,\"tree\":{\"") +
+                               tree_node(first).key + "\":" + std::to_string(original) + "}}";
+            REQUIRE(m.from_json(saved, error));
+            unsigned remaining = original;
+            for (unsigned stage = 1; ; ++stage) {
+                const auto node = immune::test::tree_stage(first, stage);
+                if (node == TreeNode::Count) break;
+                const auto expected = std::min(remaining, static_cast<unsigned>(tree_node(node).max_level));
+                CHECK(m.level(node) == expected);
+                remaining -= expected;
+            }
+            CHECK(m.memory_cells() == 77);
+            CHECK(m.spent_memory_cells() == 999);
+            MetaProgression round_trip;
+            REQUIRE(round_trip.from_json(m.to_json(), error));
+            CHECK(round_trip.to_json() == m.to_json());
+        }
+    }
+}
+
+TEST_CASE("formerly capped veteran saves retain purchased ranks and can buy the next rank", "[meta][progression][veteran][adaptive-memory]") {
+    MetaProgression restored;
+    std::string error;
+    REQUIRE(restored.from_json(R"({"version":3,"memory_cells":91,"antibodies":2,
+      "spent_memory_cells":5478,"spent_antibodies":2,"tree":{
+      "neutrophil.round_damage":12,"cytotoxic.unlock":1,"cytotoxic.drain":12,
+      "macrophage.unlock":1,"macrophage.grab_speed":8,"hub.bone_marrow_reserve":1,
+      "hub.efficient_clearance":1,"hub.systemic_potency":1,"hub.adaptive_memory":10}})", error));
+    CHECK(restored.memory_cells() == 91);
+    CHECK(restored.antibodies() == 2);
+    CHECK(restored.spent_memory_cells() == 5478);
+    CHECK(restored.spent_antibodies() == 2);
+    for (const auto node : {TreeNode::NeutrophilRoundDamage, TreeNode::CytotoxicDrain,
+                            TreeNode::MacrophageGrabSpeed, TreeNode::AdaptiveMemory}) {
+        CAPTURE(tree_node(node).key);
+        const u8 old_cap = node == TreeNode::MacrophageGrabSpeed ? 8 :
+            node == TreeNode::AdaptiveMemory ? 10 : 12;
+        unsigned total = 0;
+        for (unsigned stage = 1; ; ++stage) {
+            const auto part = immune::test::tree_stage(node, stage);
+            if (part == TreeNode::Count) break;
+            total += restored.level(part);
+        }
+        CHECK(total == old_cap);
+        const auto next = immune::test::tree_stage(node, old_cap / 5 + 1);
+        REQUIRE(next != TreeNode::Count);
+        const auto cost = restored.next_cost(next, MetaConfig{});
+        REQUIRE(cost.memory_cells > 0);
+        REQUIRE(cost.antibodies == 0);
+        const auto bank = restored.memory_cells();
+        const auto spent = restored.spent_memory_cells();
+        restored.credit(cost.memory_cells);
+        REQUIRE(restored.purchase(next, MetaConfig{}) == MetaProgression::PurchaseResult::Ok);
+        CHECK(restored.level(next) == old_cap % 5 + 1);
+        CHECK(restored.memory_cells() == bank);
+        CHECK(restored.spent_memory_cells() == spent + cost.memory_cells);
+    }
+    MetaProgression round_trip;
+    REQUIRE(round_trip.from_json(restored.to_json(), error));
+    CHECK(round_trip.to_json() == restored.to_json());
 }
 
 TEST_CASE("Progression cheats preserve save and reset invariants", "[meta]") {
@@ -631,4 +787,133 @@ TEST_CASE("Progression cheats preserve save and reset invariants", "[meta]") {
     REQUIRE(m.tower_unlocked(TowerType::Neutrophil));
     m.reset_to_new_game();
     REQUIRE(m.to_json() == fresh().to_json());
+}
+
+
+TEST_CASE("split ranks migrate with their effects, prices, and purchase requirements", "[meta][progression][stages]") {
+    const MetaConfig cfg;
+    for (u32 i = 0; i < kTreeNodeCount; ++i) {
+        const auto stage = static_cast<TreeNode>(i);
+        const auto& d = tree_node(stage);
+        if (d.effect_source == TreeNode::Count) continue;
+        // v3 could not have contained any of the new split tracks.
+        if (static_cast<u32>(d.effect_source) >= static_cast<u32>(TreeNode::NeutrophilRelease)) continue;
+        CAPTURE(d.key);
+        REQUIRE(d.max_level <= 5);
+        const auto& source = tree_node(d.effect_source);
+        REQUIRE(d.parent != TreeNode::Count);
+        CHECK(tree_node_cost(cfg, stage, 0).memory_cells ==
+              tree_node_cost(cfg, d.effect_source, d.rank_offset).memory_cells);
+
+        MetaProgression m;
+        std::string error;
+        const std::string save = std::string(R"({"version":3,"memory_cells":100000,"spent_memory_cells":1234,"tree":{")") +
+            source.key + "\":" + std::to_string(d.rank_offset + 1) + "}}";
+        REQUIRE(m.from_json(save, error));
+        CHECK(m.level(stage) == 1);
+        CHECK(m.spent_memory_cells() == 1234);
+        MetaProgression roundtrip;
+        REQUIRE(roundtrip.from_json(m.to_json(), error));
+        CHECK(roundtrip.to_json() == m.to_json());
+
+        MetaProgression locked;
+        locked.debug_set_currencies(100000, 100);
+        const TreeNode previous = tree_previous_stage(stage);
+        REQUIRE(previous != TreeNode::Count);
+        locked.debug_set_skill(d.parent, 1);
+        locked.debug_set_skill(previous, 1);
+        if (tree_node(previous).max_level > 1)
+            CHECK(locked.check_purchase(stage, cfg) == MetaProgression::PurchaseResult::Locked);
+        locked.debug_set_skill(previous, tree_node(previous).max_level);
+        CHECK(locked.check_purchase(stage, cfg) == MetaProgression::PurchaseResult::Ok);
+    }
+}
+
+
+TEST_CASE("legacy combined purchases migrate each split effect once", "[meta][progression][migration]") {
+    struct Split { TreeNode old_line, new_line; unsigned offset; };
+    using N = TreeNode;
+    const Split splits[] = {
+        {N::NeutrophilRoundDamage, N::NeutrophilRelease, 0},
+        {N::NeutrophilRoundDamage, N::NeutrophilGranuleDamage, 12},
+        {N::NeutrophilVitality, N::NeutrophilSpeed, 0},
+        {N::CytotoxicStamina, N::CytotoxicStaminaHealth, 0},
+        {N::MacrophageArms, N::MacrophageIntakeRadius, 0},
+        {N::MacrophageCaptives, N::MacrophageCaptivesRadius, 0},
+        {N::MacrophageGrabSpeed, N::MacrophageGrabReach, 4},
+        {N::MacrophageGrabSpeed, N::MacrophageMobility, 4},
+        {N::MacrophageWall, N::MacrophageWallHealth, 0},
+        {N::FibroblastInflammation, N::FibroblastRegrowth, 0},
+        {N::AdaptiveMemory, N::AdaptiveWork, 0},
+        {N::SystemicPotency, N::CytokineDrain, 0},
+        {N::SystemicPotency, N::CytokineGobletSpeed, 0},
+        {N::AdaptiveMemory, N::AdaptiveDrain, 0},
+        {N::AdaptiveMemory, N::AdaptiveGobletSpeed, 0},
+    };
+    for (const auto& split : splits) {
+        const auto total = std::min(immune::test::tree_track_max(split.old_line), 15u);
+        for (const int version : {3, 4}) {
+            CAPTURE(tree_node(split.old_line).key, tree_node(split.new_line).key, version);
+            std::string fields;
+            if (version == 3) {
+                fields = std::string("\"") + tree_node(split.old_line).key + "\":" + std::to_string(total);
+            } else {
+                unsigned remaining = total;
+                for (unsigned stage = 1; remaining; ++stage) {
+                    const auto node = immune::test::tree_stage(split.old_line, stage);
+                    REQUIRE(node != TreeNode::Count);
+                    const auto rank = std::min(remaining, static_cast<unsigned>(tree_node(node).max_level));
+                    if (!fields.empty()) fields += ",";
+                    fields += std::string("\"") + tree_node(node).key + "\":" + std::to_string(rank);
+                    remaining -= rank;
+                }
+            }
+            const auto save = std::string("{\"version\":") + std::to_string(version) +
+                ",\"memory_cells\":57,\"spent_memory_cells\":999,\"tree\":{" + fields + "}}";
+            MetaProgression restored;
+            std::string error;
+            REQUIRE(restored.from_json(save, error));
+            unsigned remaining = total > split.offset ? total - split.offset : 0;
+            for (unsigned stage = 1; ; ++stage) {
+                const auto node = immune::test::tree_stage(split.new_line, stage);
+                if (node == TreeNode::Count) break;
+                const auto expected = std::min(remaining, static_cast<unsigned>(tree_node(node).max_level));
+                CHECK(restored.level(node) == expected);
+                remaining -= expected;
+            }
+            CHECK(restored.memory_cells() == 57);
+            CHECK(restored.spent_memory_cells() == 999);
+            MetaProgression roundtrip;
+            REQUIRE(roundtrip.from_json(restored.to_json(), error));
+            CHECK(roundtrip.to_json() == restored.to_json());
+        }
+    }
+    // A current save can intentionally leave a new split track unbought.
+    MetaProgression current;
+    std::string error;
+    REQUIRE(current.from_json(R"({"version":5,"tree":{"neutrophil.round_damage":5}})", error));
+    CHECK(current.level(N::NeutrophilRelease) == 0);
+}
+
+TEST_CASE("late split effects migrate only ranks that previously had them", "[meta][progression][migration]") {
+    for (const auto rank : {4u, 5u, 12u, 13u, 20u}) {
+        CAPTURE(rank);
+        const auto save = std::string("{\"version\":3,\"tree\":{\"neutrophil.round_damage\":") + std::to_string(rank) +
+            ",\"macrophage.grab_speed\":" + std::to_string(rank) + "}}";
+        MetaProgression restored;
+        std::string error;
+        REQUIRE(restored.from_json(save, error));
+        auto total = [&](TreeNode first) {
+            unsigned sum = 0;
+            for (unsigned stage = 1; ; ++stage) {
+                const auto n = immune::test::tree_stage(first, stage);
+                if (n == TreeNode::Count) return sum;
+                sum += restored.level(n);
+            }
+        };
+        CHECK(total(TreeNode::NeutrophilGranuleDamage) == (rank > 12 ? rank - 12 : 0));
+        const auto old_grab = std::min(rank, 16u);
+        CHECK(total(TreeNode::MacrophageGrabReach) == (old_grab > 4 ? old_grab - 4 : 0));
+        CHECK(total(TreeNode::MacrophageMobility) == (old_grab > 4 ? old_grab - 4 : 0));
+    }
 }

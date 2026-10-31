@@ -48,6 +48,7 @@ std::array<f64, kFamilyCount> campaign_densities() {
     result[static_cast<usize>(PathogenFamily::Virus)] = families.at("virus").at("behavior").at("base_density").get<f64>();
     result[static_cast<usize>(PathogenFamily::Bacteria)] = families.at("bacteria").at("behavior").at("base_density").get<f64>();
     result[static_cast<usize>(PathogenFamily::Parasite)] = families.at("parasite").at("behavior").at("base_density").get<f64>();
+    result[static_cast<usize>(PathogenFamily::Spore)] = families.at("spore").at("behavior").at("base_density").get<f64>();
     return result;
 }
 
@@ -125,10 +126,11 @@ TEST_CASE("campaign release pressure rises through waves and successive levels",
             previous_wave = peak;
         }
         if (previous_level > 0) {
-            // The authored 1.32x hypothesis allows geometry-specific anchors;
-            // inspect the machine-readable curve before changing this range.
-            REQUIRE(previous_wave / previous_level >= 1.30);
-            REQUIRE(previous_wave / previous_level <= 1.35);
+            // Counts and peak release burden both follow the new 1.4x curve.
+            // Composition changes (including siege spores) still need actual
+            // paid encounter checks; density is not hostile attack damage.
+            REQUIRE(previous_wave / previous_level >= 1.39);
+            REQUIRE(previous_wave / previous_level <= 1.41);
         }
         previous_level = previous_wave;
     }

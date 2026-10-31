@@ -1,4 +1,4 @@
-// sim/CombatEvents.h — the one-way sim -> VFX channel. FROZEN CONTRACT.
+// sim/CombatEvents.h — the one-way sim -> VFX (and audio) channel. FROZEN CONTRACT.
 // Owner: Wave 6A (producer side), Wave 6B (consumer side).
 //
 // WHY A CHANNEL INSTEAD OF LETTING VFX READ SIM STATE
@@ -135,7 +135,17 @@ enum class CombatEventType : u8 {
     /// `secondary` = the target's centre, `radius` = its body radius,
     /// `target_family` = the shooter's family. Capped per tick by the pass.
     HarpoonPulse = 19,
-    Count = 20,
+    /// A bacterium spat a toxin pellet (sim/hostile/HostileAttacks.h).
+    /// `origin` = where the pellet left the body, `direction` = its flight,
+    /// `target_family` = the shooter's family. An AUDIO cue: the pellet and
+    /// the spit pulse are drawn from live state, so the particle layer adds
+    /// nothing for it. Capped per tick by HostileTuning::max_toxin_events.
+    ToxinFired = 20,
+    /// A toxin pellet landed on a friendly. `origin` = the pellet's position,
+    /// `magnitude` = the damage, `target_family` = the shooter's family.
+    /// Audio only and capped, exactly as ToxinFired.
+    ToxinHit = 21,
+    Count = 22,
 };
 
 /// One instantaneous combat happening. Trivially copyable, kept small and flat
@@ -152,6 +162,12 @@ struct CombatEvent {
     /// Pathogen family involved, where one is (impacts, freezes, shatters).
     /// PathogenFamily::Count means "not agent-specific".
     PathogenFamily target_family = PathogenFamily::Count;
+    /// SwarmerDeath: why the unit died, a sim::CombatRetirement value (Damage
+    /// = the horde killed it; Expired; Consumed = detonated or spent on a
+    /// scar). The audio layer plays the loss sound only for Damage. 0
+    /// (Unknown) on every other event. Sits in what was padding, so the
+    /// struct did not grow.
+    u8 cause = 0;
 
     Vec2 origin{0.0f, 0.0f};
     /// Beam/chain endpoint. Unused (and left at origin) by point events.

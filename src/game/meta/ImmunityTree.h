@@ -8,8 +8,10 @@
 //  - It is a real tree: Degranulation Cycle is the root and first
 //    purchase, every other node hangs off exactly one parent, no
 //    ordinary node has more than five children, and a node can be bought
-//    once its parent is owned. Degranulation Cycle is the radial hub, with
-//    seven spokes. Abilities and capstones are discoveries directly under
+//    once its parent is owned. A continuation also requires its previous
+//    stage to be fully grown, even if it has a different parent. Degranulation
+//    Cycle is the radial hub, with nine spokes. Abilities and capstones are
+//    discoveries directly under
 //    their related cell unlock. Cell unlocks need only the starter purchase,
 //    so their unlock order is still the player's.
 //  - The tree is a fixed CATALOG compiled in here, not data. Its shape and
@@ -128,6 +130,87 @@ enum class TreeNode : u16 {
     FibroblastBuildRate,
     FibroblastScarNetwork,
     FibroblastCapstone,
+    // Appended: stable enum indices of existing nodes remain unchanged.
+    AdaptiveMemory,
+    // Continuation stages for long upgrade lines.
+    BoneMarrowReserveStage2,
+    EfficientClearanceStage2,
+    ComplementCooldownStage2,
+    FeverCooldownStage2,
+    FeverMagnitudeStage2,
+    ClotCooldownStage2,
+    ClotDurationStage2,
+    NeutrophilRoundDamageStage2,
+    NeutrophilRoundDamageStage3,
+    NeutrophilRoundDamageStage4,
+    NeutrophilAggroRangeStage2,
+    NeutrophilSquadSizeStage2,
+    NeutrophilAccuracyStage2,
+    NeutrophilVitalityStage2,
+    CytotoxicDrainStage2,
+    CytotoxicDrainStage3,
+    CytotoxicDrainStage4,
+    CytotoxicSearchStage2,
+    CytotoxicStaminaStage2,
+    CytotoxicHealthStage2,
+    MacrophageGrabSpeedStage2,
+    MacrophageGrabSpeedStage3,
+    MacrophageGrabSpeedStage4,
+    MacrophageSearchStage2,
+    MacrophageHealthStage2,
+    MacrophageWallStage2,
+    GobletSlowStrengthStage2,
+    GobletSplashRadiusStage2,
+    GobletSlowDurationStage2,
+    GobletWeaknessStage2,
+    GobletHealthStage2,
+    FibroblastScarHealthStage2,
+    FibroblastReinforceStage2,
+    FibroblastScarSizeStage2,
+    FibroblastBuildRadiusStage2,
+    FibroblastInflammationStage2,
+    FibroblastHealthStage2,
+    FibroblastBuildRateStage2,
+    AdaptiveMemoryStage2,
+    AdaptiveMemoryStage3,
+    AdaptiveMemoryStage4,
+    // Independent effects split from the original combined upgrades.
+    NeutrophilRelease,
+    NeutrophilReleaseStage2,
+    NeutrophilReleaseStage3,
+    NeutrophilReleaseStage4,
+    NeutrophilGranuleDamage,
+    NeutrophilGranuleDamageStage2,
+    NeutrophilSpeed,
+    NeutrophilSpeedStage2,
+    CytotoxicStaminaHealth,
+    CytotoxicStaminaHealthStage2,
+    MacrophageIntakeRadius,
+    MacrophageCaptivesRadius,
+    MacrophageGrabReach,
+    MacrophageGrabReachStage2,
+    MacrophageGrabReachStage3,
+    MacrophageMobility,
+    MacrophageMobilityStage2,
+    MacrophageMobilityStage3,
+    MacrophageWallHealth,
+    MacrophageWallHealthStage2,
+    FibroblastRegrowth,
+    FibroblastRegrowthStage2,
+    AdaptiveWork,
+    AdaptiveWorkStage2,
+    AdaptiveWorkStage3,
+    AdaptiveWorkStage4,
+    CytokineDrain,
+    CytokineGobletSpeed,
+    AdaptiveDrain,
+    AdaptiveDrainStage2,
+    AdaptiveDrainStage3,
+    AdaptiveDrainStage4,
+    AdaptiveGobletSpeed,
+    AdaptiveGobletSpeedStage2,
+    AdaptiveGobletSpeedStage3,
+    AdaptiveGobletSpeedStage4,
     Count,
 };
 inline constexpr u32 kTreeNodeCount = static_cast<u32>(TreeNode::Count);
@@ -138,14 +221,14 @@ inline constexpr TreeNode kTreeRoot = TreeNode::NeutrophilRoundDamage;
 inline constexpr TreeNode kTreeHub = kTreeRoot;
 /// Ordinary branches stay small; the hub has one child per subject.
 inline constexpr u32 kTreeMaxChildren = 5;
-inline constexpr u32 kTreeHubMaxChildren = 9;
+inline constexpr u32 kTreeHubMaxChildren = 10;
 
 struct TreeNodeDef {
     /// Stable identifier: save files, the console, and tests speak this, so
     /// renaming or reordering nodes never breaks a save.
     const char* key = "";
     const char* name = "";
-    /// What ONE level does, in the player's words ("+10 base cell health").
+    /// The fixed per-rank effect, in the player's words.
     const char* effect = "";
     TreeNodeKind kind = TreeNodeKind::Stat;
     TreeBranch branch = TreeBranch::Hub;
@@ -157,9 +240,15 @@ struct TreeNodeDef {
     /// The node that must be owned (any level) before this one can be bought;
     /// TreeNode::Count for the root.
     TreeNode parent = TreeNode::Count;
+    /// A continuation contributes ranks to this original line.
+    TreeNode effect_source = TreeNode::Count;
+    /// Number of ranks in earlier stages, used for the original cost curve.
+    u8 rank_offset = 0;
 };
 
 const TreeNodeDef& tree_node(TreeNode node);
+/// The preceding rank stage, independent of the node's visual parent.
+TreeNode tree_previous_stage(TreeNode node);
 /// Looks a node up by key. False if there is no such node.
 bool find_tree_node(std::string_view key, TreeNode& out);
 

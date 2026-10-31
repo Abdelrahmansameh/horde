@@ -50,6 +50,8 @@
 // arrangement SimWorld::set_spawn_points() already uses.
 #pragma once
 
+#include "core/CapacityDefaults.h"
+
 #include "core/Types.h"
 
 #include <string>
@@ -133,7 +135,7 @@ struct SquadTuning {
     /// rule would hand out squads that are already over the cap.
     u32 max_squad_size = 90;
     /// Registry capacity. Overflow yields kNoSquad rather than failing a spawn.
-    u32 max_squads = 1024;
+    u32 max_squads = kDefaultSquadCapacity;
 
     /// Ceiling on the flow-vs-anchor blend. Deliberately well below 1 so the
     /// flow field always retains a vote and an anchor across a wall can never

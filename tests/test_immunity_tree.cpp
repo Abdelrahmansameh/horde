@@ -8,6 +8,7 @@
 // used by any path; and each capstone does its one new thing and nothing
 // when it is off.
 #include "game/meta/ImmunityTree.h"
+#include "TreeTestHelpers.h"
 
 #include "game/abilities/AbilityConfigApply.h"
 #include "game/abilities/ActiveAbilities.h"
@@ -110,6 +111,31 @@ TEST_CASE("every tree node has a unique key that finds it again", "[meta][tree]"
     REQUIRE_FALSE(find_tree_node("neutrophil.unlock", none));
 }
 
+TEST_CASE("continuation upgrades stay in their branch and retain their original prices", "[meta][tree]") {
+    const MetaConfig cfg{};
+    unsigned continuations = 0;
+    for (u32 i = 0; i < kTreeNodeCount; ++i) {
+        const auto node = static_cast<TreeNode>(i);
+        const auto& d = tree_node(node);
+        REQUIRE(d.max_level <= 5);
+        if (d.effect_source == TreeNode::Count) continue;
+        ++continuations;
+        const auto& source = tree_node(d.effect_source);
+        CAPTURE(d.key);
+        CHECK(d.kind == source.kind);
+        CHECK(d.branch == source.branch);
+        CHECK(d.ability == source.ability);
+        CHECK(d.rank_offset >= source.max_level);
+        for (u8 rank = 0; rank < d.max_level; ++rank) {
+            const auto actual = tree_node_cost(cfg, node, rank);
+            const auto original = tree_node_cost(cfg, d.effect_source, static_cast<u8>(d.rank_offset + rank));
+            CHECK(actual.memory_cells == original.memory_cells);
+            CHECK(actual.antibodies == original.antibodies);
+        }
+    }
+    REQUIRE(continuations > 0);
+}
+
 TEST_CASE("cell branches have their own lines and capstone; only new cells need unlock nodes", "[meta][tree]") {
     for (u32 t = 0; t < kTowerTypeCount; ++t) {
         const TowerType type = static_cast<TowerType>(t);
@@ -169,7 +195,7 @@ TEST_CASE("the catalog is one tree with small branches around the replenishment 
     // The legacy stable identifier is both the first purchase and the hub.
     REQUIRE(kTreeRoot == TreeNode::NeutrophilRoundDamage);
     REQUIRE(kTreeRoot == kTreeHub);
-    REQUIRE(children[static_cast<u32>(kTreeHub)] == kTreeHubMaxChildren);
+    REQUIRE(children[static_cast<u32>(kTreeHub)] == 9);
 }
 
 TEST_CASE("all economy upgrades share one branch without cell or ability unlocks", "[meta][tree]") {
@@ -297,14 +323,215 @@ TEST_CASE("stat lines change their tower and nothing else", "[meta][tree]") {
     REQUIRE(cfg.towers.mechanics[n].shooter.round_damage ==
             Catch::Approx(base.towers.mechanics[n].shooter.round_damage));
     REQUIRE(cfg.towers.mechanics[n].shooter.reload_seconds ==
-            Catch::Approx(base.towers.mechanics[n].shooter.reload_seconds * 0.72f));
+            Catch::Approx(base.towers.mechanics[n].shooter.reload_seconds / 1.2f));
     REQUIRE(cfg.towers.mechanics[n].shooter.fire_interval ==
-            Catch::Approx(base.towers.mechanics[n].shooter.fire_interval * 0.88f));
+            Catch::Approx(base.towers.mechanics[n].shooter.fire_interval));
     REQUIRE(cfg.towers.mechanics[n].shooter.gather_seconds ==
-            Catch::Approx(base.towers.mechanics[n].shooter.gather_seconds * 0.88f));
+            Catch::Approx(base.towers.mechanics[n].shooter.gather_seconds));
     REQUIRE(cfg.towers.mechanics[n].shooter.magazine_size ==
-            base.towers.mechanics[n].shooter.magazine_size + 2);
+            base.towers.mechanics[n].shooter.magazine_size + 1);
     REQUIRE(cfg.towers.mechanics[c].latch.dps == Catch::Approx(base.towers.mechanics[c].latch.dps));
+}
+
+// Each metric represents the one player-facing stat or rate a line improves.
+// For duration-based lines, its inverse is the actual rate purchased by a rank.
+TEST_CASE("upgrade tracks add the same baseline bonus at every rank", "[meta][tree][linear]") {
+    struct Probe {
+        TreeNode node;
+        double (*value)(const GameConfig&, const TreeEffects&);
+    };
+    constexpr u32 n = static_cast<u32>(TowerType::Neutrophil);
+    constexpr u32 c = static_cast<u32>(TowerType::CytotoxicT);
+    constexpr u32 m = static_cast<u32>(TowerType::Macrophage);
+    constexpr u32 g = static_cast<u32>(TowerType::GobletCell);
+    constexpr u32 f = static_cast<u32>(TowerType::Fibroblast);
+    const Probe probes[] = {
+        {TreeNode::BoneMarrowReserve, [](const GameConfig& x, const TreeEffects&) { return double(x.economy.starting_atp); }},
+        {TreeNode::EfficientClearance, [](const GameConfig& x, const TreeEffects&) { return double(x.economy.atp_per_density); }},
+        {TreeNode::ComplementCooldown, [](const GameConfig& x, const TreeEffects&) { return double(x.abilities.ability[static_cast<u32>(AbilityId::ComplementCascadeBurst)].cooldown_seconds); }},
+        {TreeNode::FeverCooldown, [](const GameConfig& x, const TreeEffects&) { return double(x.abilities.ability[static_cast<u32>(AbilityId::FeverResponse)].cooldown_seconds); }},
+        {TreeNode::FeverMagnitude, [](const GameConfig& x, const TreeEffects&) { return double(x.abilities.ability[static_cast<u32>(AbilityId::FeverResponse)].fever_healing_mult); }},
+        {TreeNode::ClotCooldown, [](const GameConfig& x, const TreeEffects&) { return double(x.abilities.ability[static_cast<u32>(AbilityId::FibrinClot)].cooldown_seconds); }},
+        {TreeNode::ClotDuration, [](const GameConfig& x, const TreeEffects&) { return double(x.abilities.ability[static_cast<u32>(AbilityId::FibrinClot)].field_duration); }},
+        {TreeNode::CytokineDrain, [](const GameConfig& x, const TreeEffects&) { return double(x.towers.mechanics[c].latch.dps); }},
+        {TreeNode::CytokineGobletSpeed, [](const GameConfig& x, const TreeEffects&) { return double(x.towers.mechanics[g].swarm.speed); }},
+        {TreeNode::SystemicPotency, [](const GameConfig& x, const TreeEffects&) { return 1.0 / x.towers.mechanics[n].shooter.reload_seconds; }},
+        {TreeNode::NeutrophilRoundDamage, [](const GameConfig& x, const TreeEffects&) { return 1.0 / x.towers.mechanics[n].shooter.reload_seconds; }},
+        {TreeNode::NeutrophilRelease, [](const GameConfig& x, const TreeEffects&) { return 1.0 / x.towers.mechanics[n].shooter.fire_interval; }},
+        {TreeNode::NeutrophilGranuleDamage, [](const GameConfig& x, const TreeEffects&) { return double(x.towers.mechanics[n].shooter.round_damage); }},
+        {TreeNode::NeutrophilAggroRange, [](const GameConfig& x, const TreeEffects&) { return double(x.towers.mechanics[n].swarm.search_radius); }},
+        {TreeNode::NeutrophilSquadSize, [](const GameConfig& x, const TreeEffects&) { return double(x.towers.mechanics[n].shooter.magazine_size); }},
+        {TreeNode::NeutrophilAccuracy, [](const GameConfig& x, const TreeEffects&) { return double(x.towers.mechanics[n].shooter.round_spread); }},
+        {TreeNode::NeutrophilVitality, [](const GameConfig& x, const TreeEffects&) { return double(x.towers.mechanics[n].swarm.max_health); }},
+        {TreeNode::NeutrophilSpeed, [](const GameConfig& x, const TreeEffects&) { return double(x.towers.mechanics[n].swarm.speed); }},
+        {TreeNode::CytotoxicDrain, [](const GameConfig& x, const TreeEffects&) { return double(x.towers.mechanics[c].latch.dps); }},
+        {TreeNode::CytotoxicAttachSpeed, [](const GameConfig& x, const TreeEffects&) { return 1.0 / x.towers.mechanics[c].latch.attach_seconds; }},
+        {TreeNode::CytotoxicSearch, [](const GameConfig& x, const TreeEffects&) { return double(x.towers.mechanics[c].swarm.search_radius); }},
+        {TreeNode::CytotoxicStamina, [](const GameConfig& x, const TreeEffects&) { return double(x.towers.mechanics[c].swarm.speed); }},
+        {TreeNode::CytotoxicStaminaHealth, [](const GameConfig& x, const TreeEffects&) { return double(x.towers.mechanics[c].swarm.max_health); }},
+        {TreeNode::CytotoxicHealth, [](const GameConfig& x, const TreeEffects&) { return double(x.towers.mechanics[c].swarm.max_health); }},
+        {TreeNode::MacrophageGrabSpeed, [](const GameConfig& x, const TreeEffects&) { return 1.0 / x.towers.mechanics[m].arbor_grabber.pull_seconds; }},
+        {TreeNode::MacrophageSearch, [](const GameConfig& x, const TreeEffects&) { return double(x.towers.mechanics[m].swarm.search_radius); }},
+        {TreeNode::MacrophageGrabReach, [](const GameConfig& x, const TreeEffects&) { return double(x.towers.mechanics[m].swarm.attach_radius); }},
+        {TreeNode::MacrophageMobility, [](const GameConfig& x, const TreeEffects&) { return double(x.towers.mechanics[m].swarm.speed); }},
+        {TreeNode::MacrophageHealth, [](const GameConfig& x, const TreeEffects&) { return double(x.towers.mechanics[m].swarm.max_health); }},
+        {TreeNode::MacrophageWallHealth, [](const GameConfig& x, const TreeEffects&) { return double(x.towers.mechanics[m].swarm.max_health); }},
+        {TreeNode::MacrophageWall, [](const GameConfig& x, const TreeEffects&) { return double(x.towers.mechanics[m].arbor_grabber.body_block); }},
+        {TreeNode::MacrophageIntakeRadius, [](const GameConfig& x, const TreeEffects&) { return double(x.towers.mechanics[m].arbor_grabber.cluster_radius); }},
+        {TreeNode::MacrophageCaptivesRadius, [](const GameConfig& x, const TreeEffects&) { return double(x.towers.mechanics[m].arbor_grabber.cluster_radius); }},
+        {TreeNode::GobletSlowStrength, [](const GameConfig& x, const TreeEffects&) { return double(x.towers.mechanics[g].mucus_bomber.slow_factor); }},
+        {TreeNode::GobletSplashRadius, [](const GameConfig& x, const TreeEffects&) { return double(x.towers.mechanics[g].mucus_bomber.splash_radius); }},
+        {TreeNode::GobletSlowDuration, [](const GameConfig& x, const TreeEffects&) { return double(x.towers.mechanics[g].mucus_bomber.slow_duration); }},
+        {TreeNode::GobletHealth, [](const GameConfig& x, const TreeEffects&) { return double(x.towers.mechanics[g].swarm.max_health); }},
+        {TreeNode::GobletWeakness, [](const GameConfig&, const TreeEffects& x) { return double(x.immunity.slowed_damage_mult); }},
+        {TreeNode::FibroblastScarHealth, [](const GameConfig& x, const TreeEffects&) { return double(x.towers.mechanics[f].builder.scar_health); }},
+        {TreeNode::FibroblastReinforce, [](const GameConfig& x, const TreeEffects&) { return double(x.towers.mechanics[f].builder.scar_reinforce); }},
+        {TreeNode::FibroblastScarSize, [](const GameConfig& x, const TreeEffects&) { return double(x.towers.mechanics[f].builder.scar_half_length); }},
+        {TreeNode::FibroblastBuildRadius, [](const GameConfig& x, const TreeEffects&) { return double(x.towers.mechanics[f].builder.build_radius); }},
+        {TreeNode::FibroblastHealth, [](const GameConfig& x, const TreeEffects&) { return double(x.towers.mechanics[f].swarm.max_health); }},
+        {TreeNode::FibroblastBuildRate, [](const GameConfig& x, const TreeEffects&) { return 1.0 / x.towers.mechanics[f].builder.build_cooldown; }},
+        {TreeNode::FibroblastInflammation, [](const GameConfig&, const TreeEffects& x) { return double(x.immunity.inflammation_damage_mult); }},
+        {TreeNode::FibroblastRegrowth, [](const GameConfig&, const TreeEffects& x) { return double(x.immunity.inflammation_reload_mult); }},
+        {TreeNode::AdaptiveMemory, [](const GameConfig& x, const TreeEffects&) { return double(x.towers.mechanics[n].swarm.max_health); }},
+        {TreeNode::AdaptiveWork, [](const GameConfig& x, const TreeEffects&) { return 1.0 / x.towers.mechanics[n].shooter.reload_seconds; }},
+        {TreeNode::AdaptiveDrain, [](const GameConfig& x, const TreeEffects&) { return double(x.towers.mechanics[c].latch.dps); }},
+        {TreeNode::AdaptiveGobletSpeed, [](const GameConfig& x, const TreeEffects&) { return double(x.towers.mechanics[g].swarm.speed); }},
+    };
+    for (const auto& probe : probes) {
+        CAPTURE(tree_node(probe.node).key);
+        auto value_at = [&](unsigned rank) {
+            TreeLevels levels;
+            immune::test::set_tree_track(levels, probe.node, rank);
+            auto cfg = default_game_config();
+            const auto effects = apply_immunity_tree(levels, cfg);
+            return probe.value(cfg, effects);
+        };
+        const double initial = value_at(0);
+        const double increment = value_at(1) - initial;
+        REQUIRE(std::abs(increment) > 0.000001);
+        const auto total = immune::test::tree_track_max(probe.node);
+        for (unsigned rank = 2; rank <= total; ++rank) {
+            CAPTURE(rank);
+            const auto actual = value_at(rank) - value_at(rank - 1);
+            CHECK(actual == Catch::Approx(increment).margin(std::abs(increment) * 0.0001 + 0.00001));
+        }
+    }
+}
+
+TEST_CASE("upgrade descriptions present one fixed rule", "[meta][tree][linear]") {
+    for (u32 i = 0; i < kTreeNodeCount; ++i) {
+        const auto& def = tree_node(static_cast<TreeNode>(i));
+        CAPTURE(def.key, def.effect);
+        const std::string text = def.effect;
+        CHECK(text.find("compound") == std::string::npos);
+        CHECK(text.find("veteran") == std::string::npos);
+        CHECK(text.find("through rank") == std::string::npos);
+    }
+}
+
+TEST_CASE("split upgrades affect their intended stat independently", "[meta][tree][linear]") {
+    const auto base = default_game_config();
+    auto result = [&](TreeNode node) {
+        auto cfg = base;
+        const auto fx = apply_immunity_tree(bought({{node, 1}}), cfg);
+        return std::pair<GameConfig, TreeEffects>{cfg, fx};
+    };
+    const auto n = static_cast<u32>(TowerType::Neutrophil);
+    const auto c = static_cast<u32>(TowerType::CytotoxicT);
+    const auto m = static_cast<u32>(TowerType::Macrophage);
+    const auto g = static_cast<u32>(TowerType::GobletCell);
+    const auto& n0 = base.towers.mechanics[n];
+    const auto& c0 = base.towers.mechanics[c];
+    const auto& m0 = base.towers.mechanics[m];
+    const auto& g0 = base.towers.mechanics[g];
+    {
+        const auto& x = result(TreeNode::NeutrophilRelease).first.towers.mechanics[n];
+        CHECK(x.shooter.fire_interval < n0.shooter.fire_interval);
+        CHECK(x.shooter.reload_seconds == n0.shooter.reload_seconds);
+        CHECK(x.shooter.round_damage == n0.shooter.round_damage);
+    }
+    {
+        const auto& x = result(TreeNode::NeutrophilGranuleDamage).first.towers.mechanics[n];
+        CHECK(x.shooter.round_damage > n0.shooter.round_damage);
+        CHECK(x.shooter.reload_seconds == n0.shooter.reload_seconds);
+        CHECK(x.shooter.fire_interval == n0.shooter.fire_interval);
+    }
+    {
+        const auto& x = result(TreeNode::NeutrophilSpeed).first.towers.mechanics[n];
+        CHECK(x.swarm.speed > n0.swarm.speed);
+        CHECK(x.swarm.max_health == n0.swarm.max_health);
+    }
+    {
+        const auto& x = result(TreeNode::CytotoxicStaminaHealth).first.towers.mechanics[c];
+        CHECK(x.swarm.max_health > c0.swarm.max_health);
+        CHECK(x.swarm.speed == c0.swarm.speed);
+    }
+    for (const auto node : {TreeNode::MacrophageIntakeRadius, TreeNode::MacrophageCaptivesRadius}) {
+        const auto& x = result(node).first.towers.mechanics[m];
+        CHECK(x.arbor_grabber.cluster_radius > m0.arbor_grabber.cluster_radius);
+        CHECK(x.arbor_grabber.max_captives == m0.arbor_grabber.max_captives);
+    }
+    {
+        const auto& x = result(TreeNode::MacrophageGrabReach).first.towers.mechanics[m];
+        CHECK(x.swarm.attach_radius > m0.swarm.attach_radius);
+        CHECK(x.swarm.speed == m0.swarm.speed);
+        CHECK(x.arbor_grabber.pull_seconds == m0.arbor_grabber.pull_seconds);
+    }
+    {
+        const auto& x = result(TreeNode::MacrophageMobility).first.towers.mechanics[m];
+        CHECK(x.swarm.speed > m0.swarm.speed);
+        CHECK(x.swarm.attach_radius == m0.swarm.attach_radius);
+        CHECK(x.arbor_grabber.pull_seconds == m0.arbor_grabber.pull_seconds);
+    }
+    {
+        const auto& x = result(TreeNode::MacrophageWallHealth).first.towers.mechanics[m];
+        CHECK(x.swarm.max_health > m0.swarm.max_health);
+        CHECK(x.arbor_grabber.body_block == m0.arbor_grabber.body_block);
+    }
+    {
+        const auto x = result(TreeNode::FibroblastRegrowth).second.immunity;
+        CHECK(x.inflammation_reload_mult > 1.0f);
+        CHECK(x.inflammation_damage_mult == 1.0f);
+    }
+    {
+        const auto x = result(TreeNode::AdaptiveWork).first;
+        CHECK(x.towers.mechanics[n].shooter.reload_seconds < n0.shooter.reload_seconds);
+        CHECK(x.towers.mechanics[n].swarm.max_health == n0.swarm.max_health);
+        CHECK(x.towers.mechanics[c].latch.dps == c0.latch.dps);
+        CHECK(x.towers.mechanics[g].swarm.speed == g0.swarm.speed);
+    }
+    for (const auto node : {TreeNode::CytokineDrain, TreeNode::AdaptiveDrain}) {
+        const auto x = result(node).first;
+        CHECK(x.towers.mechanics[c].latch.dps > c0.latch.dps);
+        CHECK(x.towers.mechanics[c].latch.attach_seconds == c0.latch.attach_seconds);
+    }
+    for (const auto node : {TreeNode::CytokineGobletSpeed, TreeNode::AdaptiveGobletSpeed}) {
+        const auto x = result(node).first;
+        CHECK(x.towers.mechanics[g].swarm.speed > g0.swarm.speed);
+        CHECK(x.towers.mechanics[c].latch.dps == c0.latch.dps);
+    }
+}
+
+TEST_CASE("extended upgrades respect runtime capacity instead of selling clamped ranks", "[meta][tree][veteran]") {
+    auto cfg = default_game_config();
+    TreeLevels levels;
+    for (u32 i = 0; i < kTreeNodeCount; ++i) {
+        const auto node = static_cast<TreeNode>(i);
+        levels[node] = tree_node(node).max_level;
+        REQUIRE(tree_node(node).max_level <= 5);
+    }
+    apply_immunity_tree(levels, cfg);
+    const auto& macro = cfg.towers.mechanics[static_cast<u32>(TowerType::Macrophage)];
+    REQUIRE(macro.arbor_grabber.max_captives <= sim::kArborMaxCaptives);
+    REQUIRE(cfg.abilities.ability[static_cast<u32>(AbilityId::ComplementCascadeBurst)].chain_links <= sim::kChainLinkCap);
+    REQUIRE(tree_node(TreeNode::FieldRequisition).max_level == 3);
+    REQUIRE(tree_node(TreeNode::MacrophageArms).max_level == 1);
+    REQUIRE(tree_node(TreeNode::MacrophageCaptives).max_level == 3);
+    REQUIRE(immune::test::tree_track_max(TreeNode::NeutrophilRoundDamage) == 20);
+    REQUIRE(immune::test::tree_track_max(TreeNode::CytotoxicDrain) == 20);
+    REQUIRE(immune::test::tree_track_max(TreeNode::MacrophageGrabSpeed) == 16);
+    REQUIRE(cfg.towers.mechanics[static_cast<u32>(TowerType::Neutrophil)].shooter.reload_seconds > 0.0f);
+    REQUIRE(macro.arbor_grabber.recover_seconds > 0.0f);
 }
 
 TEST_CASE("hub lines reach the economy, every tower and the sim", "[meta][tree]") {
@@ -335,7 +562,7 @@ TEST_CASE("coordinated response reaches each role's actual work cycle and preser
     const GameConfig base = default_game_config();
     GameConfig cfg = base;
     const TreeEffects fx = apply_immunity_tree(bought({{TreeNode::SystemicPotency, 3}}), cfg);
-    constexpr f32 cycle = 0.82f;
+    constexpr f32 cycle = 1.0f / 1.18f;
     const auto& neutro = cfg.towers.mechanics[static_cast<u32>(TowerType::Neutrophil)];
     const auto& n0 = base.towers.mechanics[static_cast<u32>(TowerType::Neutrophil)];
     REQUIRE(neutro.shooter.reload_seconds == Catch::Approx(n0.shooter.reload_seconds * cycle));
@@ -343,7 +570,7 @@ TEST_CASE("coordinated response reaches each role's actual work cycle and preser
     REQUIRE(neutro.shooter.gather_seconds == Catch::Approx(n0.shooter.gather_seconds * cycle));
     const auto& cyto = cfg.towers.mechanics[static_cast<u32>(TowerType::CytotoxicT)];
     const auto& c0 = base.towers.mechanics[static_cast<u32>(TowerType::CytotoxicT)];
-    REQUIRE(cyto.latch.dps == Catch::Approx(c0.latch.dps / cycle));
+    REQUIRE(cyto.latch.dps == Catch::Approx(c0.latch.dps));
     REQUIRE(cyto.latch.attach_seconds == Catch::Approx(c0.latch.attach_seconds * cycle));
     const auto& macro = cfg.towers.mechanics[static_cast<u32>(TowerType::Macrophage)];
     const auto& m0 = base.towers.mechanics[static_cast<u32>(TowerType::Macrophage)];
@@ -351,7 +578,7 @@ TEST_CASE("coordinated response reaches each role's actual work cycle and preser
     REQUIRE(macro.arbor_grabber.pull_seconds == Catch::Approx(m0.arbor_grabber.pull_seconds * cycle));
     const auto& goblet = cfg.towers.mechanics[static_cast<u32>(TowerType::GobletCell)];
     const auto& g0 = base.towers.mechanics[static_cast<u32>(TowerType::GobletCell)];
-    REQUIRE(goblet.swarm.speed == Catch::Approx(g0.swarm.speed / cycle));
+    REQUIRE(goblet.swarm.speed == Catch::Approx(g0.swarm.speed));
     REQUIRE(goblet.mucus_bomber.chase_seconds == g0.mucus_bomber.chase_seconds);
     REQUIRE(goblet.mucus_bomber.droplets == g0.mucus_bomber.droplets);
     const auto& fibro = cfg.towers.mechanics[static_cast<u32>(TowerType::Fibroblast)];
@@ -372,15 +599,15 @@ TEST_CASE("survival lines add base health before percentage reserves and preserv
     const u32 c = static_cast<u32>(TowerType::CytotoxicT);
     const u32 g = static_cast<u32>(TowerType::GobletCell);
     REQUIRE(cfg.towers.mechanics[n].swarm.max_health ==
-            Catch::Approx((base.towers.mechanics[n].swarm.max_health + 18.0f) * 1.15f));
+            Catch::Approx(base.towers.mechanics[n].swarm.max_health * 1.15f + 18.0f));
     REQUIRE(cfg.towers.mechanics[n].swarm.speed ==
-            Catch::Approx(base.towers.mechanics[n].swarm.speed * 1.2f));
+            Catch::Approx(base.towers.mechanics[n].swarm.speed));
     REQUIRE(cfg.towers.mechanics[c].swarm.max_health ==
-            Catch::Approx((base.towers.mechanics[c].swarm.max_health + 20.0f + 9.0f) * 1.15f));
+            Catch::Approx(base.towers.mechanics[c].swarm.max_health * 1.15f + 20.0f));
     REQUIRE(cfg.towers.mechanics[c].swarm.speed ==
             Catch::Approx(base.towers.mechanics[c].swarm.speed * 1.1f));
     REQUIRE(cfg.towers.mechanics[g].swarm.max_health ==
-            Catch::Approx((base.towers.mechanics[g].swarm.max_health + 30.0f) * 1.15f));
+            Catch::Approx(base.towers.mechanics[g].swarm.max_health * 1.15f + 30.0f));
 }
 
 TEST_CASE("the Fibroblast lines reach its builder's rest, territory and wall count", "[meta][tree]") {
@@ -395,7 +622,7 @@ TEST_CASE("the Fibroblast lines reach its builder's rest, territory and wall cou
     const BuilderParams& b = cfg.towers.mechanics[t].builder;
     REQUIRE(b.build_radius == Catch::Approx(b0.build_radius * 1.24f));
     REQUIRE(b.leash_radius == Catch::Approx(b0.leash_radius * 1.24f));
-    REQUIRE(b.build_cooldown == Catch::Approx(b0.build_cooldown * 0.64f));
+    REQUIRE(b.build_cooldown == Catch::Approx(b0.build_cooldown / 1.36f));
     REQUIRE(b.max_scars == b0.max_scars + 2);
     REQUIRE(b.roam_speed_mult == Catch::Approx(b0.roam_speed_mult));
     // The other cells are untouched.
@@ -443,10 +670,10 @@ TEST_CASE("ability lines reach the ability tuning", "[meta][tree]") {
     const auto& clot = cfg.abilities.ability[static_cast<u32>(AbilityId::FibrinClot)];
     REQUIRE(cascade.chain_links == 12u);
     REQUIRE(fever.fever_cooldown_relief ==
-            Catch::Approx(base.abilities.ability[static_cast<u32>(AbilityId::FeverResponse)].fever_cooldown_relief *
-                          1.25f));
+            base.abilities.ability[static_cast<u32>(AbilityId::FeverResponse)].fever_cooldown_relief);
+    REQUIRE(fever.fever_healing_mult == Catch::Approx(1.25f));
     REQUIRE(clot.cooldown_seconds ==
-            Catch::Approx(base.abilities.ability[static_cast<u32>(AbilityId::FibrinClot)].cooldown_seconds * 0.7f));
+            Catch::Approx(base.abilities.ability[static_cast<u32>(AbilityId::FibrinClot)].cooldown_seconds * 0.76f));
 }
 
 // ---------------------------------------------------------------------------
@@ -653,7 +880,8 @@ TEST_CASE("the Weakening Mucus and Inflammation lines reach the sim tuning", "[m
     cfg = default_game_config();
     const TreeEffects on = apply_immunity_tree(
         bought({{TreeNode::GobletRoot, 1}, {TreeNode::GobletWeakness, 2},
-                {TreeNode::FibroblastRoot, 1}, {TreeNode::FibroblastInflammation, 3}}),
+                {TreeNode::FibroblastRoot, 1}, {TreeNode::FibroblastInflammation, 3},
+                {TreeNode::FibroblastRegrowth, 3}}),
         cfg);
     REQUIRE(on.immunity.slowed_damage_mult == Catch::Approx(1.2f));
     REQUIRE(on.immunity.inflammation_radius > 0.0f);

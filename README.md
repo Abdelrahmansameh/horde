@@ -3,7 +3,7 @@
 IMMUNE is a C++20 game about defending tissue from a flowing pathogen horde.
 Players spend ATP to deploy immune cells directly, use active abilities, and
 grow permanent upgrades in the Strengthen Immunity tree between runs. The
-checked-in campaign has ten levels, five immune cell types, and three active
+checked-in campaign has ten levels, five immune cell types, and four active
 pathogen families. The engine uses SDL2, OpenGL 4.5, and a fixed 60 Hz simulation.
 
 ## Start here

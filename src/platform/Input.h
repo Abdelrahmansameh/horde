@@ -38,6 +38,8 @@ enum class Action : u8 {
     CastAbility1, CastAbility2, CastAbility3,
     Screenshot,
     Quit,
+    /// Mutes/unmutes the audio master (docs/AUDIO.md).
+    ToggleMute,
     Count
 };
 

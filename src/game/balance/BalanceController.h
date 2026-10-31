@@ -45,6 +45,10 @@ struct ControllerParams {
     /// Zero selects the policy default. Nonzero values are explicit experiments.
     u32 reaction_ticks = 0;
     u32 prep_ticks = 0;
+    /// Bound funded preparation even when another legal purchase is possible.
+    /// The effective cap is never below the policy/explicit prep minimum;
+    /// zero therefore starts at that minimum rather than disabling the bound.
+    u32 max_prep_ticks = 3600;
     u32 reserve_atp = 0;
     /// Disable emergency casts for unit/composition ablations. Unlocks remain
     /// part of the real progression profile; this only changes policy behavior.

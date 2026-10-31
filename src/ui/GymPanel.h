@@ -8,11 +8,9 @@
 // *does*.
 //
 // WIDGETS, NOT A PROMPT
-// Every control in this window builds a command string and runs it through
-// gym_execute(), and the log at the bottom echoes the exact line it ran. So the
-// panel is not a second API that can drift from the text one -- it is a typist
-// for it, and using it teaches the language it types. The input box is still
-// there for anything the widgets do not cover.
+// The gym controls build command strings and run them through gym_execute(),
+// and the log echoes the exact line. The recording switch is app-owned and is
+// deliberately separate from those simulation-changing commands.
 //
 // SCOPED TO THE GYM
 // set_level("gym") opens the window automatically; any other level leaves it
@@ -34,6 +32,14 @@ namespace immune::game { struct GymContext; }
 
 namespace immune::ui {
 
+/// Recording controls are owned by App; the panel edits only the desired state.
+struct RecordingUi {
+    bool enabled = false;
+    bool read_only = false;
+    std::string directory;
+    std::string status;
+};
+
 /// Tabbed control panel over the gym command language, plus a command log and
 /// an input line. Toggled with backtick or F2 (F1 belongs to the debug
 /// overlay).
@@ -44,7 +50,7 @@ class GymPanel {
 public:
     /// Draws the panel if visible and runs whatever the user asked for. Handles
     /// its own toggle key, so call this every frame regardless of visibility.
-    void build(game::GymContext& ctx);
+    void build(game::GymContext& ctx, RecordingUi& recording);
 
     /// Runs one command line and appends it, and its result, to the log --
     /// exactly as if it had been typed. Every widget goes through here, which

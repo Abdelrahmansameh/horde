@@ -147,6 +147,8 @@ std::vector<Issue> validate_level(const LevelDef& def, const BakedGeometry& bake
     if (def.spawn_points.empty()) rep.error("level has no spawn points");
     if (def.objectives.empty()) rep.error("level has no objectives");
     if (def.waves.empty()) rep.error("level declares no waves");
+    if (!valid_enemy_scaling(def.enemy_scaling))
+        rep.error("enemy_scaling multipliers must be finite and in [0.01,64]");
 
     const Vec2 extent = def.world_bounds.size();
     // The rect the bake actually covers. Equal to world_bounds unless the level

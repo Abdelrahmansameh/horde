@@ -108,6 +108,7 @@ TEST_CASE("the gym panel builds and renders every tab", "[gym][ui][gl]") {
         CHECK(panel.visible());
     }
     panel.set_visible(true);
+    ui::RecordingUi recording;
 
     // Commands run through the panel land in its log, which is where a
     // multi-line result gets split into rows.
@@ -131,7 +132,7 @@ TEST_CASE("the gym panel builds and renders every tab", "[gym][ui][gl]") {
             glClear(GL_COLOR_BUFFER_BIT);
             panel.select_tab(tab);
             hud.begin_frame(input);
-            panel.build(ctx);
+            panel.build(ctx, recording);
             hud.render();
         }
         const std::string shot =
@@ -142,14 +143,14 @@ TEST_CASE("the gym panel builds and renders every tab", "[gym][ui][gl]") {
 
     panel.clear_log();
     hud.begin_frame(input);
-    panel.build(ctx);
+    panel.build(ctx, recording);
     hud.render();
 
     // Hidden is the default state elsewhere, and must cost nothing but an
     // early return.
     panel.set_visible(false);
     hud.begin_frame(input);
-    panel.build(ctx);
+    panel.build(ctx, recording);
     hud.render();
     CHECK_FALSE(panel.visible());
 

@@ -175,6 +175,7 @@ void Gui::frame(const PointerInput& in, f32 dt) {
             enter.handled = true;  // Enter does not bubble
             enter.target = hover_target_;
             hover_target_->on_event(enter);
+            if (hover_target_->enabled) queue_sound(UiSound::Hover);
         }
     } else {
         hover_time_ += dt;
@@ -207,6 +208,7 @@ void Gui::frame(const PointerInput& in, f32 dt) {
         if (dragging_) {
             dispatch(Event{EventType::DragEnd, pointer_}, t);
         } else if (is_hovered(t)) {
+            queue_press_sound(t, PointerButton::Left);
             dispatch(Event{t->enabled ? EventType::Click : EventType::Deny, pointer_}, t);
         }
         press_target_ = nullptr;
@@ -276,9 +278,15 @@ bool Gui::click(std::string_view path) {
     hover_target_ = w;
     dispatch(Event{EventType::Down, w->center()}, w);
     dispatch(Event{EventType::Up, w->center()}, w);
+    queue_press_sound(w, PointerButton::Left);
     dispatch(Event{w->enabled ? EventType::Click : EventType::Deny, w->center()}, w);
     hover_target_ = prev_hover;
     return true;
+}
+
+void Gui::queue_press_sound(const Widget* w, PointerButton button) {
+    if (w == nullptr || !w->interactive || button != PointerButton::Left) return;
+    queue_sound(w->enabled ? UiSound::Click : UiSound::Deny);
 }
 
 bool Gui::hover(std::string_view path) {

@@ -1020,7 +1020,7 @@ void main() {
         float nucleus_d, granule;
         float body_d = sdf_neutrophil(v_local, v_anim_phase, nucleus_d, granule);
 
-        float a = 1.0 - smoothstep(-0.030, 0.010, body_d);
+        float a = 1.0 - smoothstep(-0.015, 0.005, body_d);
         float sh = entity_shadow(v_local, 0.46);
         if (a <= 0.0 && sh <= 0.0) discard;
 
@@ -1044,7 +1044,7 @@ void main() {
 
         // Membrane rim. Bright band at the silhouette edge, which is what sells
         // a wet cell boundary and separates the tower from the dark tissue.
-        float rim = 1.0 - smoothstep(0.0, 0.055, abs(body_d));
+        float rim = 1.0 - smoothstep(0.0, 0.040, abs(body_d));
         rgb = mix(rgb, vec3(1.0), rim * 0.68);
 
         // Towers carry integrity, not alpha, in v_tint.a: see wounded().

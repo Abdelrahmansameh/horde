@@ -43,9 +43,11 @@ TEST_CASE("every combat event type emits particles", "[vfx][particles]") {
     // handle it in emit_for_event(), that tower's effect silently renders
     // nothing at all. Catching it here is much cheaper than noticing in game.
     for (u8 t = 0; t < static_cast<u8>(sim::CombatEventType::Count); ++t) {
+        const auto type = static_cast<sim::CombatEventType>(t);
+        // Audio-only cues by design: the pellet is drawn from live state.
+        if (type == sim::CombatEventType::ToxinFired || type == sim::CombatEventType::ToxinHit) continue;
         ParticleSystem ps;
         ps.init(4096, 12345);
-        const auto type = static_cast<sim::CombatEventType>(t);
         ps.emit_for_event(make_event(type, TowerType::Neutrophil));
         INFO("CombatEventType index " << static_cast<int>(t) << " emitted nothing");
         REQUIRE(ps.live_count() > 0);

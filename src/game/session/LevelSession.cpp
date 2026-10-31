@@ -23,6 +23,9 @@ void apply_level_rules(const LevelDef& level, const EconomyConfig& base,
     if (level.economy.income_multiplier != 1.0f) {
         config.atp_per_density *= level.economy.income_multiplier;
     }
+    if (level.enemy_scaling.durability_multiplier != 1.0f) {
+        config.atp_per_density /= level.enemy_scaling.durability_multiplier;
+    }
     economy.configure(config);
 
     // An empty allowlist means all types, represented by a zero mask.

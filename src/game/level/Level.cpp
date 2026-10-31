@@ -25,6 +25,13 @@
 
 namespace immune::game {
 
+bool valid_enemy_scaling(const EnemyScaling& scaling) {
+    const auto valid = [](f32 v) {
+        return std::isfinite(v) && v >= EnemyScaling::kMinimum && v <= EnemyScaling::kMaximum;
+    };
+    return valid(scaling.durability_multiplier) && valid(scaling.damage_multiplier);
+}
+
 const char* vessel_type_to_string(VesselType t) {
     switch (t) {
         case VesselType::Artery: return "artery";
@@ -549,6 +556,14 @@ LevelLoadResult LevelLoader::load_string(const std::string& text, LevelDef& out)
             const json& e = j.at("economy");
             def.economy.starting_atp = e.value("starting_atp", u32{0});
             def.economy.income_multiplier = e.value("income_multiplier", 1.0f);
+        }
+        if (j.contains("enemy_scaling")) {
+            const json& e = j.at("enemy_scaling");
+            if (!e.is_object()) throw std::runtime_error("enemy_scaling must be an object");
+            def.enemy_scaling.durability_multiplier = e.value("durability_multiplier",1.0f);
+            def.enemy_scaling.damage_multiplier = e.value("damage_multiplier",1.0f);
+            if (!valid_enemy_scaling(def.enemy_scaling))
+                throw std::runtime_error("enemy_scaling multipliers must be finite and in [0.01,64]");
         }
         if (j.contains("camera")) {
             const json& c = j.at("camera");

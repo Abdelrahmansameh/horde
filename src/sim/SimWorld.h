@@ -34,6 +34,8 @@
 //   7. tick counter advance
 #pragma once
 
+#include "core/CapacityDefaults.h"
+
 #include "core/Profiler.h"
 #include "core/Rng.h"
 #include "core/Types.h"
@@ -65,7 +67,7 @@ struct SimDesc {
     /// of letting elapsed wall time decide which regions finish this tick.
     bool deterministic_rebakes = false;
     u64 seed = 0x1234'5678'9abc'def0ULL;
-    usize max_chaff = 16384;
+    usize max_chaff = kDefaultChaffCapacity;
     usize max_damage_fields = 512;
     /// Live Gunner rounds. Generous: a maxed Gunner is meant to read as a
     /// continuous stream, and a dropped round is invisible but a reallocation
@@ -297,8 +299,8 @@ public:
     /// Burrowing and slithering chaff (sim/burrow/Burrow.h).
     BurrowSystem& burrow() { return burrow_; }
     const BurrowSystem& burrow() const { return burrow_; }
-    /// Rebuilds the burrow pass's view of tower coverage from the ECS: one
-    /// disc per live tower, its swarmers' reach. tick() does this itself.
+    /// Rebuilds the burrow pass's view of live tower and mobile cell coverage.
+    /// tick() does this itself.
     void build_burrow_threats();
     const std::vector<BurrowThreat>& burrow_threats() const { return burrow_threats_; }
 

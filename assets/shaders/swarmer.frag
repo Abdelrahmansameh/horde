@@ -788,6 +788,46 @@ void main() {
     // able to see at a glance.
     float engaged_rim = attached ? 0.30 + 0.20 * (0.5 + 0.5 * sin(v_phase * 2.3)) : 0.0;
 
+    if (kind == 15u) {
+        float reach = v_arm0.x / v_world_per_local;
+        float grip = clamp(v_arm0.y, 0.0, 1.0);
+        vec2 root = vec2(0.0);
+        vec2 tip = vec2(reach, 0.0);
+        // A thin stick grows out of a terminal twig of the main tree. Small
+        // alternating twigs keep the extension branch-like all the way to
+        // its grip, instead of reading as a smooth cable.
+        float d = tapered_segment(p, root, tip, 0.019, 0.008);
+        for (int k = 0; k < 4; ++k) {
+            float fk = float(k);
+            float along = 0.25 + fk * 0.17;
+            float side = mod(fk, 2.0) < 1.0 ? -1.0 : 1.0;
+            float twig_len = min(reach * 0.20, 0.14) * (1.0 - fk * 0.10);
+            vec2 start = vec2(reach * along, 0.0);
+            vec2 end = start + vec2(twig_len * 0.72, side * twig_len * 0.69);
+            d = min(d, tapered_segment(p, start, end, 0.010, 0.004));
+            vec2 fork_end = end + vec2(twig_len * 0.30, -side * twig_len * 0.20);
+            d = min(d, tapered_segment(p, end, fork_end, 0.005, 0.002));
+        }
+        // Two fine fingers wrap the additional captive independently of the
+        // parent arm's terminal fingers.
+        for (int k = 0; k < 2; ++k) {
+            float side = k == 0 ? -1.0 : 1.0;
+            vec2 mid = tip + vec2(0.035, side * 0.045);
+            vec2 end = tip + vec2(0.08 - 0.04 * grip, side * (0.075 - 0.025 * grip));
+            d = min(d, tapered_segment(p, tip, mid, 0.010, 0.006));
+            d = min(d, tapered_segment(p, mid, end, 0.006, 0.003));
+        }
+        float a = 1.0 - smoothstep(-0.012, 0.009, d);
+        if (a <= 0.0) discard;
+        float depth = clamp(-d * 4.8, 0.0, 1.0);
+        vec3 rgb = mix(vec3(1.00, 0.93, 0.82), vec3(0.78, 0.32, 0.06), depth);
+        rgb = mix(rgb, v_tint.rgb, 0.48);
+        float rim = 1.0 - smoothstep(0.0, 0.035, abs(d));
+        rgb = mix(rgb, vec3(1.00, 0.94, 0.84), rim * 0.66);
+        frag_color = vec4(rgb, a * v_tint.a);
+        return;
+    }
+
     if (kind == 6u) {
         vec4 arm0 = v_arm0;
         vec4 arm1 = v_arm1;
@@ -944,7 +984,8 @@ void main() {
     float nucleus_d, granule;
     float body_d = sdf_neutrophil(body_p, membrane_p, phase, nucleus_d, granule);
 
-    float a = 1.0 - smoothstep(-0.030, 0.010, body_d);
+    float a = kind == 1u ? 1.0 - smoothstep(-0.015, 0.005, body_d)
+                         : 1.0 - smoothstep(-0.030, 0.010, body_d);
     float sh = entity_shadow(membrane_p, 0.46);
     if (a <= 0.0 && sh <= 0.0) discard;
 
@@ -965,7 +1006,7 @@ void main() {
     float nuc = 1.0 - smoothstep(-0.012, 0.012, nucleus_d);
     vec3 rgb = mix(cytoplasm, nucleus_rgb, nuc * 0.85);
 
-    float rim = 1.0 - smoothstep(0.0, 0.055, abs(body_d));
+    float rim = 1.0 - smoothstep(0.0, kind == 1u ? 0.040 : 0.055, abs(body_d));
     rgb = mix(rgb, vec3(1.0), rim * (0.68 + engaged_rim));
 
     if (kind == 1u) {

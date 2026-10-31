@@ -1,161 +1,44 @@
 {
+  "schema": 2,
+  "name": "campaign_01_first_bend",
+  "display_name": "First Bend",
+  "description": "Current campaign first-wave calibration slice: exact shipped geometry, economy and first wave. Requalify paid placement and automatic controllers after authoring changes.",
+  "difficulty": 1,
+  "tags": [
+    "campaign"
+  ],
+  "region": "capillary",
+  "world": {
+    "min": [
+      0,
+      30
+    ],
+    "max": [
+      200,
+      130
+    ]
+  },
   "camera": {
     "center": [
       100,
       71.4
     ],
-    "max_view_height": 108,
+    "view_height": 108,
     "min_view_height": 82.08,
-    "view_height": 108
+    "max_view_height": 108
   },
-  "description": "Diagnostic reference slice: exact first authored campaign wave, with the original geometry, starting ATP and release timing. One broad vessel sweeps from the upper left to the lower right. Hold the bend before the horde escapes below.",
-  "difficulty": 1,
-  "display_name": "First Bend",
   "economy": {
-    "starting_atp": 300
+    "starting_atp": 300,
+    "income_multiplier": 1.0
   },
-  "name": "campaign_01_first_bend",
-  "objectives": [
-    {
-      "half_extents": [
-        14,
-        4
-      ],
-      "id": "organ",
-      "pos": [
-        174,
-        -90
-      ]
-    }
-  ],
-  "placement_zones": [
-    {
-      "max": [
-        200,
-        142.8
-      ],
-      "min": [
-        0,
-        0
-      ]
-    },
-    {
-      "concentrated": true,
-      "max": [
-        160,
-        103
-      ],
-      "min": [
-        105,
-        65
-      ],
-      "priority": 2
-    },
-    {
-      "concentrated": true,
-      "max": [
-        194,
-        68
-      ],
-      "min": [
-        148,
-        20
-      ],
-      "priority": 2
-    }
-  ],
-  "region": "capillary",
-  "schema": 2,
-  "spawn_points": [
-    {
-      "id": "p0",
-      "lane_id": "main",
-      "pos": [
-        -118,
-        112
-      ],
-      "radius": 9.52
-    }
-  ],
-  "squad_paths": [
-    {
-      "half_width": 4,
-      "id": "first_bend_route",
-      "lane_id": "main",
-      "points": [
-        [
-          -118,
-          112
-        ],
-        [
-          -40,
-          112
-        ],
-        [
-          0,
-          110
-        ],
-        [
-          40,
-          107
-        ],
-        [
-          76,
-          102
-        ],
-        [
-          108,
-          94
-        ],
-        [
-          135,
-          83
-        ],
-        [
-          153,
-          70
-        ],
-        [
-          166,
-          56
-        ],
-        [
-          172,
-          42
-        ],
-        [
-          174,
-          22
-        ],
-        [
-          174,
-          -32
-        ],
-        [
-          174,
-          -90
-        ]
-      ]
-    }
-  ],
-  "tags": [
-    "campaign"
-  ],
   "vessels": [
     {
       "id": "main",
       "points": [
         {
           "p": [
-            -140,
-            112
-          ],
-          "w": 32
-        },
-        {
-          "p": [
-            -40,
-            112
+            -18,
+            111
           ],
           "w": 32
         },
@@ -225,47 +108,147 @@
         {
           "p": [
             174,
-            -32
-          ],
-          "w": 32
-        },
-        {
-          "p": [
-            174,
-            -104
+            12
           ],
           "w": 32
         }
       ]
+    }
+  ],
+  "spawn_points": [
+    {
+      "id": "p0",
+      "pos": [
+        -38,
+        112
+      ],
+      "radius": 9.52,
+      "lane_id": "main"
+    }
+  ],
+  "objectives": [
+    {
+      "id": "organ",
+      "pos": [
+        174,
+        8
+      ],
+      "half_extents": [
+        18.7,
+        4
+      ]
+    }
+  ],
+  "placement_zones": [
+    {
+      "min": [
+        0,
+        14
+      ],
+      "max": [
+        201,
+        142.8
+      ]
+    },
+    {
+      "min": [
+        105,
+        65
+      ],
+      "max": [
+        160,
+        103
+      ],
+      "concentrated": true,
+      "priority": 2
+    },
+    {
+      "min": [
+        148,
+        20
+      ],
+      "max": [
+        194,
+        68
+      ],
+      "concentrated": true,
+      "priority": 2
+    }
+  ],
+  "squad_paths": [
+    {
+      "id": "first_bend_route",
+      "lane_id": "main",
+      "points": [
+        [
+          -39,
+          112
+        ],
+        [
+          0,
+          110
+        ],
+        [
+          40,
+          107
+        ],
+        [
+          76,
+          102
+        ],
+        [
+          108,
+          94
+        ],
+        [
+          135,
+          83
+        ],
+        [
+          153,
+          70
+        ],
+        [
+          166,
+          56
+        ],
+        [
+          172,
+          42
+        ],
+        [
+          174,
+          22
+        ],
+        [
+          174,
+          13
+        ]
+      ],
+      "half_width": 4
     }
   ],
   "waves": [
     {
-      "atp_reward": 45,
       "name": "campaign_01_first_bend_wave_1",
       "prep_time": 12,
+      "atp_reward": 45,
       "spawns": [
         {
+          "family": "virus",
           "count": 138,
           "duration": 4,
-          "family": "virus",
           "spawn_point_id": "p0",
+          "squad_size": 48,
           "squad_paths": [
             "first_bend_route"
-          ],
-          "squad_size": 48
+          ]
         }
       ]
     }
   ],
-  "world": {
-    "max": [
-      200,
-      142.8
-    ],
-    "min": [
-      0,
-      0
-    ]
+  "enemy_scaling": {
+    "durability_multiplier": 1.0,
+    "damage_multiplier": 1.0
   }
 }

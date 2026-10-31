@@ -157,7 +157,7 @@ CombatEvent make_event(CombatEventType type, TowerType source, Vec2 pos, Vec2 di
 
 } // namespace
 
-void raise_swarmer_death(const SwarmerBuffers& sw, usize i, CombatEventSink* events) {
+void raise_swarmer_death(const SwarmerBuffers& sw, usize i, CombatEventSink* events, CombatRetirement cause) {
     if (events == nullptr || i >= sw.count()) return;
     const SwarmerProfile& pr = sw.profile_of(i);
     const Vec2 v{sw.vel_x[i], sw.vel_y[i]};
@@ -166,6 +166,7 @@ void raise_swarmer_death(const SwarmerBuffers& sw, usize i, CombatEventSink* eve
     if (e.direction.x == 0.0f && e.direction.y == 0.0f) e.direction = Vec2{1.0f, 0.0f};
     e.radius = sw.body_size(i);
     e.magnitude = math::length(v);
+    e.cause = static_cast<u8>(cause);
     events->push(e);
 }
 
@@ -764,7 +765,7 @@ SwarmerStats SwarmerSystem::update(SwarmerBuffers& sw,
             events->push(e);
         }
         // The payload is the tower's; the shell bursting is the unit's own.
-        raise_swarmer_death(sw, i, events);
+        raise_swarmer_death(sw, i, events, CombatRetirement::Consumed);
     };
 
     // Adopt a search hit as swarmer i's target. A new target is a new chase.
@@ -900,7 +901,7 @@ SwarmerStats SwarmerSystem::update(SwarmerBuffers& sw,
             const NamedTarget& t = named.items[named_idx];
             const f32 half_width = std::atan2(target_radius + pr.round_hit_radius, math::max(dist, 0.01f));
             if (aim.x * lead.x + aim.y * lead.y >= std::cos(half_width)) {
-                hit_named(named_idx, math::max(0.0f, pr.round_damage - t.armor) * t.damage_multiplier);
+                hit_named(named_idx, math::max(0.0f, shot.damage - t.armor) * t.damage_multiplier);
             }
         }
 
@@ -1051,12 +1052,18 @@ SwarmerStats SwarmerSystem::update(SwarmerBuffers& sw,
             } else {
                 sw.kill(i, CombatRetirement::Expired);
                 ++stats.expired;
-                raise_swarmer_death(sw, i, events);
+                raise_swarmer_death(sw, i, events, CombatRetirement::Expired);
             }
             continue;
         }
 
-        const u8 mask = sw.family_mask[i];
+        // Spores are too large for a macrophage to pursue or engulf. Apply
+        // this to its whole target search, including clustered followers and
+        // named targets, while leaving other defenders' masks unchanged.
+        const u8 spore_bit = static_cast<u8>(1u << static_cast<u32>(PathogenFamily::Spore));
+        const u8 mask = pr.kind == SwarmerKind::ArborGrabber
+                            ? static_cast<u8>(sw.family_mask[i] & ~spore_bit)
+                            : sw.family_mask[i];
         const auto* mucus = pr.kind == SwarmerKind::MucusBomber ? &effects_.splashes : nullptr;
 
         // ---- BUILDER. Hunts nothing: it was released with a site to walk to
@@ -1194,7 +1201,7 @@ SwarmerStats SwarmerSystem::update(SwarmerBuffers& sw,
                     continue;
                 }
                 sw.kill(i, CombatRetirement::Consumed);
-                raise_swarmer_death(sw, i, events);
+                raise_swarmer_death(sw, i, events, CombatRetirement::Consumed);
                 continue;
             }
             u32 s = sw.seed[i];
@@ -1341,9 +1348,9 @@ SwarmerStats SwarmerSystem::update(SwarmerBuffers& sw,
                         if (host != ChaffBuffers::npos) {
                             // Claim the lead target first, then deterministically
                             // gather the nearest still-free neighbours around it.
-                            // The followers keep their relative offsets during the
-                            // pull, so this reads as one captured clump rather than
-                            // several unrelated enemies converging on the cell.
+                            // Each follower has its own side branch. Reserve
+                            // it now, then let that branch reach and pull it
+                            // separately during the pull phase.
                             arm.captive.chaff[0].offset = target - p;
                             const u32 cap = math::min<u32>(pr.arbor_max_captives,
                                                            kArborMaxCaptives);
@@ -1396,13 +1403,19 @@ SwarmerStats SwarmerSystem::update(SwarmerBuffers& sw,
                                                            : Vec2{}) * (1.0f - eased));
                     arm.grip = 1.0f;
                     if (host != ChaffBuffers::npos && arm.captive.chaff_count > 0) {
-                        const Vec2 swallowed = arm.heading * (body_rim * 0.08f);
-                        const Vec2 lead_offset = arm.captive.chaff[0].offset;
                         for (u32 c = 0; c < arm.captive.chaff_count; ++c) {
                             const usize captive = chaff.resolve(arm.captive.chaff[c].handle);
                             if (captive == ChaffBuffers::npos) continue;
-                            const Vec2 q = p + lead_offset * (1.0f - eased) +
-                                           (arm.captive.chaff[c].offset - lead_offset) + swallowed * eased;
+                            const Vec2 offset = arm.captive.chaff[c].offset;
+                            // The lead is already latched. Give the smaller
+                            // side branches time to extend before their own
+                            // captives begin moving toward the body.
+                            const f32 progress = c == 0 ? eased : math::smoothstep01(
+                                math::saturate((t - 0.25f) / 0.75f));
+                            Vec2 direction = math::normalize_safe(offset);
+                            if (direction.x == 0.0f && direction.y == 0.0f) direction = arm.heading;
+                            const Vec2 swallowed = direction * (body_rim * 0.08f);
+                            const Vec2 q = p + offset * (1.0f - progress) + swallowed * progress;
                             // Captives may sit past the playable edge: they
                             // are hidden while pulled and swallowed at the end.
                             chaff.pos_x[captive] = q.x;

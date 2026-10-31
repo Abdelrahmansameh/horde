@@ -4,15 +4,15 @@
   "capstone_antibodies": 1,
   "capstone_memory_cells": 0,
   "capstone_threshold": 0,
-  "chaff_per_point": 200,
+  "chaff_per_point": 125,
   "first_clear_antibodies": 1,
   "per_boss_reward": 50,
   "per_elite_reward": 8,
-  "per_wave_reward": 15,
+  "per_wave_reward": 20,
   "respec_cost": 25,
   "schema": 1,
   "stat_base_cost": 20,
   "stat_cost_step": 15,
   "tower_unlock_antibodies": 1,
-  "win_bonus": 40
+  "win_bonus": 60
 }

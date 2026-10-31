@@ -150,12 +150,24 @@ public:
     /// Destroys a removed widget at the end of the frame (safe mid-dispatch).
     void retire(std::unique_ptr<Widget> w) { retired_.push_back(std::move(w)); }
 
+    // ---- Feedback sounds ------------------------------------------------------
+    /// What the pointer asked to hear since the last clear, oldest first. A
+    /// queue rather than a callback so the gui stays audio-free and a test
+    /// can read it; bounded, so an undrained queue cannot grow.
+    const std::vector<UiSound>& sounds() const { return sounds_; }
+    void clear_sounds() { sounds_.clear(); }
+
 private:
     Widget* pick(Widget& w, Vec2 p);
     void dispatch(Event e, Widget* target);
     void before_layout_tree(Widget& w, f32 dt);
     void update_tree(Widget& w, f32 dt);
     void update_tooltip(f32 dt);
+    void queue_sound(UiSound s) {
+        if (sounds_.size() < 32) sounds_.push_back(s);
+    }
+    /// Click or Deny for a left release on `w`, if it is a control at all.
+    void queue_press_sound(const Widget* w, PointerButton button);
 
     std::array<std::unique_ptr<Widget>, kLayerCount> layers_;
     FontLibrary fonts_;
@@ -191,6 +203,7 @@ private:
     Label* tooltip_label_ = nullptr;
 
     std::vector<std::unique_ptr<Widget>> retired_;
+    std::vector<UiSound> sounds_;
 };
 
 } // namespace immune::gui

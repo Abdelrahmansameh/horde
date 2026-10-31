@@ -20,12 +20,17 @@
 #include <algorithm>
 #include <cmath>
 #include <chrono>
+#include <cstdio>
+#include <cstdlib>
 #include <limits>
 
 namespace immune::app {
 
 bool App::init(const Options& options) {
     options_ = options;
+    balance_recording_enabled_ = !options_.record_balance_dir.empty();
+    balance_recording_dir_ = balance_recording_enabled_ ? options_.record_balance_dir : "scratch/balance/human";
+    balance_recording_status_ = balance_recording_enabled_ ? "Ready: recording starts with the next level." : "Recording off.";
     if (!options_.record_balance_dir.empty()) options_.config_pinned = true;
     // Rounds wait for the player unless they turn the HUD's auto-start on.
     waves_.set_auto_start(false);
@@ -45,14 +50,36 @@ bool App::init(const Options& options) {
         return false;
     }
 
+    // Storage must be known before creating draw buffers: the interactive
+    // renderer must not silently retain a smaller pool than the simulation.
+    if (!load_tuning_config()) return false;
     render::RendererDesc rd;
     rd.framebuffer_width = window_.width();
     rd.framebuffer_height = window_.height();
     rd.hot_reload_shaders = true;
+    rd.max_chaff_instances = config_.sim.capacities.max_chaff;
+    rd.max_projectile_instances = std::max(config_.sim.capacities.max_projectiles,
+        config_.sim.hostile.max_toxin_shots);
+    rd.max_swarmer_instances = config_.sim.capacities.max_swarmers;
+    rd.max_harpoon_instances = config_.sim.hostile.max_harpoons;
     if (!renderer_.init(rd)) {
         IMMUNE_LOG_ERROR("renderer init failed: %s", renderer_.error().c_str());
         return false;
     }
+
+    // After the window: SDL is initialised. Audio failing is a warning, not an
+    // error -- the game is fully playable silent.
+    if (!options.no_audio) {
+        audio::AudioConfig ac;
+        ac.master_volume = options.volume;
+        if (audio_.init(ac)) {
+            const audio::EngineStats as = audio_.stats();
+            IMMUNE_LOG_INFO("audio: %d Hz, %d-frame buffer", as.sample_rate, as.buffer_frames);
+        } else {
+            IMMUNE_LOG_WARN("audio disabled: %s", audio_.error().c_str());
+        }
+    }
+    soundscape_.set_output(audio_.commands());
 
     input_.bind_defaults();
     if (!dev_ui_.init(window_, input_)) {
@@ -76,8 +103,6 @@ bool App::init(const Options& options) {
     // will not load is fatal rather than papered over -- the files are
     // authoritative, so running on a half-applied table would be worse than
     // not running.
-    if (!load_tuning_config()) return false;
-
     // apply_enemy_config() calls load_defaults() itself, then overrides from
     // the file -- so this replaces the bare load_defaults() that used to be
     // here rather than following it.
@@ -222,7 +247,10 @@ void App::apply_menu_result(const ui::MenuResult& r) {
         if (res == game::MetaProgression::PurchaseResult::Ok) {
             IMMUNE_LOG_INFO("Strengthen Immunity: bought %s (now level %u)",
                             game::tree_node(node).key, static_cast<unsigned>(meta_.level(node)));
+            soundscape_.cue(audio::Cue::Purchase);
             save_meta();
+        } else {
+            soundscape_.cue(audio::Cue::UiDeny);
         }
         break;
     }
@@ -233,7 +261,7 @@ void App::apply_menu_result(const ui::MenuResult& r) {
         }
         break;
     case ui::MenuAction::OpenEditor:
-        if (options_.record_balance_dir.empty()) enter_editor({});
+        if (options_.record_balance_dir.empty() && !balance_recording_.active()) enter_editor({});
         break;
     case ui::MenuAction::Resume:
         state_.request(GameStateId::InLevel);
@@ -328,7 +356,7 @@ void App::poll_config_reload(f32 dt) {
     // Off in every deterministic mode and whenever --config pinned the
     // directory: a run that can be retuned underneath itself is not a run
     // anyone can reproduce.
-    if (options_.config_pinned) return;
+    if (options_.config_pinned || balance_recording_.active()) return;
 
     constexpr f32 kPollInterval = 0.5f;
     config_poll_timer_ -= dt;
@@ -397,9 +425,11 @@ bool App::load_level_def(const game::LevelDef& level, const std::string& source_
     const std::string& path = source_path;
     last_level_load_error_.clear();
 
+    const bool record_level = balance_recording_enabled_ && !editor_playtest_ && level.name != "gym";
     sim::SimDesc desc = game::make_level_sim_desc(config_, enemies_, level, options_.seed);
-    desc.deterministic_rebakes = !options_.record_balance_dir.empty();
-    sim_.init(desc, jobs_.get());
+    desc.deterministic_rebakes = record_level;
+    if (record_level && !recording_jobs_) recording_jobs_ = std::make_unique<JobSystem>(0u);
+    sim_.init(desc, record_level ? recording_jobs_.get() : jobs_.get());
 
     const auto res = loader.instantiate(level, sim_, &render_sdf_);
     if (!res.ok) {
@@ -455,6 +485,7 @@ bool App::load_level_def(const game::LevelDef& level, const std::string& source_
     // A fresh level must not inherit the previous one's sparks, nor a stale
     // economy/ability state from a run that already ended.
     particles_.clear();
+    soundscape_.reset();
     // Reads current_level_def_, which was assigned above, and applies this
     // level's schema-2 economy/tower rules on top of the global tuning.
     apply_tuning_config();
@@ -489,7 +520,7 @@ bool App::load_level_def(const game::LevelDef& level, const std::string& source_
 
     level_loaded_ = true;
     current_level_path_ = path;
-    if (!options_.record_balance_dir.empty() && !editor_playtest_ && level.name != "gym") {
+    if (record_level) {
         const auto document = platform::read_text_file(source_path);
         try {
             if (document) {
@@ -497,10 +528,18 @@ bool App::load_level_def(const game::LevelDef& level, const std::string& source_
                 sim_.enable_combat_metrics(true,32768);
                 balance_recording_.begin(level,config_,meta_,sandbox_run(),original);
                 balance_recording_.sample(sim_,economy_,waves_);
-            } else IMMUNE_LOG_WARN("balance recording needs an original level file");
+                balance_recording_status_ = "Recording this run.";
+                progression_cheats_visible_ = false;
+            } else {
+                balance_recording_status_ = "Recording could not start: level file unavailable.";
+                IMMUNE_LOG_WARN("balance recording needs an original level file");
+            }
         } catch (const std::exception& error) {
+            balance_recording_status_ = std::string("Recording could not start: ") + error.what();
             IMMUNE_LOG_WARN("balance recording setup failed: %s",error.what());
         }
+    } else if (balance_recording_enabled_) {
+        balance_recording_status_ = "Ready: recording starts with the next campaign level.";
     }
     return true;
 }
@@ -680,8 +719,26 @@ void App::shutdown() {
     hud_screen_.reset();
     gui_.shutdown();
     dev_ui_.shutdown();
+    if (audio_.running()) {
+        // One line of evidence for how the session's audio behaved: what the
+        // horde policy did with the event stream, and what it cost.
+        const audio::EngineStats s = audio_.stats();
+        const audio::SceneStats& sc = soundscape_.stats();
+        IMMUNE_LOG_INFO("audio: %llu events -> %llu voices + %llu grains (%llu culled, %llu folded); "
+                        "mixer load avg %.2f%% worst block %.2f%%, peak voices %u, stolen %llu, ring drops %llu",
+                        static_cast<unsigned long long>(sc.events_seen),
+                        static_cast<unsigned long long>(sc.voices_posted),
+                        static_cast<unsigned long long>(sc.grains_posted),
+                        static_cast<unsigned long long>(sc.culled), static_cast<unsigned long long>(sc.folded),
+                        static_cast<f64>(s.load_average * 100.0f), static_cast<f64>(s.load_peak * 100.0f),
+                        s.peak_voices, static_cast<unsigned long long>(s.voices_stolen),
+                        static_cast<unsigned long long>(s.commands_dropped));
+    }
+    soundscape_.set_output(nullptr);
+    audio_.shutdown();
     renderer_.shutdown();
     window_.destroy();
+    recording_jobs_.reset();
     jobs_.reset();
     running_ = false;
 }
@@ -699,7 +756,7 @@ void App::handle_input() {
         render::capture_framebuffer_png("shot.png", window_.width(), window_.height());
         IMMUNE_LOG_INFO("wrote shot.png");
     }
-    if (options_.record_balance_dir.empty() && input_.action_pressed(platform::Action::ToggleProgressionCheats)) {
+    if (options_.record_balance_dir.empty() && !balance_recording_.active() && input_.action_pressed(platform::Action::ToggleProgressionCheats)) {
         progression_cheats_visible_ = !progression_cheats_visible_;
     }
     if (progression_cheats_visible_) {
@@ -718,6 +775,11 @@ void App::handle_input() {
     // the frame whose keystrokes are being classified here.
     if (input_.ui_capture_keyboard()) return;
 
+    if (input_.action_pressed(platform::Action::ToggleMute)) {
+        audio_.set_muted(!audio_.muted());
+        IMMUNE_LOG_INFO("audio %s", audio_.muted() ? "muted" : "unmuted");
+    }
+
     // F4 on the title screen opens the editor on a blank level (the menu
     // itself is the player's, and has no editor button).
     if (options_.record_balance_dir.empty() && state_.current() == GameStateId::MainMenu && input_.action_pressed(platform::Action::OpenEditor)) {
@@ -725,7 +787,7 @@ void App::handle_input() {
         return;
     }
     // F4 from a live level opens the editor on the retained level document.
-    if (options_.record_balance_dir.empty() && state_.current() == GameStateId::InLevel && !editor_playtest_ &&
+    if (options_.record_balance_dir.empty() && !balance_recording_.active() && state_.current() == GameStateId::InLevel && !editor_playtest_ &&
         input_.action_pressed(platform::Action::OpenEditor)) {
         game::GeometryBakeDesc bd;
         bd.flow_smoothing_radius = config_.sim.globals.flow_smoothing_radius;
@@ -861,6 +923,11 @@ void App::apply_intents(const std::vector<ui::Intent>& intents) {
             case ui::IntentKind::PlaceTower: {
                 const u32 count = game::deploy_cells(towers_, sim_, economy_, in.tower_type,
                                                      in.world_position, in.quantity);
+                if (count > 0) {
+                    soundscape_.cue_at(audio::Cue::Deploy, in.world_position, static_cast<u8>(in.tower_type));
+                } else {
+                    soundscape_.cue(audio::Cue::UiDeny);
+                }
                 if (count && balance_recording_.active()) {
                     game::balance::Action action;
                     action.tick = sim_.tick_index(); action.kind = game::balance::ActionKind::Deploy;
@@ -871,6 +938,11 @@ void App::apply_intents(const std::vector<ui::Intent>& intents) {
             }
             case ui::IntentKind::CastAbility: {
                 const bool cast = abilities_.cast(sim_, in.ability_id, in.world_position);
+                if (cast) {
+                    soundscape_.cue_at(audio::Cue::Ability, in.world_position, static_cast<u8>(in.ability_id));
+                } else {
+                    soundscape_.cue(audio::Cue::UiDeny);
+                }
                 if (cast && balance_recording_.active()) {
                     game::balance::Action action;
                     action.tick = sim_.tick_index(); action.kind = game::balance::ActionKind::CastAbility;
@@ -911,6 +983,14 @@ void App::tick_sim() {
     const auto previous_wave = waves_.status();
     const Tick previous_tick = sim_.tick_index();
     const game::SessionOutcome outcome = game::step_level(systems, &profiler_);
+    {
+        const game::WavePhase now = waves_.status().phase;
+        if (previous_wave.phase == game::WavePhase::Prep && now == game::WavePhase::Spawning) {
+            soundscape_.cue(audio::Cue::WaveStart);
+        } else if (previous_wave.phase == game::WavePhase::Clearing && now == game::WavePhase::Prep) {
+            soundscape_.cue(audio::Cue::WaveClear);
+        }
+    }
     if (balance_recording_.active()) {
         if (previous_wave.phase == game::WavePhase::Prep && waves_.status().phase == game::WavePhase::Spawning) {
             game::balance::Action start;
@@ -1042,6 +1122,62 @@ game::GymContext App::make_gym_context() {
         d.ui_scale = &options_.ui_scale;
         return run_ui_command(d, tokens);
     };
+    ctx.audio = [this](const std::vector<std::string>& tok) -> game::GymResult {
+        const std::string sub = tok.size() > 1 ? tok[1] : "stats";
+        char buf[512];
+        if (sub == "stats") {
+            if (!audio_.running()) return {true, "audio: no device (" + audio_.error() + ")"};
+            const audio::EngineStats s = audio_.stats();
+            const audio::SceneStats& sc = soundscape_.stats();
+            std::snprintf(buf, sizeof(buf),
+                          "audio %d Hz/%d: volume %.2f%s, voices %u (peak %u), grains %u, load %.1f%% "
+                          "(worst block %.1f%%), stolen %llu, rejected %llu, ring drops %llu\n"
+                          "scene: events %llu, culled %llu, folded %llu, posted %llu voices + %llu grains, "
+                          "death rate %.0f/s",
+                          s.sample_rate, s.buffer_frames, static_cast<f64>(audio_.volume()),
+                          audio_.muted() ? " (muted)" : "", s.active_voices, s.peak_voices, s.active_grains,
+                          static_cast<f64>(s.load_average * 100.0f), static_cast<f64>(s.load_peak * 100.0f),
+                          static_cast<unsigned long long>(s.voices_stolen),
+                          static_cast<unsigned long long>(s.voices_rejected),
+                          static_cast<unsigned long long>(s.commands_dropped),
+                          static_cast<unsigned long long>(sc.events_seen), static_cast<unsigned long long>(sc.culled),
+                          static_cast<unsigned long long>(sc.folded), static_cast<unsigned long long>(sc.voices_posted),
+                          static_cast<unsigned long long>(sc.grains_posted), static_cast<f64>(sc.death_rate));
+            return {true, buf};
+        }
+        if (sub == "mute" || sub == "unmute") {
+            audio_.set_muted(sub == "mute");
+            return {true, sub == "mute" ? "audio muted" : "audio unmuted"};
+        }
+        if (sub == "volume") {
+            if (tok.size() < 3) {
+                std::snprintf(buf, sizeof(buf), "volume %.2f", static_cast<f64>(audio_.volume()));
+                return {true, buf};
+            }
+            char* end = nullptr;
+            const f32 v = std::strtof(tok[2].c_str(), &end);
+            if (end == tok[2].c_str() || !(v >= 0.0f && v <= 1.0f)) return {false, "usage: audio volume <0-1>"};
+            audio_.set_volume(v);
+            std::snprintf(buf, sizeof(buf), "volume %.2f", static_cast<f64>(v));
+            return {true, buf};
+        }
+        if (sub == "cue") {
+            std::string names;
+            for (u32 c = 0; c < audio::kCueCount; ++c) {
+                names += names.empty() ? "" : " ";
+                names += audio::cue_name(static_cast<audio::Cue>(c));
+            }
+            if (tok.size() < 3 || tok[2] == "list") return {tok.size() >= 3, "cues: " + names};
+            for (u32 c = 0; c < audio::kCueCount; ++c) {
+                if (tok[2] != audio::cue_name(static_cast<audio::Cue>(c))) continue;
+                const u8 variant = tok.size() > 3 ? static_cast<u8>(std::strtoul(tok[3].c_str(), nullptr, 10)) : 0;
+                soundscape_.cue(static_cast<audio::Cue>(c), variant);
+                return {true, "played " + tok[2]};
+            }
+            return {false, "unknown cue '" + tok[2] + "'; cues: " + names};
+        }
+        return {false, "usage: audio [stats] | volume <0-1> | mute | unmute | cue <name> [variant]"};
+    };
     ctx.set_overlay = [this](const std::string& name, bool on) {
         if (name == "debug") { dev_ui_.set_debug_overlay_visible(on); return true; }
         if (name == "threat") { dev_ui_.set_threat_overlay_visible(on); return true; }
@@ -1122,7 +1258,10 @@ void App::render_frame() {
         // and a panel that vanished with the world would be useless exactly
         // when a level failed to load.
         game::GymContext gym = make_gym_context();
-        if (options_.record_balance_dir.empty()) gym_panel_.build(gym);
+        ui::RecordingUi recording_ui{balance_recording_enabled_, balance_recording_.active(),
+                                     balance_recording_dir_, balance_recording_status_};
+        gym_panel_.build(gym, recording_ui);
+        set_balance_recording_enabled(recording_ui.enabled);
         gui_.render(window_.width(), window_.height());
         build_progression_cheats();
         dev_ui_.render();
@@ -1142,6 +1281,9 @@ void App::render_frame() {
     // this is the only place a hit ever becomes visible on the enemy itself.
     // See Renderer::submit_chaff_deaths.
     renderer_.submit_chaff_deaths(events.data(), events.size());
+    // And to the ear: the scene bins them now and spends its budget in
+    // update_audio(), after the frame.
+    soundscape_.on_combat_events(events.data(), events.size());
     sim_.combat_events().clear();
     particles_.update(static_cast<f32>(clock_.frame_delta()), jobs_.get());
 
@@ -1226,7 +1368,10 @@ void App::render_frame() {
     // Drawn last so it sits above the HUD and the pause/results screens, and
     // outside the state switch above so it stays usable while paused.
     game::GymContext gym = make_gym_context();
-    if (options_.record_balance_dir.empty()) gym_panel_.build(gym);
+    ui::RecordingUi recording_ui{balance_recording_enabled_, balance_recording_.active(),
+                                 balance_recording_dir_, balance_recording_status_};
+    gym_panel_.build(gym, recording_ui);
+    set_balance_recording_enabled(recording_ui.enabled);
 
     gui_.render(window_.width(), window_.height());
     build_progression_cheats();
@@ -1272,6 +1417,47 @@ void App::enter_state(GameStateId id) {
     state_.apply_pending();
 }
 
+void App::update_audio() {
+    // The gui's pointer feedback, from whichever screen ran this frame.
+    for (const gui::UiSound s : gui_.sounds()) {
+        switch (s) {
+            case gui::UiSound::Hover: soundscape_.cue(audio::Cue::UiHover); break;
+            case gui::UiSound::Click: soundscape_.cue(audio::Cue::UiClick); break;
+            case gui::UiSound::Deny: soundscape_.cue(audio::Cue::UiDeny); break;
+        }
+    }
+    gui_.clear_sounds();
+
+    const GameStateId now = state_.current();
+    if (now != audio_state_) {
+        if (now == GameStateId::Paused) {
+            soundscape_.cue(audio::Cue::UiOpen);
+        } else if (audio_state_ == GameStateId::Paused && now == GameStateId::InLevel) {
+            soundscape_.cue(audio::Cue::UiClose);
+        } else if (now == GameStateId::LevelComplete) {
+            soundscape_.cue(audio::Cue::Victory);
+        } else if (now == GameStateId::LevelFailed) {
+            soundscape_.cue(audio::Cue::Defeat);
+        }
+        audio_state_ = now;
+    }
+
+    // The horde's continuous state. Beds only run while the sim is actually
+    // advancing: a pause or 0x freezes the world, so its sound stops too.
+    audio::HordeState horde;
+    if (level_loaded_ && now != GameStateId::Editor) {
+        const Rect view = camera_.visible_bounds();
+        soundscape_.set_view(view);
+        const sim::ChaffBuffers& chaff = sim_.chaff();
+        audio::measure_presence(chaff.pos_x.data(), chaff.pos_y.data(), chaff.count(), view, horde);
+        const sim::SimSnapshot snap = sim_.snapshot();
+        horde.latched = snap.chaff_latched;
+        horde.leaked_total = snap.chaff_leaked_total;
+        horde.live = state_.sim_running() && clock_.time_scale() > 0.0f && !progression_cheats_visible_;
+    }
+    soundscape_.update(horde, static_cast<f32>(clock_.frame_delta()));
+}
+
 int App::run() {
     while (running_) {
         WallClock frame;
@@ -1285,6 +1471,7 @@ int App::run() {
             if (now == GameStateId::MainMenu || now == GameStateId::LevelSelect ||
                 now == GameStateId::StrengthenImmunity) {
                 save_balance_recording();
+                if (level_loaded_) soundscape_.reset();
                 level_loaded_ = false;
                 particles_.clear();
                 clock_.set_time_scale(1.0f);
@@ -1307,6 +1494,7 @@ int App::run() {
         camera_.set_viewport(window_.width(), window_.height());
         renderer_.resize(window_.width(), window_.height());
         render_frame();
+        update_audio();
 
         profiler_.record(prof_key::kFrameTotal, frame.elapsed_ms());
     }
@@ -1355,12 +1543,27 @@ void App::save_balance_recording(game::SessionOutcome outcome) {
     if (executable) recording["provenance"]["executable_hash"] = game::balance::fingerprint(
         std::string_view(reinterpret_cast<const char*>(executable->data()),executable->size()));
     const auto timestamp = std::chrono::system_clock::now().time_since_epoch().count();
-    const std::string path = options_.record_balance_dir+"/player-"+std::to_string(timestamp)+"-"+
+    const std::string path = balance_recording_dir_+"/player-"+std::to_string(timestamp)+"-"+
                              std::to_string(++balance_recording_sequence_)+".json";
-    if (!platform::ensure_directory(options_.record_balance_dir) ||
-        !platform::write_text_file(path,recording.dump(2)+"\n"))
+    if (!platform::ensure_directory(balance_recording_dir_) ||
+        !platform::write_text_file(path,recording.dump(2)+"\n")) {
+        balance_recording_status_ = "Could not save recording: " + path;
         IMMUNE_LOG_ERROR("could not save player balance recording: %s",path.c_str());
-    else IMMUNE_LOG_INFO("player balance recording saved: %s",path.c_str());
+    } else {
+        balance_recording_status_ = "Saved recording: " + path;
+        if (!recording.value("replayable", false)) balance_recording_status_ += " (replay unavailable; see diagnostics)";
+        IMMUNE_LOG_INFO("player balance recording saved: %s",path.c_str());
+    }
+}
+
+void App::set_balance_recording_enabled(bool enabled) {
+    if (balance_recording_enabled_ == enabled) return;
+    balance_recording_enabled_ = enabled;
+    if (!enabled && balance_recording_.active()) {
+        save_balance_recording();
+    } else {
+        balance_recording_status_ = enabled ? "Ready: recording starts with the next level or restart." : "Recording off.";
+    }
 }
 
 void App::load_meta() {

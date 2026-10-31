@@ -18,7 +18,7 @@ authority as balance changes.
 | Starting ATP | 300 | New level/run |
 | Kill income | 0.85 ATP per density removed | Credited after the simulation tick |
 | Wave reward | Authored `atp_reward` | When that wave finishes Clearing |
-| Cell cost | 15 / 12 / 35 / 24 / 30 | Per successful Neutrophil / Cytotoxic T / Macrophage / Goblet Cell / Fibroblast deployment |
+| Cell cost | 20 / 12 / 35 / 24 / 30 | Per successful Neutrophil / Cytotoxic T / Macrophage / Goblet Cell / Fibroblast deployment |
 
 [Economy.cpp](../src/game/economy/Economy.cpp) accumulates fractional kill
 income, crediting whole ATP as it becomes available. Kill income is for player
@@ -37,8 +37,15 @@ or reduce global placement costs. Level `economy.starting_atp` can override
 the base, while retaining the player's Bone Marrow Reserve bonus. A level's
 `income_multiplier` scales ATP per density removed. The shared
 `game::apply_level_rules()` applies level rules after the tree.
-Current campaign opening wallets rise from 300 to 750 ATP. Maximum Efficient
-Clearance raises baseline damage-income from 0.85 to 1.275 ATP per density.
+Current authored campaign opening wallets rise from 300 to 750 ATP, with map
+income multipliers fixed at 1.0. Reserve adds 40 ATP per rank for eight ranks;
+run setup adds that bonus to each map wallet. Efficient Clearance adds 10% of
+base kill income per rank for eight ranks.
+Late-map `enemy_scaling.durability_multiplier` increases pathogen density/HP.
+Shared setup divides damage-income per density by the same multiplier, so
+the additional durability alone does not create extra total ATP per enemy.
+This compensation is separate from the map's `income_multiplier` and does
+not change wave bounties or kill-count Memory Cell rewards.
 
 Kills can earn ATP during Prep when surviving enemies are still present;
 wave rewards also remain payable. Pausing stops simulation ticks, so combat,
@@ -65,6 +72,8 @@ abilities.
 | Complement Cascade Burst (`Q`) | 90 seconds | Short chain-shaped damage field: radius 6 per hop, kill rate 120, up to eight default links. |
 | Fever Response (`W`) | 60 seconds | Heal every surviving deployed cell by 30% of that cell's maximum HP, capped at max. |
 | Fibrin Clot (`E`) | 75 seconds | Solid bar oriented across local flow: full length 14, full width 3, lifetime 8 seconds. |
+
+Each cooldown line has six ranks and subtracts 8% of base cooldown per rank.
 
 ## Damage abilities
 
@@ -94,10 +103,10 @@ Fever's `fever_cooldown_relief: 3` is interpreted for direct cells as
 Fever does not resurrect them. Its baseline effect is global over surviving
 deployed cells, with no radius restriction or damage field.
 
-Healing Strength multiplies this magnitude by `1 + 0.25 * level`. Optional
-`fever_linger_seconds` and `fever_linger_rate` fields support extra healing
-over time, but both are zero by default and the current tree does not enable
-a linger duration. The radius/kill-rate fields present in the common Fever
+Healing Strength has six ranks, each adding 25% of base healing. Optional
+`fever_linger_seconds` and `fever_linger_rate` fields support lingering
+cooldown relief for legacy spawners; both are zero by default. Healing
+Strength does not modify those legacy effects. The radius/kill-rate fields present in the common Fever
 config record do not create a Fever damage nova.
 
 For legacy spawners the same cast reduces each tower's current release
@@ -117,7 +126,7 @@ originally carved, without turning pre-existing blocked cells into walkable
 ground. The shared [RuntimeBlock](../src/sim/flowfield/RuntimeBlock.h) rules
 also serve Fibroblast scars. Clot does no baseline contact damage; its benefit
 is redirection and added time for defenses. Barrier Duration increases the
-8-second lifetime by 20% of baseline per level.
+8-second lifetime by 20% of baseline per rank through six.
 
 ## Verification anchors
 

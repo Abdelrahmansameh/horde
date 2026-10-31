@@ -1,4 +1,5 @@
 #include "game/balance/BalanceController.h"
+#include "game/balance/PlayableRunway.h"
 
 #include "core/Math.h"
 #include "game/economy/Economy.h"
@@ -59,6 +60,8 @@ struct RouteProjection {
     f32 distance_sq = std::numeric_limits<f32>::infinity();
     f32 along = 0.0f;
     f32 remaining = 0.0f;
+    Vec2 position{0.0f, 0.0f};
+    usize next_point = 0;
 };
 
 RouteProjection project_route(Vec2 p, const std::vector<Vec2>& points) {
@@ -72,7 +75,11 @@ RouteProjection project_route(Vec2 p, const std::vector<Vec2>& points) {
         const f32 t = length_sq > 0.0001f ?
             std::clamp((offset.x * direction.x + offset.y * direction.y) / length_sq, 0.0f, 1.0f) : 0.0f;
         const f32 distance_sq = math::length_sq(p - (points[i - 1] + direction * t));
-        if (distance_sq < projection.distance_sq) projection = {distance_sq, along + length * t};
+        if (distance_sq < projection.distance_sq) {
+            projection = {distance_sq, along + length * t};
+            projection.position = points[i - 1] + direction * t;
+            projection.next_point = i;
+        }
         along += length;
     }
     projection.remaining = std::max(0.0f, along - projection.along);
@@ -252,8 +259,9 @@ struct Board {
         f32 friends = 0.0f;
         f32 missing_health = 0.0f;
         Vec2 weighted_position{0.0f, 0.0f};
+        f32 hostile_reach = 0.0f;
     };
-    struct Friend { Vec2 position; f32 reach; TowerType type; };
+    struct Friend { Vec2 position; f32 reach; TowerType type; f32 remaining; };
 
     Rect bounds;
     f32 cell = 10.0f;
@@ -278,6 +286,16 @@ struct Board {
             Bin& b = at(p);
             b.enemies[f] += density;
             b.weighted_position += p * density;
+            // Enemy-family capabilities are public rules, unlike an agent's
+            // private cooldown/target state. A visible siege unit must not
+            // disappear behind the density of ordinary close-range traffic.
+            const auto& hostile = view.world.hostile().tuning();
+            const auto& family_attack = hostile.family[f];
+            if (hostile.enabled && family_attack.toxin_damage > 0.0f)
+                b.hostile_reach = std::max(b.hostile_reach, family_attack.toxin_range);
+            const auto& harpoon = hostile.harpoon[f];
+            if (hostile.enabled && harpoon.enabled && harpoon.pulse_damage > 0.0f)
+                b.hostile_reach = std::max(b.hostile_reach, harpoon.range);
             visible_density += density;
         };
         const auto& chaff = view.world.chaff();
@@ -308,7 +326,8 @@ struct Board {
             const Vec2 p{swarm.pos_x[i], swarm.pos_y[i]};
             if (!bounds.contains(p)) continue;
             const auto& profile = swarm.profile_of(i);
-            friendly_positions.push_back({p, engagement_reach(profile), profile.source});
+            friendly_positions.push_back({p, engagement_reach(profile), profile.source,
+                                          view.world.flow().sample_cost(p)});
             const u32 type = static_cast<u32>(profile.source);
             if (type < kTowerTypeCount) friendly_types[type] += 1.0f;
             const f32 missing = std::max(0.0f, profile.max_health - swarm.health[i]);
@@ -356,6 +375,110 @@ struct Board {
         return sum;
     }
 };
+
+bool clear_engagement(const ControllerView& view, Vec2 from, Vec2 to) {
+    const f32 length = math::length(to - from);
+    const u32 steps = std::max(1u, static_cast<u32>(std::ceil(length /
+        std::max(0.5f, view.world.flow().cell_size()))));
+    for (u32 i = 1; i < steps; ++i) {
+        if (view.world.sdf().sample(math::lerp(from, to,
+            static_cast<f32>(i) / static_cast<f32>(steps))) <= 0.0f) return false;
+    }
+    return true;
+}
+
+struct VisibleFront {
+    Vec2 position{0.0f, 0.0f};
+    Vec2 forward{0.0f, 0.0f};
+    u8 family_mask = 0;
+    bool viable = false;
+};
+
+bool covers_front(const ControllerView& view, const Board::Friend& friendly, const VisibleFront& front) {
+    const auto kind = swarmer_profile(friendly.type).kind;
+    if (kind == sim::SwarmerKind::Builder || kind == sim::SwarmerKind::MucusBomber ||
+        (view.towers.stats(friendly.type).family_mask & front.family_mask) == 0) return false;
+    const Vec2 offset = friendly.position - front.position;
+    // A cell trailing an escaped horde is not an incoming interception line.
+    // In particular, receding targets can outlive a shooter's finite rounds.
+    return math::length_sq(offset) <= friendly.reach * friendly.reach &&
+        offset.x * front.forward.x + offset.y * front.forward.y >= -2.0f * view.world.flow().cell_size() &&
+        clear_engagement(view, friendly.position, front.position);
+}
+
+VisibleFront uncovered_front(const ControllerView& view, const Board& board, bool independent_approaches,
+                             const std::array<f32, kTowerTypeCount>& allowed_weights) {
+    VisibleFront best;
+    f32 best_pressure = 0.0f;
+    for (const auto& bin : board.bins) {
+        f32 density = 0.0f;
+        for (const f32 family : bin.enemies) density += family;
+        if (density <= 0.0f) continue;
+        VisibleFront front;
+        for (u32 family = 0; family < kFamilyCount; ++family)
+            if (bin.enemies[family] > 0.0f) front.family_mask |= static_cast<u8>(1u << family);
+        front.position = bin.weighted_position / density;
+        front.forward = math::normalize_safe(view.world.flow().sample(front.position));
+        const f32 remaining = view.world.flow().sample_cost(front.position);
+        if (!std::isfinite(remaining) || math::length_sq(front.forward) <= math::kEpsilon ||
+            view.world.sdf().sample(front.position) <= 0.0f) continue;
+        u32 coverage = 0;
+        u32 stranded = 0;
+        f32 friendly_reach = 2.0f;
+        // Use the public counter roster even after a cohort dies. An empty
+        // army must not turn a 44-unit siege range into a fictitious 22x
+        // advantage merely because no living defender contributed a reach.
+        for (u32 t = 0; t < kTowerTypeCount; ++t) {
+            const auto type = static_cast<TowerType>(t);
+            if (!(allowed_weights[t] > 0.0f) || !view.towers.tower_allowed(type) ||
+                !view.towers.tower_unlocked(type) ||
+                (view.towers.stats(type).family_mask & front.family_mask) == 0) continue;
+            const auto profile = swarmer_profile(type);
+            if (profile.kind != sim::SwarmerKind::Builder && profile.kind != sim::SwarmerKind::MucusBomber)
+                friendly_reach = std::max(friendly_reach, engagement_reach(profile));
+        }
+        f32 closest_friendly = std::numeric_limits<f32>::infinity();
+        for (const auto& friendly : board.friendly_positions) {
+            const auto kind = swarmer_profile(friendly.type).kind;
+            if (kind != sim::SwarmerKind::Builder && kind != sim::SwarmerKind::MucusBomber &&
+                (view.towers.stats(friendly.type).family_mask & front.family_mask) != 0)
+                friendly_reach = std::max(friendly_reach, friendly.reach);
+            const f32 distance = math::length(friendly.position - front.position);
+            if (bin.hostile_reach > 0.0f && distance < closest_friendly &&
+                clear_engagement(view, friendly.position, front.position))
+                closest_friendly = distance;
+            if (covers_front(view, friendly, front) && ++coverage >= 3) break;
+            if (!independent_approaches && kind != sim::SwarmerKind::Builder && kind != sim::SwarmerKind::MucusBomber &&
+                (view.towers.stats(friendly.type).family_mask & front.family_mask) != 0 &&
+                std::isfinite(friendly.remaining) && friendly.remaining - remaining > 2.0f * friendly.reach)
+                ++stranded;
+        }
+        // A single approach keeps its mutually supporting formation unless a
+        // healthy reserve was bypassed. Independent entrances also need an
+        // interception line for new visible traffic that has no cohort yet.
+        const f32 range_advantage = bin.hostile_reach / friendly_reach;
+        const bool siege = range_advantage > 1.2f;
+        if (coverage >= 3 || (!independent_approaches && stranded < 3 && !siege)) continue;
+        // Thin traffic near the organ can be more urgent than a dense distant
+        // release. A bin-size population threshold would miss those leaks.
+        f32 pressure = std::sqrt(density) / ((1.0f + static_cast<f32>(coverage)) * (20.0f + remaining));
+        if (siege) {
+            // A ranged enemy threatens the army before reaching the organ.
+            // Its public range advantage and current line of sight determine
+            // urgency; dense near-goal traffic can still outrank it. Staging
+            // below remains within the purchased role's real attack reach.
+            const f32 contact_distance = std::isfinite(closest_friendly) ? closest_friendly : remaining;
+            pressure += std::sqrt(density) * range_advantage * range_advantage /
+                ((1.0f + static_cast<f32>(coverage)) * (20.0f + contact_distance));
+        }
+        if (pressure > best_pressure) {
+            best_pressure = pressure;
+            front.viable = true;
+            best = front;
+        }
+    }
+    return best;
+}
 
 } // namespace
 
@@ -470,7 +593,7 @@ std::vector<Action> BalanceController::decide(const ControllerView& view) {
         observed_wave_ = wave.wave_index;
         observed_phase_ = phase;
     }
-    if (tick < next_decision_ || wave.all_waves_complete ||
+    if (tick < next_decision_ ||
         view.world.snapshot().objective_integrity <= 0.0f) return actions;
     next_decision_ = tick + std::max(1u, params_.reaction_ticks != 0 ?
         params_.reaction_ticks : default_reaction(params_.policy));
@@ -487,7 +610,24 @@ std::vector<Action> BalanceController::decide(const ControllerView& view) {
     }
     if (candidate_level_ != &view.level) build_candidates(view);
     const Board board(view);
+    // The director completes its authored schedule after clearing grace,
+    // even while a visible ranged survivor can keep the level unresolved.
+    // Continue ordinary paid responses to that observed threat; a completed
+    // schedule with no visible hostiles grants no new deployment knowledge.
+    if (wave.all_waves_complete && !(board.visible_density > 0.0f)) return actions;
     auto routes = preview_routes(view, wave);
+    std::vector<std::string_view> entrances;
+    if (wave.wave_index < view.waves.waves().size()) {
+        for (const auto& entry : view.waves.waves()[wave.wave_index].spawns) {
+            if (entry.count == 0) continue;
+            for (const auto& spawn : view.level.spawn_points) {
+                if (!entry.spawn_point_id.empty() && entry.spawn_point_id != spawn.id) continue;
+                if (std::find(entrances.begin(), entrances.end(), spawn.id) == entrances.end())
+                    entrances.push_back(spawn.id);
+            }
+        }
+    }
+    const bool multiple_entrances = entrances.size() > 1;
     if (tick >= next_navigation_refresh_ || navigation_wave_ != wave.wave_index) {
         navigation_approaches_.clear();
         shared_intercepts_.clear();
@@ -680,12 +820,63 @@ std::vector<Action> BalanceController::decide(const ControllerView& view) {
                 const auto projection = project_route(candidates_[c].position, branch.points);
                 nearest = std::min(nearest, projection.distance_sq);
                 active_distance[c][r] = std::max(active_distance[c][r], projection.distance_sq);
-                remaining_distance[c][r] = std::min(remaining_distance[c][r], projection.remaining);
+                remaining_distance[c][r] = std::min(remaining_distance[c][r], detail::playable_runway(
+                    projection.position, projection.next_point, branch.points,
+                    view.world.desc().world_bounds, projection.remaining));
             }
             candidate_distance[c][r] = nearest;
             route_relevance[c] += routes[r].weight / (1.0f + nearest / 144.0f);
         }
     }
+    bool independent_approaches = multiple_entrances;
+    if (multiple_entrances && params_.policy != Policy::Novice) {
+        f32 anchor_reach = std::numeric_limits<f32>::infinity();
+        for (u32 t = 0; t < kTowerTypeCount; ++t) if (eligible_type(t)) {
+            const auto profile = swarmer_profile(static_cast<TowerType>(t));
+            if (profile.kind == sim::SwarmerKind::Shooter || profile.kind == sim::SwarmerKind::ArborGrabber)
+                anchor_reach = std::min(anchor_reach, engagement_reach(profile));
+        }
+        const f32 runway = std::max(30.0f, 1.5f * anchor_reach);
+        for (usize c = 0; c < candidates_.size() && std::isfinite(anchor_reach); ++c) {
+            bool common_hold = !routes.empty();
+            for (usize r = 0; r < routes.size(); ++r) {
+                if (!routes[r].navigation_available || active_distance[c][r] > anchor_reach * anchor_reach ||
+                    authored_distance[c][r] > anchor_reach * anchor_reach ||
+                    !std::isfinite(remaining_distance[c][r]) || remaining_distance[c][r] < runway) {
+                    common_hold = false;
+                    break;
+                }
+                for (const auto* branches : {&routes[r].branches, &routes[r].navigation_branches}) {
+                    for (const auto& branch : *branches) {
+                        const auto contact = project_route(candidates_[c].position, branch.points);
+                        if (!clear_engagement(view, candidates_[c].position, contact.position)) {
+                            common_hold = false;
+                            break;
+                        }
+                    }
+                    if (!common_hold) break;
+                }
+                if (!common_hold) break;
+            }
+            // Several entrances can still feed one supporting cohort. Do not
+            // intercept early arrivals in isolation before that shared hold.
+            if (common_hold) {
+                bool legal = false;
+                for (u32 t = 0; t < kTowerTypeCount && !legal; ++t) if (eligible_type(t)) {
+                    const auto kind = swarmer_profile(static_cast<TowerType>(t)).kind;
+                    if (kind != sim::SwarmerKind::Shooter && kind != sim::SwarmerKind::ArborGrabber) continue;
+                    legal = view.towers.validate_deploy(view.world, static_cast<TowerType>(t), candidates_[c].position,
+                                                       std::numeric_limits<u32>::max()).valid();
+                }
+                if (legal) { independent_approaches = false; break; }
+            }
+        }
+    }
+    // Static route membership is not current interception after traffic has
+    // bypassed the prepared army. Independent fronts also need timely funding
+    // and forward recruitment for their newly visible arrivals.
+    const VisibleFront front = params_.policy != Policy::Novice && wave.phase != WavePhase::Prep ?
+        uncovered_front(view, board, independent_approaches || wave.all_waves_complete, params_.weights) : VisibleFront{};
     usize recruiting_approach = 0;
     std::array<f32, kTowerTypeCount> recruiting_types = board.friendly_types;
     if (routes.size() > 1 && params_.policy != Policy::Novice) {
@@ -726,6 +917,19 @@ std::vector<Action> BalanceController::decide(const ControllerView& view) {
         // physical coverage so shared-trunk cells are never counted twice.
         recruiting_types = route_types[recruiting_approach];
     }
+    if (front.viable) {
+        recruiting_types.fill(0.0f);
+        // Composition belongs to the nearby cohort, not just the few cells
+        // ahead of this exact traffic bin. Otherwise a moving front repeatedly
+        // looks empty and each replacement becomes another lone shooter.
+        for (const auto& friendly : board.friendly_positions) {
+            const f32 radius = std::max(24.0f, 2.0f * friendly.reach);
+            if (math::length_sq(friendly.position - front.position) > radius * radius ||
+                !clear_engagement(view, friendly.position, front.position)) continue;
+            const u32 type = static_cast<u32>(friendly.type);
+            if (type < kTowerTypeCount) recruiting_types[type] += 1.0f;
+        }
+    }
     std::array<f32, kTowerTypeCount> weights{};
     if (params_.policy == Policy::Novice) weights = {0.82f, 0.12f, 0.04f, 0.02f, 0.0f};
     else if (params_.policy == Policy::Tactical) weights = {0.52f, 0.28f, 0.10f, 0.06f, 0.04f};
@@ -739,6 +943,9 @@ std::vector<Action> BalanceController::decide(const ControllerView& view) {
         const f32 multiplier = params_.weights[t];
         weights[t] *= std::isfinite(multiplier) ? std::max(0.0f, multiplier) : 0.0f;
         if (!view.towers.tower_allowed(type) || !view.towers.tower_unlocked(type)) weights[t] = 0.0f;
+        const auto kind = swarmer_profile(type).kind;
+        if (front.viable && kind != sim::SwarmerKind::Builder && kind != sim::SwarmerKind::MucusBomber &&
+            (view.towers.stats(type).family_mask & front.family_mask) == 0) weights[t] = 0.0f;
         total_weight += weights[t];
         if (weights[t] > 0.0f) eligible_friends += recruiting_types[t];
     }
@@ -755,6 +962,10 @@ std::vector<Action> BalanceController::decide(const ControllerView& view) {
     std::vector<ScoredSite> scored_sites;
     scored_sites.reserve(candidates_.size());
     for (u32 t = 0; t < kTowerTypeCount; ++t) {
+        // With independent entrances, avoid spending late income at a covered
+        // old hold just before the next public preparation preview appears.
+        if (params_.policy != Policy::Novice && independent_approaches &&
+            wave.phase == WavePhase::Clearing && !front.viable) continue;
         if (weights[t] <= 0.0f || total_weight <= 0.0f) continue;
         const auto type = static_cast<TowerType>(t);
         const auto& stats = view.towers.stats(type);
@@ -792,7 +1003,19 @@ std::vector<Action> BalanceController::decide(const ControllerView& view) {
             // The public preview supplies expected shares; current living
             // allies supply coverage. Legal alternatives remain available when
             // a particular cell cannot be deployed in the preferred approach.
-            if (!novice && !routes.empty()) {
+            if (front.viable) {
+                const f32 reach = engagement_reach(profile);
+                const Vec2 stage = front.position + front.forward *
+                    (profile.kind == sim::SwarmerKind::Shooter ? reach * 0.65f : 2.0f);
+                const f32 width = std::max(4.0f, reach * 0.35f);
+                const Vec2 offset = candidate.position - front.position;
+                const f32 ahead = offset.x * front.forward.x + offset.y * front.forward.y;
+                if (math::length_sq(offset) <= reach * reach &&
+                    ahead >= -2.0f * view.world.flow().cell_size() &&
+                    clear_engagement(view, candidate.position, front.position)) {
+                    score += 64.0f / (1.0f + math::length_sq(candidate.position - stage) / (width * width));
+                }
+            } else if (!novice && !routes.empty()) {
                 const auto& recruiting = routes[recruiting_approach];
                 const f32 reach = engagement_reach(profile);
                 if (candidate_distance[c][recruiting_approach] <= reach * reach) score += 20.0f;
@@ -806,9 +1029,9 @@ std::vector<Action> BalanceController::decide(const ControllerView& view) {
                 // pooling must not override their pre-fork protection either.
                 // A late convergence at the goal is not a viable hold, and
                 // two fork branches from one entrance are not two approaches.
-                // The measured outgoing holds have about30–40world units of
-                // flow remaining to the actual goal rim; requiring2.5attack
-                // ranges excluded these independently paid, effective sites.
+                // Count only forward room before the first playable exit.
+                // An off-screen organ can be far beyond the final legal
+                // deployment site; its drain cannot make a late junction safe.
                 const f32 runway = std::max(30.0f, 1.5f * reach);
                 const auto covers = [&](usize r) {
                     return routes[r].navigation_available && active_distance[c][r] <= reach * reach &&
@@ -953,7 +1176,13 @@ std::vector<Action> BalanceController::decide(const ControllerView& view) {
         }
     }
 
-    if (wave.phase == WavePhase::Prep && tick - prep_since_ >= prep_ticks && !have_deployment) {
+    // A large earned wallet must not consume the observation budget by buying
+    // one cell per reaction until it is drained before the next authored wave. Starting
+    // remains an ordinary intent, alongside any legal paid purchase, and an
+    // explicit minimum preparation interval always takes precedence.
+    const u32 prep_cap = std::max(prep_ticks, params_.max_prep_ticks);
+    if (wave.phase == WavePhase::Prep && tick - prep_since_ >= prep_ticks &&
+        (!have_deployment || tick - prep_since_ >= prep_cap)) {
         Action action;
         action.tick = tick;
         action.kind = ActionKind::StartWave;

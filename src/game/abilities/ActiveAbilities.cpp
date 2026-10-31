@@ -120,6 +120,7 @@ void ActiveAbilitySystem::load_defaults() {
         d.kill_rate = t.kill_rate;
         d.field_duration = t.field_duration;
         d.fever_cooldown_relief = t.fever_cooldown_relief;
+        d.fever_healing_mult = t.fever_healing_mult;
         d.barrier_half_length = t.barrier_half_length;
         d.barrier_half_width = t.barrier_half_width;
         d.chain_links = t.chain_links;
@@ -187,7 +188,7 @@ bool ActiveAbilitySystem::cast(sim::SimWorld& world, AbilityId id, Vec2 target_p
                 if ((swarm.flags[cell] & sim::swarmer_flags::kPendingKill) != 0) continue;
                 const f32 max_health = swarm.profile_of(cell).max_health;
                 swarm.health[cell] = math::min(max_health, swarm.health[cell] +
-                    max_health * d.fever_cooldown_relief * 0.1f);
+                    max_health * d.fever_cooldown_relief * d.fever_healing_mult * 0.1f);
             }
             // No damage-field equivalent exists for "buff every tower" -- this
             // is the one ability that reaches into the ECS directly. An

@@ -136,6 +136,8 @@ constexpr Field kHostileFields[] = {
     IMMUNE_CONFIG_FIELD(HostileGlobals, enabled, FieldKind::Bool, "Master switch for pathogens attacking towers and swarmers; off is the old harmless horde"),
     IMMUNE_CONFIG_FIELD(HostileGlobals, max_attackers, FieldKind::U32, "Chaff one tower or swarmer inspects per tick for latches and aura hits"),
     IMMUNE_CONFIG_FIELD(HostileGlobals, max_latch_events, FieldKind::U32, "Latch VFX events raised per tick, out of the shared combat-event sink"),
+    IMMUNE_CONFIG_FIELD(HostileGlobals, max_toxin_shots, FieldKind::U32, "Live damage-producing bacterial toxin shots; capacity deferrals invalidate balance measurements"),
+    IMMUNE_CONFIG_FIELD(HostileGlobals, max_harpoons, FieldKind::U32, "Live spore hoses; capacity deferrals invalidate balance measurements"),
 };
 constexpr Schema kHostileSchema{"hostile", kHostileFields};
 

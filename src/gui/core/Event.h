@@ -22,6 +22,14 @@ enum class EventType : u8 {
     Wheel,
 };
 
+/// Feedback sounds the pointer state machine asks for. The gui knows nothing
+/// about audio: it queues these and app/ maps them onto real sounds.
+enum class UiSound : u8 {
+    Hover,  ///< The pointer moved onto an enabled interactive widget.
+    Click,  ///< Left click on an enabled widget.
+    Deny,   ///< Left click on a disabled one.
+};
+
 struct Event {
     EventType type = EventType::Down;
     Vec2 pos{0.0f, 0.0f};    ///< Logical px.

@@ -1,5 +1,7 @@
 #include "app/Modes.h"
 
+#include <optional>
+
 #include "core/Clock.h"
 #include "core/JobSystem.h"
 #include "core/Log.h"
@@ -50,7 +52,7 @@ using json = nlohmann::json;
 /// tissue pass needs for DESIGN.md §9.2's per-lane hue. Optional because only
 /// --screenshot renders anything a human looks at; --bench and --sim-test have
 /// no use for it and should not pay to build it.
-bool build_world(sim::SimWorld& world, const Options& opt, usize max_chaff,
+bool build_world(sim::SimWorld& world, const Options& opt, std::optional<usize> max_chaff,
                  JobSystem* jobs, std::string& error,
                  game::LaneOwnershipMap* out_lane_map = nullptr,
                  game::RenderSdf* out_render_sdf = nullptr,
@@ -75,7 +77,7 @@ bool build_world(sim::SimWorld& world, const Options& opt, usize max_chaff,
 
     sim::SimDesc desc;
     desc.seed = opt.seed;
-    desc.max_chaff = max_chaff;
+    desc.max_chaff = max_chaff.value_or(kDefaultChaffCapacity);
     desc.world_bounds = level.world_bounds;
     desc.sim_bounds = game::level_sim_bounds(level);
     // Cell size ~= 2x the default separation radius, per SpatialHashDesc.
@@ -92,6 +94,7 @@ bool build_world(sim::SimWorld& world, const Options& opt, usize max_chaff,
         config::ConfigStore store;
         game::GameConfig cfg;
         if (game::load_game_config(store, resolve_config_dir(opt), cfg, cfg_err)) {
+            desc.max_chaff = max_chaff.value_or(cfg.sim.capacities.max_chaff);
             game::apply_enemy_config(roster, cfg.enemies);
             desc.max_damage_fields = cfg.sim.capacities.max_damage_fields;
             desc.max_projectiles = cfg.sim.capacities.max_projectiles;
@@ -327,6 +330,12 @@ const std::vector<BenchScenario>& bench_scenarios() {
         {"chaff10k", "10,000 chaff agents. THE Wave 1 gate scenario (<4ms).",   10000, 0, 0,  16384},
         {"chaff10k_towers",
                      "10,000 chaff plus 16 persistent damage fields.",          10000, 0, 16, 16384},
+        {"chaff16k", "16,384 initial crowd agents; capacity/performance comparison probe.",
+                                                                           16384, 0, 0, kDefaultChaffCapacity},
+        {"chaff32k", "32,768 initial crowd agents; large-horde capacity/performance probe.",
+                                                                           32768, 0, 0, kDefaultChaffCapacity},
+        {"chaff64k", "65,536 initial crowd agents; saturated storage stress, not gameplay validity.",
+                                                                           65536, 0, 0, kDefaultChaffCapacity},
         {"named200", "200 named ECS agents. The <2ms §8.6 budget.",             0,   200, 0,  1024},
         {"mixed",    "10,000 chaff + 200 named + 16 fields. Floodplain-like.",  10000, 200, 16, 16384},
     };
@@ -409,6 +418,14 @@ int run_bench(const Options& opt) {
     }
     populate_scenario(world, *scenario);
 
+    const HeadlessConfig bench_config = load_headless_config(opt);
+    if (!bench_config.ok) return 1;
+    const usize initial_chaff = world.chaff().count();
+    usize peak_chaff = initial_chaff;
+    u32 peak_cell_occupancy = 0;
+    u64 neighbour_candidate_entries = 0;
+    u32 max_neighbour_candidates_per_agent = 0;
+
     Profiler profiler;
     profiler.reserve(static_cast<usize>(opt.ticks) + 1u);
 
@@ -427,6 +444,10 @@ int run_bench(const Options& opt) {
         rd.framebuffer_width = render_window.width();
         rd.framebuffer_height = render_window.height();
         rd.max_chaff_instances = static_cast<u32>(world.desc().max_chaff);
+        rd.max_projectile_instances = std::max(static_cast<u32>(world.desc().max_projectiles),
+            world.hostile().tuning().max_toxin_shots);
+        rd.max_swarmer_instances = static_cast<u32>(world.desc().max_swarmers);
+        rd.max_harpoon_instances = world.hostile().tuning().max_harpoons;
         if (renderer.init(rd)) {
             camera.set_viewport(render_window.width(), render_window.height());
             camera.set_bounds(world.desc().world_bounds);
@@ -453,6 +474,12 @@ int run_bench(const Options& opt) {
     for (u64 i = 0; i < opt.ticks; ++i) {
         WallClock frame;
         world.tick(&profiler);
+        peak_chaff = std::max(peak_chaff, world.chaff().count());
+        peak_cell_occupancy = std::max(peak_cell_occupancy, world.spatial().max_cell_occupancy());
+        const auto& candidate_stats = world.chaff_system().last_update_stats();
+        neighbour_candidate_entries += candidate_stats.neighbour_candidate_entries;
+        max_neighbour_candidates_per_agent = std::max(max_neighbour_candidates_per_agent,
+            candidate_stats.max_neighbour_candidates_per_agent);
         if (have_renderer) {
             WallClock submit;
             renderer.begin_frame(camera, 0.0f);
@@ -473,8 +500,21 @@ int run_bench(const Options& opt) {
     }
 
     const sim::SimSnapshot snap = world.snapshot();
-    const std::string out = profiler.to_json(scenario->name, opt.ticks, opt.seed,
-                                             snap.chaff_count, snap.named_count);
+    json result = json::parse(profiler.to_json(scenario->name, opt.ticks, opt.seed,
+                                              snap.chaff_count, snap.named_count));
+    char config_hash[17];
+    std::snprintf(config_hash, sizeof(config_hash), "%016llx", static_cast<unsigned long long>(bench_config.hash));
+    result["config_hash"] = config_hash;
+    result["config_dir"] = resolve_config_dir(opt);
+    result["threads"] = jobs->thread_count();
+    result["renderer"] = {{"enabled",have_renderer},{"width",opt.width},{"height",opt.height}};
+    result["capacities"] = {{"chaff",world.desc().max_chaff},
+        {"toxin_shots",world.hostile().tuning().max_toxin_shots},{"harpoons",world.hostile().tuning().max_harpoons}};
+    result["observed"] = {{"initial_chaff",initial_chaff},{"peak_chaff",peak_chaff},{"peak_cell_occupancy",peak_cell_occupancy}};
+    result["observed"]["neighbour_candidate_entries"] = neighbour_candidate_entries;
+    result["observed"]["max_neighbour_candidates_per_agent"] = max_neighbour_candidates_per_agent;
+    result["scope"] = "Seeded ordinary crowd stress, not authored campaign/frame performance or proof of capacity-valid gameplay; excludes spores";
+    const std::string out = result.dump(2) + "\n";
     std::fputs(out.c_str(), stdout);
     std::fflush(stdout);
     return 0;
@@ -539,7 +579,8 @@ int run_sim_test(const Options& opt) {
     effective.seed = script.value("seed", opt.seed);
     if (script.contains("level")) effective.level = script.value("level", std::string{});
     const u64 total_ticks = script.value("ticks", u64{600});
-    const usize max_chaff = script.value("max_chaff", usize{16384});
+    const std::optional<usize> max_chaff = script.contains("max_chaff")
+        ? std::optional<usize>{script.at("max_chaff").get<usize>()} : std::nullopt;
 
     auto jobs = make_jobs(effective);
     sim::SimWorld world;
@@ -736,7 +777,7 @@ int run_screenshot(const Options& opt) {
     game::LaneOwnershipMap lanes;
     game::RenderSdf render_sdf;
     game::LevelDef level_def;
-    if (!build_world(world, opt, 16384, jobs.get(), error, &lanes, &render_sdf, &level_def)) {
+    if (!build_world(world, opt, std::nullopt, jobs.get(), error, &lanes, &render_sdf, &level_def)) {
         IMMUNE_LOG_ERROR("screenshot setup failed: %s", error.c_str());
         return 1;
     }
@@ -993,6 +1034,10 @@ int run_screenshot(const Options& opt) {
     rd.framebuffer_width = window.width();
     rd.framebuffer_height = window.height();
     rd.max_chaff_instances = static_cast<u32>(world.desc().max_chaff);
+    rd.max_projectile_instances = std::max(static_cast<u32>(world.desc().max_projectiles),
+        world.hostile().tuning().max_toxin_shots);
+    rd.max_swarmer_instances = static_cast<u32>(world.desc().max_swarmers);
+    rd.max_harpoon_instances = world.hostile().tuning().max_harpoons;
     render::Renderer renderer;
     if (!renderer.init(rd)) {
         IMMUNE_LOG_ERROR("renderer init failed: %s", renderer.error().c_str());

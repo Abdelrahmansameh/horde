@@ -11,6 +11,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include <algorithm>
 #include <cmath>
 
 namespace immune::ui {
@@ -214,19 +215,25 @@ public:
         const Color glyph_tint = short_funds ? th.color("tree_icon_short") : kWhite;
         gui_.icons().draw_zoomable(dl, icon_, Rect{c - gh, c + gh}, glyph_tint, gui_.scale());
 
-        // Level pips: 23 degrees apart round the bottom, filled from the right.
+        // Keep long veteran tracks on one arc without wrapping over earlier
+        // ranks. Small tracks retain the original pips; dense tracks shrink
+        // each pip and its rim to leave a visible gap between neighbours.
         if (view.role == TreeNodeRole::Stat) {
             const i32 n = view.max_level;
+            const f32 step = n > 1 ? std::min(23.0f, 240.0f / static_cast<f32>(n - 1)) : 23.0f;
+            const f32 chord = 94.0f * std::sin(step * math::kPi / 360.0f);
+            const f32 pip_radius = n > 8 ? std::min(8.5f, chord * 0.39f) : 8.5f;
+            const f32 pip_stroke = n > 8 ? std::min(3.5f, pip_radius * 0.4f) : 3.5f;
             for (i32 i = 0; i < n; ++i) {
-                const f32 deg = 90.0f + 23.0f * (static_cast<f32>(i) - static_cast<f32>(n - 1) * 0.5f);
+                const f32 deg = 90.0f + step * (static_cast<f32>(i) - static_cast<f32>(n - 1) * 0.5f);
                 const f32 a = deg * math::kPi / 180.0f;
                 ShapeDesc pip;
                 pip.kind = ShapeKind::Ellipse;
                 pip.center = c + Vec2{-std::cos(a), std::sin(a)} * (47.0f * u);
-                pip.half_size = Vec2{8.5f, 8.5f} * u;
+                pip.half_size = Vec2{pip_radius, pip_radius} * u;
                 pip.fill = i < view.level ? th.color("lavender_ink") : kWhite;
                 pip.stroke = th.color("plum");
-                pip.stroke_width = 3.5f * u;
+                pip.stroke_width = pip_stroke * u;
                 dl.shape(pip);
             }
         }
@@ -812,7 +819,10 @@ void TreeScreen::tick(f32) {
     // Beside the node, on whichever side has room, kept on screen.
     const Rect node = nodes_[hovered_]->rect();
     const Vec2 vp = gui_.viewport();
-    const Vec2 size = card_->measure(vp);
+    // Measure wrapping against the card's actual width, rather than the
+    // entire viewport followed by a narrower arrange. Long veteran effects
+    // must reserve their lines before the cost/hint row is positioned.
+    const Vec2 size = card_->measure(Vec2{std::min(420.0f, std::max(1.0f, vp.x - 24.0f)), vp.y});
     Vec2 pos{node.max.x + 18.0f, node.center().y - size.y * 0.5f};
     if (pos.x + size.x > vp.x - 12.0f) pos.x = node.min.x - 18.0f - size.x;
     pos.x = math::clamp(pos.x, 12.0f, math::max(12.0f, vp.x - size.x - 12.0f));

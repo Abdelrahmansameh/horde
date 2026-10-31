@@ -12,17 +12,55 @@ reference calls for investigating the controller and matching inputs; the tool
 never converts a loss into an automatic recommendation to weaken the game.
 Pressure capacity calibration is a different measurement from adequate play.
 
+The exponential campaign matrix is
+[`campaign_exponential_growth.json`](experiments/campaign_exponential_growth.json).
+It uses fresh paid journeys, veteran upgrades and Adaptive Memory, rising
+authored population and peak release pressure, and spores from L4. The
+controller preserves legal shared holds, responds to visible ranged siege,
+and continues paid cleanup after the final authored wave. Goblets and builders
+do not establish damaging coverage. Capacity and spawn geometry failures must
+remain explicit; no outcome is an automatic gameplay tuning recommendation.
+
+[`controller_l5_calibration.json`](experiments/controller_l5_calibration.json)
+and [`l5_earned_profile.json`](references/l5_earned_profile.json) preserve the
+development declaration and verified actual control first-entry L5 profile from
+exponential revision 3: 2,165 MC spent and 9 banked. This is the full eight-wave L5
+with normal costs, wallet and income, without scripts, grants or overrides.
+Its intended qualification scope is that exact profile, not all entry builds
+or human difficulty.
+Original seed 401015 reproduces the native before-state and entire paid action
+stream. Declared verification seeds 761203 and 761217 both clear at 100 integrity
+with zero leaks, grace or denials on the recorded revision-3 runtime. Later
+runtime, map or tuning changes require requalification. The older economy
+72011 retry profile, 580xx qualification and 54011 prefix integrations remain
+historical evidence in their frozen reports; they do not qualify the new curve.
+
+Strict controller references can require minimum integrity, no clearing-grace
+advances and zero action/storage denials. Missing required telemetry makes a
+reference inconclusive. See [Balance Lab](../../docs/BALANCE_LAB.md) and the
+profile reference for exact seeds, hashes, preserved failures and scope.
+
+The current fixed-wallet first-wave script deploys fifteen baseline Neutrophils
+for exactly 300 ATP with income disabled. Frozen R5 regression clears 8/9
+reused seeds at 3–100 integrity among clears; seed 404 is a valid defeat and
+matches frozen R4 exactly. The older 9/9, 53–93 result is historical. Current
+automatic opening evidence is separate: Competent and Tactical clear 16/16
+runs with ordinary earned-income reinforcement, at 63–100 integrity and no
+grace or denials. Neither reused-seed result is new independent qualification.
+
 The retry progression presets freeze three discovery priorities across separate
 training and held-out seed sets. Their `progression_targets` declare a journey
-median of 2–4 attempts, at most 5 attempts per level, and purchases after at least
+median of 2–4 attempts, at most 10 attempts per level (100 total), and purchases after at least
 80% of losses with an observed follow-up. Actual rank value remains a separate
 combat experiment. The report's `progression_journeys` joins retries, payouts,
 following purchases, first-clear discovery offers and observed TTK. A failed
 target under an unqualified controller does not diagnose game balance.
 
-`campaign_pressure.json` records the authored scheduling, opening-wallet and
-selected late damage-income revisions, with the earlier timing-only curve kept
-in `history/`. Inspect current scheduling with
+`campaign_pressure.json` retains the historical 1.32-times scheduling,
+opening-wallet and late damage-income revisions, with an earlier timing-only
+curve in `history/`. The current population and peak release curve rises about
+1.4 times per level and uses map income multipliers of 1.0; see
+[Campaign design](../../docs/CAMPAIGN_DESIGN.md). Inspect current scheduling with
 `python tools/campaign_pressure.py --check --out scratch/balance/pressure.json`.
 The curve increases density released per second across all levels and waves;
 distinct homogeneous cohorts retain at least 1.25 seconds between releases at

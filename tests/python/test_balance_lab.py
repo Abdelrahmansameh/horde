@@ -1,5 +1,6 @@
 """Evidence contracts for the experiment orchestrator; no game executable needed."""
 import importlib.util
+import hashlib
 import json
 from pathlib import Path
 import subprocess
@@ -93,6 +94,32 @@ class PlanningTests(unittest.TestCase):
                          lab.read_json(lab.ROOT / "assets/balance/references/fresh_first_wave_paid_actions.json")["level_document"]]:
             document.pop("description", None)
             self.assertEqual(document, authored, "Refresh the first-wave fixture and requalify the controller when campaign gameplay changes")
+
+    def test_l5_calibration_preserves_earned_profile_and_standard_full_level(self):
+        exp = lab.read_json(lab.ROOT / "assets/balance/experiments/controller_l5_calibration.json")
+        evidence = lab.read_json(lab.ROOT / "assets/balance/references/l5_earned_profile.json")
+        base = exp["base"]
+        self.assertEqual(base["level"], "assets/levels/campaign_05_ring_road.json")
+        for intervention in ("actions", "level_document", "opening_atp", "spend_limit", "income_enabled", "overrides", "progression"):
+            self.assertNotIn(intervention, base, "Qualification must use the earned snapshot and current ordinary level rules")
+        snapshot = base["progression_snapshot"]
+        self.assertEqual(snapshot, evidence["progression_snapshot"])
+        canonical = json.dumps(snapshot, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+        self.assertEqual(hashlib.sha256(canonical).hexdigest(), evidence["source"]["earned_profile_canonical_sha256"])
+        self.assertEqual(snapshot["progress"]["levels_completed"], 4)
+        reference = exp["controller_calibration"]["references"][0]
+        authored = lab.read_json(lab.ROOT / base["level"])
+        self.assertEqual(reference["minimum_waves_cleared"], len(authored["waves"]))
+        self.assertEqual(reference["expected_status"], "cleared")
+        self.assertTrue(reference["require_standard_rules"])
+        self.assertTrue(reference["automatic_controller_only"])
+        self.assertEqual(reference["minimum_samples"], len(exp["seeds"]))
+        self.assertNotIn(evidence["source"]["source_attempt_seed"], exp["seeds"])
+        runs = lab.plan_runs(exp)
+        self.assertEqual(len(runs), len(exp["seeds"]))
+        for run in runs:
+            self.assertEqual(run["spec"]["progression_snapshot"], snapshot)
+            self.assertFalse(run["spec"].get("actions"))
 
     def test_planning_rejects_drifted_current_reference_but_keeps_historical_documents(self):
         path = lab.ROOT / "assets/balance/levels/campaign_first_wave_reference.json"
@@ -469,6 +496,38 @@ class GrowthTests(unittest.TestCase):
         self.assertTrue(all(r["capacity_estimate_scale"] is None for r in growth["power_calibration"]))
         self.assertEqual(growth["hypotheses"]["player"]["comparison"], "inconclusive")
 
+    def test_power_probe_requires_declared_integrity_and_no_grace(self):
+        journey = self.journey()
+        rows = self.calibration_records(journey, all_pass=True)
+        for row in rows:
+            row["report"]["summary"]["clearing_timeout_advances"] = 0
+            row["report"]["summary"]["objective_integrity"] = 100
+        probe = self.probe()
+        probe.update(minimum_integrity=90, require_no_clearing_timeout=True)
+        # A damaged victory and a grace advance are real campaign clears but
+        # cannot establish clean pressure capacity under these probe criteria.
+        for row in rows:
+            if row["probe"]["pressure_scale"] >= 2:
+                row["report"]["summary"]["objective_integrity"] = 80
+            if row["probe"]["pressure_scale"] >= 4:
+                row["report"]["summary"]["objective_integrity"] = 100
+                row["report"]["summary"]["clearing_timeout_advances"] = 1
+        result = lab.power_calibrations(rows, experiment(power_probe=probe))
+        self.assertTrue(all(row["capacity_upper_scale"] == 2 for row in result))
+        self.assertTrue(all(row["require_no_clearing_timeout"] for row in result))
+        # Missing telemetry also cannot silently pass a strict criterion.
+        for row in rows:
+            row["report"]["summary"].pop("clearing_timeout_advances", None)
+        self.assertTrue(all(row["capacity_lower_scale"] == 0 for row in
+                            lab.power_calibrations(rows, experiment(power_probe=probe))))
+
+    def test_power_probe_rejects_invalid_quality_criteria(self):
+        for patch in ({"minimum_integrity": 101}, {"require_no_clearing_timeout": "yes"}):
+            probe = self.probe()
+            probe.update(patch)
+            with self.assertRaises(ValueError):
+                lab.validate_experiment(experiment(kind="campaign", power_probe=probe))
+
     def test_timeout_and_nonmonotonic_pressure_block_power_estimate(self):
         journey = self.journey()
         rows = self.calibration_records(journey)
@@ -538,6 +597,42 @@ class ControllerAdequacyTests(unittest.TestCase):
         probe["kind"] = "power_probe"
         result = lab.controller_adequacy([training, probe], experiment(controller_calibration=self.calibration()))
         self.assertEqual(result["status"], "inconclusive")
+
+    def test_strict_reference_rejects_damage_grace_and_storage_suppression(self):
+        calibration = self.calibration()
+        calibration["references"][0].update(expected_status="cleared", minimum_integrity=90,
+                                            require_no_clearing_timeout=True, require_zero_denials=True)
+        rows = [self.observed(seed, 1, "cleared") for seed in (11, 22)]
+        for row in rows:
+            row["report"]["summary"].update(objective_integrity=100, clearing_timeout_advances=0,
+                combat_metrics_available=True, denied_spawns=0, actions_rejected=0, deploy_capacity_rejected=0)
+            row["report"]["combat"] = {"replications_denied_capacity": 0, "replications_denied_tick_budget": 0, "toxin_shots_denied_capacity": 0,
+                "harpoons_denied_capacity": 0, "overflow": 0,
+                "pools": {key: {"denied": 0} for key in ("cells", "projectiles", "fluid")}}
+        exp = experiment(controller_calibration=calibration)
+        self.assertEqual(lab.controller_adequacy(rows, exp)["status"], "reference_passed")
+        for path, value in (("summary.objective_integrity", 89), ("summary.clearing_timeout_advances", 1),
+                            ("summary.actions_rejected", 1), ("summary.deploy_capacity_rejected", 1),
+                            ("combat.harpoons_denied_capacity", 1), ("combat.toxin_shots_denied_capacity", 1),
+                            ("combat.replications_denied_tick_budget", 1),
+                            ("combat.pools.projectiles.denied", 1)):
+            with self.subTest(path=path):
+                changed = json.loads(json.dumps(rows))
+                changed[0]["report"] = lab.set_path(changed[0]["report"], path, value)
+                self.assertEqual(lab.controller_adequacy(changed, exp)["status"], "reference_failed")
+        rows[0]["report"]["combat"].pop("harpoons_denied_capacity")
+        result = lab.controller_adequacy(rows, exp)
+        self.assertEqual(result["status"], "inconclusive")
+        self.assertEqual(result["reference_checks"][0]["missing_required_quality"], 1)
+        self.assertEqual(result["reference_checks"][0]["native_terminal"], 2)
+
+    def test_controller_reference_validates_quality_criteria(self):
+        for patch in ({"minimum_integrity": 101}, {"require_no_clearing_timeout": "yes"},
+                      {"require_zero_denials": 1}):
+            calibration = self.calibration()
+            calibration["references"][0].update(patch)
+            with self.assertRaises(ValueError):
+                lab.validate_experiment(experiment(controller_calibration=calibration))
 
     def test_posthoc_reference_annotation_is_preserved_without_rewriting_original_experiment(self):
         with tempfile.TemporaryDirectory() as tmp:

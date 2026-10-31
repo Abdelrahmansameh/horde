@@ -139,6 +139,7 @@ struct NeighbourSample {
     /// for the same jam made of bacteria alone.
     f32 crowd = 0.0f;
     bool has_alignment = false;
+    u32 candidate_entries = 0;
 };
 
 /// Radius-sized neighbourhood gather for agent `i`, reading positions and
@@ -225,7 +226,12 @@ NeighbourSample gather_neighbours(const SpatialHash& hash,
     // into an unbounded scan. A visit that only tests for contact is a subtract
     // and a compare -- no square root, no gather, no accumulation -- so a wider
     // walk is much cheaper per step than the sampled work it is protecting.
-    const u32 max_visited = max_sampled * 8u;
+    const u64 max_visited = static_cast<u64>(max_sampled) * 8u;
+    // Charge every fetched CSR entry, including self, underground/ghost and
+    // coincident bodies. Previously those skips could scan a whole packed
+    // cell per agent despite the advertised walk bound. One self allowance
+    // retains the old eligible-neighbour policy in an ordinary surface crowd.
+    const u64 max_candidates = max_visited + 1u;
 
     Vec2 sep{0.0f, 0.0f};
     Vec2 vel{0.0f, 0.0f};
@@ -291,7 +297,8 @@ NeighbourSample gather_neighbours(const SpatialHash& hash,
                         ? static_cast<u32>((static_cast<u64>(i) * 2654435761ULL) % cell_count)
                         : 0u;
         for (u32 step_index = 0; step_index < cell_count; ++step_index) {
-            if (visited >= max_visited) goto done;
+            if (visited >= max_visited || out.candidate_entries >= max_candidates) goto done;
+            ++out.candidate_entries;
             const u32 j = indices[begin + local];
             if (++local == cell_count) local = 0u;
             if (j == i) continue;
@@ -643,7 +650,7 @@ ChaffUpdateStats ChaffSystem::update(ChaffBuffers& buffers, const FlowField& flo
                                      Rng& rng, f32 dt, JobSystem* jobs) {
     ChaffUpdateStats stats{};
     const usize count = buffers.count();
-    if (count == 0) return stats;
+    if (count == 0) { last_update_stats_ = stats; return stats; }
 
     ensure_scratch(buffers.capacity());
 
@@ -732,10 +739,14 @@ ChaffUpdateStats ChaffSystem::update(ChaffBuffers& buffers, const FlowField& flo
     // count -- the determinism contract in the header is unchanged.
     const u64 tick_salt = rng.next_u64();
 
+    std::atomic<u64> candidate_entries{0};
+    std::atomic<u32> max_candidates_per_agent{0};
     auto accumulate = [&](usize begin, usize end, u32 range_index) {
         // Exactly one fork per range, as the frozen header requires.
         Rng local_rng = rng.fork(tick_salt ^ static_cast<u64>(range_index));
         u32 rolls = 0;
+        u64 range_candidates = 0;
+        u32 range_max_candidates = 0;
         for (usize i = begin; i < end; ++i) {
             const u8 flags_i = flg[i];
             const u32 f = fam[i];
@@ -886,6 +897,8 @@ ChaffUpdateStats ChaffSystem::update(ChaffBuffers& buffers, const FlowField& flo
                                   fam, contact_radii, max_contact_radius, fp.contact_stiffness,
                                   tuning.max_neighbors_sampled, burrow, collides,
                                   size_scale, max_size_scale);
+            range_candidates += nb.candidate_entries;
+            range_max_candidates = math::max(range_max_candidates, nb.candidate_entries);
             // Crowd relief: displacement DOWN the local pressure gradient,
             // toward the density `pressure_threshold` describes as comfortable.
             //
@@ -1069,6 +1082,10 @@ ChaffUpdateStats ChaffSystem::update(ChaffBuffers& buffers, const FlowField& flo
             }
         }
         if (rolls != 0) replication_rolls.fetch_add(rolls, std::memory_order_relaxed);
+        candidate_entries.fetch_add(range_candidates, std::memory_order_relaxed);
+        u32 previous_max = max_candidates_per_agent.load(std::memory_order_relaxed);
+        while (previous_max < range_max_candidates && !max_candidates_per_agent.compare_exchange_weak(
+            previous_max, range_max_candidates, std::memory_order_relaxed)) {}
     };
 
     if (jobs) {
@@ -1301,12 +1318,16 @@ ChaffUpdateStats ChaffSystem::update(ChaffBuffers& buffers, const FlowField& flo
     stats.replicated = replicated;
     stats.despawned_at_goal = despawned_goal;
     stats.despawned_out_of_bounds = despawned_bounds;
+    stats.neighbour_candidate_entries = candidate_entries.load(std::memory_order_relaxed);
+    stats.max_neighbour_candidates_per_agent = max_candidates_per_agent.load(std::memory_order_relaxed);
+    last_update_stats_ = stats;
     return stats;
 }
 
 u32 ChaffSystem::spawn_burst(ChaffBuffers& buffers, PathogenFamily family, Vec2 spawn_pos,
                              f32 spawn_point_radius, u32 count, Rng& rng, u16 squad_id,
-                             u32 pattern_offset, u32 pattern_count, f32 pattern_phase) const {
+                             u32 pattern_offset, u32 pattern_count, f32 pattern_phase,
+                             const ChaffSpawnGuard* guard, ChaffSpawnSiteStats* site_stats) const {
     const ChaffFamilyParams& fp = tuning_.family[static_cast<u32>(family)];
     if (count == 0) return 0;
 
@@ -1370,6 +1391,69 @@ u32 ChaffSystem::spawn_burst(ChaffBuffers& buffers, PathogenFamily family, Vec2 
     }
     centroid_offset = centroid_offset / static_cast<f32>(layout_count);
 
+    // A marker can be valid while its expanded packing disc crosses a cap or
+    // island. SDF recovery alone can then push a wall-born body onto the FAR
+    // side, in a disconnected apron with no route to the organ. Geometry-aware
+    // callers validate the actual sites, rather than silently dropping mass or
+    // teaching defenders about off-board enemies. The phase draw above remains
+    // exactly the old draw; all correction/search below is deterministic.
+    const f32 clearance = (fp.wall_radius > 0.0f ? fp.wall_radius : fp.radius) *
+                          (1.0f + math::max(fp.size_jitter, 0.0f));
+    const auto legal = [&](Vec2 p) {
+        if (!guard) return true;
+        if (!guard->mask || !guard->sdf || !guard->flow || guard->mask->width() <= 0 ||
+            guard->sdf->width() <= 0 || guard->flow->width() <= 0) return false;
+        const IVec2 cell = guard->mask->world_to_cell(p);
+        return guard->mask->walkable(cell.x, cell.y) && guard->flow->reachable(p) &&
+               guard->sdf->sample(p) >= clearance;
+    };
+    bool anchor_checked = false, have_anchor = false;
+    Vec2 anchor = spawn_pos;
+    const auto find_anchor = [&]() {
+        if (anchor_checked) return have_anchor;
+        anchor_checked = true;
+        if (legal(spawn_pos)) { have_anchor = true; return true; }
+        if (!guard || !guard->mask) return false;
+        // Search only the authored formation's local approach. A malformed
+        // marker must not teleport a wave to another end of the level. Nearest
+        // legal cell, fixed row-major tie order; no RNG/rejection sampling.
+        const auto& mask = *guard->mask;
+        const f32 reach = radius + clearance + 2.0f * mask.cell_size();
+        const IVec2 lo = mask.world_to_cell(spawn_pos - Vec2{reach,reach});
+        const IVec2 hi = mask.world_to_cell(spawn_pos + Vec2{reach,reach});
+        f32 best = reach * reach;
+        for (i32 y = math::max(0,lo.y); y <= math::min(mask.height()-1,hi.y); ++y) {
+            for (i32 x = math::max(0,lo.x); x <= math::min(mask.width()-1,hi.x); ++x) {
+                const Vec2 p = mask.cell_to_world(x,y);
+                const f32 d2 = math::length_sq(p-spawn_pos);
+                if (d2 <= best && legal(p) && (!have_anchor || d2 < best)) {
+                    anchor = p; best = d2; have_anchor = true;
+                }
+            }
+        }
+        return have_anchor;
+    };
+    const auto constrain_site = [&](Vec2& p) {
+        if (legal(p)) return true;
+        if (!find_anchor()) return false;
+        const Vec2 unsafe = p;
+        const f32 distance = math::length(anchor-unsafe);
+        const f32 step = math::max(guard->mask->cell_size()*0.5f,0.01f);
+        const u32 steps = math::max(static_cast<u32>(std::ceil(distance/step)),1u);
+        for (u32 n = 1; n <= steps; ++n) {
+            const Vec2 candidate = unsafe + (anchor-unsafe) *
+                (static_cast<f32>(n)/static_cast<f32>(steps));
+            if (!legal(candidate)) continue;
+            p = candidate;
+            if (site_stats) ++site_stats->reprojected;
+            return true;
+        }
+        // Anchor was checked independently; use it against endpoint rounding.
+        p = anchor;
+        if (site_stats) ++site_stats->reprojected;
+        return true;
+    };
+
     u32 spawned = 0;
     for (u32 i = 0; i < count; ++i) {
         if (buffers.full()) break;
@@ -1380,6 +1464,10 @@ u32 ChaffSystem::spawn_burst(ChaffBuffers& buffers, PathogenFamily family, Vec2 
         const f32 a = phase + static_cast<f32>(slot) * kGoldenAngle;
         ChaffSpawnParams p;
         p.position = spawn_pos + Vec2{std::cos(a), std::sin(a)} * r - centroid_offset;
+        if (guard && !constrain_site(p.position)) {
+            if (site_stats) site_stats->denied_geometry += count-i;
+            break;
+        }
         p.family = family;
         p.density = fp.base_density > 0.0f ? fp.base_density : 1.0f;
         p.squad_id = squad_id;

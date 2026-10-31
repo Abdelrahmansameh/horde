@@ -16,7 +16,7 @@ checked-in baselines before tree effects; source/config remain authoritative.
 
 | Cell / config key | ATP | Cell HP | Speed | Search radius | Cell size | Kind |
 | --- | ---: | ---: | ---: | ---: | ---: | --- |
-| Neutrophil / `neutrophil` | 15 | 10 | 22 | 28 | 2.0 | `shooter` |
+| Neutrophil / `neutrophil` | 20 | 10 | 22 | 28 | 2.0 | `shooter` |
 | Cytotoxic T / `cytotoxic_t` | 12 | 10 | 30 | 12 | 0.705 | `latch` |
 | Macrophage / `macrophage` | 35 | 120 | 15 | 26 | 2.6 | `arbor_grabber` |
 | Goblet Cell / `goblet_cell` | 24 | 10 | 25 | 14 | 1.8 | `mucus_bomber` |
@@ -50,10 +50,12 @@ spread is 0.04 and the volley cone is 0.3 radians. Formation spacing is 4.8.
 Shooter aiming leads moving targets, while projectile lifetime and finite
 reach prevent unlimited-range shots.
 
-Granule Replenishment shortens reloads, while accuracy improves aiming; Trigger Rate scales volley spacing,
-gather, and reload together. **Granule Capacity** adds two magazine rounds per
-level, despite its retained `neutrophil.squad_size` save key. Granule Priming
-increases neutrophil round damage by 25%.
+Degranulation Cycle increases granule regrowth rate by 10% of base per rank.
+Rapid Release independently increases release rate, and Granule Damage increases
+granule damage. Directed Release improves aiming. Granule Capacity adds one
+round per rank despite its retained `neutrophil.squad_size` save key. Granule
+Priming adds 25% base granule damage. See [Progression](PROGRESSION.md) for the
+full upgrade catalog.
 
 ## Cytotoxic T: attach, ride, drain, retarget
 

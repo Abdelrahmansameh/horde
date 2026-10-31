@@ -57,6 +57,8 @@ const char* usage_text() {
 "  immune --editor [<f.json>]                          open the in-game level editor\n"
 "  immune --level-check <f.json|dir>                   validate levels, JSON report, exit 0/1\n"
 "  immune --level-fmt <f.json|dir> [--check]           canonical rewrite of level JSON\n"
+"  immune --audio-render <f.wav>                       render every sound and a horde stress\n"
+"                                                      run to WAV; JSON report on stdout\n"
 "\n"
 "OPTIONS\n"
 "  --ticks N        ticks to simulate (bench; default 600)\n"
@@ -72,6 +74,8 @@ const char* usage_text() {
 "  --threads N      worker threads; 1 forces a fully serial run\n"
 "  --no-vsync       disable vsync in interactive mode\n"
 "  --ui-scale F     size of the game UI, 0.75 to 1.5 (default 1)\n"
+"  --volume F       master volume, 0 to 1 (default 0.8; M toggles mute in game)\n"
+"  --no-audio       do not open an audio device\n"
 "  --verbose        log at debug level\n"
 "  --quiet          suppress all logging (stdout stays pure JSON)\n"
 "  --help           this text\n";
@@ -194,6 +198,18 @@ Options parse_args(int argc, char** argv) {
             o.threads = static_cast<i32>(v);
         } else if (a == "--no-vsync") {
             o.vsync = false;
+        } else if (a == "--volume") {
+            if (!next_value(argc, argv, i, a, s, o.error)) break;
+            o.volume = std::strtof(s.c_str(), nullptr);
+            if (!(o.volume >= 0.0f && o.volume <= 1.0f)) {
+                o.error = "--volume expects a number from 0 to 1";
+                break;
+            }
+        } else if (a == "--no-audio") {
+            o.no_audio = true;
+        } else if (a == "--audio-render") {
+            if (!next_value(argc, argv, i, a, o.audio_render_path, o.error)) break;
+            o.mode = Mode::AudioRender;
         } else if (a == "--verbose") {
             o.verbose = true;
         } else if (a == "--quiet") {

@@ -1,6 +1,6 @@
 {
   "capacities": {
-    "max_chaff": 16384,
+    "max_chaff": 65536,
     "max_chaff_death_events": 512,
     "max_combat_events": 8192,
     "max_damage_fields": 512,
@@ -47,7 +47,9 @@
   "hostile": {
     "enabled": true,
     "max_attackers": 128,
-    "max_latch_events": 64
+    "max_latch_events": 64,
+    "max_toxin_shots": 16384,
+    "max_harpoons": 4096
   },
   "schema": 1,
   "squads": {
@@ -61,7 +63,7 @@
     "intake_distance": 16.0,
     "lateral_push": 3.0,
     "max_squad_size": 90,
-    "max_squads": 1024,
+    "max_squads": 4096,
     "min_radius": 1.5,
     "path_lateral_jitter": 0.35,
     "project_window": 24.0,

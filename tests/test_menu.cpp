@@ -486,9 +486,9 @@ TEST_CASE("tree layout: radial, every subject growing out in its own wedge", "[u
         subjects.insert(round[k].second);
         if (round[k].second != round[(k + 1) % round.size()].second) ++runs;
     }
-    CHECK(subjects.size() == game::kTreeHubMaxChildren);
+    CHECK(subjects.size() == 9);
     CHECK(runs == subjects.size());
-    // Weighted sectors give larger branches room while keeping all seven
+    // Weighted sectors give larger branches room while keeping all nine
     // first-layer choices distinct around the hub.
     std::vector<f32> first_angles;
     for (u32 i = 0; i < game::kTreeNodeCount; ++i) {
@@ -498,7 +498,7 @@ TEST_CASE("tree layout: radial, every subject growing out in its own wedge", "[u
         first_angles.push_back(std::atan2(at(n).y, at(n).x));
     }
     std::sort(first_angles.begin(), first_angles.end());
-    REQUIRE(first_angles.size() == game::kTreeHubMaxChildren);
+    REQUIRE(first_angles.size() == subjects.size());
     for (usize i = 0; i < first_angles.size(); ++i) {
         f32 gap = first_angles[(i + 1) % first_angles.size()] - first_angles[i];
         if (gap <= 0.0f) gap += math::kTwoPi;
@@ -600,7 +600,7 @@ TEST_CASE("tree: hidden until revealed, a card on hover, a click buys", "[ui][me
     CHECK(h.shown("tree/card"));
     CHECK(h.label("tree/card/head/title/name") == "Degranulation Cycle");
     CHECK(h.label("tree/card/head/title/level") == "0/5");
-    CHECK(h.label("tree/card/desc") == "-14% granule regrowth time, -6% gathering and release time");
+    CHECK(h.label("tree/card/desc") == game::tree_node(game::TreeNode::NeutrophilRoundDamage).effect);
     CHECK(h.label("tree/card/foot/cost_mc/value") == "30");
     CHECK(h.label("tree/card/foot/hint") == "Click to grow");
     CHECK_FALSE(h.shown("tree/card/req"));
@@ -759,6 +759,37 @@ TEST_CASE("tree model: the game's rules, as the screen shows them", "[ui][menu][
     CHECK(round_damage->state == TreeNodeState::Short);  // a new save has no Memory Cells
     CHECK(t.find("hub.rapid_metabolism") == nullptr);
     CHECK(t.branch_points[0] == 0);
+}
+
+TEST_CASE("tree model explains both Degranulation Cycle II prerequisites", "[ui][menu][meta]") {
+    const game::MetaConfig cfg;
+    game::MetaProgression meta;
+    meta.reset_to_new_game();
+    meta.credit(10000);
+    const auto next = game::TreeNode::NeutrophilRoundDamageStage2;
+    const auto branch = game::TreeNode::NeutrophilSquadSize;
+    meta.debug_set_skill(game::kTreeRoot, 1);
+
+    auto model = app::make_tree_model(meta, cfg);
+    const auto* node = model.find(game::tree_node(next).key);
+    REQUIRE(node != nullptr);
+    CHECK(node->parent == game::tree_node(branch).key);
+    CHECK(node->state == TreeNodeState::Locked);
+    CHECK(node->requirement == "Needs Granule Capacity");
+
+    meta.debug_set_skill(branch, 1);
+    model = app::make_tree_model(meta, cfg);
+    node = model.find(game::tree_node(next).key);
+    REQUIRE(node != nullptr);
+    CHECK(node->state == TreeNodeState::Locked);
+    CHECK(node->requirement == "Fully grow Degranulation Cycle");
+
+    meta.debug_set_skill(game::kTreeRoot, game::tree_node(game::kTreeRoot).max_level);
+    model = app::make_tree_model(meta, cfg);
+    node = model.find(game::tree_node(next).key);
+    REQUIRE(node != nullptr);
+    CHECK(node->state == TreeNodeState::Available);
+    CHECK(node->requirement.empty());
 }
 
 TEST_CASE("tree keeps discovery requirements without explanatory UI copy", "[ui][menu][meta][discovery]") {

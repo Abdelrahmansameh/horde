@@ -57,6 +57,8 @@ struct AbilityDef {
     /// Fever only: 0.1 times this value is the fraction of each deployed
     /// cell's maximum health restored on cast.
     f32 fever_cooldown_relief = 3.0f;
+    /// Direct-cell healing multiplier; does not affect legacy cooldown relief.
+    f32 fever_healing_mult = 1.0f;
     /// Clot only: half the bar's length (along the lane's cross-section) and
     /// half its thickness, in world units.
     f32 barrier_half_length = 7.0f;

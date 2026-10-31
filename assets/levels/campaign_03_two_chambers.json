@@ -8,7 +8,8 @@
   "region": "lymphatic",
   "world": { "min": [0, 0], "max": [440, 250], "cell_size": 0.75 },
   "camera": { "center": [220, 125], "view_height": 250, "min_view_height": 190, "max_view_height": 250 },
-  "economy": { "starting_atp": 370 },
+  "economy": {"starting_atp": 370, "income_multiplier": 1.0},
+  "enemy_scaling": {"durability_multiplier": 1.0, "damage_multiplier": 1.0},
   "vessels": [
     {
       "id": "upper_afferent",
@@ -79,8 +80,8 @@
       "prep_time": 12,
       "atp_reward": 55,
       "spawns": [
-        { "family": "virus", "count": 105, "duration": 1.7466, "spawn_point_id": "afferent_upper", "squad_size": 60, "squad_paths": ["upper_follicle_route"] },
-        { "family": "virus", "count": 105, "start_time": 3.2176, "duration": 1.7466, "spawn_point_id": "afferent_lower", "squad_size": 60, "squad_paths": ["lower_follicle_route"] }
+        {"family": "virus", "count": 106, "duration": 1.567584, "spawn_point_id": "afferent_upper", "squad_size": 60, "squad_paths": ["upper_follicle_route"]},
+        {"family": "virus", "count": 106, "start_time": 2.887816, "duration": 1.567584, "spawn_point_id": "afferent_lower", "squad_size": 60, "squad_paths": ["lower_follicle_route"]}
       ]
     },
     {
@@ -88,10 +89,10 @@
       "prep_time": 11.3,
       "atp_reward": 80,
       "spawns": [
-        { "family": "bacteria", "count": 60, "duration": 2.6955, "spawn_point_id": "afferent_upper", "squad_size": 60, "squad_paths": ["upper_follicle_route"] },
-        { "family": "virus", "count": 132, "start_time": 0.6983, "duration": 2.6955, "spawn_point_id": "afferent_lower", "squad_size": 60, "squad_paths": ["lower_follicle_route"] },
-        { "family": "virus", "count": 132, "start_time": 3.9455, "duration": 2.6955, "spawn_point_id": "afferent_upper", "squad_size": 60, "squad_paths": ["upper_follicle_route"] },
-        { "family": "bacteria", "count": 59, "start_time": 4.6438, "duration": 2.6955, "spawn_point_id": "afferent_lower", "squad_size": 60, "squad_paths": ["lower_follicle_route"] }
+        {"family": "bacteria", "count": 45, "duration": 1.741664, "spawn_point_id": "afferent_upper", "squad_size": 60, "squad_paths": ["upper_follicle_route"]},
+        {"family": "virus", "count": 109, "start_time": 0.451198, "duration": 1.741664, "spawn_point_id": "afferent_lower", "squad_size": 60, "squad_paths": ["lower_follicle_route"]},
+        {"family": "virus", "count": 109, "start_time": 2.992664, "duration": 1.741664, "spawn_point_id": "afferent_upper", "squad_size": 60, "squad_paths": ["upper_follicle_route"]},
+        {"family": "bacteria", "count": 44, "start_time": 3.443862, "duration": 1.741664, "spawn_point_id": "afferent_lower", "squad_size": 60, "squad_paths": ["lower_follicle_route"]}
       ]
     },
     {
@@ -99,12 +100,12 @@
       "prep_time": 10.6,
       "atp_reward": 105,
       "spawns": [
-        { "family": "parasite", "count": 22, "duration": 2.8271, "spawn_point_id": "afferent_upper", "squad_size": 60, "squad_paths": ["upper_follicle_route"] },
-        { "family": "virus", "count": 185, "start_time": 0.7213, "duration": 2.8271, "spawn_point_id": "afferent_lower", "squad_size": 60, "squad_paths": ["lower_follicle_route"] },
-        { "family": "virus", "count": 185, "start_time": 4.0771, "duration": 2.8271, "spawn_point_id": "afferent_upper", "squad_size": 60, "squad_paths": ["upper_follicle_route"] },
-        { "family": "bacteria", "count": 83, "start_time": 4.7984, "duration": 2.8271, "spawn_point_id": "afferent_lower", "squad_size": 60, "squad_paths": ["lower_follicle_route"] },
-        { "family": "bacteria", "count": 83, "start_time": 8.1542, "duration": 2.8271, "spawn_point_id": "afferent_upper", "squad_size": 60, "squad_paths": ["upper_follicle_route"] },
-        { "family": "parasite", "count": 22, "start_time": 8.8755, "duration": 2.8271, "spawn_point_id": "afferent_lower", "squad_size": 60, "squad_paths": ["lower_follicle_route"] }
+        {"family": "parasite", "count": 17, "duration": 1.78168, "spawn_point_id": "afferent_upper", "squad_size": 60, "squad_paths": ["upper_follicle_route"]},
+        {"family": "virus", "count": 141, "start_time": 0.454574, "duration": 1.78168, "spawn_point_id": "afferent_lower", "squad_size": 60, "squad_paths": ["lower_follicle_route"]},
+        {"family": "virus", "count": 141, "start_time": 3.03268, "duration": 1.78168, "spawn_point_id": "afferent_upper", "squad_size": 60, "squad_paths": ["upper_follicle_route"]},
+        {"family": "bacteria", "count": 65, "start_time": 3.487254, "duration": 1.78168, "spawn_point_id": "afferent_lower", "squad_size": 60, "squad_paths": ["lower_follicle_route"]},
+        {"family": "bacteria", "count": 65, "start_time": 6.06536, "duration": 1.78168, "spawn_point_id": "afferent_upper", "squad_size": 60, "squad_paths": ["upper_follicle_route"]},
+        {"family": "parasite", "count": 17, "start_time": 6.519934, "duration": 1.78168, "spawn_point_id": "afferent_lower", "squad_size": 60, "squad_paths": ["lower_follicle_route"]}
       ]
     },
     {
@@ -112,12 +113,12 @@
       "prep_time": 9.9,
       "atp_reward": 130,
       "spawns": [
-        { "family": "virus", "count": 251, "duration": 3.0295, "spawn_point_id": "afferent_upper", "squad_size": 60, "squad_paths": ["upper_follicle_route"] },
-        { "family": "bacteria", "count": 113, "start_time": 0.7631, "duration": 3.0295, "spawn_point_id": "afferent_lower", "squad_size": 60, "squad_paths": ["lower_follicle_route"] },
-        { "family": "bacteria", "count": 113, "start_time": 4.2795, "duration": 3.0295, "spawn_point_id": "afferent_upper", "squad_size": 60, "squad_paths": ["upper_follicle_route"] },
-        { "family": "parasite", "count": 30, "start_time": 5.0426, "duration": 3.0295, "spawn_point_id": "afferent_lower", "squad_size": 60, "squad_paths": ["lower_follicle_route"] },
-        { "family": "parasite", "count": 30, "start_time": 8.559, "duration": 3.0295, "spawn_point_id": "afferent_upper", "squad_size": 60, "squad_paths": ["upper_follicle_route"] },
-        { "family": "virus", "count": 251, "start_time": 9.3221, "duration": 3.0295, "spawn_point_id": "afferent_lower", "squad_size": 60, "squad_paths": ["lower_follicle_route"] }
+        {"family": "virus", "count": 205, "duration": 1.977664, "spawn_point_id": "afferent_upper", "squad_size": 60, "squad_paths": ["upper_follicle_route"]},
+        {"family": "bacteria", "count": 94, "start_time": 0.498153, "duration": 1.977664, "spawn_point_id": "afferent_lower", "squad_size": 60, "squad_paths": ["lower_follicle_route"]},
+        {"family": "bacteria", "count": 94, "start_time": 3.228664, "duration": 1.977664, "spawn_point_id": "afferent_upper", "squad_size": 60, "squad_paths": ["upper_follicle_route"]},
+        {"family": "parasite", "count": 25, "start_time": 3.726817, "duration": 1.977664, "spawn_point_id": "afferent_lower", "squad_size": 60, "squad_paths": ["lower_follicle_route"]},
+        {"family": "parasite", "count": 25, "start_time": 6.457328, "duration": 1.977664, "spawn_point_id": "afferent_upper", "squad_size": 60, "squad_paths": ["upper_follicle_route"]},
+        {"family": "virus", "count": 204, "start_time": 6.955481, "duration": 1.977664, "spawn_point_id": "afferent_lower", "squad_size": 60, "squad_paths": ["lower_follicle_route"]}
       ]
     },
     {
@@ -125,12 +126,12 @@
       "prep_time": 9.2,
       "atp_reward": 155,
       "spawns": [
-        { "family": "bacteria", "count": 144, "duration": 3.1593, "spawn_point_id": "afferent_upper", "squad_size": 60, "squad_paths": ["upper_follicle_route"] },
-        { "family": "parasite", "count": 38, "start_time": 0.784, "duration": 3.1593, "spawn_point_id": "afferent_lower", "squad_size": 60, "squad_paths": ["lower_follicle_route"] },
-        { "family": "parasite", "count": 38, "start_time": 4.4093, "duration": 3.1593, "spawn_point_id": "afferent_upper", "squad_size": 60, "squad_paths": ["upper_follicle_route"] },
-        { "family": "virus", "count": 320, "start_time": 5.1933, "duration": 3.1593, "spawn_point_id": "afferent_lower", "squad_size": 60, "squad_paths": ["lower_follicle_route"] },
-        { "family": "virus", "count": 320, "start_time": 8.8186, "duration": 3.1593, "spawn_point_id": "afferent_upper", "squad_size": 60, "squad_paths": ["upper_follicle_route"] },
-        { "family": "bacteria", "count": 144, "start_time": 9.6026, "duration": 3.1593, "spawn_point_id": "afferent_lower", "squad_size": 60, "squad_paths": ["lower_follicle_route"] }
+        {"family": "bacteria", "count": 136, "duration": 2.190221, "spawn_point_id": "afferent_upper", "squad_size": 60, "squad_paths": ["upper_follicle_route"]},
+        {"family": "parasite", "count": 36, "start_time": 0.543517, "duration": 2.190221, "spawn_point_id": "afferent_lower", "squad_size": 60, "squad_paths": ["lower_follicle_route"]},
+        {"family": "parasite", "count": 36, "start_time": 3.441221, "duration": 2.190221, "spawn_point_id": "afferent_upper", "squad_size": 60, "squad_paths": ["upper_follicle_route"]},
+        {"family": "virus", "count": 297, "start_time": 3.984738, "duration": 2.190221, "spawn_point_id": "afferent_lower", "squad_size": 60, "squad_paths": ["lower_follicle_route"]},
+        {"family": "virus", "count": 297, "start_time": 6.882442, "duration": 2.190221, "spawn_point_id": "afferent_upper", "squad_size": 60, "squad_paths": ["upper_follicle_route"]},
+        {"family": "bacteria", "count": 136, "start_time": 7.425959, "duration": 2.190221, "spawn_point_id": "afferent_lower", "squad_size": 60, "squad_paths": ["lower_follicle_route"]}
       ]
     },
     {
@@ -138,12 +139,12 @@
       "prep_time": 8.5,
       "atp_reward": 180,
       "spawns": [
-        { "family": "parasite", "count": 47, "duration": 3.235, "spawn_point_id": "afferent_upper", "squad_size": 60, "squad_paths": ["upper_follicle_route"] },
-        { "family": "virus", "count": 390, "start_time": 0.791, "duration": 3.235, "spawn_point_id": "afferent_lower", "squad_size": 60, "squad_paths": ["lower_follicle_route"] },
-        { "family": "virus", "count": 390, "start_time": 4.485, "duration": 3.235, "spawn_point_id": "afferent_upper", "squad_size": 60, "squad_paths": ["upper_follicle_route"] },
-        { "family": "bacteria", "count": 175, "start_time": 5.276, "duration": 3.235, "spawn_point_id": "afferent_lower", "squad_size": 60, "squad_paths": ["lower_follicle_route"] },
-        { "family": "bacteria", "count": 176, "start_time": 8.97, "duration": 3.235, "spawn_point_id": "afferent_upper", "squad_size": 60, "squad_paths": ["upper_follicle_route"] },
-        { "family": "parasite", "count": 47, "start_time": 9.761, "duration": 3.235, "spawn_point_id": "afferent_lower", "squad_size": 60, "squad_paths": ["lower_follicle_route"] }
+        {"family": "parasite", "count": 52, "duration": 2.425417, "spawn_point_id": "afferent_upper", "squad_size": 60, "squad_paths": ["upper_follicle_route"]},
+        {"family": "virus", "count": 430, "start_time": 0.593046, "duration": 2.425417, "spawn_point_id": "afferent_lower", "squad_size": 60, "squad_paths": ["lower_follicle_route"]},
+        {"family": "virus", "count": 430, "start_time": 3.676417, "duration": 2.425417, "spawn_point_id": "afferent_upper", "squad_size": 60, "squad_paths": ["upper_follicle_route"]},
+        {"family": "bacteria", "count": 197, "start_time": 4.269463, "duration": 2.425417, "spawn_point_id": "afferent_lower", "squad_size": 60, "squad_paths": ["lower_follicle_route"]},
+        {"family": "bacteria", "count": 198, "start_time": 7.352834, "duration": 2.425417, "spawn_point_id": "afferent_upper", "squad_size": 60, "squad_paths": ["upper_follicle_route"]},
+        {"family": "parasite", "count": 52, "start_time": 7.94588, "duration": 2.425417, "spawn_point_id": "afferent_lower", "squad_size": 60, "squad_paths": ["lower_follicle_route"]}
       ]
     },
     {
@@ -151,12 +152,12 @@
       "prep_time": 7.8,
       "atp_reward": 205,
       "spawns": [
-        { "family": "virus", "count": 462, "duration": 3.2974, "spawn_point_id": "afferent_upper", "squad_size": 60, "squad_paths": ["upper_follicle_route"] },
-        { "family": "bacteria", "count": 208, "start_time": 0.7945, "duration": 3.2974, "spawn_point_id": "afferent_lower", "squad_size": 60, "squad_paths": ["lower_follicle_route"] },
-        { "family": "bacteria", "count": 208, "start_time": 4.5474, "duration": 3.2974, "spawn_point_id": "afferent_upper", "squad_size": 60, "squad_paths": ["upper_follicle_route"] },
-        { "family": "parasite", "count": 55, "start_time": 5.3419, "duration": 3.2974, "spawn_point_id": "afferent_lower", "squad_size": 60, "squad_paths": ["lower_follicle_route"] },
-        { "family": "parasite", "count": 55, "start_time": 9.0948, "duration": 3.2974, "spawn_point_id": "afferent_upper", "squad_size": 60, "squad_paths": ["upper_follicle_route"] },
-        { "family": "virus", "count": 462, "start_time": 9.8893, "duration": 3.2974, "spawn_point_id": "afferent_lower", "squad_size": 60, "squad_paths": ["lower_follicle_route"] }
+        {"family": "virus", "count": 624, "duration": 2.692026, "spawn_point_id": "afferent_upper", "squad_size": 60, "squad_paths": ["upper_follicle_route"]},
+        {"family": "bacteria", "count": 286, "start_time": 0.648637, "duration": 2.692026, "spawn_point_id": "afferent_lower", "squad_size": 60, "squad_paths": ["lower_follicle_route"]},
+        {"family": "bacteria", "count": 286, "start_time": 3.943026, "duration": 2.692026, "spawn_point_id": "afferent_upper", "squad_size": 60, "squad_paths": ["upper_follicle_route"]},
+        {"family": "parasite", "count": 76, "start_time": 4.591663, "duration": 2.692026, "spawn_point_id": "afferent_lower", "squad_size": 60, "squad_paths": ["lower_follicle_route"]},
+        {"family": "parasite", "count": 76, "start_time": 7.886052, "duration": 2.692026, "spawn_point_id": "afferent_upper", "squad_size": 60, "squad_paths": ["upper_follicle_route"]},
+        {"family": "virus", "count": 623, "start_time": 8.534689, "duration": 2.692026, "spawn_point_id": "afferent_lower", "squad_size": 60, "squad_paths": ["lower_follicle_route"]}
       ]
     }
   ],

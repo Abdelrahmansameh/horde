@@ -4,7 +4,8 @@
 // A parasite is ordinary chaff -- same SoA slot, same movement kernel, same
 // damage paths -- with two additions driven from here:
 //
-//   BURROW  On a cooldown (+- jitter) it stops, sinks into the tissue where it
+//   BURROW  Once its cooldown (+- jitter) is ready, it saves the ability until
+//           immune defenders threaten its immediate path. It stops, sinks into the tissue where it
 //           stands, and some time later comes back up somewhere FURTHER DOWN
 //           ITS LANE. While it is under it is untargetable, undamageable and
 //           invisible to the crowd. The exit is announced: the same disturbed-
@@ -34,10 +35,10 @@
 // valid ones the best score wins:
 //
 //     progress_weight * progress
-//   - tower_weight    * (towers whose coverage contains the exit)
+//   - tower_weight    * (defenders whose coverage contains the exit)
 //   - crowd_weight    * (pathogens within crowd_radius of the exit)
 //
-// With the shipped weights, tower coverage dominates (it tries hard to surface
+// With the shipped weights, defensive coverage dominates (it tries hard to surface
 // beyond the defence, as far as its range allows) and crowding is a tiebreak
 // (it prefers open ground when it has the choice). No valid candidate: it
 // stays up and retries after `retry_delay`.
@@ -50,6 +51,7 @@
 #pragma once
 
 #include "core/Types.h"
+#include "sim/spatial/SpatialHash.h"
 
 #include <vector>
 
@@ -70,7 +72,7 @@ struct BurrowParams {
     bool enabled = false;
 
     // ---- Rhythm (seconds) ---------------------------------------------------
-    f32 cooldown = 5.0f;              ///< Surface time between burrows.
+    f32 cooldown = 5.0f;              ///< Minimum surface time between burrows.
     f32 cooldown_jitter = 1.5f;       ///< +- uniform on every cooldown, first included.
     f32 dive_duration = 1.2f;         ///< Sinking into the tissue.
     f32 underground_duration = 1.4f;  ///< Gone, telegraph included.
@@ -155,7 +157,7 @@ struct BurrowTuning {
     f32 body_half_length[kFamilyCount] = {};
 };
 
-/// A disc of immune coverage an exit would rather not land in.
+/// A disc of immune coverage that can trigger a dive or make an exit unsafe.
 struct BurrowThreat {
     Vec2 position{0.0f, 0.0f};
     f32 radius = 0.0f;
@@ -179,7 +181,7 @@ public:
     /// chaff movement kernel so a dive freezes the agent where this tick's
     /// movement left it and an exit is scored against this tick's crowd.
     /// `hash` is the tick's spatial hash (positions up to one tick stale,
-    /// which is all a crowd estimate needs). `threats` is the towers' coverage.
+    /// which is all a crowd estimate needs). `threats` is immune coverage.
     /// `play_area` is the visible level (SimDesc::world_bounds); an empty rect
     /// puts no limit on where burrows happen.
     BurrowStats update(ChaffBuffers& chaff, const FlowField& flow, const DistanceField& sdf,
@@ -204,6 +206,10 @@ public:
 private:
     BurrowTuning tuning_{};
     bool active_ = false;
+    SpatialHash threat_hash_;
+    std::vector<f32> threat_x_, threat_y_;
+    std::vector<u32> threat_indices_;
+    std::vector<BurrowThreat> nearby_threats_;
 };
 
 } // namespace immune::sim

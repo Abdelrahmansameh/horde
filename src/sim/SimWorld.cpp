@@ -135,6 +135,7 @@ void SimWorld::init(const SimDesc& desc, JobSystem* jobs) {
         swarmer_system_.set_chaff_radii(radii, kFamilyCount);
         hostile_.set_chaff_radii(radii, kFamilyCount);
     }
+    hostile_.set_playable_bounds(desc_.world_bounds);
     hostile_.set_tuning(desc.hostile_tuning);
     burrow_.set_tuning(desc.burrow_tuning);
     immunity_scratch_.reserve(1024);
@@ -295,7 +296,8 @@ void SimWorld::tick(Profiler* profiler) {
         swarmers_killed_total_ += hostile_stats.swarmers_killed;
         combat_metrics_.record_hostile(hostile_stats.swarmer_damage, hostile_stats.tower_damage,
             hostile_stats.swarmers_killed, hostile_stats.toxin_fired, hostile_stats.toxin_hits,
-            hostile_stats.latches_new);
+            hostile_stats.latches_new, hostile_stats.toxin_shots_denied_capacity,
+            hostile_stats.harpoons_denied_capacity);
         apply_hostile_effects();
         // Scars the pass just emptied come down now, in the same tick, so
         // the tissue is handed back before the flow pump below and the
@@ -625,6 +627,21 @@ void SimWorld::build_burrow_threats() {
                   if (a.position.y != b.position.y) return a.position.y < b.position.y;
                   return a.radius < b.radius;
               });
+
+    // Normal player deployments are mobile swarmers, not ECS towers. Their
+    // current positions and acquisition/attack reach describe the danger a
+    // parasite actually encounters. Builders do not hunt pathogens, and a
+    // unit waiting for removal no longer poses a threat.
+    constexpr u8 parasite_mask = static_cast<u8>(1u << static_cast<u32>(PathogenFamily::Parasite));
+    for (usize i = 0; i < swarmers_.count(); ++i) {
+        if ((swarmers_.flags[i] & swarmer_flags::kPendingKill) != 0 || swarmers_.health[i] <= 0.0f ||
+            (swarmers_.family_mask[i] & parasite_mask) == 0) continue;
+        const SwarmerProfile& profile = swarmers_.profile_of(i);
+        if (profile.kind == SwarmerKind::Builder) continue;
+        const f32 radius = math::max(profile.search_radius, profile.attach_radius);
+        if (radius <= 0.0f) continue;
+        burrow_threats_.push_back(BurrowThreat{{swarmers_.pos_x[i], swarmers_.pos_y[i]}, radius});
+    }
 }
 
 void SimWorld::build_friendly_towers() {

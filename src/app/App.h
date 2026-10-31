@@ -14,6 +14,8 @@
 #include "app/Cli.h"
 #include "app/EditorMode.h"
 #include "app/GameState.h"
+#include "audio/AudioEngine.h"
+#include "audio/SoundScape.h"
 #include "core/Clock.h"
 #include "core/JobSystem.h"
 #include "core/Profiler.h"
@@ -50,8 +52,8 @@ namespace immune::app {
 
 class App {
 public:
-    /// Creates window, GL context, renderer, and the sim. False on any
-    /// hard failure (message logged).
+    /// Creates window, GL context, renderer, audio, and the sim. False on any
+    /// hard failure (message logged). A missing audio device is not one.
     bool init(const Options& options);
     void shutdown();
 
@@ -69,6 +71,9 @@ private:
     void sync_hud(Vec2 world_cursor);
     void tick_sim();
     void render_frame();
+    /// Once per frame, after render_frame(): UI sounds, state stingers, the
+    /// horde's continuous state, then the scene's budgeted post to the mixer.
+    void update_audio();
     void enter_state(GameStateId id);
     bool load_level(const std::string& path);
     /// The half of load_level() from `SimDesc desc;` onward: builds a world
@@ -142,6 +147,7 @@ private:
     /// nothing), saves, and fills last_run_ for the results screen.
     void finish_run(bool won);
     void save_balance_recording(game::SessionOutcome outcome = game::SessionOutcome::InProgress);
+    void set_balance_recording_enabled(bool enabled);
     /// Writes meta_ to save_path_, unless loading it failed (see save_ok_).
     void save_meta();
     /// Loads save_path_ into meta_ at startup.
@@ -155,6 +161,8 @@ private:
     Profiler profiler_;
 
     std::unique_ptr<JobSystem> jobs_;
+    // Kept alive while a recorded level uses serial simulation.
+    std::unique_ptr<JobSystem> recording_jobs_;
     platform::Window window_;
     platform::InputState input_;
     render::Renderer renderer_;
@@ -220,6 +228,9 @@ private:
     /// The player's persistent progress: both currencies and the tree.
     game::MetaProgression meta_;
     game::balance::RunRecording balance_recording_;
+    bool balance_recording_enabled_ = false;
+    std::string balance_recording_dir_;
+    std::string balance_recording_status_;
     u64 balance_recording_sequence_ = 0;
     /// Where meta_ lives on disk (--save, else the per-user data dir).
     std::string save_path_;
@@ -248,6 +259,12 @@ private:
 
     /// Cosmetic only, and deliberately outside sim_: own RNG, render clock.
     vfx::ParticleSystem particles_;
+    /// Procedural audio (docs/AUDIO.md). Cosmetic in the same way as
+    /// particles_: fed from the same drained event span, never read back.
+    audio::AudioEngine audio_;
+    audio::SoundScape soundscape_;
+    /// The state update_audio() last saw, for open/close and run-end stingers.
+    GameStateId audio_state_ = GameStateId::Boot;
     /// Reused across frames so build_instances() never reallocates.
     std::vector<vfx::ParticleInstance> particle_scratch_;
 
