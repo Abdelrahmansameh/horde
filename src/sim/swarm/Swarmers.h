@@ -36,12 +36,15 @@
 //                              across the flow that the horde has to press
 //                              through, body against body.
 //
-// A bomber whose lifetime runs out detonates where it stands, and so does one
+// A bomber whose lifetime runs out detonates where it stands (a MucusBomber
+// only if an untreated target is within splash range), and so does one
 // that has been chasing a target for longer than its profile's chase_seconds
 // without reaching it -- a bomber is a shell, not a hound. A latcher or a
 // shooter simply dissolves. Every kind aggros the moment it is released and
 // goes at whatever is nearest inside its search radius, chaff or named agent
-// alike. Burrowed (kHidden / AiState::Burrowed) targets are invisible to all.
+// alike. MucusBombers skip live mucus slows and this tick's pending splash
+// footprints, dropping a held target when it becomes coated. Burrowed
+// (kHidden / AiState::Burrowed) targets are invisible to all.
 //
 // STANDING GROUND. A shooter whose target walks out of its standoff, or a
 // bomber whose target leaves its aggro radius, re-picks the nearest thing in
@@ -589,6 +592,8 @@ struct NamedTarget {
     /// comp::Health::current at the start of the tick.
     f32 health = 1.0f;
     u8 family = 0;
+    /// A live mucus slow: Goblet Cells leave this target to its existing coating.
+    bool mucus_slowed = false;
 };
 
 struct NamedTargetList {
@@ -965,6 +970,9 @@ public:
     /// is the level's flow field, whose friendly guidance ignores runtime
     /// walls and which a kiting shooter reads to retreat
     /// ahead of the horde; null means it backs straight away instead.
+    /// `world_bounds` is the playable area, not the larger offscreen simulation
+    /// extent. Targets outside it are ignored; live friendly bodies stay inside
+    /// it after steering, body separation and wall correction.
     ///
     /// `events` may be null. When present, latches, shots and detonations are
     /// reported so the VFX layer can pop; the sim's behaviour must be
@@ -1067,13 +1075,15 @@ private:
     struct ContactBoom {
         u32 index;
         Vec2 at;
+        Vec2 target;
+        u8 family;
     };
     std::vector<ContactBoom> contact_booms_;
 
     /// The BODIES pass (file header): fills push_*_ and contact_booms_ from the
     /// current positions, then applies the pushes. Detonates nothing itself.
     void resolve_bodies(SwarmerBuffers& sw, ChaffBuffers& chaff, const SpatialHash& hash,
-                        const NamedTargetList& named, SwarmerStats& stats);
+                        const NamedTargetList& named, const Rect& play_bounds, SwarmerStats& stats);
 };
 
 } // namespace immune::sim

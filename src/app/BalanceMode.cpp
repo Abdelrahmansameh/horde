@@ -153,6 +153,8 @@ int run_balance_replay(const Options& options) {
             renderer.submit_entities(view.world.ecs());
             renderer.submit_fields(view.world.damage().rendered_fields().data(),view.world.damage().rendered_fields().size());
             renderer.submit_projectiles(view.world.projectiles());
+            renderer.submit_toxin_shots(view.world.hostile().toxin_shots());
+            renderer.submit_harpoons(view.world.hostile().harpoons(),view.world.chaff());
             renderer.submit_swarmers(view.world.swarmers());
             renderer.submit_fluid(view.world.fluid(),view.world.fluid_system().draw_radius());
             renderer.end_frame();

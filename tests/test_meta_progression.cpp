@@ -177,7 +177,7 @@ TEST_CASE("every reachable discovery choice history leaves an affordable tool th
         if (kind == TreeNodeKind::TowerRoot || kind == TreeNodeKind::AbilityRoot || kind == TreeNodeKind::Capstone)
             tools.push_back(node);
     }
-    REQUIRE(tools.size() == 13);
+    REQUIRE(tools.size() == 12);
     u32 examined = 0;
     for (u32 mask = 0; mask < (1u << tools.size()); ++mask) {
         u32 owned = 0;
@@ -217,7 +217,7 @@ TEST_CASE("every reachable discovery choice history leaves an affordable tool th
             REQUIRE(selected.purchase(choice.node, cfg) == MetaProgression::PurchaseResult::Ok);
         }
     }
-    CHECK(examined > 1000);
+    CHECK(examined > 500);
 }
 
 TEST_CASE("discovery purchases and first-clear identity survive save replay without duplicate Antibodies",
@@ -301,8 +301,7 @@ TEST_CASE("a node opens when its parent is owned, at any level", "[meta]") {
                        TreeNode::GobletRoot, TreeNode::FibroblastRoot}) {
         REQUIRE(m.check_purchase(n, cfg) == MetaProgression::PurchaseResult::Ok);
     }
-    for (TreeNode n : {TreeNode::ComplementUnlock, TreeNode::HistamineUnlock,
-                       TreeNode::FeverUnlock, TreeNode::ClotUnlock}) {
+    for (TreeNode n : {TreeNode::ComplementUnlock, TreeNode::FeverUnlock, TreeNode::ClotUnlock}) {
         REQUIRE(m.check_purchase(n, cfg) == MetaProgression::PurchaseResult::Locked);
     }
     REQUIRE(m.check_purchase(TreeNode::EfficientClearance, cfg) == MetaProgression::PurchaseResult::Locked);
@@ -322,7 +321,6 @@ TEST_CASE("each active ability opens directly from its related cell discovery", 
     struct Path { TreeNode cell, ability; };
     const Path paths[] = {
         {TreeNode::CytotoxicRoot, TreeNode::ComplementUnlock},
-        {TreeNode::GobletRoot, TreeNode::HistamineUnlock},
         {TreeNode::MacrophageRoot, TreeNode::FeverUnlock},
         {TreeNode::FibroblastRoot, TreeNode::ClotUnlock},
     };
@@ -401,14 +399,14 @@ TEST_CASE("an ability line needs the ability's root", "[meta]") {
     const MetaConfig cfg;
     MetaProgression m = fresh();
     m.credit(10000, 2);
-    REQUIRE(m.check_purchase(TreeNode::HistamineRadius, cfg) == MetaProgression::PurchaseResult::Locked);
-    // Histamine grows from Goblet splash; its own lines still need the ability.
+    REQUIRE(m.check_purchase(TreeNode::ClotDuration, cfg) == MetaProgression::PurchaseResult::Locked);
+    // The clot grows from the Fibroblast; its own lines still need the ability.
     buy_levels(m, TreeNode::NeutrophilRoundDamage, 1, cfg);
-    REQUIRE(m.purchase(TreeNode::GobletRoot, cfg) == MetaProgression::PurchaseResult::Ok);
-    buy_levels(m, TreeNode::GobletSplashRadius, 1, cfg);
-    REQUIRE(m.purchase(TreeNode::HistamineUnlock, cfg) == MetaProgression::PurchaseResult::Ok);
-    REQUIRE(m.ability_unlocked(AbilityId::HistamineFlare));
-    REQUIRE(m.purchase(TreeNode::HistamineRadius, cfg) == MetaProgression::PurchaseResult::Ok);
+    REQUIRE(m.purchase(TreeNode::FibroblastRoot, cfg) == MetaProgression::PurchaseResult::Ok);
+    REQUIRE(m.check_purchase(TreeNode::ClotDuration, cfg) == MetaProgression::PurchaseResult::Locked);
+    REQUIRE(m.purchase(TreeNode::ClotUnlock, cfg) == MetaProgression::PurchaseResult::Ok);
+    REQUIRE(m.ability_unlocked(AbilityId::FibrinClot));
+    REQUIRE(m.purchase(TreeNode::ClotDuration, cfg) == MetaProgression::PurchaseResult::Ok);
 }
 
 TEST_CASE("respec refunds everything spent minus the fee and keeps the Neutrophil", "[meta]") {
@@ -543,12 +541,27 @@ TEST_CASE("a saved level above a node's max is clamped", "[meta]") {
 TEST_CASE("an earlier ability purchase survives changed parent requirements", "[meta]") {
     MetaProgression m;
     std::string err;
-    REQUIRE(m.from_json(R"({"version": 3, "memory_cells": 1000, "tree": {"ability.histamine.unlock": 1}})", err));
-    REQUIRE(m.ability_unlocked(AbilityId::HistamineFlare));
-    REQUIRE_FALSE(m.tower_unlocked(TowerType::GobletCell));
-    REQUIRE(m.level(TreeNode::GobletSplashRadius) == 0);
+    REQUIRE(m.from_json(R"({"version": 3, "memory_cells": 1000, "tree": {"ability.clot.unlock": 1}})", err));
+    REQUIRE(m.ability_unlocked(AbilityId::FibrinClot));
+    REQUIRE_FALSE(m.tower_unlocked(TowerType::Fibroblast));
     REQUIRE(m.level(kTreeRoot) == 0);
-    REQUIRE(m.purchase(TreeNode::HistamineCooldown, MetaConfig{}) == MetaProgression::PurchaseResult::Ok);
+    REQUIRE(m.purchase(TreeNode::ClotCooldown, MetaConfig{}) == MetaProgression::PurchaseResult::Ok);
+}
+
+TEST_CASE("a save that bought the removed Histamine Flare gets its spend back", "[meta]") {
+    MetaProgression m;
+    std::string err;
+    REQUIRE(m.from_json(R"({"version": 3, "memory_cells": 10, "antibodies": 0,
+        "spent_memory_cells": 100, "spent_antibodies": 2,
+        "tree": {"ability.histamine.unlock": 1, "ability.histamine.cooldown": 2,
+                 "ability.histamine.radius": 1, "ability.fever.unlock": 1}})", err));
+    // Cooldown ranks 1-2 cost 24 + 42, Radius rank 1 costs 24 (120 weight).
+    CHECK(m.memory_cells() == 10 + 24 + 42 + 24);
+    CHECK(m.antibodies() == 1);
+    CHECK(m.spent_memory_cells() == 100 - 90);
+    CHECK(m.spent_antibodies() == 1);
+    CHECK(m.ability_unlocked(AbilityId::FeverResponse));
+    CHECK(m.to_json().find("histamine") == std::string::npos);
 }
 
 TEST_CASE("merged firing cycle preserves old ranks and actual paid refunds", "[meta][progression]") {

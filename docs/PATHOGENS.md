@@ -1,7 +1,7 @@
 # Pathogens and hostile pressure
 
-The shipped game roster has three ordinary pathogen families: `virus`,
-`bacteria`, and `parasite`. Their definitions are data feeding shared simulation
+The shipped game roster has four ordinary pathogen families: `virus`,
+`bacteria`, `parasite`, and `spore`. Their definitions are data feeding shared simulation
 systems, rather than one entity class per family. Current defaults come from
 [enemies.json](../assets/config/enemies.json) and
 [sim.json](../assets/config/sim.json); the config and implementation are
@@ -14,9 +14,13 @@ Related references: [gameplay](GAMEPLAY.md), [immune cells](IMMUNE_CELLS.md),
 
 | Family | Visual identity | Initial density | Speed tier / maximum speed | Special behavior |
 | --- | --- | ---: | --- | --- |
-| Virus | Bright green, smaller rounded body | 0.6 | Fast / 16.875 | Replication, lunge and latch attacks |
+| Virus | Bright green, smaller rounded body | 0.9 | Fast / 16.875 | Replication, lunge and latch attacks |
 | Bacteria | Yellow-green, larger body | 0.9 | Fast / 16.875 | Toxin-pellet magazines |
-| Parasite | Brown, long slithering worm | 1.6 | Normal / 10.125 | Forward burrowing; no crowd collisions or baseline hostile attack |
+| Parasite | Bright lavender, long slithering worm | 1.6 | Normal / 10.125 | Forward burrowing; no crowd collisions or baseline hostile attack |
+| Spore | Marigold, the largest round body, coil inside | 3.0 | Slow / 5.625 | Long-range harpoon: plants and pumps toxin into the biggest cell in range |
+
+Parasite UI icons use the matching lavender palette; the spore's
+(`pathogen_spore`) its marigold.
 
 Speeds use world units/second. Movement acceleration, crowding, fluid drag,
 slows, and squad guidance affect actual motion, so maximum speed is not a
@@ -90,9 +94,12 @@ without that tuning can intentionally have hostile attacks disabled.
 
 Parasites use ordinary chaff storage but enable
 [Burrow.cpp](../src/sim/burrow/Burrow.cpp) and the slithering visual stream.
-They ignore crowd collision response (`collides: false`), rather than
-jostling with virus/bacteria bodies. Tissue containment and navigation still
-matter. Their hostile latch, aura, and toxin damage values are all zero.
+Their sprites draw behind viruses and bacteria, including lingering corpses.
+They pass through other pathogen families (`collides: false`). They still
+space themselves from other parasites, but positional overlap corrections are
+limited to one quarter of walking speed rather than an entire collision radius
+per tick. Tissue containment and navigation still matter. Their hostile latch,
+aura, and toxin damage values are all zero.
 
 A parasite cycles through surface cooldown, dive, underground travel,
 telegraphed exit, and emergence. Current defaults are a 5-second surface
@@ -119,6 +126,86 @@ cell coverage; forward progress and crowd avoidance still apply in normal
 play. Slither heading and body waves are cosmetic, driven by movement, and
 do not introduce additional attack or reach.
 
+The slither phase follows signed **actual displacement**, including wall and
+crowd correction, rather than requested velocity. The idle wiggle fades out
+while moving. All centreline bends travel on the same ground track; the long
+curl repeats after two primary wavelengths, so the shared phase wraps at 4π.
+`head_amplitude` is retained as the config key for primary wave strength;
+`curl` and `probe` add long and fine travelling bends rather than head-only
+deformations. The shader converts wavelength with each instance's actual
+size, and the renderer interpolates position, heading, wave and backbone bend
+together. Cosmetics run after combat movement, so body blocking and cell pulls
+cannot escape the distance measurement; gameplay burrows still start before
+damage is applied.
+
+A circular backbone estimates curvature from the turn per distance travelled.
+Steering is filtered over 0.1 seconds and curvature over 0.2 seconds. A further
+spatial bound limits the endpoint motion caused by changing the bend to one
+quarter of travelled distance, capped at one quarter wavelength per second.
+This prevents steering noise or tiny steps from snapping the entire body.
+Curvature is also bounded to prevent folded sprites, and held during a burrow
+or stop. Abrupt changes of direction or external sideways shoves can still cause
+brief slip; this is a local curvature approximation rather than a stored trail.
+The `[slither]` tests measure production GLSL ground-track drift, phase wraps,
+size variation and curved motion. `[slither-live]` traces exercise actual gym
+and campaign movement, crowds and authored waves; see [Testing](TESTING.md).
+
+## Spore: the harpoon
+
+The spore is the horde's siege piece, built to beat the Macrophage and to lose
+to a swarm of Cytotoxic T cells. It is ordinary chaff with one behavior,
+[Harpoon.h](../src/sim/hostile/Harpoon.h), run by
+[HostileAttacks.cpp](../src/sim/hostile/HostileAttacks.cpp) after the friendly
+walks and before deaths. Unlike latch and toxin it is driven from the
+shooter's side: a capped friendly hash walk cannot see 44 units, and spores
+are few.
+
+Every `retry` (0.25) seconds a ready spore searches every swarmer and disc
+tower for the **biggest body** within `range` (44) of its centre, well outside a Macrophage's 26-unit search,, nearest among
+equals. A Macrophage is chosen before a Neutrophil, a Neutrophil before a
+Goblet Cell or Fibroblast, and a Cytotoxic T last. There is no minimum range or
+dead zone: a T cell riding the spore is a legal target when it is all there
+is. Collagen scars are never targeted.
+
+A shot then runs DRAW (0.45 s windup, turned onto the target), FIRE (the hose
+tip flies at 150 units/s and homes on the target's membrane), PUMP (a slug
+every 0.26 s, each travelling the hose at 70 units/s, for as long as the
+target lives: `pulses` 0 means no fixed volley) and RECOVER (6 s reload,
+which is also how long before it can attach to anything else). **A slug deals its 84 damage when it reaches the target, not when it
+leaves**, so what the player sees arrive is what hurts. Two slugs (168) kill an
+unupgraded Macrophage (120); a tougher cell just takes more of them. The hose
+lets go only when the target dies or gets past `break_range` (56). A spore that dies or is
+swallowed mid-shot severs its hose, which does no more damage.
+
+A spore stands its ground (`hold` 1) while it fights and while it reloads with
+a target still in range, so it stops at the edge of its range and sieges a
+cell rather than walking into its reach; with nothing in range it walks the
+lane. The chaff kernel scales both its speed and its share of the contact
+push by `1 - hold`: without the second, the crowd behind a planted spore
+shoved it forward into the cells, and its neighbours now part round it
+instead. Both factors are exactly 1 for every other family.
+
+The look is in [chaff.frag](../assets/shaders/chaff.frag) (`sdf_spore`,
+`spore_pose`) and [harpoon.frag](../assets/shaders/harpoon.frag). The body is
+the bacterium's wet sac on an egg, with its hose wound inside as three slanted
+rings. It squashes back during the draw, snaps into a stretch and recoils on
+the launch, and squeezes a bolus toward its spout for every slug, timed so
+the bolus reaches the mouth as that slug leaves it. The coil winds back in
+over the reload. The hose is the body's own membrane drawn out: the same
+colour ramp, rim and soft edge, rooted inside the spout's mouth (the renderer
+mirrors `spore_pose` to follow it through every squash and recoil) and
+necking down from it in a fillet that does not swing. Beyond the neck it is
+a lash in flight and a damped standing wave once anchored, and slugs swell it
+and glow as they travel. `HarpoonPulse` combat events splash toxin out of the
+target's membrane on the bite and on every hit.
+
+Every number lives in `enemies.json`'s `harpoon` block (off for every other
+family). State lives on the chaff streams (`harpoon_state`, `harpoon_timer`,
+`harpoon_scan`, `harpoon_sighted`, `hold`, and the cosmetic `harpoon_anim`)
+and in the hostile system's hose list. Both are folded into `state_hash()` only
+when a spore or hose exists, so spore-free worlds hash as before. The
+`chaff10k` bench spawns only the three horde families.
+
 ## Elites, bosses, and removed content
 
 The current `elites` array is empty, `EnemyRoster::load_defaults()` registers
@@ -139,6 +226,8 @@ families as playable threats based on historical design or test fixtures.
 - [Chaff tests](../tests/test_chaff_system.cpp) and
   [squad tests](../tests/test_squads.cpp): movement, replication, grouping.
 - [Hostile tests](../tests/test_hostile.cpp): passenger and toxin behavior.
+- [Harpoon tests](../tests/test_harpoon.cpp): target order, damage on slug
+  arrival, planting, severing, switch-off, and determinism.
 - [Burrow tests](../tests/test_burrow.cpp): candidate rules, hidden state,
   emergence, and determinism.
 - [Bacteria flow tests](../tests/test_bacteria_flow.cpp) and

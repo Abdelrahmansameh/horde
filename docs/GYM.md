@@ -50,7 +50,7 @@ Point-taking commands accept `at x,y`, `at x y`, `at <spawn-id>`, `at cursor`, `
 
 | Command | Behavior |
 |---|---|
-| `spawn <virus\|bacteria\|parasite\|all> <count> [at target] [radius r]` | Spawn ordinary agents; `all` requests `count` for **each of three families** |
+| `spawn <virus\|bacteria\|parasite\|spore\|all> <count> [at target] [radius r]` | Spawn ordinary agents; `all` requests `count` for **each of the four families** |
 | `elite <name\|id\|all\|list> [at target]` | List or spawn roster elites |
 | `flood [count]` | Request each family from every spawn marker; count is per family per marker |
 | `kill [family\|all]` | Flag ordinary agents for next-tick removal with accounting; does not kill every named elite |
@@ -60,7 +60,7 @@ Point-taking commands accept `at x,y`, `at x y`, `at <spawn-id>`, `at cursor`, `
 | `scar integrity <1-100>` / `scar mend <hp>` / `scar list` | Set every standing wall's integrity, reinforce every standing wall the way a builder does (plays the repair), or list them |
 | `sell [all]` | Sell last/all legacy emitters; credit refund if an economy is supplied |
 | `fire` | Clear legacy emitter cooldowns so they can release on the next tick |
-| `cast <complement\|histamine\|fever\|clot> [at target]` | Cast a player ability subject to unlocks/cooldown and placement constraints |
+| `cast <complement\|fever\|clot> [at target]` | Cast a player ability subject to unlocks/cooldown and placement constraints |
 | `ready` | Reload ability defaults, including cleared cooldowns |
 | `atp <amount\|+amount>` | Set or add ATP |
 | `integrity <value>` | Set objective integrity; use values in the intended 0–100 range for HUD review |
@@ -73,7 +73,7 @@ Screenshot `--towers`/`--tower`, the gym `cell` command and simulation action `p
 
 Large gym spawns use tissue-aware burst capacity, place what fits immediately, and queue the rest for deterministic release on later ticks when a spawn queue is supplied. Counts in the result distinguish immediate and queued population. Grouped spawns may use squad paths; explicit targets retain the requested location. A tick-0 capture can show only the first released portion. `radius` is a spawn parameter rather than a guarantee that every requested agent fits in that disc.
 
-Ability aliases include `cascade`/`burst` for complement, `flare` for histamine, and `fibrin`/`barrier` for clot. `ready` also resets definitions to defaults, so it can overwrite live ability settings.
+Ability aliases include `cascade`/`burst` for complement and `fibrin`/`barrier` for clot. `ready` also resets definitions to defaults, so it can overwrite live ability settings.
 
 ### Session, world, and diagnostics
 
@@ -133,13 +133,20 @@ A context can provide an empty director without ticking it; successful `wave sta
 ```text
 ui click <path>
 ui hover <path>
+ui drag <path> <x> <y>
 ui select <n>
 ui cancel
 ui level <n>
 ui scale <0.75..1.5>
 ```
 
-`ui select` selects the 1-based legacy tower model entry; `ui level` selects an unlocked 1-based campaign slot. Clicking a deck widget arms the player deployment cursor. Paths depend on screen visibility; a nonexistent/hidden widget fails. Examples include `hud/dock/neutrophil`, `hud/abilities/histamine/cell/button`, `hud/prep/send`, `tree/view/zoom_in`, and `levels/play`. Read `ui dump` before scripting paths after a UI change.
+`ui select` selects the 1-based legacy tower model entry; `ui level` selects an unlocked 1-based campaign slot. Clicking a deck widget arms the player deployment cursor. Paths depend on screen visibility; a nonexistent/hidden widget fails. Examples include `hud/dock/neutrophil`, `hud/abilities/clot/cell/button`, `hud/prep/send`, `tree/view/zoom_in`, and `levels/play`. Read `ui dump` before scripting paths after a UI change.
+
+`ui drag` presses the centre of an interactive widget, moves to the absolute
+logical-pixel destination, and releases through normal pointer capture. The
+movement must exceed 4 logical pixels and the grab point must be unobstructed.
+For example, `ui drag hud/dock/neutrophil 0 540` moves the deployment menu to
+the left edge. In screenshots it also leaves the pointer at the destination.
 
 Screenshot-only setup adds:
 

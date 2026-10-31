@@ -534,8 +534,8 @@ TEST_CASE("tree model: the tree uncovers as it grows", "[ui][menu][meta]") {
     CHECK_FALSE(t.revealed("cytotoxic.drain"));
     CHECK(t.revealed("goblet.unlock"));
     CHECK(t.revealed("fibroblast.unlock"));
-    for (game::AbilityId id : {game::AbilityId::ComplementCascadeBurst, game::AbilityId::HistamineFlare,
-                                game::AbilityId::FeverResponse, game::AbilityId::FibrinClot}) {
+    for (game::AbilityId id : {game::AbilityId::ComplementCascadeBurst, game::AbilityId::FeverResponse,
+                                game::AbilityId::FibrinClot}) {
         CHECK_FALSE(t.revealed(game::tree_node(game::ability_root(id)).key));
     }
     CHECK_FALSE(t.revealed("hub.homeostasis"));
@@ -559,13 +559,13 @@ TEST_CASE("tree model: the tree uncovers as it grows", "[ui][menu][meta]") {
     // An ability imported from the earlier tree still reveals its new path,
     // while unrelated siblings in that cell branch remain hidden.
     for (TreeNodeView& n : t.nodes) {
-        if (n.key == "ability.histamine.unlock") n.level = 1;
+        if (n.key == "ability.clot.unlock") n.level = 1;
     }
-    CHECK(t.revealed("ability.histamine.unlock"));
-    CHECK_FALSE(t.revealed("goblet.splash_radius"));
-    CHECK(t.revealed("goblet.unlock"));
-    CHECK(t.revealed("ability.histamine.cooldown"));
-    CHECK_FALSE(t.revealed("goblet.weakness"));
+    CHECK(t.revealed("ability.clot.unlock"));
+    CHECK_FALSE(t.revealed("fibroblast.scar_health"));
+    CHECK(t.revealed("fibroblast.unlock"));
+    CHECK(t.revealed("ability.clot.cooldown"));
+    CHECK_FALSE(t.revealed("fibroblast.reinforce"));
 }
 
 TEST_CASE("tree: hidden until revealed, a card on hover, a click buys", "[ui][menu][meta]") {
@@ -624,7 +624,7 @@ TEST_CASE("tree: hidden until revealed, a card on hover, a click buys", "[ui][me
     CHECK(h.shown("tree/cytotoxic.unlock"));
     CHECK(h.shown("tree/macrophage.unlock"));
     CHECK(h.shown("tree/goblet.unlock"));
-    for (const char* ability : {"complement", "histamine", "fever", "clot"}) {
+    for (const char* ability : {"complement", "fever", "clot"}) {
         CHECK_FALSE(h.shown(std::string("tree/ability.") + ability + ".unlock"));
     }
     CHECK(h.label("tree/card/head/title/level") == "1/5");

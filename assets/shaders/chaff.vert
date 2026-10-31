@@ -3,7 +3,7 @@
 //
 // CONTRACT: the instance attribute layout below mirrors render::ChaffInstance
 // (src/render/Renderer.h) byte for byte. Changing one without the other is a
-// contract break. 32 bytes per instance.
+// contract break. 36 bytes per instance.
 //
 // Wave 1C owns the body of this shader. Wave 0 fixes only the interface.
 
@@ -18,6 +18,7 @@ layout(location = 4) in vec4  i_tint;       // offset 16 : tint_rgba8, normalize
 layout(location = 5) in uint  i_flags;      // offset 20 : chaff_flags mirror
 layout(location = 6) in float i_anim_phase; // offset 24
 layout(location = 7) in float i_pad;        // offset 28 : per-family wobble amount
+layout(location = 8) in float i_curvature;  // offset 32 : worm curvature in local units
 
 layout(location = 0) uniform mat4 u_view_projection;
 layout(location = 1) uniform float u_time;
@@ -28,6 +29,8 @@ flat out uint v_flags;
 out float v_anim_phase;
 out float v_wobble;
 flat out vec2 v_shadow_offset;
+flat out float v_scale;
+flat out float v_curvature;
 
 // DESIGN.md §7: "soft directional drop-shadow + slight vertical sprite offset
 // sell height without real 3D geometry." Both are folded into this one pass so
@@ -53,6 +56,8 @@ void main() {
     v_flags = i_flags;
     v_anim_phase = i_anim_phase;
     v_wobble = i_pad;
+    v_scale = i_scale;
+    v_curvature = i_curvature;
 
     // The shadow sits at the un-lifted ground position, offset slightly along
     // a fixed world direction. Object space is unrotated (SDFs are isotropic),

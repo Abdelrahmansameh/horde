@@ -35,7 +35,7 @@
 // Not merely cosmetic: LevelLoader::bake_geometry() bakes this and writes its
 // sign back into the TissueMask's walkability, so the wall the horde presses
 // against IS the wall on screen, fillets included. Baked once per level load
-// (~60-150 ms on the shipped levels) and handed to render::TissueDecor.
+// and handed to render::TissueDecor; no contour queries run per frame.
 #pragma once
 
 #include "core/Types.h"
@@ -93,8 +93,9 @@ RenderSdf bake_render_sdf(const LevelDef& def, const RenderSdfDesc& desc = {});
 
 /// Rewrites `field` (row-major w*h, world units per `cell`) with the exact
 /// distance to its own zero contour, keeping each texel's sign. The contour is
-/// located to sub-texel precision from the field's gradient, so the result is
-/// smooth even though it went through a grid. Exposed for tests.
+/// located to sub-texel precision by marching squares and distances are taken
+/// to continuous segments, keeping both the wall and its offset bands smooth.
+/// Exposed for tests.
 void resample_to_contour(std::vector<f32>& field, i32 w, i32 h, f32 cell);
 
 } // namespace immune::game

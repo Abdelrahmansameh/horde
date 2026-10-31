@@ -41,7 +41,6 @@ constexpr TreeNodeDef node(const char* key, const char* name, const char* effect
 }
 
 constexpr AbilityId kCascade = AbilityId::ComplementCascadeBurst;
-constexpr AbilityId kHistamine = AbilityId::HistamineFlare;
 constexpr AbilityId kFever = AbilityId::FeverResponse;
 constexpr AbilityId kClot = AbilityId::FibrinClot;
 
@@ -60,9 +59,6 @@ constexpr TreeNodeDef kCatalog[] = {
     node("ability.complement.unlock", "Complement Cascade Burst", "Unlock: complement proteins rupture a target, then cascade to the next one and the next", K::AbilityRoot, B::Hub, 1, 100, kCascade),
     node("ability.complement.cooldown", "Cooldown Reduction", "-10% cooldown", K::AbilityStat, B::Hub, 3, 120, kCascade),
     node("ability.complement.chain", "Extended Cascade", "+2 targets the cascade spreads to", K::AbilityStat, B::Hub, 3, 120, kCascade),
-    node("ability.histamine.unlock", "Histamine Flare", "Unlock: releases histamine at a point, damaging pathogens in the area around it", K::AbilityRoot, B::Hub, 1, 100, kHistamine),
-    node("ability.histamine.cooldown", "Cooldown Reduction", "-10% cooldown", K::AbilityStat, B::Hub, 3, 120, kHistamine),
-    node("ability.histamine.radius", "Radius", "+12% histamine radius", K::AbilityStat, B::Hub, 3, 120, kHistamine),
     node("ability.fever.unlock", "Fever Response", "Unlock: a fever surge that heals all deployed cells", K::AbilityRoot, B::Hub, 1, 100, kFever),
     node("ability.fever.cooldown", "Cooldown Reduction", "-10% cooldown", K::AbilityStat, B::Hub, 3, 120, kFever),
     node("ability.fever.magnitude", "Healing Strength", "+25% healing", K::AbilityStat, B::Hub, 3, 120, kFever),
@@ -83,7 +79,7 @@ constexpr TreeNodeDef kCatalog[] = {
     node("cytotoxic.search", "Search Radius", "+10% hunt radius", K::Stat, B::CytotoxicT, 3),
     node("cytotoxic.stamina", "Cell Stamina", "+9 base cell health, +10% speed", K::Stat, B::CytotoxicT, 3),
     node("cytotoxic.tower_health", "Cell Resilience", "+10 base cell health", K::Stat, B::CytotoxicT, 4),
-    node("cytotoxic.capstone", "Lytic Rupture", "A killed target ruptures, damaging nearby chaff; +50% damage to elites and bosses", K::Capstone, B::CytotoxicT, 1),
+    node("cytotoxic.capstone", "Rapid Pursuit", "Doubles cell movement speed", K::Capstone, B::CytotoxicT, 1),
     // ---- Macrophage ----
     node("macrophage.unlock", "Macrophage", "Unlock: engulfs the horde with pseudopods while its body blocks the lane", K::TowerRoot, B::Macrophage, 1),
     node("macrophage.arms", "Cluster Intake", "+2 enemies per pull, +0.6 capture radius", K::Stat, B::Macrophage, 1, 200),
@@ -111,7 +107,7 @@ constexpr TreeNodeDef kCatalog[] = {
     node("fibroblast.tower_health", "Cell Resilience", "+20% cell health", K::Stat, B::Fibroblast, 4),
     node("fibroblast.build_rate", "Rapid Fibrosis", "-12% rest between walls", K::Stat, B::Fibroblast, 4),
     node("fibroblast.scar_count", "Scar Network", "+1 wall each Fibroblast keeps standing", K::Stat, B::Fibroblast, 2, 150),
-    node("fibroblast.capstone", "Inflammatory Scarring", "Scars release irritants that damage whatever presses against them", K::Capstone, B::Fibroblast, 1),
+    node("fibroblast.capstone", "Fibrotic Bulwark", "Doubles scar length and width", K::Capstone, B::Fibroblast, 1),
 };
 static_assert(sizeof(kCatalog) / sizeof(kCatalog[0]) == kTreeNodeCount,
               "kCatalog must list every TreeNode, in TreeNode order");
@@ -168,16 +164,13 @@ constexpr Edge kEdges[] = {
     {N::CytotoxicCapstone, N::CytotoxicRoot},
     {N::CytotoxicHealth, N::CytotoxicSearch},
 
-    // Abilities are discoveries along related cell paths, in four sectors.
+    // Abilities are discoveries along related cell paths, in three sectors.
     {N::ComplementUnlock, N::CytotoxicRoot},
     {N::FeverUnlock, N::MacrophageRoot},
-    {N::HistamineUnlock, N::GobletRoot},
     {N::ClotUnlock, N::FibroblastRoot},
     // Each ability's own upgrades still grow directly from its unlock.
     {N::ComplementCooldown, N::ComplementUnlock},
     {N::ComplementChain, N::ComplementUnlock},
-    {N::HistamineCooldown, N::HistamineUnlock},
-    {N::HistamineRadius, N::HistamineUnlock},
     {N::FeverCooldown, N::FeverUnlock},
     {N::FeverMagnitude, N::FeverUnlock},
     {N::ClotCooldown, N::ClotUnlock},
@@ -260,7 +253,6 @@ constexpr f32 kMembranePerLevel = 0.08f;
 constexpr f32 kCooldownCutPerLevel = 0.10f;
 constexpr u32 kCascadeBaseLinks = 8;          // the damage system's own default
 constexpr u32 kCascadeLinksPerLevel = 2;
-constexpr f32 kHistamineRadiusPerLevel = 0.12f;
 constexpr f32 kFeverMagnitudePerLevel = 0.25f;
 constexpr f32 kClotDurationPerLevel = 0.20f;
 
@@ -271,17 +263,11 @@ constexpr f32 kSearchPerLevel = 0.10f;
 // Capstones. The per-unit ones land on CapstoneParams (-> SwarmerProfile), the
 // world-wide ones on sim::ImmunityTuning.
 constexpr f32 kNeutrophilGranuleDamage = 1.25f;
-// Packed shipped bodies settle beyond the old 2.5-unit pulse's reach.
-// A wider, modest pulse chips tough hosts
-// while clearing nearby low-density viruses rather than the entire roster.
-constexpr f32 kKillPulseRadius = 10.0f;
-constexpr f32 kKillPulseDamage = 1.2f;
-constexpr f32 kApoptosisNamedMult = 1.5f;
+constexpr f32 kPursuitSpeedMult = 2.0f;
 constexpr f32 kSustainHealPerKill = 4.0f;
 constexpr f32 kContagionRadius = 3.5f;
 constexpr f32 kContagionSeconds = 2.5f;
-constexpr f32 kScarContactRate = 8.0f;
-constexpr f32 kScarContactReach = 0.8f;
+constexpr f32 kBulwarkScarSizeMult = 2.0f;
 
 // World-wide lines (sim::ImmunityTuning), not capstones.
 constexpr f32 kWeaknessPerLevel = 0.10f;
@@ -329,11 +315,7 @@ void apply_tower_lines(const TreeLevels& lv, TowerType type, TowerMechanics& m) 
         // thresholds; both survival lines add before global reserves.
         m.swarm.max_health += 10.0f * lv[N::CytotoxicHealth];
         m.swarm.max_health += 9.0f * lv[N::CytotoxicStamina];
-        if (lv.owned(N::CytotoxicCapstone)) {
-            m.capstone.kill_pulse_radius = kKillPulseRadius;
-            m.capstone.kill_pulse_damage = kKillPulseDamage;
-            m.capstone.named_damage_mult = kApoptosisNamedMult;
-        }
+        if (lv.owned(N::CytotoxicCapstone)) m.swarm.speed *= kPursuitSpeedMult;
         break;
     case TowerType::Macrophage: {
         // Three fixed arm channels are a runtime ceiling. The legacy arms
@@ -366,6 +348,10 @@ void apply_tower_lines(const TreeLevels& lv, TowerType type, TowerMechanics& m) 
         m.builder.scar_reinforce *= grow(lv[N::FibroblastReinforce], 0.30f);
         m.builder.scar_half_length *= grow(lv[N::FibroblastScarSize], 0.10f);
         m.builder.scar_half_width *= grow(lv[N::FibroblastScarSize], 0.10f);
+        if (lv.owned(N::FibroblastCapstone)) {
+            m.builder.scar_half_length *= kBulwarkScarSizeMult;
+            m.builder.scar_half_width *= kBulwarkScarSizeMult;
+        }
         // Territory: the site annulus and the roaming leash grow together,
         // so a cell that builds further out also wanders further. And
         // search_radius doubles as the builder's reach (TowerSystem.cpp), so
@@ -390,10 +376,6 @@ void apply_ability_lines(const TreeLevels& lv, AbilityConfig& abilities) {
     if (lv[N::ComplementChain] > 0) {
         cascade.chain_links = kCascadeBaseLinks + kCascadeLinksPerLevel * lv[N::ComplementChain];
     }
-
-    AbilityTuning& histamine = abilities.ability[static_cast<u32>(kHistamine)];
-    histamine.cooldown_seconds *= shrink(lv[N::HistamineCooldown], kCooldownCutPerLevel);
-    histamine.radius *= grow(lv[N::HistamineRadius], kHistamineRadiusPerLevel);
 
     AbilityTuning& fever = abilities.ability[static_cast<u32>(kFever)];
     fever.cooldown_seconds *= shrink(lv[N::FeverCooldown], kCooldownCutPerLevel);
@@ -468,7 +450,6 @@ TreeNode tower_root(TowerType t) {
 TreeNode ability_root(AbilityId id) {
     switch (id) {
     case AbilityId::ComplementCascadeBurst: return TreeNode::ComplementUnlock;
-    case AbilityId::HistamineFlare: return TreeNode::HistamineUnlock;
     case AbilityId::FeverResponse: return TreeNode::FeverUnlock;
     case AbilityId::FibrinClot: return TreeNode::ClotUnlock;
     case AbilityId::Count: break;
@@ -614,10 +595,6 @@ TreeEffects apply_immunity_tree(const TreeLevels& lv, GameConfig& cfg) {
     if (lv.owned(N::GobletCapstone)) {
         fx.immunity.contagion_radius = kContagionRadius;
         fx.immunity.contagion_seconds = kContagionSeconds;
-    }
-    if (lv.owned(N::FibroblastCapstone)) {
-        fx.immunity.scar_contact_rate = kScarContactRate;
-        fx.immunity.scar_contact_reach = kScarContactReach;
     }
     fx.immunity.slowed_damage_mult = grow(lv[N::GobletWeakness], kWeaknessPerLevel);
     if (lv[N::FibroblastInflammation] > 0) {

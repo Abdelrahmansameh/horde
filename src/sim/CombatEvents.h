@@ -128,7 +128,14 @@ enum class CombatEventType : u8 {
     /// centre, `radius` = its half-width, `magnitude` = the steps it fell
     /// this tick. Purely a cue for the debris; the sim reads nothing back.
     ScarChipped = 18,
-    Count = 19,
+    /// A spore's hose hit a friendly (sim/hostile/Harpoon.h): either its tip
+    /// biting into the membrane (`magnitude` 0) or a slug of toxin arriving
+    /// down it (`magnitude` = the damage). `origin` = the point on the
+    /// target's membrane, `direction` = shooter -> target (into the cell),
+    /// `secondary` = the target's centre, `radius` = its body radius,
+    /// `target_family` = the shooter's family. Capped per tick by the pass.
+    HarpoonPulse = 19,
+    Count = 20,
 };
 
 /// One instantaneous combat happening. Trivially copyable, kept small and flat

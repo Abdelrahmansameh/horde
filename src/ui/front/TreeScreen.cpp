@@ -126,7 +126,6 @@ public:
         if (e.type == EventType::Click && e.button == PointerButton::Left &&
             view.state != TreeNodeState::Available) {
             shake();
-            gui_.play(UiSound::Deny);
             e.handled = true;
             return;
         }

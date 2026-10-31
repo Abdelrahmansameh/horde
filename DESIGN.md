@@ -20,7 +20,7 @@ documentation are current defaults, not a promise that balance is final.
 | Roster | Neutrophil, Cytotoxic T, Macrophage, Goblet Cell, Fibroblast. A new campaign owns only Neutrophil. | [Immune cells](docs/IMMUNE_CELLS.md) |
 | Pathogens | Virus replicates and latches; bacteria fire toxin pellets; parasites slither and burrow. The game roster currently contains no elites or bosses. | [Pathogens](docs/PATHOGENS.md) |
 | Economy | ATP pays for cells. Removing pathogen density and finishing waves earn ATP. | [Abilities and economy](docs/ABILITIES_ECONOMY.md) |
-| Abilities | Complement Cascade Burst, Histamine Flare, Fever Response, Fibrin Clot, permanently unlocked through the tree. | [Abilities and economy](docs/ABILITIES_ECONOMY.md) |
+| Abilities | Complement Cascade Burst, Fever Response, Fibrin Clot, permanently unlocked through the tree. | [Abilities and economy](docs/ABILITIES_ECONOMY.md) |
 | Waves | A level supplies its spawn schedule. Normal play manually starts waves unless Auto is enabled. | [Gameplay](docs/GAMEPLAY.md) |
 | Campaign | The level selector uses the ordered `campaign_*.json` files; clearing the previous level opens the next. | [Progression](docs/PROGRESSION.md) |
 | Meta progression | One radial tree, two persistent currencies, implemented costs and effects, save migration, and respec. | [Progression](docs/PROGRESSION.md), [root progression overview](PROGRESSION.md) |

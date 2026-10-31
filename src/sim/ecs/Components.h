@@ -41,7 +41,7 @@ struct NamedAgent {
 };
 
 /// Behaviour state machine. Transitions are data-driven per archetype; the
-/// enum is fixed so UI/telegraph/audio can key off it.
+/// enum is fixed so UI/telegraph can key off it.
 enum class AiState : u8 {
     Spawning = 0,
     Advancing,     ///< Following the flow field.

@@ -537,3 +537,24 @@ TEST_CASE("a tower's death burst is authored from towers.json", "[config][game][
 
     immune::game::apply_tower_config(towers, restore.towers);
 }
+
+TEST_CASE("one full spore harpoon shot kills an unupgraded Macrophage", "[config][game][harpoon]") {
+    // The Spore's whole job (docs/PATHOGENS.md): a siege unit that one-shots
+    // the Macrophage it outranges, countered by Cytotoxic T swarms. A retune
+    // of either side that quietly breaks the one-shot changes the matchup.
+    for (const immune::game::GameConfig& cfg : {load_from("assets/config"),
+                                                 immune::game::default_game_config()}) {
+        const sim::HarpoonParams& hp =
+            cfg.enemies.families[static_cast<u32>(PathogenFamily::Spore)].harpoon;
+        const auto& macrophage = cfg.towers.mechanics[static_cast<u32>(TowerType::Macrophage)].swarm;
+        // pulses 0 pumps until the target dies; a fixed volley must be lethal.
+        const f32 shot = hp.pulses == 0u ? macrophage.max_health
+                                         : static_cast<f32>(hp.pulses) * hp.pulse_damage;
+        INFO("shot " << shot << " vs Macrophage " << macrophage.max_health);
+        REQUIRE(hp.enabled);
+        REQUIRE(hp.pulse_damage > 0.0f);
+        REQUIRE(shot >= macrophage.max_health);
+        // ...from outside the range the Macrophage starts looking for targets.
+        REQUIRE(hp.range > macrophage.search_radius);
+    }
+}

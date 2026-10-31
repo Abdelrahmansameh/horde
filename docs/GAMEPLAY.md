@@ -36,7 +36,7 @@ cursor handling live in [HudParts.cpp](../src/ui/hud/HudParts.cpp) and
 | Left click with a cell selected | Deploy one cell at the cursor if valid and affordable. |
 | Hold left button | Repeat deployment every 0.18 seconds by default. The hold timer uses UI time and does not accumulate a backlog. |
 | Shift with deployment | Request up to ten cells at that point per event; each successful cell costs ATP, and the batch stops on failure. |
-| `Q`, `W`, `E`, `R` | Complement Cascade Burst, Histamine Flare, Fever Response, Fibrin Clot. Targeted abilities arm a cursor; Fever casts immediately. |
+| `Q`, `W`, `E` | Complement Cascade Burst, Fever Response, Fibrin Clot. Targeted abilities arm a cursor; Fever casts immediately. |
 | Right click | Cancel an armed placement or ability cursor; otherwise clear legacy tower selection. |
 | Escape | Cancel an armed cursor/selection first; otherwise open the pause menu. In editor playtests it returns to the editor. |
 | Space | Send the current wave during Prep; otherwise toggle simulation time between paused and 1x. |

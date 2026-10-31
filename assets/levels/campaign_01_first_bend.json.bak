@@ -6,7 +6,7 @@
   "difficulty": 1,
   "tags": ["campaign"],
   "region": "capillary",
-  "world": { "min": [0, 13], "max": [200, 142.8] },
+  "world": { "min": [0, 10], "max": [200, 150] },
   "camera": { "center": [100, 71.4], "view_height": 108, "min_view_height": 82.08, "max_view_height": 108 },
   "economy": { "starting_atp": 300 },
   "vessels": [

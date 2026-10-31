@@ -19,7 +19,7 @@
     {
       "tick": 60,
       "type": "cmd",
-      "cmd": "cast complement at 150,75; cast histamine at 150,75"
+      "cmd": "cast complement at 150,75; cast fever"
     },
     {
       "tick": 90,

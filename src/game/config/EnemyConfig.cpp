@@ -216,18 +216,44 @@ constexpr Schema kBurrowSchema{"family_burrow", kBurrowFields};
 constexpr Field kSlitherFields[] = {
     IMMUNE_CONFIG_FIELD(sim::SlitherParams, enabled, FieldKind::Bool, "False: this family is not drawn as a worm"),
     IMMUNE_CONFIG_FIELD(sim::SlitherParams, wavelength, FieldKind::F32, "World units between body-wave crests; crests stay put on the ground as it moves"),
-    IMMUNE_CONFIG_FIELD(sim::SlitherParams, idle_rate, FieldKind::F32, "Wave cycles/sec even when standing still"),
+    IMMUNE_CONFIG_FIELD(sim::SlitherParams, idle_rate, FieldKind::F32, "Wave cycles/sec only while stationary"),
     IMMUNE_CONFIG_FIELD(sim::SlitherParams, turn_rate, FieldKind::F32, "Radians/sec the drawn heading follows the velocity"),
     IMMUNE_CONFIG_FIELD(sim::SlitherParams, amplitude, FieldKind::F32, "Sideways swing, local sprite units"),
-    IMMUNE_CONFIG_FIELD(sim::SlitherParams, head_amplitude, FieldKind::F32, "Multiple of the swing at the head; >1 swings it wider"),
-    IMMUNE_CONFIG_FIELD(sim::SlitherParams, curl, FieldKind::F32, "Slow whole-body C-bend on top of the wave, local sprite units"),
-    IMMUNE_CONFIG_FIELD(sim::SlitherParams, probe, FieldKind::F32, "The head's own searching sweep, local sprite units"),
+    IMMUNE_CONFIG_FIELD(sim::SlitherParams, head_amplitude, FieldKind::F32, "Primary travelling wave swing multiplier (legacy name)"),
+    IMMUNE_CONFIG_FIELD(sim::SlitherParams, curl, FieldKind::F32, "Long travelling bend, local sprite units"),
+    IMMUNE_CONFIG_FIELD(sim::SlitherParams, probe, FieldKind::F32, "Fine travelling searching wave, local sprite units"),
     IMMUNE_CONFIG_FIELD(sim::SlitherParams, body_length, FieldKind::F32, "Head to tail, local sprite units (the quad spans about 1.9)"),
     IMMUNE_CONFIG_FIELD(sim::SlitherParams, thickness, FieldKind::F32, "Half-width at the thickest point, local sprite units"),
     IMMUNE_CONFIG_FIELD(sim::SlitherParams, segments, FieldKind::F32, "Annulation rings along the body"),
     IMMUNE_CONFIG_FIELD(sim::SlitherParams, min_speed, FieldKind::F32, "World units/sec below which the drawn heading holds still"),
 };
 constexpr Schema kSlitherSchema{"family_slither", kSlitherFields};
+
+// The ranged hose (sim/hostile/Harpoon.h). Seconds, world units and hit points
+// for the gameplay half; world units and a colour for the look.
+constexpr Field kHarpoonFields[] = {
+    IMMUNE_CONFIG_FIELD(sim::HarpoonParams, enabled, FieldKind::Bool, "False: this family never fires a harpoon"),
+    IMMUNE_CONFIG_FIELD(sim::HarpoonParams, range, FieldKind::F32, "Reach from the shooter's centre to the target's membrane, world units"),
+    IMMUNE_CONFIG_FIELD(sim::HarpoonParams, windup, FieldKind::F32, "Seconds planted and squeezing up before the hose leaves"),
+    IMMUNE_CONFIG_FIELD(sim::HarpoonParams, extend_speed, FieldKind::F32, "Hose tip speed in flight, world units/sec"),
+    IMMUNE_CONFIG_FIELD(sim::HarpoonParams, pulses, FieldKind::U32, "Slugs of toxin pumped down the hose per shot, at most 4; 0 pumps until the target dies"),
+    IMMUNE_CONFIG_FIELD(sim::HarpoonParams, pulse_damage, FieldKind::F32, "Hit points one slug takes off when it reaches the target"),
+    IMMUNE_CONFIG_FIELD(sim::HarpoonParams, pulse_interval, FieldKind::F32, "Seconds between slugs leaving the nozzle"),
+    IMMUNE_CONFIG_FIELD(sim::HarpoonParams, pulse_speed, FieldKind::F32, "Slug speed down the hose, world units/sec"),
+    IMMUNE_CONFIG_FIELD(sim::HarpoonParams, reload, FieldKind::F32, "Seconds from letting go to the next windup"),
+    IMMUNE_CONFIG_FIELD(sim::HarpoonParams, retry, FieldKind::F32, "Seconds between target searches"),
+    IMMUNE_CONFIG_FIELD(sim::HarpoonParams, break_range, FieldKind::F32, "The hose lets go when the target gets further than this, world units"),
+    IMMUNE_CONFIG_FIELD(sim::HarpoonParams, hold, FieldKind::F32, "Fraction of its speed and crowd push a shooter gives up while it fights or has a target in range; 1 stands still"),
+    IMMUNE_CONFIG_FIELD(sim::HarpoonParams, retract_seconds, FieldKind::F32, "Look: seconds the hose takes to reel in, or a severed one to fade"),
+    IMMUNE_CONFIG_FIELD(sim::HarpoonParams, thickness, FieldKind::F32, "Look: hose half-width, world units"),
+    IMMUNE_CONFIG_FIELD(sim::HarpoonParams, bulge, FieldKind::F32, "Look: extra half-width over a slug, multiple of thickness"),
+    IMMUNE_CONFIG_FIELD(sim::HarpoonParams, slug_length, FieldKind::F32, "Look: world units a slug's swelling spans"),
+    IMMUNE_CONFIG_FIELD(sim::HarpoonParams, whip, FieldKind::F32, "Look: sideways lash of the hose in flight, world units"),
+    IMMUNE_CONFIG_FIELD(sim::HarpoonParams, sway, FieldKind::F32, "Look: sideways ripple left on an anchored hose, world units"),
+    IMMUNE_CONFIG_FIELD(sim::HarpoonParams, wavelength, FieldKind::F32, "Look: world units between the hose's crests"),
+    IMMUNE_CONFIG_FIELD(sim::HarpoonParams, fluid_color, FieldKind::Vec4, "Look: RGBA of the toxin inside the hose and its slugs"),
+};
+constexpr Schema kHarpoonSchema{"family_harpoon", kHarpoonFields};
 
 constexpr Field kBaseAttackFields[] = {
     IMMUNE_CONFIG_FIELD(BaseAttackParams, active, FieldKind::F32, "Seconds the strike is live"),
@@ -255,6 +281,7 @@ const char* family_key(PathogenFamily f) {
         case PathogenFamily::Virus: return "virus";
         case PathogenFamily::Bacteria: return "bacteria";
         case PathogenFamily::Parasite: return "parasite";
+        case PathogenFamily::Spore: return "spore";
         case PathogenFamily::Count: break;
     }
     return "virus";
@@ -272,7 +299,8 @@ const char* speed_tier_key(SpeedTier t) {
 
 constexpr std::string_view kFamilyEntryKeys[] = {"speed_tier", "visual", "behavior", "chaff",
                                                  "death_vfx", "hit_flash", "replication_split",
-                                                 "latch_throb", "attack", "burrow", "slither"};
+                                                 "latch_throb", "attack", "burrow", "slither",
+                                                 "harpoon"};
 constexpr std::string_view kEliteEntryKeys[] = {"id", "name", "family", "tier", "stats"};
 
 } // namespace
@@ -364,6 +392,11 @@ void parse_enemies(const Json& doc, EnemyConfig& out, config::Ctx& ctx) {
                 config::parse_struct(config::require_object(entry, "slither", ctx), kSlitherSchema,
                                      &fc.slither, ctx);
             }
+            {
+                config::Ctx::Scope hp(ctx, "harpoon");
+                config::parse_struct(config::require_object(entry, "harpoon", ctx), kHarpoonSchema,
+                                     &fc.harpoon, ctx);
+            }
         }
     }
 
@@ -447,6 +480,9 @@ Json dump_enemies(const EnemyConfig& cfg) {
         Json slither = Json::object();
         config::dump_struct(slither, kSlitherSchema, &fc.slither);
         entry["slither"] = std::move(slither);
+        Json harpoon = Json::object();
+        config::dump_struct(harpoon, kHarpoonSchema, &fc.harpoon);
+        entry["harpoon"] = std::move(harpoon);
         families[family_key(static_cast<PathogenFamily>(i))] = std::move(entry);
     }
     doc["families"] = std::move(families);
@@ -492,6 +528,7 @@ void bind_enemies(config::Registry& registry, EnemyConfig& cfg) {
         registry.bind(base + "attack", kAttackSchema, &cfg.families[i].attack);
         registry.bind(base + "burrow", kBurrowSchema, &cfg.families[i].burrow);
         registry.bind(base + "slither", kSlitherSchema, &cfg.families[i].slither);
+        registry.bind(base + "harpoon", kHarpoonSchema, &cfg.families[i].harpoon);
     }
     registry.bind("enemies.base_attack", kBaseAttackSchema, &cfg.base_attack);
     for (EliteConfig& ec : cfg.elites) {

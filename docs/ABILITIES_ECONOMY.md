@@ -54,18 +54,17 @@ have independent cooldowns. A successful cast starts its cooldown; a refused
 cast does not. `ActiveAbilitySystem::tick()` reduces timers by fixed simulation
 dt, including Prep. New runs reset them.
 
-The HUD uses Q/W/E/R in the following order. Complement, Histamine, and Clot
-arm a world cursor and cast on the next world click; right-click/Escape
-cancels. Fever ignores a target and casts immediately when its button or E is
-pressed. A new campaign starts with none unlocked. Sandbox tools expose all
-four baseline abilities.
+The HUD uses Q/W/E in the following order. Complement and Clot arm a world
+cursor and cast on the next world click; right-click/Escape cancels. Fever
+ignores a target and casts immediately when its button or W is pressed. A new
+campaign starts with none unlocked. Sandbox tools expose all three baseline
+abilities.
 
 | Ability | Cooldown | Current baseline effect |
 | --- | ---: | --- |
 | Complement Cascade Burst (`Q`) | 90 seconds | Short chain-shaped damage field: radius 6 per hop, kill rate 120, up to eight default links. |
-| Histamine Flare (`W`) | 45 seconds | Soft-edged circle at the clicked point: radius 14, kill rate 30, duration 1.5 seconds, falloff 1. |
-| Fever Response (`E`) | 60 seconds | Heal every surviving deployed cell by 30% of that cell's maximum HP, capped at max. |
-| Fibrin Clot (`R`) | 75 seconds | Solid bar oriented across local flow: full length 14, full width 3, lifetime 8 seconds. |
+| Fever Response (`W`) | 60 seconds | Heal every surviving deployed cell by 30% of that cell's maximum HP, capped at max. |
+| Fibrin Clot (`E`) | 75 seconds | Solid bar oriented across local flow: full length 14, full width 3, lifetime 8 seconds. |
 
 ## Damage abilities
 
@@ -77,7 +76,6 @@ tree's Chain Links line adds two links per level. This is a chain field over
 ordinary chaff, not an unrestricted screen-wide deletion or a direct named
 enemy attack.
 
-Histamine submits a timed circular field with soft edge falloff.
 `kill_rate` is simulation damage tuning, not a promised number of agents
 killed: the current density-thinning path removes `rate * dt * multiplier`
 from eligible agents, subject to shape/falloff and debuffs. The damage system
@@ -85,8 +83,8 @@ also supports a probabilistic thinning mode. See
 [DamageField.cpp](../src/sim/damage/DamageField.cpp) before translating a rate
 into a player-facing description.
 
-Both casts can be aimed without cell-placement-zone checks. They still only
-damage eligible agents within their queried geometry; clicking an empty point
+The cast can be aimed without cell-placement-zone checks. It still only
+damages eligible agents within its queried geometry; clicking an empty point
 can waste a ready cast. Hidden burrowed parasites are not eligible targets.
 
 ## Fever healing

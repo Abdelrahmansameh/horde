@@ -19,6 +19,12 @@
 //   Bacteria  TOXIN.  Bacteria launch visible pellets at nearby friendlies.
 //                     Each pellet flies to the aimed position and deals one
 //                     hit on contact. Shots are staggered across the horde.
+//   Spore     HARPOON. From far off, a spore plants itself and fires a liquid
+//                     hose into the biggest friendly in range, then pumps
+//                     slugs of toxin down it (sim/hostile/Harpoon.h). Unlike
+//                     the two above it is driven from the SHOOTER's side: a
+//                     sniper reaches past the few cells a friendly's capped
+//                     hash walk sees, and there are only ever a few spores.
 //
 // Any family can use these attacks: they are per-family numbers in
 // HostileFamilyParams. Towers and swarmers are both possible targets;
@@ -69,6 +75,7 @@
 
 #include "core/Types.h"
 #include "sim/chaff/ChaffBuffers.h"
+#include "sim/hostile/Harpoon.h"
 #include "sim/spatial/SpatialHash.h"
 #include "sim/swarm/Swarmers.h"
 
@@ -122,6 +129,8 @@ struct HostileFamilyParams {
 
 struct HostileTuning {
     HostileFamilyParams family[kFamilyCount]{};
+    /// Each family's harpoon (sim/hostile/Harpoon.h); off unless enabled.
+    HarpoonParams harpoon[kFamilyCount]{};
     /// Master switch. Off, the pass does nothing at all and the world is the
     /// pre-hostile world; a SimDesc built without a game config ships it OFF
     /// with every family harmless, so a bare test world is unchanged.
@@ -136,6 +145,11 @@ struct HostileTuning {
     /// PathogenLatch events raised per tick, out of the shared sink.
     u32 max_latch_events = 64;
     u32 max_toxin_shots = 4096;
+    /// Hoses alive at once. A spore that would make one more stays ready and
+    /// searches again later.
+    u32 max_harpoons = 1024;
+    /// HarpoonPulse events raised per tick, out of the shared sink.
+    u32 max_harpoon_events = 64;
     /// Multiplier on every hit point the pass takes off a tower, scar or
     /// swarmer. Membrane Resilience (game/meta/ImmunityTree.h) lowers it; 1
     /// is the pass exactly as the families configure it.
@@ -190,6 +204,8 @@ struct HostileStats {
     u32 aura_hits = 0;        ///< (friendly, pathogen) pairs inside an optional aura this tick.
     u32 toxin_fired = 0;
     u32 toxin_hits = 0;
+    u32 harpoons_fired = 0;   ///< Hoses that left a nozzle this tick.
+    u32 harpoon_hits = 0;     ///< Slugs that reached their target this tick.
     u32 swarmers_killed = 0;
     f32 swarmer_damage = 0.0f;
     f32 tower_damage = 0.0f;  ///< Queued against towers; SimWorld lands it.
@@ -238,8 +254,15 @@ public:
 
     const HostileStats& last_stats() const { return last_; }
     const std::vector<ToxinShot>& toxin_shots() const { return toxin_shots_; }
+    /// Every live hose, in no meaningful order (Harpoon.h).
+    const std::vector<HarpoonLine>& harpoons() const { return harpoons_; }
 
 private:
+    /// The harpoon pass (Harpoon.h): first every live hose, then every
+    /// shooter. Runs after the friendly walks, before deaths.
+    void update_harpoons(ChaffBuffers& chaff, SwarmerBuffers& sw, FriendlyTowerList& towers,
+                         f32 dt, CombatEventSink* events, HostileStats& stats);
+
     HostileTuning tuning_{};
     HostileStats last_{};
     f32 chaff_radius_[kFamilyCount]{};
@@ -254,6 +277,10 @@ private:
     std::vector<ToxinShot> toxin_shots_;
     std::vector<u32> shot_stamp_;
     u32 shot_tick_ = 0;
+    std::vector<HarpoonLine> harpoons_;
+    /// Per-chaff stamp: this shooter's heading was turned by its hose this
+    /// tick, so the shooter walk leaves it alone.
+    std::vector<u32> aim_stamp_;
 };
 
 } // namespace immune::sim

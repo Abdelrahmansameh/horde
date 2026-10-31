@@ -64,7 +64,8 @@ ImVec4 family_tint(PathogenFamily f, const game::EnemyRoster* roster) {
     }
     switch (f) {
         case PathogenFamily::Virus: return ImVec4(0.5f, 0.8f, 1.0f, 1.0f);
-        case PathogenFamily::Parasite: return ImVec4(0.55f, 0.30f, 0.15f, 1.0f);
+        case PathogenFamily::Parasite: return ImVec4(0.68f, 0.46f, 0.96f, 1.0f);
+        case PathogenFamily::Spore: return ImVec4(0.99f, 0.76f, 0.17f, 1.0f);
         default: return ImVec4(0.9f, 0.75f, 0.35f, 1.0f);
     }
 }
@@ -74,6 +75,7 @@ const char* family_label(PathogenFamily f, const game::EnemyRoster* roster) {
     switch (f) {
         case PathogenFamily::Virus: return "virus";
         case PathogenFamily::Parasite: return "parasite";
+        case PathogenFamily::Spore: return "spore";
         default: return "bacteria";
     }
 }

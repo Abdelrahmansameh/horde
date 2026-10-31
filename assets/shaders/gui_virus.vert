@@ -19,6 +19,8 @@ flat out uint v_flags;
 out float v_anim_phase;
 out float v_wobble;
 flat out vec2 v_shadow_offset;
+flat out float v_scale;
+flat out float v_curvature;
 
 void main() {
     Material m = materials[a_mode_record & 0x0FFFFFFFu];
@@ -29,6 +31,8 @@ void main() {
     v_flags = 0u; // ordinary, whole virus; no combat status or density LOD
     v_anim_phase = m.geom.x;
     v_wobble = m.geom.z;
+    v_scale = 1.0;
+    v_curvature = 0.0;
     float c = cos(m.geom.y), s = sin(m.geom.y);
     vec2 delta = vec2(0.10, -0.24); // chaff.vert's directional shadow/body lift
     v_shadow_offset = vec2(delta.x * c + delta.y * s, -delta.x * s + delta.y * c);

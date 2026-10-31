@@ -11,12 +11,14 @@
 //   3. TOWERS      the same, for every tower SimWorld listed -- and every
 //                  scar, which is a BAR host: walked in segments along its
 //                  length, measured to its nearest face (bar_* below).
+//   3b. HARPOONS   every live spore hose, then every spore (Harpoon.h): hoses
+//                  fly, anchor and pump; shooters search, plant and reload.
 //   4. DEATHS      units at or below zero health are flagged for compaction
 //                  and announced to the VFX sink.
 //
 // Order matters twice. 1 before 2/3 so this tick's passenger count is known
 // before the caps are tested; 4 last so a unit that both took aura damage
-// and gained a passenger this tick dies exactly once.
+// and gained a passenger (or a slug of toxin) this tick dies exactly once.
 #include "sim/hostile/HostileAttacks.h"
 
 #include "core/Math.h"
@@ -235,7 +237,63 @@ bool attacker(const ChaffBuffers& chaff, u32 j) {
     return true;
 }
 
+// ---------------------------------------------------------------------------
+// Harpoon (Harpoon.h)
+// ---------------------------------------------------------------------------
+
+/// Radians/sec a drawn spore turns: quick onto its target, lazy while walking.
+constexpr f32 kAimTurnRate = 9.0f;
+constexpr f32 kWalkTurnRate = 3.0f;
+/// Below this speed a walking spore keeps the heading it has.
+constexpr f32 kWalkTurnMinSpeed = 0.3f;
+/// 1/seconds a spore takes to plant or uproot (`hold` easing toward its goal).
+constexpr f32 kHoldRate = 8.0f;
+/// Seconds of the launch recoil carried in harpoon_anim through kFire.
+constexpr f32 kFireAnimSeconds = 0.3f;
+/// kPump beat progress a spore rests at once its last slug is out: past the
+/// kick, short of 0.45, where spore_pose() in chaff.frag starts the squeeze
+/// that would push the next one.
+constexpr f32 kPumpRestProgress = 0.4f;
+/// How far inside the target's body radius the hose bites, so its tip sits
+/// under the cell's own drawn membrane.
+constexpr f32 kAnchorDepth = 0.85f;
+
+f32 wrap_pi(f32 a) {
+    while (a > math::kPi) a -= math::kTwoPi;
+    while (a <= -math::kPi) a += math::kTwoPi;
+    return a;
+}
+
+/// Signed turn from `heading` toward `target`, at most `max_turn` either way.
+f32 turn_toward(f32 heading, f32 target, f32 max_turn) {
+    return math::clamp(wrap_pi(target - heading), -max_turn, max_turn);
+}
+
+struct HarpoonTables {
+    HarpoonParams harpoon[kFamilyCount]{};
+    // Without a config the renderer still knows the Spore draws a hose.
+    HarpoonTables() { harpoon[static_cast<u32>(PathogenFamily::Spore)].enabled = true; }
+};
+
+HarpoonTables& harpoon_tables() {
+    static HarpoonTables t;
+    return t;
+}
+
+u32 harpoon_slot(PathogenFamily family) {
+    const u32 i = static_cast<u32>(family);
+    return i < kFamilyCount ? i : 0u;
+}
+
 } // namespace
+
+const HarpoonParams& family_harpoon(PathogenFamily family) {
+    return harpoon_tables().harpoon[harpoon_slot(family)];
+}
+
+void set_family_harpoon(PathogenFamily family, const HarpoonParams& params) {
+    harpoon_tables().harpoon[harpoon_slot(family)] = params;
+}
 
 // ---------------------------------------------------------------------------
 // Tower list
@@ -315,8 +373,14 @@ HostileStats HostileSystem::update(ChaffBuffers& chaff, const SpatialHash& hash,
     // a virus frozen on a tower for the rest of the run.
     if (!tuning_.enabled || dt <= 0.0f) {
         toxin_shots_.clear();
+        // Every hose goes with it, and every spore is uprooted and ready.
+        harpoons_.clear();
         for (usize i = 0; i < chaff_n; ++i) {
             if ((chaff.flags[i] & chaff_flags::kLatched) != 0) release(i);
+            chaff.harpoon_state[i] = harpoon_state::kReady;
+            chaff.harpoon_sighted[i] = 0u;
+            chaff.harpoon_anim[i] = 0.0f;
+            chaff.hold[i] = 0.0f;
         }
         last_ = stats;
         return last_;
@@ -550,10 +614,9 @@ HostileStats HostileSystem::update(ChaffBuffers& chaff, const SpatialHash& hash,
                                         chaff_radius_[f] * chaff.max_size_scale() + fp.latch_reach);
         }
     }
-    if (reach_past_body <= 0.0f) {
-        last_ = stats;
-        return last_;
-    }
+    // No latch, aura or toxin anywhere: the friendly walks below would find
+    // nothing to do. The harpoon is the shooter's own walk and still runs.
+    const bool walk_friendlies = reach_past_body > 0.0f;
 
     u32 latch_events = 0;
     // Grabs chaff j onto a host at `host_pos` with body `host_body`, and
@@ -596,7 +659,7 @@ HostileStats HostileSystem::update(ChaffBuffers& chaff, const SpatialHash& hash,
     };
 
     // ---- 2. SWARMERS ------------------------------------------------------
-    for (usize i = 0; i < sw_n; ++i) {
+    for (usize i = 0; walk_friendlies && i < sw_n; ++i) {
         if ((sw.flags[i] & swarmer_flags::kPendingKill) != 0) continue;
         const SwarmerProfile& pr = sw.profile_of(i);
         const Vec2 p{sw.pos_x[i], sw.pos_y[i]};
@@ -646,7 +709,7 @@ HostileStats HostileSystem::update(ChaffBuffers& chaff, const SpatialHash& hash,
     }
 
     // ---- 3. TOWERS --------------------------------------------------------
-    for (usize k = 0; k < towers.items.size(); ++k) {
+    for (usize k = 0; walk_friendlies && k < towers.items.size(); ++k) {
         const FriendlyTower& t = towers.items[k];
         const Vec2 p = t.position;
         const f32 body = t.radius;
@@ -751,6 +814,9 @@ HostileStats HostileSystem::update(ChaffBuffers& chaff, const SpatialHash& hash,
         }
     }
 
+    // ---- 3b. HARPOONS -----------------------------------------------------
+    update_harpoons(chaff, sw, towers, dt, events, stats);
+
     // ---- 4. DEATHS --------------------------------------------------------
     for (usize i = 0; i < sw_n; ++i) {
         if ((sw.flags[i] & swarmer_flags::kPendingKill) != 0) continue;
@@ -762,6 +828,379 @@ HostileStats HostileSystem::update(ChaffBuffers& chaff, const SpatialHash& hash,
 
     last_ = stats;
     return last_;
+}
+
+// ---------------------------------------------------------------------------
+// 3b. Harpoons (Harpoon.h)
+// ---------------------------------------------------------------------------
+
+void HostileSystem::update_harpoons(ChaffBuffers& chaff, SwarmerBuffers& sw, FriendlyTowerList& towers,
+                                    f32 dt, CombatEventSink* events, HostileStats& stats) {
+    bool armed = false;
+    for (u32 f = 0; f < kFamilyCount; ++f) armed = armed || tuning_.harpoon[f].enabled;
+    if (!armed && harpoons_.empty()) return;
+
+    const usize chaff_n = chaff.count();
+    const usize sw_n = sw.count();
+    if (aim_stamp_.size() < chaff.capacity()) aim_stamp_.resize(chaff.capacity(), 0u);
+
+    // A target as the hose sees it: where, how big, and whether it can still
+    // be hit at all. Swarmers by slot + generation, towers by id, exactly as
+    // a ToxinShot names its target.
+    struct Body {
+        Vec2 p{0.0f, 0.0f};
+        f32 r = 0.0f;
+        bool ok = false;
+    };
+    const auto body_of = [&](u32 index, u32 generation, bool tower) {
+        Body b;
+        if (tower) {
+            const usize k = towers.find(EntityId{index});
+            if (k != FriendlyTowerList::npos) b = Body{towers.items[k].position, towers.items[k].radius, true};
+        } else if (sw.alive_at(index, generation) && (sw.flags[index] & swarmer_flags::kPendingKill) == 0 &&
+                   sw.health[index] > 0.0f) {
+            // A cell whose health is spent is dead, even before the swarm
+            // pass retires it: a hose pumping until its target dies lets go.
+            b = Body{Vec2{sw.pos_x[index], sw.pos_y[index]}, sw.body_size(index) * kWallContactFraction, true};
+        }
+        return b;
+    };
+    const auto shooter_radius = [&](usize i) {
+        const u32 fam = chaff.family[i] < kFamilyCount ? chaff.family[i] : 0u;
+        return chaff_radius_[fam] * chaff.size_scale[i];
+    };
+    // Turns a shooter's drawn body toward `dir`, and marks it turned.
+    const auto aim = [&](usize i, Vec2 dir) {
+        if (math::length_sq(dir) <= math::kEpsilon) return;
+        const f32 turn = turn_toward(chaff.body_heading[i], std::atan2(dir.y, dir.x), kAimTurnRate * dt);
+        chaff.body_heading[i] = wrap_pi(chaff.body_heading[i] + turn);
+        chaff.body_heading_delta[i] = turn;
+        aim_stamp_[i] = shot_tick_;
+    };
+    // The hose lets go: any slugs still in it are lost, it starts reeling in,
+    // and its shooter (when there is one to tell) starts reloading.
+    const auto let_go = [&](HarpoonLine& line, usize shooter, const HarpoonParams& hp) {
+        line.released = 0.0f;
+        for (f32& p : line.pulse) p = -1.0f;
+        if (shooter != ChaffBuffers::npos) {
+            chaff.harpoon_state[shooter] = harpoon_state::kRecover;
+            chaff.harpoon_timer[shooter] = math::max(hp.reload, 0.0f);
+        }
+    };
+    u32 events_raised = 0;
+    const auto splash = [&](const HarpoonLine& line, Vec2 dir, const Body& target, f32 damage) {
+        if (events == nullptr || events_raised >= tuning_.max_harpoon_events) return;
+        ++events_raised;
+        CombatEvent e;
+        e.type = CombatEventType::HarpoonPulse;
+        e.target_family = static_cast<PathogenFamily>(line.family);
+        e.origin = line.anchor;
+        e.secondary = target.p;
+        e.direction = dir;
+        e.radius = target.r;
+        e.magnitude = damage;
+        events->push(e);
+    };
+    const auto remove_line = [&](usize li) {
+        harpoons_[li] = harpoons_.back();
+        harpoons_.pop_back();
+    };
+
+    // ---- the hoses ----------------------------------------------------------
+    for (usize li = 0; li < harpoons_.size();) {
+        HarpoonLine& line = harpoons_[li];
+        const HarpoonParams& hp = tuning_.harpoon[line.family < kFamilyCount ? line.family : 0u];
+        line.prev_origin = line.origin;
+        line.prev_anchor = line.anchor;
+        const usize s = chaff.resolve(line.shooter);
+        const bool shooter_live =
+            s != ChaffBuffers::npos &&
+            (chaff.flags[s] & (chaff_flags::kPendingKill | chaff_flags::kHidden | chaff_flags::kLatched)) == 0;
+
+        // Letting go: reeled in toward a nozzle that keeps following its
+        // spore, landing at the nozzle exactly retract_seconds after the
+        // release; or, severed, lying where it fell until it fades.
+        if (line.released >= 0.0f) {
+            const f32 retract = math::max(hp.retract_seconds, 1e-3f);
+            const f32 left = math::max(retract - line.released, dt);
+            line.released += dt;
+            if (!shooter_live) line.severed = true;
+            if (!line.severed) {
+                const Vec2 sp{chaff.pos_x[s], chaff.pos_y[s]};
+                line.origin = sp + math::normalize_safe(line.anchor - sp) * shooter_radius(s);
+                line.reach = math::max(0.0f, line.reach - line.reach * math::min(dt / left, 1.0f));
+            }
+            if (line.released >= retract && (line.severed || line.reach <= 0.0f)) {
+                remove_line(li);
+                continue;
+            }
+            ++li;
+            continue;
+        }
+
+        // The spore died, or was swallowed, mid-shot: the hose is severed
+        // and does no more harm. One still alive inside a Macrophage arm
+        // goes back to reloading; a dead one has nobody to tell.
+        if (!shooter_live) {
+            line.severed = true;
+            const bool alive = s != ChaffBuffers::npos && (chaff.flags[s] & chaff_flags::kPendingKill) == 0;
+            let_go(line, alive ? s : ChaffBuffers::npos, hp);
+            if (line.reach <= 0.0f) {
+                remove_line(li);
+                continue;
+            }
+            ++li;
+            continue;
+        }
+
+        const Vec2 sp{chaff.pos_x[s], chaff.pos_y[s]};
+        const Body target = body_of(line.target_index, line.target_generation, line.target_tower);
+        const Vec2 to = target.p - sp;
+        const f32 dist = math::length(to);
+        if (!target.ok || dist - target.r > hp.break_range) {
+            let_go(line, s, hp);
+            if (line.reach <= 0.0f) {
+                remove_line(li);
+                continue;
+            }
+            ++li;
+            continue;
+        }
+        const f32 heading = chaff.body_heading[s];
+        const Vec2 dir = dist > 1e-4f ? to * (1.0f / dist) : Vec2{std::cos(heading), std::sin(heading)};
+        line.origin = sp + dir * shooter_radius(s);
+        line.anchor = target.p - dir * (target.r * kAnchorDepth);
+        aim(s, dir);
+
+        u8& st = chaff.harpoon_state[s];
+        f32& tm = chaff.harpoon_timer[s];
+        const f32 span = math::max(math::length(line.anchor - line.origin), 1e-3f);
+        switch (st) {
+        case harpoon_state::kDraw:
+            tm -= dt;
+            if (tm <= 0.0f) {
+                st = harpoon_state::kFire;
+                tm = 0.0f;
+                line.age = 0.0f;
+                ++stats.harpoons_fired;
+            }
+            break;
+        case harpoon_state::kFire:
+            tm += dt;
+            line.age += dt;
+            line.reach += math::max(hp.extend_speed, 1.0f) * dt;
+            if (line.reach >= span) {
+                line.reach = span;
+                line.attached = 0.0f;
+                line.next_pulse = 0.0f;
+                st = harpoon_state::kPump;
+                tm = 0.0f;
+                splash(line, dir, target, 0.0f);
+            }
+            break;
+        case harpoon_state::kPump: {
+            tm += dt;
+            line.age += dt;
+            line.attached += dt;
+            line.reach = span;
+            // `pulses` 0: no fixed volley, it pumps until the target is dead
+            // (body_of stops finding it), gets away, or the spore dies.
+            const bool endless = hp.pulses == 0u;
+            const u32 pulses = math::min(math::max(hp.pulses, 1u), kHarpoonMaxPulses);
+            // Slugs already in the hose move down it; one that reaches the
+            // end is the hit. Damage lands here and nowhere else, so what
+            // the player sees arrive is what hurts.
+            bool in_hose = false;
+            for (f32& p : line.pulse) {
+                if (p < 0.0f) continue;
+                p += math::max(hp.pulse_speed, 1.0f) * dt / span;
+                if (p < 1.0f) {
+                    in_hose = true;
+                    continue;
+                }
+                p = -1.0f;
+                const f32 damage = hp.pulse_damage * tuning_.damage_taken_mult;
+                if (line.target_tower) {
+                    const usize k = towers.find(EntityId{line.target_index});
+                    towers.damage[k] += damage;
+                    stats.tower_damage += damage;
+                } else {
+                    const u32 k = line.target_index;
+                    sw.observe_hostile_damage(k, sw.health[k], damage);
+                    sw.health[k] -= damage;
+                    stats.swarmer_damage += damage;
+                }
+                ++stats.harpoon_hits;
+                splash(line, dir, target, damage);
+            }
+            // The next slug leaves the nozzle. tm is the run-up to the one
+            // after it, which drives the shooter's squeeze: the bolus it
+            // pushes reaches the nozzle just as that slug leaves.
+            line.next_pulse -= dt;
+            if ((endless || line.pulses_fired < pulses) && line.next_pulse <= 0.0f) {
+                f32* slot = nullptr;
+                for (f32& p : line.pulse) {
+                    if (p >= 0.0f) continue;
+                    slot = &p;
+                    break;
+                }
+                if (slot != nullptr) {
+                    *slot = 0.0f;
+                    ++line.pulses_fired;   // wraps when endless; only read when not
+                    line.next_pulse += math::max(hp.pulse_interval, dt);
+                    tm = 0.0f;
+                    in_hose = true;
+                } else {
+                    line.next_pulse = 0.0f;   // the hose is full: the next leaves when a slot frees
+                }
+            }
+            // None left to push: play out the kick and rest.
+            const bool spent = !endless && line.pulses_fired >= pulses;
+            if (spent) tm = math::min(tm, kPumpRestProgress * math::max(hp.pulse_interval, 1e-3f));
+            if (spent && !in_hose) let_go(line, s, hp);
+            break;
+        }
+        default:
+            // Its shooter is not fighting any more (a hot reload, or a test
+            // poking its state): the hose has nothing to do but go.
+            let_go(line, s, hp);
+            break;
+        }
+        ++li;
+    }
+
+    // ---- the shooters -------------------------------------------------------
+    for (usize i = 0; i < chaff_n; ++i) {
+        const u32 fam = chaff.family[i] < kFamilyCount ? chaff.family[i] : 0u;
+        const HarpoonParams& hp = tuning_.harpoon[fam];
+        if (!hp.enabled) continue;
+        const u8 flags = chaff.flags[i];
+        if ((flags & chaff_flags::kPendingKill) != 0) continue;
+        u8& st = chaff.harpoon_state[i];
+        f32& tm = chaff.harpoon_timer[i];
+        f32& scan = chaff.harpoon_scan[i];
+        const Vec2 p{chaff.pos_x[i], chaff.pos_y[i]};
+        const Vec2 v{chaff.vel_x[i], chaff.vel_y[i]};
+
+        // First sight of a new spore: stagger its searches across the horde
+        // and face it the way it is going rather than swinging round from 0.
+        if (scan < 0.0f) {
+            scan = static_cast<f32>(chaff.generation[i] % 8u) * (math::max(hp.retry, dt) / 8.0f);
+            if (math::length_sq(v) > kWalkTurnMinSpeed * kWalkTurnMinSpeed) {
+                chaff.body_heading[i] = std::atan2(v.y, v.x);
+            }
+            chaff.body_heading_delta[i] = 0.0f;
+        } else {
+            scan = math::max(0.0f, scan - dt);
+        }
+
+        // A shooter whose hose went missing (the line cap, a cleared list)
+        // reloads rather than standing drawn forever.
+        bool engaged = st == harpoon_state::kDraw || st == harpoon_state::kFire ||
+                       st == harpoon_state::kPump;
+        if (engaged && aim_stamp_[i] != shot_tick_) {
+            st = harpoon_state::kRecover;
+            tm = math::max(hp.reload, 0.0f);
+            engaged = false;
+        }
+        if (st == harpoon_state::kRecover) {
+            tm -= dt;
+            if (tm <= 0.0f) {
+                st = harpoon_state::kReady;
+                tm = 0.0f;
+            }
+        }
+
+        // Search: the BIGGEST friendly in range, nearest among equals. A
+        // Cytotoxic T riding the spore itself is a legal target; it is only
+        // ever the last one chosen.
+        const bool free = (flags & (chaff_flags::kHidden | chaff_flags::kLatched)) == 0;
+        if (!free) {
+            chaff.harpoon_sighted[i] = 0u;
+        } else if (!engaged && scan <= 0.0f) {
+            scan = math::max(hp.retry, dt);
+            f32 best_r = -1.0f;
+            f32 best_d2 = 0.0f;
+            Body best;
+            u32 best_index = 0;
+            u32 best_generation = 0;
+            bool best_tower = false;
+            const auto consider = [&](Vec2 q, f32 r, u32 index, u32 generation, bool tower) {
+                const f32 d2 = math::length_sq(q - p);
+                const f32 reach = hp.range + r;
+                if (d2 > reach * reach) return;
+                if (r > best_r + 1e-4f || (r > best_r - 1e-4f && d2 < best_d2)) {
+                    best_r = r;
+                    best_d2 = d2;
+                    best = Body{q, r, true};
+                    best_index = index;
+                    best_generation = generation;
+                    best_tower = tower;
+                }
+            };
+            for (usize k = 0; k < sw_n; ++k) {
+                if ((sw.flags[k] & swarmer_flags::kPendingKill) != 0) continue;
+                consider(Vec2{sw.pos_x[k], sw.pos_y[k]}, sw.body_size(k) * kWallContactFraction,
+                         static_cast<u32>(k), sw.generation[k], false);
+            }
+            for (const FriendlyTower& t : towers.items) {
+                if (t.is_bar()) continue;   // a wall is not a cell to fill
+                consider(t.position, t.radius, t.id.value, 0u, true);
+            }
+            chaff.harpoon_sighted[i] = best.ok ? 1u : 0u;
+            if (best.ok && st == harpoon_state::kReady && harpoons_.size() < tuning_.max_harpoons) {
+                const Vec2 dir = math::normalize_safe(best.p - p);
+                HarpoonLine line;
+                line.shooter = ChaffHandle{static_cast<u32>(i), chaff.generation[i]};
+                line.family = static_cast<u8>(fam);
+                line.target_index = best_index;
+                line.target_generation = best_generation;
+                line.target_tower = best_tower;
+                line.origin = p + dir * shooter_radius(i);
+                line.anchor = best.p - dir * (best.r * kAnchorDepth);
+                line.prev_origin = line.origin;
+                line.prev_anchor = line.anchor;
+                line.seed = chaff.generation[i];
+                harpoons_.push_back(line);
+                st = harpoon_state::kDraw;
+                tm = math::max(hp.windup, 0.0f);
+                engaged = true;
+            }
+        }
+
+        // Planted while it fights, and while it reloads with something still
+        // in range: a spore with a target stands its ground at the edge of its
+        // range rather than walking into the cell's reach. Landing exactly on
+        // the goal, so a hold of 1 is a dead stop, not a creep that takes
+        // seconds to round away.
+        const bool planted = free && (engaged || chaff.harpoon_sighted[i] != 0u);
+        const f32 goal = planted ? math::saturate(hp.hold) : 0.0f;
+        chaff.hold[i] += (goal - chaff.hold[i]) * math::min(1.0f, kHoldRate * dt);
+        if (std::fabs(goal - chaff.hold[i]) < 1e-3f) chaff.hold[i] = goal;
+
+        // Walking: the drawn body follows its velocity, lazily. Engaged ones
+        // were turned onto their target by their hose above; a planted one
+        // keeps facing where it last shot.
+        if (aim_stamp_[i] != shot_tick_) {
+            f32 turn = 0.0f;
+            if (!planted && math::length_sq(v) > kWalkTurnMinSpeed * kWalkTurnMinSpeed) {
+                turn = turn_toward(chaff.body_heading[i], std::atan2(v.y, v.x), kWalkTurnRate * dt);
+                chaff.body_heading[i] = wrap_pi(chaff.body_heading[i] + turn);
+            }
+            chaff.body_heading_delta[i] = turn;
+        }
+
+        // The body's animation clock (cosmetic): which beat, and how far in.
+        f32 progress = 0.0f;
+        switch (st) {
+        case harpoon_state::kDraw:    progress = 1.0f - tm / math::max(hp.windup, 1e-3f); break;
+        case harpoon_state::kFire:    progress = tm / kFireAnimSeconds; break;
+        case harpoon_state::kPump:    progress = tm / math::max(hp.pulse_interval, 1e-3f); break;
+        case harpoon_state::kRecover: progress = 1.0f - tm / math::max(hp.reload, 1e-3f); break;
+        default: break;
+        }
+        chaff.harpoon_anim[i] = 2.0f * static_cast<f32>(st) + math::clamp(progress, 0.0f, 0.999f);
+    }
 }
 
 } // namespace immune::sim

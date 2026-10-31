@@ -14,7 +14,6 @@
 #include "app/Cli.h"
 #include "app/EditorMode.h"
 #include "app/GameState.h"
-#include "audio/Audio.h"
 #include "core/Clock.h"
 #include "core/JobSystem.h"
 #include "core/Profiler.h"
@@ -51,7 +50,7 @@ namespace immune::app {
 
 class App {
 public:
-    /// Creates window, GL context, renderer, audio, and the sim. False on any
+    /// Creates window, GL context, renderer, and the sim. False on any
     /// hard failure (message logged).
     bool init(const Options& options);
     void shutdown();
@@ -163,7 +162,6 @@ private:
     /// View height the level was framed at on load: the widest the player can
     /// zoom out to. Zero until a level is loaded (zoom disabled).
     f32 level_view_height_ = 0.0f;
-    audio::AudioEngine audio_;
     /// ImGui: the developer tools (gym panel, level editor).
     ui::DevUi dev_ui_;
     /// The player-facing UI framework (src/gui, docs/UI_FRAMEWORK.md) and its

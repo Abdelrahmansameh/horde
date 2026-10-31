@@ -16,7 +16,6 @@ using json = config::Json;
 const char* ability_key(AbilityId id) {
     switch (id) {
         case AbilityId::ComplementCascadeBurst: return "complement";
-        case AbilityId::HistamineFlare: return "histamine";
         case AbilityId::FeverResponse: return "fever";
         case AbilityId::FibrinClot: return "clot";
         case AbilityId::Count: break;
@@ -164,7 +163,7 @@ config::Json describe_catalog(const GameConfig& input) {
     }
     result["enemy_roster"] = {{"named_count", base.enemies.elites.size()},
         {"families", json::array()}, {"named", json::array()}};
-    constexpr const char* family_keys[] = {"virus", "bacteria", "parasite"};
+    constexpr const char* family_keys[] = {"virus", "bacteria", "parasite", "spore"};
     for (u32 i = 0; i < kFamilyCount; ++i) {
         result["enemy_roster"]["families"].push_back({{"id", i}, {"key", family_keys[i]},
             {"base_density", base.enemies.families[i].behavior.base_density}});

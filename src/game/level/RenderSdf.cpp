@@ -304,207 +304,176 @@ void stamp_obstacle(Grid& g, const ObstacleDef& o, f32 band, f32 step) {
 }
 
 // ---------------------------------------------------------------------------
-// Sub-texel contour redistancing.
-//
-// A binary EDT places every boundary on a cell centre, so the distance it
-// returns is wrong by up to half a cell, in a pattern that repeats along the
-// wall -- and that pattern is exactly what the eye reads as a jagged edge once
-// a shader draws a crisp line at d = 0. Here every cell next to the zero
-// crossing first locates the crossing precisely (one Newton step along the
-// gradient: p - f * grad f / |grad f|^2), and those sub-texel points are the
-// SEEDS of the transform. The transform itself is Felzenszwalb & Huttenlocher's
-// separable lower-envelope-of-parabolas, which does not actually need integer
-// parabola vertices -- only sorted ones -- so it takes the real-valued seed
-// coordinates unchanged. The result is the distance to a piecewise-linear
-// contour sampled every texel, which is smooth to a small fraction of a texel
-// everywhere a distance is drawn.
+// Sub-texel contour redistancing. Distances must be measured to CONTINUOUS
+// segments: a cloud of isolated boundary points leaves circular bumps in the
+// zero contour and, especially, the wall shader's offset bands. Marching squares
+// locates the interpolated contour; a small BVH makes exact segment queries
+// affordable across the padded grid. This runs only while baking a level.
 // ---------------------------------------------------------------------------
+struct ContourSegment {
+    Vec2 a, b;
 
-struct Seed {
-    f32 x, y;   ///< texel coordinates (cell centre of texel i is i + 0.5)
+    f32 distance_sq(Vec2 p) const {
+        const Vec2 ab = b - a;
+        const Vec2 ap = p - a;
+        const f32 l2 = math::length_sq(ab);
+        const f32 t = l2 > 1e-12f ? math::saturate((ap.x * ab.x + ap.y * ab.y) / l2) : 0.0f;
+        return math::length_sq(p - (a + t * ab));
+    }
 };
 
-/// Lower envelope of parabolas y = (q - v_i)^2 + h_i, evaluated at q = 0.5,
-/// 1.5, ..., n-0.5. `items` must be sorted by v ascending. Writes the minimum
-/// into out[q] and the winning item index into who[q]. Items are (v, h, id).
-struct Parabola {
-    f32 v, h;
-    i32 id;
+struct ContourNode {
+    Vec2 lo, hi;
+    i32 begin = 0, end = 0;
+    i32 left = -1, right = -1;
+
+    f32 distance_sq(Vec2 p) const {
+        const Vec2 d{math::max(math::max(lo.x - p.x, p.x - hi.x), 0.0f),
+                     math::max(math::max(lo.y - p.y, p.y - hi.y), 0.0f)};
+        return math::length_sq(d);
+    }
 };
 
-void lower_envelope(const std::vector<Parabola>& items, i32 n, std::vector<f32>& out,
-                    std::vector<i32>& who, std::vector<i32>& hull, std::vector<f32>& z) {
-    out.assign(static_cast<usize>(n), kInf);
-    who.assign(static_cast<usize>(n), -1);
-    if (items.empty()) return;
-    hull.clear();
-    z.clear();
-    hull.push_back(0);
-    z.push_back(-kInf);
-    z.push_back(kInf);
-    for (i32 q = 1; q < static_cast<i32>(items.size()); ++q) {
-        const Parabola& pq = items[static_cast<usize>(q)];
-        for (;;) {
-            if (hull.empty()) {
-                hull.push_back(q);
-                z.assign({-kInf, kInf});
-                break;
+class ContourTree {
+public:
+    std::vector<ContourSegment> segments;
+    std::vector<ContourNode> nodes;
+
+    i32 build(i32 begin, i32 end) {
+        const i32 id = static_cast<i32>(nodes.size());
+        ContourNode node;
+        node.begin = begin;
+        node.end = end;
+        node.lo = Vec2{kInf, kInf};
+        node.hi = Vec2{-kInf, -kInf};
+        for (i32 i = begin; i < end; ++i) {
+            const auto& s = segments[static_cast<usize>(i)];
+            for (i32 axis = 0; axis < 2; ++axis) {
+                node.lo[axis] = math::min(node.lo[axis], math::min(s.a[axis], s.b[axis]));
+                node.hi[axis] = math::max(node.hi[axis], math::max(s.a[axis], s.b[axis]));
             }
-            const Parabola& pk = items[static_cast<usize>(hull.back())];
-            const f32 dv = pq.v - pk.v;
-            if (dv < 1e-6f) {
-                // Coincident vertices: keep whichever is lower.
-                if (pq.h >= pk.h) break;
-                hull.pop_back();
-                z.pop_back();
-                continue;
-            }
-            const f32 s = ((pq.h + pq.v * pq.v) - (pk.h + pk.v * pk.v)) / (2.0f * dv);
-            if (s <= z[hull.size() - 1]) {
-                hull.pop_back();
-                z.pop_back();
-                continue;
-            }
-            hull.push_back(q);
-            z.back() = s;
-            z.push_back(kInf);
-            break;
         }
+        nodes.push_back(node);
+        if (end - begin > 6) {
+            const i32 axis = node.hi.x - node.lo.x >= node.hi.y - node.lo.y ? 0 : 1;
+            const i32 mid = begin + (end - begin) / 2;
+            std::nth_element(segments.begin() + begin, segments.begin() + mid, segments.begin() + end,
+                [axis](const ContourSegment& a, const ContourSegment& b) {
+                    return a.a[axis] + a.b[axis] < b.a[axis] + b.b[axis];
+                });
+            const i32 left = build(begin, mid);
+            const i32 right = build(mid, end);
+            // Recursive pushes may move the vector, so retain indices only.
+            nodes[static_cast<usize>(id)].left = left;
+            nodes[static_cast<usize>(id)].right = right;
+        }
+        return id;
     }
-    usize k = 0;
-    for (i32 q = 0; q < n; ++q) {
-        const f32 x = static_cast<f32>(q) + 0.5f;
-        while (z[k + 1] < x) ++k;
-        const Parabola& p = items[static_cast<usize>(hull[k])];
-        const f32 dx = x - p.v;
-        out[static_cast<usize>(q)] = dx * dx + p.h;
-        who[static_cast<usize>(q)] = hull[k];
+
+    void nearest(i32 id, Vec2 p, f32& best, i32& segment) const {
+        const auto& node = nodes[static_cast<usize>(id)];
+        if (node.distance_sq(p) > best) return;
+        if (node.left < 0) {
+            for (i32 i = node.begin; i < node.end; ++i) {
+                const f32 d = segments[static_cast<usize>(i)].distance_sq(p);
+                if (d < best) { best = d; segment = i; }
+            }
+            return;
+        }
+        const f32 dl = nodes[static_cast<usize>(node.left)].distance_sq(p);
+        const f32 dr = nodes[static_cast<usize>(node.right)].distance_sq(p);
+        const i32 first = dl <= dr ? node.left : node.right;
+        const i32 second = dl <= dr ? node.right : node.left;
+        nearest(first, p, best, segment);
+        nearest(second, p, best, segment);
     }
-}
+};
 
 } // namespace
 
 void resample_to_contour(std::vector<f32>& field, i32 w, i32 h, f32 cell) {
-    if (w <= 0 || h <= 0 || cell <= 0.0f) return;
+    if (w <= 0 || h <= 0 || !(cell > 0.0f) || !std::isfinite(cell)) return;
     const usize n = static_cast<usize>(w) * static_cast<usize>(h);
     if (field.size() != n) return;
-    const auto at = [&](i32 x, i32 y) -> f32 {
-        x = math::clamp(x, 0, w - 1);
-        y = math::clamp(y, 0, h - 1);
+
+    // Normal level bakes are finite. Keep the public helper's interpolation
+    // defined even for a caller supplying infinities or an empty contour.
+    f32 far = cell;
+    bool all_zero = true;
+    for (const f32 f : field) {
+        if (std::isfinite(f)) far = math::max(far, std::fabs(f));
+        if (f != 0.0f) all_zero = false;
+    }
+    if (all_zero) return;
+    for (f32& f : field) if (!std::isfinite(f)) f = f > 0.0f ? far : -far;
+    const auto at = [&](i32 x, i32 y) {
         return field[static_cast<usize>(y) * static_cast<usize>(w) + static_cast<usize>(x)];
     };
-    const auto inside = [](f32 f) { return f >= 0.0f; };
+    ContourTree tree;
+    const auto add = [&](Vec2 a, Vec2 b) { tree.segments.push_back({a, b}); };
+    const auto crossing = [](Vec2 a, Vec2 b, f32 fa, f32 fb) {
+        // Opposite signs, so this ratio remains bounded. Double precision
+        // avoids overflow if a caller supplied very large finite distances.
+        const f32 t = static_cast<f32>(static_cast<f64>(fa) /
+                                      (static_cast<f64>(fa) - static_cast<f64>(fb)));
+        return a + t * (b - a);
+    };
 
-    // ---- Seeds: one per cell adjacent to the zero crossing ---------------
-    std::vector<std::vector<Seed>> column_seeds(static_cast<usize>(w));
-    const f32 inv_cell = 1.0f / cell;
     for (i32 y = 0; y < h; ++y) {
         for (i32 x = 0; x < w; ++x) {
-            const f32 f = at(x, y);
-            if (!std::isfinite(f)) continue;
-            const bool in = inside(f);
-            const bool crossing = inside(at(x - 1, y)) != in || inside(at(x + 1, y)) != in ||
-                                  inside(at(x, y - 1)) != in || inside(at(x, y + 1)) != in;
-            if (!crossing) continue;
-            // Gradient in texel units (field is in world units per texel of
-            // `cell`), central differences.
-            f32 gx = (at(x + 1, y) - at(x - 1, y)) * 0.5f;
-            f32 gy = (at(x, y + 1) - at(x, y - 1)) * 0.5f;
-            if (!std::isfinite(gx)) gx = 0.0f;
-            if (!std::isfinite(gy)) gy = 0.0f;
-            const f32 g2 = gx * gx + gy * gy;
-            f32 ox = 0.0f, oy = 0.0f;
-            if (g2 > 1e-12f) {
-                // Offset to the crossing, in texels: -f * g / |g|^2, with |g|
-                // in world units per texel.
-                const f32 k = -f / g2;
-                ox = k * gx;
-                oy = k * gy;
-                // Never trust a step that leaves the cell's neighbourhood: a
-                // crease in the field has a small gradient and a huge
-                // extrapolation, and the crossing is still within a texel.
-                const f32 ol = std::sqrt(ox * ox + oy * oy);
-                const f32 cap = 1.0f;
-                if (ol > cap) { ox *= cap / ol; oy *= cap / ol; }
+            const Vec2 p{static_cast<f32>(x) + 0.5f, static_cast<f32>(y) + 0.5f};
+            if (at(x, y) == 0.0f) add(p, p);
+            // A one-dimensional grid still has well-defined zero crossings.
+            if (h == 1 && x + 1 < w && (at(x, y) >= 0.0f) != (at(x + 1, y) >= 0.0f)) {
+                const Vec2 q = crossing(p, p + Vec2{1.0f, 0.0f}, at(x, y), at(x + 1, y));
+                add(q, q);
             }
-            column_seeds[static_cast<usize>(x)].push_back(
-                Seed{static_cast<f32>(x) + 0.5f + ox, static_cast<f32>(y) + 0.5f + oy});
-        }
-    }
-    (void)inv_cell;
-
-    // ---- Pass 1: per column, nearest seed along y ------------------------
-    // best_sq[x,y] = min over the column's seeds of the full squared distance
-    // from the cell centre; best_seed[x,y] = which. Seeds are attributed to
-    // the column of the cell that produced them, which is within a texel of
-    // their true x -- the x mismatch is folded into the parabola height.
-    std::vector<f32> col_sq(n, kInf);
-    std::vector<Seed> col_seed(n, Seed{0.0f, 0.0f});
-    {
-        std::vector<Parabola> items;
-        std::vector<f32> out, z;
-        std::vector<i32> who, hull;
-        for (i32 x = 0; x < w; ++x) {
-            const std::vector<Seed>& seeds = column_seeds[static_cast<usize>(x)];
-            if (seeds.empty()) continue;
-            items.clear();
-            const f32 cx = static_cast<f32>(x) + 0.5f;
-            for (i32 i = 0; i < static_cast<i32>(seeds.size()); ++i) {
-                const Seed& s = seeds[static_cast<usize>(i)];
-                const f32 dx = cx - s.x;
-                items.push_back(Parabola{s.y, dx * dx, i});
+            if (w == 1 && y + 1 < h && (at(x, y) >= 0.0f) != (at(x, y + 1) >= 0.0f)) {
+                const Vec2 q = crossing(p, p + Vec2{0.0f, 1.0f}, at(x, y), at(x, y + 1));
+                add(q, q);
             }
-            std::sort(items.begin(), items.end(),
-                      [](const Parabola& a, const Parabola& b) { return a.v < b.v; });
-            lower_envelope(items, h, out, who, hull, z);
-            for (i32 y = 0; y < h; ++y) {
-                const usize i = static_cast<usize>(y) * static_cast<usize>(w) + static_cast<usize>(x);
-                col_sq[i] = out[static_cast<usize>(y)];
-                col_seed[i] = seeds[static_cast<usize>(items[static_cast<usize>(who[static_cast<usize>(y)])].id)];
+            if (x + 1 >= w || y + 1 >= h) continue;
+            const Vec2 corners[] = {p, p + Vec2{1.0f, 0.0f}, p + Vec2{1.0f, 1.0f}, p + Vec2{0.0f, 1.0f}};
+            const f32 f[] = {at(x, y), at(x + 1, y), at(x + 1, y + 1), at(x, y + 1)};
+            Vec2 points[4];
+            i32 count = 0;
+            for (i32 e = 0; e < 4; ++e) {
+                const i32 next = (e + 1) % 4;
+                if (f[e] == 0.0f && f[next] == 0.0f) add(corners[e], corners[next]);
+                if ((f[e] >= 0.0f) == (f[next] >= 0.0f)) continue;
+                points[count++] = crossing(corners[e], corners[next], f[e], f[next]);
             }
-        }
-    }
-
-    // ---- Pass 2: per row, the true 2D minimum over columns ---------------
-    {
-        std::vector<Parabola> items;
-        std::vector<f32> out, z;
-        std::vector<i32> who, hull;
-        for (i32 y = 0; y < h; ++y) {
-            items.clear();
-            const f32 cy = static_cast<f32>(y) + 0.5f;
-            for (i32 x = 0; x < w; ++x) {
-                const usize i = static_cast<usize>(y) * static_cast<usize>(w) + static_cast<usize>(x);
-                if (!(col_sq[i] < kInf)) continue;
-                const Seed& s = col_seed[i];
-                const f32 dy = cy - s.y;
-                items.push_back(Parabola{s.x, dy * dy, x});
-            }
-            if (items.empty()) {
-                for (i32 x = 0; x < w; ++x) {
-                    const usize i = static_cast<usize>(y) * static_cast<usize>(w) + static_cast<usize>(x);
-                    field[i] = inside(field[i]) ? kInf : -kInf;
+            if (count == 2) add(points[0], points[1]);
+            if (count == 4) {
+                // Asymptotic decider for a bilinear saddle. The determinant
+                // is invariant under sign reversal; ties have a fixed pairing.
+                const f64 determinant = static_cast<f64>(f[0]) * f[2] - static_cast<f64>(f[1]) * f[3];
+                if (determinant >= 0.0) {
+                    add(points[0], points[1]); add(points[2], points[3]);
+                } else {
+                    add(points[0], points[3]); add(points[1], points[2]);
                 }
-                continue;
-            }
-            std::sort(items.begin(), items.end(),
-                      [](const Parabola& a, const Parabola& b) { return a.v < b.v; });
-            lower_envelope(items, w, out, who, hull, z);
-            for (i32 x = 0; x < w; ++x) {
-                const usize i = static_cast<usize>(y) * static_cast<usize>(w) + static_cast<usize>(x);
-                const f32 d = std::sqrt(math::max(out[static_cast<usize>(x)], 0.0f)) * cell;
-                field[i] = inside(field[i]) ? d : -d;
             }
         }
     }
-    // Rows with no seeds at all were left at +-inf; if the whole field had no
-    // contour that is the honest answer, otherwise clamp them to something a
-    // texture can hold.
-    f32 far = 0.0f;
-    for (const f32 f : field) if (std::isfinite(f)) far = math::max(far, std::fabs(f));
-    far = math::max(far, cell);
-    for (f32& f : field) {
-        if (!std::isfinite(f)) f = f > 0.0f ? far : -far;
+    if (tree.segments.empty()) {
+        for (f32& f : field) f = f >= 0.0f ? cell : -cell;
+        return;
+    }
+    tree.nodes.reserve(tree.segments.size());
+    tree.build(0, static_cast<i32>(tree.segments.size()));
+    i32 closest = 0;
+    for (i32 y = 0; y < h; ++y) {
+        for (i32 x = 0; x < w; ++x) {
+            const usize i = static_cast<usize>(y) * static_cast<usize>(w) + static_cast<usize>(x);
+            const Vec2 p{static_cast<f32>(x) + 0.5f, static_cast<f32>(y) + 0.5f};
+            // Adjacent queries usually share the nearest segment. Reevaluate
+            // it at this pixel to obtain a valid upper bound for pruning.
+            f32 best = tree.segments[static_cast<usize>(closest)].distance_sq(p);
+            tree.nearest(0, p, best, closest);
+            const f32 d = std::sqrt(best) * cell;
+            field[i] = field[i] >= 0.0f ? d : -d;
+        }
     }
 }
 
@@ -649,8 +618,14 @@ RenderSdf bake_render_sdf(const LevelDef& def, const RenderSdfDesc& desc) {
                         }
                     }
                     if (!ridge) continue;
-                    const i32 rad = static_cast<i32>(std::ceil(t / cell)) + 1;
-                    const f32 r2 = (t + cell) * (t + cell);
+                    // Preserve a sampling collar as well as the solid. An
+                    // unprotected positive texel across the wall can otherwise
+                    // be raised by closing, moving the interpolated crossing
+                    // even though every negative texel stayed untouched. Three
+                    // cells cover ridge/grid misalignment and a bilinear cell.
+                    const f32 protect_radius = t + 3.0f * cell;
+                    const i32 rad = static_cast<i32>(std::ceil(protect_radius / cell));
+                    const f32 r2 = protect_radius * protect_radius;
                     for (i32 j = -rad; j <= rad; ++j) {
                         for (i32 i = -rad; i <= rad; ++i) {
                             const i32 px = x + i, py = y + j;

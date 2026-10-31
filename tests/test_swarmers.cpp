@@ -11,6 +11,7 @@
 #include "core/Math.h"
 #include "core/Rng.h"
 #include "sim/CombatEvents.h"
+#include "sim/SimWorld.h"
 #include "sim/chaff/ChaffBuffers.h"
 #include "sim/flowfield/FlowField.h"
 #include "sim/projectile/Projectiles.h"
@@ -51,6 +52,8 @@ struct Fixture {
     /// Null by default: a kiting shooter then backs straight away. Tests
     /// that want the flow to bend the retreat point this at one.
     const FlowField* flow = nullptr;
+    const DistanceField* sdf = nullptr;
+    Rect playable_bounds = kBounds;
 
     Fixture() {
         chaff.reserve(4096);
@@ -163,7 +166,7 @@ struct Fixture {
                 for (const NamedTarget& t : *agents) if (t.health > 0.0f) named.add(t);
                 named.sort();
             }
-            system.update(swarm, chaff, hash, named, nullptr, flow, kBounds, rng, kDt, sink);
+            system.update(swarm, chaff, hash, named, sdf, flow, playable_bounds, rng, kDt, sink);
             if (agents) {
                 for (NamedTarget& t : *agents) {
                     const usize k = named.find(t.id);
@@ -184,6 +187,18 @@ struct Fixture {
 
 Vec2 f_pos(const Fixture& f, usize chaff_index) {
     return Vec2{f.chaff.pos_x[chaff_index], f.chaff.pos_y[chaff_index]};
+}
+
+void check_body_inside(const SwarmerBuffers& sw, usize i, const Rect& bounds) {
+    const f32 radius = std::min(sw.body_size(i),
+                               std::max(0.0f, std::min(bounds.size().x, bounds.size().y) * 0.5f));
+    constexpr f32 tolerance = 1.0e-4f;
+    REQUIRE(std::isfinite(sw.pos_x[i]));
+    REQUIRE(std::isfinite(sw.pos_y[i]));
+    CHECK(sw.pos_x[i] >= bounds.min.x + radius - tolerance);
+    CHECK(sw.pos_x[i] <= bounds.max.x - radius + tolerance);
+    CHECK(sw.pos_y[i] >= bounds.min.y + radius - tolerance);
+    CHECK(sw.pos_y[i] <= bounds.max.y - radius + tolerance);
 }
 
 } // namespace
@@ -964,6 +979,256 @@ TEST_CASE("a bomber detonates on contact and asks for its effect, killing itself
     }
 }
 
+TEST_CASE("goblet cells skip coated prey and abandon a target coated during the chase",
+          "[swarm][sim][mucus]") {
+    for (const bool on_named : {false, true}) {
+        INFO("named target " << on_named);
+        Fixture f;
+        SwarmerCollisionTuning off;
+        off.enabled = false;
+        f.system.set_collision(off);
+        SwarmerProfile p = f.swarm.profile_at(kMucus);
+        p.speed = 0.0f;
+        p.chase_seconds = 0.5f;
+        f.swarm.set_profile(kMucus, p);
+        std::vector<NamedTarget> agents;
+        if (on_named) {
+            agents = {f.make_named(11u, Vec2{45.0f, 40.0f}, 1000.0f),
+                      f.make_named(12u, Vec2{49.0f, 40.0f}, 1000.0f)};
+            agents[0].mucus_slowed = true;
+        } else {
+            f.add_chaff(Vec2{45.0f, 40.0f}, 1000.0f, chaff_flags::kSlowed);
+            f.chaff.slow_remaining[0] = 3.0f;
+            f.add_chaff(Vec2{49.0f, 40.0f}, 1000.0f);
+        }
+        f.add_swarmer(Vec2{40.0f, 40.0f}, Vec2{}, kMucus);
+        f.step(1, nullptr, &agents);
+        REQUIRE(f.swarm.count() == 1);
+        if (on_named) REQUIRE(f.swarm.target_named[0] == agents[1].id);
+        else REQUIRE(f.swarm.target_index[0] == 1u);
+
+        // Another goblet coats the held quarry just before this one's fuse
+        // would run out. Switch back to the now untreated nearer target.
+        f.swarm.chase[0] = p.chase_seconds - kDt * 0.5f;
+        if (on_named) {
+            agents[0].mucus_slowed = false;
+            agents[1].mucus_slowed = true;
+        } else {
+            f.chaff.expire_slows(3.0f);
+            f.chaff.flags[1] |= chaff_flags::kSlowed;
+            f.chaff.slow_remaining[1] = 3.0f;
+        }
+        f.step(1, nullptr, &agents);
+        REQUIRE(f.system.effects().splashes.empty());
+        REQUIRE(f.swarm.count() == 1);
+        if (on_named) REQUIRE(f.swarm.target_named[0] == agents[0].id);
+        else REQUIRE(f.swarm.target_index[0] == 0u);
+        REQUIRE(f.swarm.chase[0] == Catch::Approx(kDt));
+        REQUIRE(f.system.last_stats().chase_timeouts == 0);
+    }
+}
+
+TEST_CASE("a goblet waits for the existing mucus slow to expire before engaging",
+          "[swarm][sim][mucus]") {
+    for (const bool on_named : {false, true}) {
+        INFO("named target " << on_named);
+        Fixture f;
+        std::vector<NamedTarget> agents;
+        if (on_named) {
+            agents = {f.make_named(11u, Vec2{40.2f, 40.0f}, 1000.0f)};
+            agents[0].mucus_slowed = true;
+        } else {
+            f.add_chaff(Vec2{40.2f, 40.0f}, 1000.0f, chaff_flags::kSlowed);
+            f.chaff.slow_remaining[0] = 0.1f;
+        }
+        f.add_swarmer(Vec2{40.0f, 40.0f}, Vec2{}, kMucus);
+        f.step(1, nullptr, &agents);
+        REQUIRE(f.system.effects().splashes.empty());
+        REQUIRE(f.swarm.count() == 1);
+        REQUIRE_FALSE(f.swarm.target(0).valid());
+        REQUIRE_FALSE(f.swarm.target_named[0].valid());
+
+        if (on_named) agents[0].mucus_slowed = false;
+        else f.chaff.expire_slows(0.1f);
+        f.step(1, nullptr, &agents);
+        REQUIRE(f.system.effects().splashes.size() == 1);
+        REQUIRE(f.swarm.count() == 0);
+    }
+}
+
+TEST_CASE("goblet cells share same-tick splash coverage while still coating separate prey",
+          "[swarm][sim][mucus]") {
+    for (const bool on_named : {false, true}) {
+        INFO("named target " << on_named);
+        Fixture f;
+        SwarmerCollisionTuning off;
+        off.enabled = false;
+        f.system.set_collision(off);
+        std::vector<NamedTarget> agents;
+        if (on_named) {
+            agents = {f.make_named(11u, Vec2{40.2f, 40.0f}, 1000.0f),
+                      f.make_named(12u, Vec2{60.2f, 40.0f}, 1000.0f)};
+        } else {
+            f.add_chaff(Vec2{40.2f, 40.0f}, 1000.0f);
+            f.add_chaff(Vec2{60.2f, 40.0f}, 1000.0f);
+        }
+        f.add_swarmer(Vec2{40.0f, 40.0f}, Vec2{}, kMucus);
+        f.add_swarmer(Vec2{40.0f, 40.0f}, Vec2{}, kMucus);
+        f.add_swarmer(Vec2{60.0f, 40.0f}, Vec2{}, kMucus);
+        f.step(1, nullptr, &agents);
+        REQUIRE(f.system.effects().splashes.size() == 2);
+        REQUIRE(f.system.last_stats().detonated == 2);
+        REQUIRE(f.swarm.count() == 1);
+    }
+}
+
+TEST_CASE("a pending goblet splash only reserves prey in its family mask",
+          "[swarm][sim][mucus]") {
+    Fixture f;
+    f.add_chaff(Vec2{40.2f, 40.0f}, 1000.0f);
+    f.add_chaff(Vec2{40.2f, 40.0f}, 1000.0f);
+    f.chaff.family[1] = static_cast<u8>(PathogenFamily::Bacteria);
+    f.add_swarmer(Vec2{40.0f, 40.0f}, Vec2{}, kMucus);
+    f.add_swarmer(Vec2{40.0f, 40.0f}, Vec2{}, kMucus);
+    f.swarm.family_mask[0] = static_cast<u8>(1u << static_cast<u8>(PathogenFamily::Virus));
+    f.swarm.family_mask[1] = static_cast<u8>(1u << static_cast<u8>(PathogenFamily::Bacteria));
+    f.step(1);
+    REQUIRE(f.system.effects().splashes.size() == 2);
+    REQUIRE(f.swarm.count() == 0);
+}
+
+TEST_CASE("goblet body contacts ignore coated enemies and share queued splash coverage",
+          "[swarm][sim][mucus][bodies]") {
+    for (const bool on_named : {false, true}) {
+        for (const bool already_coated : {false, true}) {
+            INFO("named target " << on_named << ", coated " << already_coated);
+            Fixture f;
+            SwarmerProfile p = f.swarm.profile_at(kMucus);
+            p.size = 2.0f;
+            p.search_radius = 0.0f;
+            f.swarm.set_profile(kMucus, p);
+            // Outside attach reach and no acquisition radius: only the
+            // membrane collision pass can trigger these goblets.
+            std::vector<NamedTarget> agents;
+            if (on_named) {
+                agents = {f.make_named(11u, Vec2{41.2f, 41.2f}, 1000.0f)};
+                agents[0].mucus_slowed = already_coated;
+            } else {
+                f.add_chaff(Vec2{41.2f, 41.2f}, 1000.0f,
+                            already_coated ? chaff_flags::kSlowed : 0);
+                if (already_coated) f.chaff.slow_remaining[0] = 3.0f;
+            }
+            f.add_swarmer(Vec2{40.0f, 40.0f}, Vec2{}, kMucus);
+            f.add_swarmer(Vec2{40.0f, 40.0f}, Vec2{}, kMucus);
+            f.step(1, nullptr, &agents);
+            const usize expected = already_coated ? 0u : 1u;
+            REQUIRE(f.system.effects().splashes.size() == expected);
+            REQUIRE(f.system.last_stats().contact_detonations == expected);
+            REQUIRE(f.swarm.count() == 2u - expected);
+        }
+    }
+}
+
+TEST_CASE("an expiring goblet only splashes when untreated prey is close enough to benefit",
+          "[swarm][sim][mucus]") {
+    for (const int target : {0, 1, 2}) {
+        INFO("target: none=0, coated=1, untreated=2: " << target);
+        Fixture f;
+        if (target != 0) {
+            f.add_chaff(Vec2{40.2f, 40.0f}, 1000.0f,
+                        target == 1 ? chaff_flags::kSlowed : 0);
+            if (target == 1) f.chaff.slow_remaining[0] = 3.0f;
+        }
+        SwarmerProfile p = f.swarm.profile_at(kMucus);
+        p.lifetime = kDt * 0.5f;
+        f.swarm.set_profile(kMucus, p);
+        f.add_swarmer(Vec2{40.0f, 40.0f}, Vec2{}, kMucus);
+        f.step(1);
+        REQUIRE(f.system.effects().splashes.size() == (target == 2 ? 1u : 0u));
+        REQUIRE(f.swarm.count() == 0);
+    }
+}
+
+TEST_CASE("a goblet chase timeout waits until its splash can reach untreated prey",
+          "[swarm][sim][mucus][chase]") {
+    for (const bool on_named : {false, true}) {
+        INFO("named target " << on_named);
+        Fixture f;
+        SwarmerCollisionTuning off;
+        off.enabled = false;
+        f.system.set_collision(off);
+        SwarmerProfile p = f.swarm.profile_at(kMucus);
+        p.speed = 0.0f;
+        p.chase_seconds = kDt;
+        p.attach_radius = 0.1f;
+        f.swarm.set_profile(kMucus, p);
+        std::vector<NamedTarget> agents;
+        if (on_named) {
+            agents = {f.make_named(11u, Vec2{40.2f, 40.0f}, 1000.0f),
+                      f.make_named(12u, Vec2{50.0f, 40.0f}, 1000.0f)};
+            agents[0].mucus_slowed = true;
+            agents[1].radius = 0.2f;
+        } else {
+            f.add_chaff(Vec2{40.2f, 40.0f}, 1000.0f, chaff_flags::kSlowed);
+            f.chaff.slow_remaining[0] = 3.0f;
+            f.add_chaff(Vec2{50.0f, 40.0f}, 1000.0f);
+        }
+        f.add_swarmer(Vec2{40.0f, 40.0f}, Vec2{}, kMucus);
+        f.step(3, nullptr, &agents);
+        REQUIRE(f.system.effects().splashes.empty());
+        REQUIRE(f.swarm.count() == 1);
+        REQUIRE(f.swarm.chase[0] >= p.chase_seconds);
+        REQUIRE(f.system.last_stats().chase_timeouts == 0);
+
+        // Untreated prey enters splash range, still outside attach reach.
+        // The elapsed fuse can now deliver mucus instead of wasting it.
+        if (on_named) agents[1].position.x = 41.0f;
+        else f.chaff.pos_x[1] = 41.0f;
+        f.step(1, nullptr, &agents);
+        REQUIRE(f.system.effects().splashes.size() == 1);
+        REQUIRE(f.system.last_stats().chase_timeouts == 1);
+        REQUIRE(f.swarm.count() == 0);
+    }
+}
+
+TEST_CASE("an expiring goblet checks mucus coverage at a named enemy's center",
+          "[swarm][sim][mucus][named]") {
+    for (const bool center_in_range : {false, true}) {
+        INFO("center in splash range " << center_in_range);
+        Fixture f;
+        SwarmerProfile p = f.swarm.profile_at(kMucus);
+        p.lifetime = kDt * 0.5f;
+        f.swarm.set_profile(kMucus, p);
+        std::vector<NamedTarget> agents{
+            f.make_named(11u, Vec2{center_in_range ? 41.0f : 42.0f, 40.0f}, 1000.0f)};
+        agents[0].radius = 2.0f;
+        f.add_swarmer(Vec2{40.0f, 40.0f}, Vec2{}, kMucus);
+        f.step(1, nullptr, &agents);
+        REQUIRE(f.system.effects().splashes.size() == (center_in_range ? 1u : 0u));
+        REQUIRE(f.swarm.count() == 0);
+    }
+}
+
+TEST_CASE("mucus coating does not hide prey from other swarmer kinds",
+          "[swarm][sim][mucus]") {
+    for (const u16 profile : {kLatch, kShooter, kBomber}) {
+        INFO("profile " << profile);
+        Fixture f;
+        f.add_chaff(Vec2{40.2f, 40.0f}, 1000.0f, chaff_flags::kSlowed);
+        f.chaff.slow_remaining[0] = 3.0f;
+        f.add_swarmer(Vec2{40.0f, 40.0f}, Vec2{}, profile);
+        f.step(1);
+        if (profile == kBomber) {
+            REQUIRE(f.system.effects().bursts.size() == 1);
+            REQUIRE(f.swarm.count() == 0);
+        } else {
+            REQUIRE(f.swarm.count() == 1);
+            REQUIRE(f.swarm.target(0).valid());
+            REQUIRE(f.swarm.target_index[0] == 0u);
+        }
+    }
+}
+
 TEST_CASE("a bomber gives a chase only so long, then detonates where it is",
           "[swarm][sim][bomber][chase]") {
     Fixture f;
@@ -1028,16 +1293,484 @@ TEST_CASE("a bomber that runs out of lifetime detonates where it stands", "[swar
     REQUIRE(f.system.last_stats().expired == 0);
 }
 
-TEST_CASE("leaving the world is a plain dissolve even for a bomber", "[swarm][sim][bomber]") {
+TEST_CASE("a bomber pressing against the world edge survives without detonating", "[swarm][sim][bomber][bounds]") {
     Fixture f;
     f.add_swarmer(Vec2{127.5f, 64.0f}, Vec2{60.0f, 0.0f}, kBomber);
     CombatEventSink sink;
     sink.reserve(64);
     f.step(3, &sink);
-    REQUIRE(f.swarm.count() == 0);
+    REQUIRE(f.swarm.count() == 1);
+    check_body_inside(f.swarm, 0, kBounds);
+    REQUIRE(f.swarm.health[0] > 0.0f);
+    REQUIRE(f.system.last_stats().expired == 0);
     REQUIRE(f.system.effects().bursts.empty());
-    // Nothing off the map is worth a death burst either.
+    // Reaching the edge is a movement constraint rather than a death.
     for (const CombatEvent& e : sink.events()) REQUIRE(e.type != CombatEventType::SwarmerDeath);
+}
+
+TEST_CASE("friendly cells ignore off-board prey when choosing their nearest target",
+          "[swarm][sim][bounds][targeting]") {
+    // kArbor is the exception: its arms reach past the edge (tested below).
+    for (const u16 profile : {kLatch, kShooter, kBomber, kMucus}) {
+        for (const bool on_named : {false, true}) {
+            for (const bool inside_prey : {false, true}) {
+                INFO("profile " << profile << ", named " << on_named << ", inside prey " << inside_prey);
+                Fixture f;
+                f.playable_bounds = Rect{Vec2{32, 32}, Vec2{96, 96}};
+                SwarmerCollisionTuning off;
+                off.enabled = false;
+                f.system.set_collision(off);
+                SwarmerProfile p = f.swarm.profile_at(profile);
+                p.speed = 0.0f;
+                p.search_radius = 12.0f;
+                p.attach_radius = 0.1f;
+                f.swarm.set_profile(profile, p);
+                std::vector<NamedTarget> agents;
+                // Both enemies remain in the spatial hash / named snapshot.
+                // The nearer one is beyond the playable area's left edge.
+                if (on_named) {
+                    agents.push_back(f.make_named(11u, Vec2{31, 64}, 1000.0f));
+                    if (inside_prey) agents.push_back(f.make_named(12u, Vec2{40, 64}, 1000.0f));
+                } else {
+                    f.add_chaff(Vec2{31, 64}, 1000.0f);
+                    if (inside_prey) f.add_chaff(Vec2{40, 64}, 1000.0f);
+                }
+                f.add_swarmer(Vec2{33, 64}, Vec2{}, profile);
+                f.step(1, nullptr, &agents);
+                REQUIRE(f.swarm.count() == 1);
+                if (!inside_prey) {
+                    CHECK_FALSE(f.swarm.target(0).valid());
+                    CHECK_FALSE(f.swarm.target_named[0].valid());
+                } else if (on_named) {
+                    CHECK(f.swarm.target_named[0] == agents[1].id);
+                } else {
+                    CHECK(f.swarm.target(0).valid());
+                    CHECK(f.swarm.target_index[0] == 1u);
+                }
+                CHECK(f.system.effects().bursts.empty());
+                CHECK(f.system.effects().splashes.empty());
+            }
+        }
+    }
+}
+
+TEST_CASE("a held enemy crossing the playable edge is dropped for an on-board target",
+          "[swarm][sim][bounds][targeting]") {
+    for (const u16 profile : {kLatch, kShooter, kBomber, kMucus}) {
+        for (const bool on_named : {false, true}) {
+            INFO("profile " << profile << ", named " << on_named);
+            Fixture f;
+            f.playable_bounds = Rect{Vec2{32, 32}, Vec2{96, 96}};
+            SwarmerCollisionTuning off;
+            off.enabled = false;
+            f.system.set_collision(off);
+            SwarmerProfile p = f.swarm.profile_at(profile);
+            p.speed = 0.0f;
+            p.attach_radius = 0.1f;
+            f.swarm.set_profile(profile, p);
+            std::vector<NamedTarget> agents;
+            if (on_named) {
+                agents = {f.make_named(11u, Vec2{36, 64}, 1000.0f),
+                          f.make_named(12u, Vec2{42, 64}, 1000.0f)};
+            } else {
+                f.add_chaff(Vec2{36, 64}, 1000.0f);
+                f.add_chaff(Vec2{42, 64}, 1000.0f);
+            }
+            f.add_swarmer(Vec2{33, 64}, Vec2{}, profile);
+            f.step(1, nullptr, &agents);
+            REQUIRE(f.swarm.count() == 1);
+            if (on_named) REQUIRE(f.swarm.target_named[0] == agents[0].id);
+            else REQUIRE(f.swarm.target_index[0] == 0u);
+
+            if (on_named) agents[0].position.x = 31.0f;
+            else f.chaff.pos_x[0] = 31.0f;
+            f.step(1, nullptr, &agents);
+            REQUIRE(f.swarm.count() == 1);
+            if (on_named) CHECK(f.swarm.target_named[0] == agents[1].id);
+            else CHECK(f.swarm.target_index[0] == 1u);
+            CHECK(f.system.last_stats().hosts_finished == 0);
+            CHECK(f.system.last_stats().kill_pulses == 0);
+            check_body_inside(f.swarm, 0, f.playable_bounds);
+        }
+    }
+}
+
+TEST_CASE("an arbor arm reaches off-board prey while its body stays on the board",
+          "[swarm][sim][bounds][arbor_grabber]") {
+    for (const bool on_named : {false, true}) {
+        INFO("named " << on_named);
+        Fixture f;
+        f.playable_bounds = Rect{Vec2{32, 32}, Vec2{96, 96}};
+        SwarmerCollisionTuning off;
+        off.enabled = false;
+        f.system.set_collision(off);
+        SwarmerProfile p = f.swarm.profile_at(kArbor);
+        p.speed = 0.0f;
+        p.attach_radius = 6.0f;
+        p.arbor_arm_count = 1;
+        p.arbor_max_captives = 1;
+        p.arbor_extend_seconds = 0.001f;
+        p.arbor_latch_seconds = 0.001f;
+        p.arbor_pull_seconds = 0.05f;
+        f.swarm.set_profile(kArbor, p);
+        // The only prey sits past the left edge, inside the arm's reach.
+        std::vector<NamedTarget> agents;
+        if (on_named) agents = {f.make_named(11u, Vec2{30, 64}, 50.0f)};
+        else f.add_chaff(Vec2{30, 64}, 50.0f);
+        f.add_swarmer(Vec2{34, 64}, Vec2{}, kArbor);
+        f.step(3, nullptr, &agents);
+        REQUIRE(f.swarm.count() == 1);
+        const ArborArmState& arm = f.swarm.arbor_grabber[0].arms[0];
+        REQUIRE(arm.phase == ArborArmPhase::Pulling);
+        if (on_named) CHECK(arm.captive.named == agents[0].id);
+        else CHECK(arm.captive.chaff_count == 1u);
+
+        u32 swallowed = 0;
+        for (int tick = 0; tick < 20; ++tick) {
+            f.step(1, nullptr, &agents);
+            REQUIRE(f.swarm.count() == 1);
+            swallowed += f.system.last_stats().hosts_finished;
+            check_body_inside(f.swarm, 0, f.playable_bounds);
+        }
+        CHECK(swallowed == 1u);
+        if (on_named) CHECK(agents[0].health <= 0.0f);
+        else CHECK(f.chaff.count() == 0);
+    }
+}
+
+TEST_CASE("an arbor cluster swallows a follower its pull carries past the edge",
+          "[swarm][sim][bounds][arbor_grabber][cluster]") {
+    Fixture f;
+    f.playable_bounds = Rect{Vec2{32, 32}, Vec2{96, 96}};
+    SwarmerCollisionTuning off;
+    off.enabled = false;
+    f.system.set_collision(off);
+    SwarmerProfile p = f.swarm.profile_at(kArbor);
+    p.size = 2.6f;
+    p.speed = 0.0f;
+    p.attach_radius = 6.0f;
+    p.arbor_arm_count = 1;
+    p.arbor_max_captives = 2;
+    p.arbor_cluster_radius = 2.4f;
+    p.arbor_extend_seconds = 0.001f;
+    p.arbor_latch_seconds = 0.001f;
+    p.arbor_pull_seconds = 0.1f;
+    p.heal_per_kill = 7.0f;
+    f.swarm.set_profile(kArbor, p);
+    const usize lead_slot = f.add_chaff(Vec2{36.35f, 64}, 100.0f);
+    const ChaffHandle lead{static_cast<u32>(lead_slot), f.chaff.generation[lead_slot]};
+    f.add_swarmer(Vec2{33.95f, 64}, Vec2{}, kArbor);
+    f.swarm.size_scale[0] = 0.75f;  // Full radius 1.95, touching the playable edge.
+    f.step(1);
+    REQUIRE(f.swarm.arbor_grabber[0].arms[0].phase == ArborArmPhase::Extending);
+
+    // The follower's -2.35 offset from the lead carries it past x=32 as the
+    // pull closes; it stays captured and is swallowed with the lead.
+    const usize follower_slot = f.add_chaff(Vec2{34.0f, 64}, 100.0f);
+    const ChaffHandle follower{static_cast<u32>(follower_slot), f.chaff.generation[follower_slot]};
+    f.step(2);
+    REQUIRE(f.swarm.arbor_grabber[0].arms[0].phase == ArborArmPhase::Pulling);
+    REQUIRE(f.swarm.arbor_grabber[0].arms[0].captive.chaff_count == 2u);
+    u32 swallowed = 0;
+    f32 healed = 0.0f;
+    f32 density_removed = 0.0f;
+    for (int tick = 0; tick < 20; ++tick) {
+        f.step(1);
+        REQUIRE(f.swarm.count() == 1);
+        swallowed += f.system.last_stats().hosts_finished;
+        healed += f.system.last_stats().healed;
+        density_removed += f.system.last_stats().density_removed;
+        check_body_inside(f.swarm, 0, f.playable_bounds);
+    }
+    CHECK(f.chaff.resolve(lead) == ChaffBuffers::npos);
+    CHECK(f.chaff.resolve(follower) == ChaffBuffers::npos);
+    CHECK(f.chaff.count() == 0);
+    CHECK(swallowed == 2u);
+    CHECK(healed == Catch::Approx(2.0f * p.heal_per_kill));
+    CHECK(density_removed == Catch::Approx(200.0f));
+}
+
+TEST_CASE("an attached latcher releases a live host that leaves the board without a kill pulse",
+          "[swarm][sim][bounds][latch]") {
+    for (const bool on_named : {false, true}) {
+        INFO("named " << on_named);
+        Fixture f;
+        f.playable_bounds = Rect{Vec2{32, 32}, Vec2{96, 96}};
+        SwarmerProfile p = f.swarm.profile_at(kLatch);
+        p.kill_pulse_radius = 4.0f;
+        p.kill_pulse_damage = 100.0f;
+        f.swarm.set_profile(kLatch, p);
+        std::vector<NamedTarget> agents;
+        if (on_named) {
+            agents = {f.make_named(11u, Vec2{34.1f, 64}, 1000.0f),
+                      f.make_named(12u, Vec2{40, 64}, 1000.0f)};
+        } else {
+            f.add_chaff(Vec2{34.1f, 64}, 1000.0f);
+            f.add_chaff(Vec2{40, 64}, 1000.0f);
+        }
+        f.add_swarmer(Vec2{34, 64}, Vec2{}, kLatch);
+        f.swarm.flags[0] |= swarmer_flags::kPersistent;
+        f.step(1, nullptr, &agents);
+        REQUIRE(f.any_attached());
+        const f32 host_health = on_named ? agents[0].health : f.chaff.density[0];
+        REQUIRE(host_health < 1000.0f);
+        if (on_named) agents[0].position.x = 31.0f;
+        else f.chaff.pos_x[0] = 31.0f;
+        f.step(1, nullptr, &agents);
+        REQUIRE(f.swarm.count() == 1);
+        CHECK_FALSE(f.any_attached());
+        if (on_named) {
+            CHECK(f.swarm.target_named[0] == agents[1].id);
+            CHECK(agents[0].health == Catch::Approx(host_health));
+        } else {
+            CHECK(f.swarm.target_index[0] == 1u);
+            CHECK(f.chaff.density[0] == Catch::Approx(host_health));
+        }
+        CHECK(f.system.last_stats().hosts_finished == 0);
+        CHECK(f.system.last_stats().kill_pulses == 0);
+        CHECK(f.system.effects().bursts.empty());
+        CHECK((f.swarm.flags[0] & swarmer_flags::kPersistent) != 0);
+        check_body_inside(f.swarm, 0, f.playable_bounds);
+    }
+}
+
+TEST_CASE("all cell kinds keep their complete body inside each arena edge and recover alive",
+          "[swarm][sim][bounds]") {
+    constexpr u16 builder_slot = 6;
+    const Vec2 directions[] = {Vec2{-1, 0}, Vec2{1, 0}, Vec2{0, -1}, Vec2{0, 1}};
+    for (const u16 profile : {kLatch, kShooter, kBomber, kMucus, kArbor, builder_slot}) {
+        for (Vec2 outward : directions) {
+            for (const bool already_outside : {false, true}) {
+                INFO("profile " << profile << ", outward " << outward.x << "," << outward.y
+                     << ", initially outside " << already_outside);
+                Fixture f;
+                f.playable_bounds = Rect{Vec2{32, 32}, Vec2{96, 96}};
+                SwarmerProfile p = f.swarm.profile_at(profile == builder_slot ? kLatch : profile);
+                if (profile == builder_slot) p.kind = SwarmerKind::Builder;
+                p.size = 2.0f;
+                p.speed = 0.0f;
+                f.swarm.set_profile(profile, p);
+                const Vec2 position = f.playable_bounds.center() + outward * (already_outside ? 35.0f : 29.0f);
+                f.add_swarmer(position, outward * 300.0f, profile);
+                f.swarm.flags[0] |= swarmer_flags::kPersistent;
+                f.swarm.size_scale[0] = 1.5f;
+                const u32 generation = f.swarm.generation[0];
+                const f32 health = f.swarm.health[0];
+                CombatEventSink sink;
+                sink.reserve(64);
+                for (int tick = 0; tick < 8; ++tick) {
+                    f.step(1, &sink);
+                    REQUIRE(f.swarm.count() == 1);
+                    check_body_inside(f.swarm, 0, f.playable_bounds);
+                    CHECK(f.swarm.vel_x[0] * outward.x + f.swarm.vel_y[0] * outward.y <= 1.0e-4f);
+                }
+                CHECK(f.swarm.generation[0] == generation);
+                CHECK(f.swarm.health[0] == health);
+                CHECK((f.swarm.flags[0] & swarmer_flags::kPersistent) != 0);
+                CHECK(f.system.last_stats().expired == 0);
+                CHECK(f.system.effects().bursts.empty());
+                CHECK(f.system.effects().splashes.empty());
+                for (const CombatEvent& event : sink.events()) CHECK(event.type != CombatEventType::SwarmerDeath);
+            }
+        }
+    }
+}
+
+TEST_CASE("kiting and body separation cannot push cells through the arena boundary",
+          "[swarm][sim][bounds][bodies]") {
+    const Vec2 directions[] = {Vec2{-1, 0}, Vec2{1, 0}, Vec2{0, -1}, Vec2{0, 1}};
+    for (Vec2 outward : directions) {
+        for (const bool kiting : {false, true}) {
+            INFO("outward " << outward.x << "," << outward.y << ", kiting " << kiting);
+            Fixture f;
+            f.playable_bounds = Rect{Vec2{32, 32}, Vec2{96, 96}};
+            SwarmerProfile p = f.swarm.profile_at(kShooter);
+            p.size = 2.0f;
+            p.speed = 30.0f;
+            p.attach_radius = 8.0f;
+            p.kite_fraction = 1.0f;
+            f.swarm.set_profile(kShooter, p);
+            const Vec2 position = f.playable_bounds.center() + outward * 30.0f;
+            if (kiting) {
+                f.add_chaff(position - outward * 3.0f, 1000.0f);
+                f.add_swarmer(position, Vec2{}, kShooter);
+                f.swarm.flags[0] |= swarmer_flags::kPersistent;
+                u32 kite_ticks = 0;
+                for (int tick = 0; tick < 30; ++tick) {
+                    f.step(1);
+                    REQUIRE(f.swarm.count() == 1);
+                    kite_ticks += f.system.last_stats().kiting;
+                    check_body_inside(f.swarm, 0, f.playable_bounds);
+                }
+                CHECK(kite_ticks > 0);
+            } else {
+                f.add_swarmer(position, Vec2{}, kShooter);
+                f.add_swarmer(position - outward * 0.2f, Vec2{}, kShooter);
+                f.step(1);
+                REQUIRE(f.swarm.count() == 2);
+                CHECK(f.system.last_stats().friendly_contacts > 0);
+                check_body_inside(f.swarm, 0, f.playable_bounds);
+                check_body_inside(f.swarm, 1, f.playable_bounds);
+            }
+        }
+    }
+}
+
+TEST_CASE("the final arena correction also contains a cell projected outward by a tissue wall",
+          "[swarm][sim][bounds][walls]") {
+    const Vec2 directions[] = {Vec2{-1, 0}, Vec2{1, 0}, Vec2{0, -1}, Vec2{0, 1}};
+    for (Vec2 outward : directions) {
+        INFO("outward " << outward.x << "," << outward.y);
+        Fixture f;
+        f.playable_bounds = Rect{Vec2{32, 32}, Vec2{64, 64}};
+        TissueMask mask;
+        mask.resize(64, 64, 1.0f, Vec2{16, 16});
+        for (i32 y = 0; y < mask.height(); ++y) {
+            for (i32 x = 0; x < mask.width(); ++x) {
+                const Vec2 cell = mask.cell_to_world(x, y);
+                const bool walkable = outward.x < 0 ? cell.x < 32.0f : outward.x > 0 ? cell.x > 64.0f :
+                                      outward.y < 0 ? cell.y < 32.0f : cell.y > 64.0f;
+                mask.set_walkable(x, y, walkable);
+            }
+        }
+        DistanceField sdf;
+        sdf.bake(mask);
+        f.sdf = &sdf;
+        SwarmerProfile p = f.swarm.profile_at(kShooter);
+        p.size = 1.0f;
+        p.speed = 0.0f;
+        f.swarm.set_profile(kShooter, p);
+        f.add_swarmer(f.playable_bounds.center() + outward * 15.0f, Vec2{}, kShooter);
+        f.step(1);
+        REQUIRE(f.swarm.count() == 1);
+        CHECK(f.system.last_stats().wall_contacts > 0);
+        check_body_inside(f.swarm, 0, f.playable_bounds);
+    }
+}
+
+TEST_CASE("an oversized body or degenerate arena produces a finite live recovery position",
+          "[swarm][sim][bounds]") {
+    Fixture f;
+    SECTION("the body is larger than the entire arena") {
+        f.playable_bounds = Rect{Vec2{44, 44}, Vec2{48, 48}};
+    }
+    SECTION("the arena has zero extent") {
+        f.playable_bounds = Rect{Vec2{46, 46}, Vec2{46, 46}};
+    }
+    SwarmerProfile p = f.swarm.profile_at(kShooter);
+    p.size = 20.0f;
+    p.speed = 0.0f;
+    f.swarm.set_profile(kShooter, p);
+    f.add_swarmer(Vec2{20, 20}, Vec2{100, -100}, kShooter);
+    f.swarm.flags[0] |= swarmer_flags::kPersistent;
+    f.step(1);
+    REQUIRE(f.swarm.count() == 1);
+    check_body_inside(f.swarm, 0, f.playable_bounds);
+    CHECK(f.swarm.pos_x[0] == Catch::Approx(46.0f));
+    CHECK(f.swarm.pos_y[0] == Catch::Approx(46.0f));
+    CHECK(f.swarm.health[0] > 0.0f);
+}
+
+TEST_CASE("a persistent builder reaches an edge site without moving its body outside the arena",
+          "[swarm][sim][bounds][builder]") {
+    constexpr u16 builder_slot = 6;
+    const Vec2 directions[] = {Vec2{-1, 0}, Vec2{1, 0}, Vec2{0, -1}, Vec2{0, 1}};
+    for (Vec2 outward : directions) {
+        INFO("outward " << outward.x << "," << outward.y);
+        Fixture f;
+        f.playable_bounds = Rect{Vec2{32, 32}, Vec2{96, 96}};
+        SwarmerProfile p = f.swarm.profile_at(kLatch);
+        p.kind = SwarmerKind::Builder;
+        p.source = TowerType::Fibroblast;
+        p.size = 1.6f;
+        p.attach_radius = 0.8f;
+        f.swarm.set_profile(builder_slot, p);
+        // The authored site is valid, but the full body cannot put its centre
+        // within attach_radius of it. Arrival must use a reachable approach.
+        const Vec2 goal = f.playable_bounds.center() + outward * 31.8f;
+        SwarmerSpawnParams builder;
+        builder.position = goal - outward * 8.0f;
+        builder.profile = builder_slot;
+        builder.owner = EntityId{55u};
+        builder.goal = goal;
+        builder.has_goal = true;
+        builder.persistent = true;
+        REQUIRE(f.swarm.spawn(builder));
+        bool built = false;
+        for (int tick = 0; tick < 600 && !built; ++tick) {
+            f.step(1);
+            REQUIRE(f.swarm.count() == 1);
+            check_body_inside(f.swarm, 0, f.playable_bounds);
+            if (f.system.effects().builds.empty()) continue;
+            REQUIRE(f.system.effects().builds.size() == 1);
+            const SwarmerBuild& request = f.system.effects().builds[0];
+            CHECK(request.origin.x == Catch::Approx(goal.x));
+            CHECK(request.origin.y == Catch::Approx(goal.y));
+            CHECK(request.owner == builder.owner);
+            CHECK(request.source == TowerType::Fibroblast);
+            CHECK(request.profile == builder_slot);
+            CHECK(request.slot == 0u);
+            const Vec2 body{f.swarm.pos_x[0], f.swarm.pos_y[0]};
+            CHECK(math::length(body - goal) > p.attach_radius);
+            built = true;
+        }
+        REQUIRE(built);
+        CHECK((f.swarm.flags[0] & swarmer_flags::kPersistent) != 0);
+        CHECK((f.swarm.flags[0] & swarmer_flags::kHasGoal) == 0);
+        CHECK(f.swarm.health[0] > 0.0f);
+    }
+}
+
+TEST_CASE("SimWorld retains off-board spawns in sim bounds while friendlies obey the playable arena",
+          "[swarm][sim][bounds][world]") {
+    SimDesc desc;
+    desc.world_bounds = Rect{Vec2{32, 32}, Vec2{96, 96}};
+    desc.sim_bounds = kBounds;
+    desc.max_chaff = 32;
+    desc.max_swarmers = 8;
+    desc.swarmer_collision.enabled = false;
+    for (auto& family : desc.chaff_tuning.family) {
+        family.max_speed = 0.0f;
+        family.acceleration = 0.0f;
+        family.jitter = 0.0f;
+    }
+    SimWorld world;
+    world.init(desc, nullptr);
+    world.tissue().resize(128, 128, 1.0f, Vec2{});
+    for (i32 y = 0; y < 128; ++y)
+        for (i32 x = 0; x < 128; ++x) world.tissue().set_walkable(x, y, true);
+    world.sdf().bake(world.tissue());
+    ChaffSpawnParams prey;
+    prey.position = Vec2{31, 64};
+    prey.density = 1000.0f;
+    REQUIRE(world.chaff().spawn(prey).valid());
+    prey.position = Vec2{40, 64};
+    REQUIRE(world.chaff().spawn(prey).valid());
+    SwarmerProfile profile;
+    profile.kind = SwarmerKind::Shooter;
+    profile.size = 2.0f;
+    profile.speed = 0.0f;
+    profile.search_radius = 12.0f;
+    profile.attach_radius = 4.0f;
+    world.swarmers().set_profile(kShooter, profile);
+    SwarmerSpawnParams cell;
+    cell.profile = kShooter;
+    cell.position = Vec2{33, 64};
+    cell.persistent = true;
+    REQUIRE(world.swarmers().spawn(cell));
+    cell.position = Vec2{12, 80};
+    REQUIRE(world.swarmers().spawn(cell));
+    for (int tick = 0; tick < 8; ++tick) {
+        world.tick();
+        REQUIRE(world.swarmers().count() == 2);
+        REQUIRE(world.chaff().count() == 2);
+        CHECK(world.swarmers().target_index[0] == 1u);
+        for (usize i = 0; i < world.swarmers().count(); ++i)
+            check_body_inside(world.swarmers(), i, desc.world_bounds);
+    }
+    CHECK(world.chaff().pos_x[0] < desc.world_bounds.min.x);
+    CHECK(world.chaff().density[0] == Catch::Approx(1000.0f));
+    CHECK(world.snapshot().swarmers_killed_total == 0);
 }
 
 // ---------------------------------------------------------------------------

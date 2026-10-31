@@ -17,6 +17,11 @@ systems/context as well as entities; callers register level systems afterwards.
 grids and out-of-bounds retirement; empty means use `world_bounds`. Level loading
 can expand it for offscreen spawns. Do not cull incoming enemies against the
 camera rectangle or use the visible view as a solver extent.
+Friendly units use `world_bounds` for movement and targeting: their bodies stay
+inside the play area, and enemies outside it cannot be acquired or pursued.
+The exception is the macrophage (`arbor_grabber`): its body is contained the
+same way, but its pseudopods acquire, pull and swallow prey past the edge.
+Boundary contact stops outward motion rather than retiring the friendly unit.
 
 Bulk stores refuse/drop spawns at capacity instead of growing per agent. Inspect
 return values and overflow counters for missing units. `DamageSystem::reserve()`
@@ -31,7 +36,7 @@ fixed 1/60-second step:
 1. Rebuild the chaff spatial hash from beginning-of-tick positions.
 2. Update squad centroids and route anchors from those same positions.
 3. Move chaff; record objective leaks/out-of-bounds retirements and leak damage.
-4. Advance burrowing/slither after motion and before targeting/damage.
+4. Advance gameplay burrowing after navigation and before targeting/damage.
 5. Run ordered ECS systems, including named behavior and legacy tower release.
 6. Build inflammation zones and apply their current effects.
 7. Apply aggregate damage fields.
@@ -47,7 +52,8 @@ fixed 1/60-second step:
     while the retiring agents still have positions.
 15. Compact chaff once; separate damage kills from leaks/out-of-bounds
     retirements; age/clear damage-field submissions.
-16. Pump pending flow rebakes, increment world tick.
+16. Update cosmetic slither from final positions, including combat corrections.
+17. Pump pending flow rebakes, increment world tick.
 
 The hash retains beginning-of-tick membership during movement/combat. Queries
 test current position/density where required. Compacting between damage sources

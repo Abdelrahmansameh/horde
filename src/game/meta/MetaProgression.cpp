@@ -202,6 +202,35 @@ void MetaProgression::debug_reset_campaign() {
 
 // ---- Versioned JSON save/load ----------------------------------------------
 
+namespace {
+
+/// Histamine Flare's nodes, removed with the ability. A save that bought them
+/// gets back exactly what they cost (one Antibody for the unlock, the stat
+/// lines' Memory Cells at their 120 cost weight) so the spend does not vanish
+/// with the nodes. Returns false for any other key.
+bool refund_retired_node(const std::string& key, u32 level, u64& memory_cells, u32& antibodies,
+                         u64& spent_mc, u32& spent_ab) {
+    const bool unlock = key == "ability.histamine.unlock";
+    if (!unlock && key != "ability.histamine.cooldown" && key != "ability.histamine.radius") return false;
+    if (unlock) {
+        if (level == 0) return true;
+        antibodies += 1;
+        spent_ab -= std::min(spent_ab, u32{1});
+        return true;
+    }
+    const MetaConfig meta = default_game_config().meta;
+    u64 cost = 0;
+    for (u32 k = 0; k < std::min(level, u32{3}); ++k) {
+        const u64 base = static_cast<u64>(meta.stat_base_cost) + static_cast<u64>(meta.stat_cost_step) * k;
+        cost += (base * 120 + 50) / 100;
+    }
+    memory_cells += cost;
+    spent_mc -= std::min(spent_mc, cost);
+    return true;
+}
+
+} // namespace
+
 std::string MetaProgression::to_json() const {
     json j;
     j["version"] = kSaveVersion;
@@ -285,6 +314,10 @@ bool MetaProgression::from_json(const std::string& text, std::string& out_error)
                 for (auto it = tree.begin(); it != tree.end(); ++it) {
                     if (it.key() == "neutrophil.trigger_rate") {
                         legacy_trigger_ranks = std::min(it.value().get<u32>(), u32{4});
+                        continue;
+                    }
+                    if (refund_retired_node(it.key(), it.value().get<u32>(), memory_cells, antibodies,
+                                            spent_mc, spent_ab)) {
                         continue;
                     }
                     TreeNode n{};

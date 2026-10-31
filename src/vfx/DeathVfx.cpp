@@ -85,11 +85,26 @@ struct DeathTables {
         bacteria.inherit_velocity = 0.25f;
 
         // The parasite comes apart like a bacterium -- heavy, lazy debris --
-        // in its own brown, with a few fewer pieces for a thinner body.
+        // in its own lavender, with a few fewer pieces for a thinner body.
         FamilyDeathVfx& parasite = look[static_cast<u32>(PathogenFamily::Parasite)];
         parasite = bacteria;
-        parasite.color = Vec4{0.55f, 0.30f, 0.15f, 1.0f};
+        parasite.color = Vec4{0.68f, 0.46f, 0.96f, 1.0f};
         parasite.bit_count = 22;
+
+        // The spore bursts like a bacterium too, a bigger sac with more in it.
+        FamilyDeathVfx& spore = look[static_cast<u32>(PathogenFamily::Spore)];
+        spore = bacteria;
+        // Not its family colour but the colour its body is DRAWN in, which
+        // default_game_config leaves alone. chaff.frag lifts every egg body
+        // over its colour (x1.30 at the rim down to core_shade inside); for
+        // the others that only brightens, but it clips the spore's red
+        // channel, so marigold (0.99, 0.76, 0.17) goes on screen as lemon and
+        // a burst in it read orange beside the bodies, more so as the lane
+        // shows through the fading shards. This is the body at mid-depth:
+        // x mix(1.30, 1.08, 0.5) = 1.19, clipped.
+        spore.color = Vec4{1.0f, 0.904f, 0.202f, 1.0f};
+        spore.bit_count = 34;
+        spore.scale = 1.4f;
     }
 };
 

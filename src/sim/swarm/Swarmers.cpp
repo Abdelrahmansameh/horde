@@ -10,8 +10,8 @@
 // the decision. One pass, stated plainly, is the honest structure.
 //
 // THE STATES a swarmer moves through, in the order this file handles them:
-//   1. RETIRED   — lifetime exhausted, or out of world. Bombers detonate in
-//                  place on expiry; everything else dissolves.
+//   1. RETIRED   — lifetime exhausted. Bombers detonate in
+//                  place on expiry; mucus requires untreated prey nearby.
 //   2. TARGETLESS— no valid target. Pays one spatial query (chaff) plus a walk
 //                  of the named list, then steers at the nearest.
 //   3. SEEKING   — has a target, not yet in reach. Steers toward it with a
@@ -58,13 +58,41 @@ bool family_matches(u8 mask, u8 family) {
 /// A swarmer may go for anything alive, of a matching family, not already
 /// dying this tick, and NOT burrowed: a hidden pathogen is invisible to every
 /// tower's units, which is what makes burrowing a real escape.
-bool targetable(const ChaffBuffers& chaff, u32 idx, u8 mask) {
+bool targetable(const ChaffBuffers& chaff, u32 idx, u8 mask, const Rect& play_bounds) {
     if (idx >= chaff.count()) return false;
+    if (!play_bounds.contains(Vec2{chaff.pos_x[idx], chaff.pos_y[idx]})) return false;
     const u8 f = chaff.flags[idx];
     if ((f & chaff_flags::kAlive) == 0) return false;
     if ((f & chaff_flags::kPendingKill) != 0) return false;
     if ((f & chaff_flags::kHidden) != 0) return false;
     return family_matches(mask, chaff.family[idx]);
+}
+
+/// The play area a macrophage's pseudopods test targets against: none. The
+/// body stays on the board (contain_friendly), but its arms reach and eat
+/// past the playable edge, so prey staged just off-screen is still in reach.
+const Rect kArborReachBounds{Vec2{-1.0e30f, -1.0e30f}, Vec2{1.0e30f, 1.0e30f}};
+
+Rect friendly_center_bounds(const SwarmerBuffers& sw, usize i, const Rect& bounds) {
+    const f32 body = math::max(sw.body_size(i), 0.0f);
+    const Vec2 half = bounds.size() * 0.5f;
+    const Vec2 inset{math::min(body, math::max(half.x, 0.0f)),
+                     math::min(body, math::max(half.y, 0.0f))};
+    return Rect{bounds.min + inset, bounds.max - inset};
+}
+
+/// Keep the full friendly body in the play area, including edge volley spawns.
+/// Cancel outward velocity while preserving motion along the boundary.
+void contain_friendly(SwarmerBuffers& sw, usize i, const Rect& bounds) {
+    const Rect centers = friendly_center_bounds(sw, i, bounds);
+    const Vec2 lo = centers.min;
+    const Vec2 hi = centers.max;
+    sw.pos_x[i] = math::clamp(sw.pos_x[i], lo.x, hi.x);
+    sw.pos_y[i] = math::clamp(sw.pos_y[i], lo.y, hi.y);
+    if ((sw.pos_x[i] <= lo.x && sw.vel_x[i] < 0.0f) ||
+        (sw.pos_x[i] >= hi.x && sw.vel_x[i] > 0.0f)) sw.vel_x[i] = 0.0f;
+    if ((sw.pos_y[i] <= lo.y && sw.vel_y[i] < 0.0f) ||
+        (sw.pos_y[i] >= hi.y && sw.vel_y[i] > 0.0f)) sw.vel_y[i] = 0.0f;
 }
 
 /// PCG-flavoured step on a per-swarmer state word. Same algorithm family as
@@ -481,6 +509,26 @@ struct SearchHit {
     f32 d2 = 0.0f;
 };
 
+/// Splashes land after the whole swarmer pass. Reserve their initial footprint
+/// now so later Goblet Cells do not spend themselves on the same coating.
+bool pending_mucus(Vec2 p, u8 family, const std::vector<SwarmerSplash>& splashes) {
+    for (const SwarmerSplash& splash : splashes) {
+        if (splash.droplets == 0 || splash.lifetime <= 0.0f || splash.slow_duration <= 0.0f ||
+            !family_matches(splash.family_mask, family)) continue;
+        if (math::length_sq(p - splash.origin) <= splash.radius * splash.radius) return true;
+    }
+    return false;
+}
+
+bool mucus_covered(const ChaffBuffers& chaff, usize i, const std::vector<SwarmerSplash>& splashes) {
+    return ((chaff.flags[i] & chaff_flags::kSlowed) != 0 && chaff.slow_remaining[i] > 0.0f) ||
+           pending_mucus(Vec2{chaff.pos_x[i], chaff.pos_y[i]}, chaff.family[i], splashes);
+}
+
+bool mucus_covered(const NamedTarget& target, const std::vector<SwarmerSplash>& splashes) {
+    return target.mucus_slowed || pending_mucus(target.position, target.family, splashes);
+}
+
 /// Nearest targetable thing to `p` inside `radius`: chaff via the hash, named
 /// agents by walking the (tiny) list. `skip_chaff` / `skip_named` exclude the
 /// caller's current target so a "is there anything closer" question cannot
@@ -492,17 +540,20 @@ struct SearchHit {
 /// kite-threat search, where a passenger on its own membrane would otherwise
 /// read as a threat it can never outrun.
 SearchHit search_nearest(const ChaffBuffers& chaff, const SpatialHash& hash,
-                         const NamedTargetList& named, std::vector<u32>& scratch, Vec2 p,
+                         const NamedTargetList& named, const Rect& play_bounds,
+                         std::vector<u32>& scratch, Vec2 p,
                          f32 radius, u8 mask, usize skip_chaff, usize skip_named,
-                         bool ignore_latched = false) {
+                         bool ignore_latched = false,
+                         const std::vector<SwarmerSplash>* mucus = nullptr) {
     SearchHit best;
     scratch.clear();
     hash.query_circle(p, radius, scratch);
     const f32 r2 = radius * radius;
     for (const u32 idx : scratch) {
         if (idx == skip_chaff) continue;
-        if (!targetable(chaff, idx, mask)) continue;
+        if (!targetable(chaff, idx, mask, play_bounds)) continue;
         if (ignore_latched && (chaff.flags[idx] & chaff_flags::kLatched) != 0) continue;
+        if (mucus && mucus_covered(chaff, idx, *mucus)) continue;
         const f32 dx = chaff.pos_x[idx] - p.x;
         const f32 dy = chaff.pos_y[idx] - p.y;
         const f32 d2 = dx * dx + dy * dy;
@@ -519,7 +570,9 @@ SearchHit search_nearest(const ChaffBuffers& chaff, const SpatialHash& hash,
     for (usize k = 0; k < named.items.size(); ++k) {
         if (k == skip_named) continue;
         const NamedTarget& t = named.items[k];
+        if (!play_bounds.contains(t.position)) continue;
         if (!family_matches(mask, t.family)) continue;
+        if (mucus && mucus_covered(t, *mucus)) continue;
         const f32 reach = radius + t.radius;
         const f32 d2 = math::length_sq(t.position - p);
         if (d2 > reach * reach) continue;
@@ -592,6 +645,11 @@ SwarmerStats SwarmerSystem::update(SwarmerBuffers& sw,
         return last_;
     }
 
+    // Correct edge spawns before formations and targeting read their positions.
+    for (usize i = 0; i < entry_count; ++i) {
+        if ((sw.flags[i] & swarmer_flags::kPendingKill) == 0) contain_friendly(sw, i, world_bounds);
+    }
+
     // ---- SQUADS. Shooters released together (same owner, same group) march
     // and hold as one rank, and so do arbor grabbers (the LANE WALL). This
     // pre-pass gives every member its squad's centroid, its rank within the
@@ -649,6 +707,14 @@ SwarmerStats SwarmerSystem::update(SwarmerBuffers& sw,
         }
         a = b;
     }
+
+    const auto has_mucus_target = [&](Vec2 p, const SwarmerProfile& pr, u8 mask) {
+        const SearchHit hit = search_nearest(chaff, hash, named, world_bounds, scratch_, p, pr.splash_radius,
+                                             mask, ChaffBuffers::npos, NamedTargetList::npos,
+                                             false, &effects_.splashes);
+        // Fluid coverage samples a named agent's centre, not its body rim.
+        return hit.found && hit.d2 <= pr.splash_radius * pr.splash_radius;
+    };
 
     // What a bomber leaves behind. Shared by the contact and the expiry paths
     // so the two can never disagree about what a detonation is.
@@ -728,7 +794,7 @@ SwarmerStats SwarmerSystem::update(SwarmerBuffers& sw,
         Kite out;
         if (pr.kite_fraction <= 0.0f) return out;
         const f32 kite_r = pr.attach_radius * pr.kite_fraction;
-        const SearchHit threat = search_nearest(chaff, hash, named, scratch_, p, kite_r, mask,
+        const SearchHit threat = search_nearest(chaff, hash, named, world_bounds, scratch_, p, kite_r, mask,
                                                 ChaffBuffers::npos, NamedTargetList::npos,
                                                 /*ignore_latched=*/true);
         if (!threat.found) return out;
@@ -923,7 +989,7 @@ SwarmerStats SwarmerSystem::update(SwarmerBuffers& sw,
     };
 
     // A macrophage owns a small fixed cluster per independent branch.
-    // Releasing the unit (death, expiry, or leaving the arena) must make
+    // Releasing the unit through death or expiry must make
     // every live captive ordinary chaff again before the fixed arm state is
     // cleared.
     const auto release_arbor_captives = [&](ArborGrabberState& arbor) {
@@ -955,8 +1021,16 @@ SwarmerStats SwarmerSystem::update(SwarmerBuffers& sw,
             SwarmerBuffers& units;
             usize index;
             bool builders_active;
-            ~ActivityScope() { units.observe_activity(index, builders_active); }
-        } activity_scope{sw, i, builders_active_};
+            const Rect& play_bounds;
+            ~ActivityScope() {
+                // Even a fast steering step must be inside before contact
+                // fuses and the body solver read its new position.
+                if ((units.flags[index] & swarmer_flags::kPendingKill) == 0) {
+                    contain_friendly(units, index, play_bounds);
+                }
+                units.observe_activity(index, builders_active);
+            }
+        } activity_scope{sw, i, builders_active_, world_bounds};
 
         if ((sw.flags[i] & swarmer_flags::kPersistent) == 0) sw.life[i] -= dt;
 
@@ -965,17 +1039,14 @@ SwarmerStats SwarmerSystem::update(SwarmerBuffers& sw,
         const Vec2 v{sw.vel_x[i], sw.vel_y[i]};
 
         // ---- 1. Retirement, checked first so a spent swarmer never gets to
-        // act on the tick it dies. Leaving the world is a plain dissolve even
-        // for a bomber: nothing off the map is worth a circle.
-        if (!world_bounds.contains(p)) {
-            if (pr.kind == SwarmerKind::ArborGrabber) release_arbor_captives(sw.arbor_grabber[i]);
-            sw.kill(i, CombatRetirement::OutOfBounds);
-            ++stats.expired;
-            continue;
-        }
+        // act on the tick it dies. Boundary contact itself never kills a unit.
         if (sw.life[i] <= 0.0f) {
             if (pr.kind == SwarmerKind::ArborGrabber) release_arbor_captives(sw.arbor_grabber[i]);
-            if (swarmer_kind_detonates(pr.kind)) {
+            // A spent Goblet Cell only splashes if there is still something
+            // nearby to coat. In particular, expiry must not bypass its slow filter.
+            const bool useful_mucus = pr.kind != SwarmerKind::MucusBomber ||
+                                      has_mucus_target(p, pr, sw.family_mask[i]);
+            if (swarmer_kind_detonates(pr.kind) && useful_mucus) {
                 detonate(i, pr, p, v);
             } else {
                 sw.kill(i, CombatRetirement::Expired);
@@ -986,6 +1057,7 @@ SwarmerStats SwarmerSystem::update(SwarmerBuffers& sw,
         }
 
         const u8 mask = sw.family_mask[i];
+        const auto* mucus = pr.kind == SwarmerKind::MucusBomber ? &effects_.splashes : nullptr;
 
         // ---- BUILDER. Hunts nothing: it was released with a site to walk to
         // and that is the whole job. Steer there with the same wander every
@@ -1029,11 +1101,14 @@ SwarmerStats SwarmerSystem::update(SwarmerBuffers& sw,
                     sw.chase[i] = 0.0f;
                 }
                 sw.chase[i] -= dt;
-                const Vec2 home{sw.home_x[i], sw.home_y[i]};
+                const Rect centers = friendly_center_bounds(sw, i, world_bounds);
+                const Vec2 home{math::clamp(sw.home_x[i], centers.min.x, centers.max.x),
+                                math::clamp(sw.home_y[i], centers.min.y, centers.max.y)};
                 const f32 body = sw.body_size(i);
                 const f32 pace = pr.speed * math::max(pr.roam_speed_mult, 0.0f);
                 u32 s = sw.seed[i];
-                Vec2 way{sw.goal_x[i], sw.goal_y[i]};
+                Vec2 way{math::clamp(sw.goal_x[i], centers.min.x, centers.max.x),
+                         math::clamp(sw.goal_y[i], centers.min.y, centers.max.y)};
                 if (sw.chase[i] <= 0.0f) {
                     // The next stroll: uniform over the leash disc round
                     // home, on tissue with room for the body. Nowhere found
@@ -1044,7 +1119,7 @@ SwarmerStats SwarmerSystem::update(SwarmerBuffers& sw,
                         const f32 r = leash * std::sqrt(0.5f * (signed_unit(s) + 1.0f));
                         const f32 a = signed_unit(s) * math::kPi;
                         const Vec2 c = home + Vec2{std::cos(a), std::sin(a)} * r;
-                        if (!world_bounds.contains(c)) continue;
+                        if (!centers.contains(c)) continue;
                         if (sdf != nullptr && sdf->width() > 0 &&
                             sdf->sample(c) < body * kWallContactFraction) continue;
                         way = c;
@@ -1085,7 +1160,12 @@ SwarmerStats SwarmerSystem::update(SwarmerBuffers& sw,
                 continue;
             }
             const Vec2 goal{sw.goal_x[i], sw.goal_y[i]};
-            const Vec2 to_goal = goal - p;
+            // Edge sites stay valid: approach as far as the body can fit,
+            // while the build request still names the original scar site.
+            const Rect centers = friendly_center_bounds(sw, i, world_bounds);
+            const Vec2 approach{math::clamp(goal.x, centers.min.x, centers.max.x),
+                                math::clamp(goal.y, centers.min.y, centers.max.y)};
+            const Vec2 to_goal = approach - p;
             const f32 goal_dist = math::length(to_goal);
             if (goal_dist <= pr.attach_radius) {
                 SwarmerBuild b;
@@ -1215,7 +1295,8 @@ SwarmerStats SwarmerSystem::update(SwarmerBuffers& sw,
                     host = chaff.resolve(arm.captive.chaff[0].handle);
                     if (host != ChaffBuffers::npos) {
                         const bool pulling = arm.phase == ArborArmPhase::Pulling;
-                        valid = pulling || targetable(chaff, static_cast<u32>(host), mask);
+                        valid = pulling ||
+                                targetable(chaff, static_cast<u32>(host), mask, kArborReachBounds);
                         if (valid) {
                             target = Vec2{chaff.pos_x[host], chaff.pos_y[host]};
                             target_radius = chaff_radius_[chaff.family[host] < kFamilyCount
@@ -1282,7 +1363,7 @@ SwarmerStats SwarmerSystem::update(SwarmerBuffers& sw,
                                 for (const u32 idx : scratch_) {
                                     if (arm.captive.chaff_count >= cap) break;
                                     if (idx == static_cast<u32>(host) ||
-                                        !targetable(chaff, idx, mask) ||
+                                        !targetable(chaff, idx, mask, kArborReachBounds) ||
                                         target_is_held(idx, EntityId{})) continue;
                                     const f32 dx = chaff.pos_x[idx] - target.x;
                                     const f32 dy = chaff.pos_y[idx] - target.y;
@@ -1322,6 +1403,8 @@ SwarmerStats SwarmerSystem::update(SwarmerBuffers& sw,
                             if (captive == ChaffBuffers::npos) continue;
                             const Vec2 q = p + lead_offset * (1.0f - eased) +
                                            (arm.captive.chaff[c].offset - lead_offset) + swallowed * eased;
+                            // Captives may sit past the playable edge: they
+                            // are hidden while pulled and swallowed at the end.
                             chaff.pos_x[captive] = q.x;
                             chaff.pos_y[captive] = q.y;
                             chaff.vel_x[captive] = 0.0f;
@@ -1413,7 +1496,8 @@ SwarmerStats SwarmerSystem::update(SwarmerBuffers& sw,
                 hash.query_circle(p, max_reach, scratch_);
                 const f32 max_reach2 = max_reach * max_reach;
                 for (const u32 idx : scratch_) {
-                    if (!targetable(chaff, idx, mask) || target_is_held(idx, EntityId{})) continue;
+                    if (!targetable(chaff, idx, mask, kArborReachBounds) ||
+                        target_is_held(idx, EntityId{})) continue;
                     const f32 dx = chaff.pos_x[idx] - p.x;
                     const f32 dy = chaff.pos_y[idx] - p.y;
                     const f32 d2 = dx * dx + dy * dy;
@@ -1511,15 +1595,25 @@ SwarmerStats SwarmerSystem::update(SwarmerBuffers& sw,
         usize named_idx = NamedTargetList::npos;
         {
             const ChaffHandle held = sw.target(i);
+            bool left_play_area = false;
             if (held.valid()) {
                 host = chaff.resolve(held);
-                if (host != ChaffBuffers::npos && !targetable(chaff, static_cast<u32>(host), mask)) {
+                if (host != ChaffBuffers::npos) {
+                    left_play_area = !world_bounds.contains(Vec2{chaff.pos_x[host], chaff.pos_y[host]});
+                }
+                if (host != ChaffBuffers::npos &&
+                    (!targetable(chaff, static_cast<u32>(host), mask, world_bounds) ||
+                     (mucus && mucus_covered(chaff, host, *mucus)))) {
                     host = ChaffBuffers::npos;
                 }
             } else if (sw.target_named[i].valid()) {
                 named_idx = named.find(sw.target_named[i]);
+                if (named_idx != NamedTargetList::npos) {
+                    left_play_area = !world_bounds.contains(named.items[named_idx].position);
+                }
                 if (named_idx != NamedTargetList::npos &&
-                    !family_matches(mask, named.items[named_idx].family)) {
+                    (left_play_area || !family_matches(mask, named.items[named_idx].family) ||
+                     (mucus && mucus_covered(named.items[named_idx], *mucus)))) {
                     named_idx = NamedTargetList::npos;
                 }
             }
@@ -1529,7 +1623,7 @@ SwarmerStats SwarmerSystem::update(SwarmerBuffers& sw,
                 // engaged: a seeking swarmer whose quarry died to something
                 // else has not finished anything.
                 if ((sw.flags[i] & swarmer_flags::kAttached) != 0 &&
-                    pr.kind != SwarmerKind::ArborGrabber) {
+                    pr.kind != SwarmerKind::ArborGrabber && !left_play_area) {
                     ++stats.hosts_finished;
                 }
                 sw.target_generation[i] = 0u;
@@ -1543,8 +1637,9 @@ SwarmerStats SwarmerSystem::update(SwarmerBuffers& sw,
         // ---- 2. TARGETLESS: pay for a search. The expensive path.
         if (host == ChaffBuffers::npos && named_idx == NamedTargetList::npos) {
             ++stats.searching;
-            const SearchHit hit = search_nearest(chaff, hash, named, scratch_, p, pr.search_radius,
-                                                 mask, ChaffBuffers::npos, NamedTargetList::npos);
+            const SearchHit hit = search_nearest(chaff, hash, named, world_bounds, scratch_, p, pr.search_radius,
+                                                 mask, ChaffBuffers::npos, NamedTargetList::npos,
+                                                 false, mucus);
             if (hit.found) {
                 adopt(i, hit);
                 if (hit.named_index != NamedTargetList::npos) named_idx = hit.named_index;
@@ -1590,9 +1685,10 @@ SwarmerStats SwarmerSystem::update(SwarmerBuffers& sw,
                                        pr.kind == SwarmerKind::ArborGrabber;
             const f32 leash = standoff_kind ? reach : pr.search_radius + target_radius;
             if (dist > leash) {
-                const SearchHit hit = search_nearest(chaff, hash, named, scratch_, p, pr.search_radius,
+                const SearchHit hit = search_nearest(chaff, hash, named, world_bounds, scratch_, p, pr.search_radius,
                                                      mask, on_named ? ChaffBuffers::npos : host,
-                                                     on_named ? named_idx : NamedTargetList::npos);
+                                                     on_named ? named_idx : NamedTargetList::npos,
+                                                     false, mucus);
                 if (hit.found && hit.d2 < dist * dist) {
                     ++stats.retargeted;
                     adopt(i, hit);
@@ -1824,12 +1920,12 @@ SwarmerStats SwarmerSystem::update(SwarmerBuffers& sw,
 
             // A bomber gives a chase only so long. Past the profile's limit it
             // goes off where it is rather than trailing a target it is not
-            // catching: the effect still lands somewhere useful (the target
-            // is in reach of the search radius, so the crowd is near), and the
-            // unit stops being a shell that never lands.
+            // catching. A Goblet Cell keeps seeking until untreated prey is
+            // within its splash, so the fuse cannot waste it on coated enemies.
             if (swarmer_kind_detonates(pr.kind) && pr.chase_seconds > 0.0f) {
                 sw.chase[i] += dt;
-                if (sw.chase[i] >= pr.chase_seconds) {
+                if (sw.chase[i] >= pr.chase_seconds &&
+                    (pr.kind != SwarmerKind::MucusBomber || has_mucus_target(p, pr, mask))) {
                     ++stats.chase_timeouts;
                     detonate(i, pr, p, dir);
                     continue;
@@ -1901,10 +1997,12 @@ SwarmerStats SwarmerSystem::update(SwarmerBuffers& sw,
     // bomber the pass finds touching an enemy goes off here, at the spot it
     // touched -- it has not been pushed anywhere first.
     if (collision_.enabled) {
-        resolve_bodies(sw, chaff, hash, named, stats);
+        resolve_bodies(sw, chaff, hash, named, world_bounds, stats);
         for (const ContactBoom& boom : contact_booms_) {
             const usize i = boom.index;
             const SwarmerProfile& pr = sw.profile_of(i);
+            if (pr.kind == SwarmerKind::MucusBomber &&
+                pending_mucus(boom.target, boom.family, effects_.splashes)) continue;
             const Vec2 p{sw.pos_x[i], sw.pos_y[i]};
             Vec2 dir = math::normalize_safe(boom.at - p);
             if (dir.x == 0.0f && dir.y == 0.0f) dir = math::normalize_safe(Vec2{sw.vel_x[i], sw.vel_y[i]});
@@ -1945,6 +2043,12 @@ SwarmerStats SwarmerSystem::update(SwarmerBuffers& sw,
             }
             ++stats.wall_contacts;
         }
+    }
+
+    // Steering, attached hosts, body separation and wall correction all obey
+    // the playable edge in this tick, including attached latchers.
+    for (usize i = 0; i < entry_count; ++i) {
+        if ((sw.flags[i] & swarmer_flags::kPendingKill) == 0) contain_friendly(sw, i, world_bounds);
     }
 
     // Chaff compaction is the CALLER's job, once, after every damage source.
@@ -1995,7 +2099,7 @@ static void walk_cells(const SpatialHash& hash, Vec2 p, u32 budget, Visit&& visi
 /// interpenetrate.
 void SwarmerSystem::resolve_bodies(SwarmerBuffers& sw, ChaffBuffers& chaff,
                                    const SpatialHash& hash, const NamedTargetList& named,
-                                   SwarmerStats& stats) {
+                                   const Rect& play_bounds, SwarmerStats& stats) {
     const usize n = sw.count();
     contact_booms_.clear();
     if (n == 0) return;
@@ -2046,7 +2150,8 @@ void SwarmerSystem::resolve_bodies(SwarmerBuffers& sw, ChaffBuffers& chaff,
     const auto solid_chaff = [&](u32 j) {
         const u8 f = chaff.flags[j];
         return (f & chaff_flags::kAlive) != 0 && (f & chaff_flags::kPendingKill) == 0 &&
-               (f & (chaff_flags::kHidden | chaff_flags::kLatched)) == 0;
+               (f & (chaff_flags::kHidden | chaff_flags::kLatched)) == 0 &&
+               play_bounds.contains(Vec2{chaff.pos_x[j], chaff.pos_y[j]});
     };
 
     for (usize i = 0; i < n; ++i) {
@@ -2073,6 +2178,8 @@ void SwarmerSystem::resolve_bodies(SwarmerBuffers& sw, ChaffBuffers& chaff,
         u32 contacts = 0;
         bool boom = false;
         Vec2 boom_at = p;
+        Vec2 boom_target = p;
+        u8 boom_family = 0;
         // The touch point on this unit's membrane, toward an enemy at `to_me`
         // away (a vector from the enemy to us). A bomber sitting exactly on
         // an enemy has no direction to offer; it goes off where it is.
@@ -2134,11 +2241,14 @@ void SwarmerSystem::resolve_bodies(SwarmerBuffers& sw, ChaffBuffers& chaff,
             const f32 d2 = dx * dx + dy * dy;
             const f32 body = size + chaff_radius_[chaff.family[j] < kFamilyCount ? chaff.family[j] : 0u] *
                                         chaff.size_scale[j];
-            if (bomber && family_matches(mask, chaff.family[j])) {
+            if (bomber && family_matches(mask, chaff.family[j]) &&
+                (pr.kind != SwarmerKind::MucusBomber || !mucus_covered(chaff, j, effects_.splashes))) {
                 const f32 fuse = body * boom_mult;
                 if (d2 < fuse * fuse) {
                     boom = true;
                     boom_at = membrane_toward(Vec2{dx, dy}, d2);
+                    boom_target = Vec2{chaff.pos_x[j], chaff.pos_y[j]};
+                    boom_family = chaff.family[j];
                     return;
                 }
             }
@@ -2160,14 +2270,18 @@ void SwarmerSystem::resolve_bodies(SwarmerBuffers& sw, ChaffBuffers& chaff,
         });
         for (usize k = 0; k < named.items.size() && !boom; ++k) {
             const NamedTarget& t = named.items[k];
+            if (!play_bounds.contains(t.position)) continue;
             const Vec2 to_me = p - t.position;
             const f32 d2 = math::length_sq(to_me);
             const f32 body = size + t.radius;
-            if (bomber && family_matches(mask, t.family)) {
+            if (bomber && family_matches(mask, t.family) &&
+                (pr.kind != SwarmerKind::MucusBomber || !mucus_covered(t, effects_.splashes))) {
                 const f32 fuse = body * boom_mult;
                 if (d2 < fuse * fuse) {
                     boom = true;
                     boom_at = membrane_toward(to_me, d2);
+                    boom_target = t.position;
+                    boom_family = t.family;
                     break;
                 }
             }
@@ -2180,7 +2294,7 @@ void SwarmerSystem::resolve_bodies(SwarmerBuffers& sw, ChaffBuffers& chaff,
             ++enemy_contacts;
         }
         if (boom) {
-            contact_booms_.push_back(ContactBoom{static_cast<u32>(i), boom_at});
+            contact_booms_.push_back(ContactBoom{static_cast<u32>(i), boom_at, boom_target, boom_family});
             continue;
         }
         stats.body_blocks += blocked;

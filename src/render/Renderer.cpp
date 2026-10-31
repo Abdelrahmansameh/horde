@@ -71,9 +71,16 @@ struct FamilyTables {
         // (hue 68 deg) rather than beside it.
         color[static_cast<u32>(PathogenFamily::Virus)]       = Vec4{0.20f, 0.94f, 0.38f, 1.0f};
         color[static_cast<u32>(PathogenFamily::Bacteria)]    = Vec4{0.72f, 0.80f, 0.22f, 1.0f};
-        // PARASITE IS BROWN: an earthy worm colour, a clear value step darker
-        // than the red lumen and a clear hue step off both greens.
-        color[static_cast<u32>(PathogenFamily::Parasite)]    = Vec4{0.55f, 0.30f, 0.15f, 1.0f};
+        // Bright lavender keeps the thin worm legible against the tissue and
+        // separates it from the two green families.
+        color[static_cast<u32>(PathogenFamily::Parasite)]    = Vec4{0.68f, 0.46f, 0.96f, 1.0f};
+        // Marigold. Every cool hue left on the wheel is spoken for -- mint is
+        // the mucus and the mucus-slowed tint, sky blue the Fibroblast, violet
+        // the Cytotoxic T that has to be read crawling over this body -- and
+        // a warm saturated gold is the brightest thing against the red lumen.
+        // Far enough round from the Bacteria's olive (hue 68 deg) to tell
+        // apart at gameplay zoom, and the Cytotoxic T's complement.
+        color[static_cast<u32>(PathogenFamily::Spore)]       = Vec4{0.99f, 0.76f, 0.17f, 1.0f};
 
         // silhouette = THREAT tier, tempo = SPEED tier, wobble = family
         // texture. Virus smaller and faster; bacteria bigger and slower.
@@ -81,6 +88,8 @@ struct FamilyTables {
         visual[static_cast<u32>(PathogenFamily::Bacteria)]    = FamilyVisual{4.50f, 1.5f, 0.0f};
         // A long thread of a worm: the sprite is big, the body inside it is thin.
         visual[static_cast<u32>(PathogenFamily::Parasite)]    = FamilyVisual{9.0f, 1.0f, 0.0f};
+        // The heaviest single body in the horde: its threat is its reach.
+        visual[static_cast<u32>(PathogenFamily::Spore)]       = FamilyVisual{6.4f, 0.8f, 0.0f};
     }
 };
 
@@ -198,6 +207,72 @@ struct SwarmerGpuInstance {
     /// Mirrors swarmer.vert / swarmer.frag.
     f32 arm[3][4];
 };
+
+/// Per-hose GPU layout, mirrored in harpoon.vert. Same status as
+/// ProjectileGpuInstance: a Renderer.cpp implementation detail.
+struct HarpoonGpuInstance {
+    f32 ax, ay, bx, by;                   ///< Nozzle and anchor, world.
+    f32 reach, thickness, age, seed;      ///< Hose out of the nozzle, world units.
+    f32 attached, release, severed, slug; ///< Seconds anchored, 0..1 let go, 0/1, slug span.
+    f32 pulse[4];                         ///< Slugs, 0..1 along the hose.
+    f32 whip, sway, wavelength, bulge;
+    u32 wall_rgba8;
+    u32 fluid_rgba8;
+    f32 root_radius, sprite_scale;        ///< The spout it grows out of, world; 0 = none.
+};
+
+/// Where a chaff sprite's body is drawn above its sim position, as a fraction
+/// of its scale. Mirrors kHeightFrac in chaff.vert.
+constexpr f32 kChaffLiftFrac = 0.16f;
+
+/// A spore's spout as chaff.frag draws it at harpoon beat `beat`
+/// (ChaffBuffers::harpoon_anim): where the hose's root goes, local sprite
+/// units forward of the body's centre, and how wide it is there. The root
+/// follows the spout's mouth through every squash and recoil, set back by
+/// the sprite's soft edge (0.06 x the spore's rim_scale 0.5) so it starts
+/// where the body is already opaque: two soft edges meeting end to end show
+/// a waist. It is as wide as the spout and, where the mouth is on the
+/// membrane, wider still: the fillet the two would share if they were one
+/// SDF. Mirrors spore_pose() and the snout in sdf_spore().
+struct SporeMouth {
+    f32 x;
+    f32 radius;
+};
+
+SporeMouth spore_mouth(f32 beat) {
+    const f32 state = std::floor(beat * 0.5f);
+    const f32 p = math::clamp(beat - 2.0f * state, 0.0f, 1.0f);
+    f32 squash = 0.0f, shift = 0.0f, snout = 1.0f, glow = 0.0f;
+    if (state == 1.0f) {
+        const f32 e = p * p * (3.0f - 2.0f * p);
+        squash = 0.17f * e;
+        shift = -0.045f * e;
+        snout = 1.0f - 0.6f * e;
+        glow = 0.75f * e;
+    } else if (state == 2.0f) {
+        squash = -0.22f * std::exp(-4.0f * p) * std::cos(12.0f * p);
+        shift = -0.09f * std::sin(math::min(p * 6.0f, 3.14159f)) * std::exp(-1.5f * p);
+        snout = 1.0f + 2.2f * std::exp(-4.0f * p);
+        glow = 1.0f;
+    } else if (state == 3.0f) {
+        const f32 kick = math::clamp(p * 2.5f, 0.0f, 1.0f);
+        const f32 t = math::clamp((p - 0.45f) / 0.55f, 0.0f, 1.0f);
+        squash = -0.05f * std::sin(3.14159f * t);
+        shift = -0.035f * std::sin(3.14159f * kick);
+        snout = 1.6f;
+        glow = 0.4f + 0.6f * math::max(t, 1.0f - kick);
+    } else if (state == 4.0f) {
+        snout = 0.8f + 0.2f * p;
+    }
+    constexpr f32 kSporeRx = 0.40f;
+    constexpr f32 kSporeSnout = 0.11f;
+    constexpr f32 kSpriteSoftEdge = 0.06f * 0.5f;
+    const f32 spout = kSporeSnout * math::max(snout - 1.0f, 0.0f);
+    const f32 mouth_q = kSporeRx - 0.07f + spout - kSpriteSoftEdge;
+    const f32 fillet = 1.0f - math::smoothstep01(math::saturate((spout - 0.07f) / 0.13f));
+    return {mouth_q * math::max(1.0f - squash, 0.2f) + shift,
+            (0.06f + 0.02f * glow + 0.06f * fillet) * (1.0f + 0.5f * squash)};
+}
 
 /// Fraction of a round's hit radius it is drawn at. See submit_projectiles.
 constexpr f32 kRoundDrawScale = 0.75f;
@@ -386,8 +461,8 @@ constexpr i32 kLaneTexMax = 128;
 /// desaturated floor that could not possibly compete with the horde. That is
 /// no longer the strategy: the lanes are vivid, and foreground readability is
 /// carried by hue separation and per-agent drop shadows instead (the pathogen
-/// families are yellow-green, teal, brown and magenta; the towers are cool
-/// blue/white/violet — none of them sit near a red substrate on the wheel).
+/// families are green, yellow-green and lavender; the towers are cool
+/// blue/white/violet).
 ///
 /// Each type keeps the identity §9.2 assigns it, so a returning player still
 /// recognises an artery at a glance; what changed is the intensity, not the
@@ -609,6 +684,13 @@ struct Renderer::Impl {
     u32 swarmer_region = 0;
     u32 max_swarmer_instances = 0;
 
+    // Spore harpoon pass. Its own buffer and fence ring, like the swarmers.
+    gl::VertexArray harpoon_vao;
+    gl::Buffer harpoon_instances;
+    gl::FenceRing<kInstanceRegions> harpoon_fence;
+    u32 harpoon_region = 0;
+    u32 max_harpoon_instances = 0;
+
     // Particle pass (Wave 6). By far the largest instance buffer in the
     // renderer -- a quarter million instances per blend mode, triple buffered.
     // Sized from RendererDesc rather than a constant because it dominates VRAM
@@ -778,6 +860,7 @@ bool Renderer::init(const RendererDesc& desc) {
     imp.chaff_vao.attrib_int(5, 1, 1, GL_UNSIGNED_INT, offsetof(ChaffInstance, flags));
     imp.chaff_vao.attrib_float(6, 1, 1, GL_FLOAT, false, offsetof(ChaffInstance, anim_phase));
     imp.chaff_vao.attrib_float(7, 1, 1, GL_FLOAT, false, offsetof(ChaffInstance, pad));
+    imp.chaff_vao.attrib_float(8, 1, 1, GL_FLOAT, false, offsetof(ChaffInstance, curvature));
 
     // ---- Entity instanced pass ---------------------------------------------
     if (!imp.entity_vao.create()) { error_ = "failed to create the entity VAO"; return false; }
@@ -862,6 +945,27 @@ bool Renderer::init(const RendererDesc& desc) {
     imp.swarmer_vao.attrib_float(7, 1, 4, GL_FLOAT, false, offsetof(SwarmerGpuInstance, arm) + 0 * sizeof(f32) * 4);
     imp.swarmer_vao.attrib_float(8, 1, 4, GL_FLOAT, false, offsetof(SwarmerGpuInstance, arm) + 1 * sizeof(f32) * 4);
     imp.swarmer_vao.attrib_float(9, 1, 4, GL_FLOAT, false, offsetof(SwarmerGpuInstance, arm) + 2 * sizeof(f32) * 4);
+
+    // ---- Harpoon pass. Attribute locations mirror harpoon.vert. -----------
+    imp.max_harpoon_instances = math::max(desc_.max_harpoon_instances, 1u);
+    if (!imp.harpoon_vao.create()) { error_ = "failed to create the harpoon VAO"; return false; }
+    imp.harpoon_vao.bind_vertex_buffer(0, imp.quad_vbo, sizeof(Vec2), 0, 0);
+    imp.harpoon_vao.attrib_float(0, 0, 2, GL_FLOAT, false, 0);
+    const usize harpoon_bytes = static_cast<usize>(imp.max_harpoon_instances) *
+                                sizeof(HarpoonGpuInstance) * kInstanceRegions;
+    if (!imp.harpoon_instances.create_persistent(harpoon_bytes)) {
+        error_ = "failed to allocate the harpoon instance buffer";
+        return false;
+    }
+    imp.harpoon_vao.bind_vertex_buffer(1, imp.harpoon_instances, sizeof(HarpoonGpuInstance), 0, 1);
+    imp.harpoon_vao.attrib_float(1, 1, 4, GL_FLOAT, false, offsetof(HarpoonGpuInstance, ax));
+    imp.harpoon_vao.attrib_float(2, 1, 4, GL_FLOAT, false, offsetof(HarpoonGpuInstance, reach));
+    imp.harpoon_vao.attrib_float(3, 1, 4, GL_FLOAT, false, offsetof(HarpoonGpuInstance, attached));
+    imp.harpoon_vao.attrib_float(4, 1, 4, GL_FLOAT, false, offsetof(HarpoonGpuInstance, pulse));
+    imp.harpoon_vao.attrib_float(5, 1, 4, GL_FLOAT, false, offsetof(HarpoonGpuInstance, whip));
+    imp.harpoon_vao.attrib_float(6, 1, 4, GL_UNSIGNED_BYTE, true, offsetof(HarpoonGpuInstance, wall_rgba8));
+    imp.harpoon_vao.attrib_float(7, 1, 4, GL_UNSIGNED_BYTE, true, offsetof(HarpoonGpuInstance, fluid_rgba8));
+    imp.harpoon_vao.attrib_float(8, 1, 2, GL_FLOAT, false, offsetof(HarpoonGpuInstance, root_radius));
 
     // ---- Fluid pass. Attribute locations mirror fluid.vert. ---------------
     // Sized from the swarmer cap rather than given its own knob: both are
@@ -959,6 +1063,7 @@ bool Renderer::init(const RendererDesc& desc) {
     imp.shaders.load_graphics("field", "field.vert", "field.frag");
     imp.shaders.load_graphics("projectile", "projectile.vert", "projectile.frag");
     imp.shaders.load_graphics("swarmer", "swarmer.vert", "swarmer.frag");
+    imp.shaders.load_graphics("harpoon", "harpoon.vert", "harpoon.frag");
     imp.shaders.load_graphics("fluid", "fluid.vert", "fluid.frag");
     imp.shaders.load_graphics("fluid_composite", "fluid_composite.vert",
                               "fluid_composite.frag");
@@ -1684,6 +1789,7 @@ void Renderer::submit_chaff(const sim::ChaffBuffers& chaff, const sim::SpatialHa
         inst.flags = (f << 8) | (static_cast<u32>(flash_k * 255.0f + 0.5f) << 24);
         inst.anim_phase = imp.time * vis.tempo * math::kTwoPi;
         inst.pad = f == static_cast<u32>(PathogenFamily::Bacteria) ? 0.0f : vis.wobble;
+        inst.curvature = 0.0f;
     }
 
     if (result.instances_dropped > 0) {
@@ -1717,9 +1823,9 @@ void Renderer::submit_chaff(const sim::ChaffBuffers& chaff, const sim::SpatialHa
             Vec4 throb_skin[kFamilyCount];
             Vec4 throb_pump[kFamilyCount];
             // The worm body and the burrow look (sim/burrow/Burrow.h). The
-            // wave number is converted to the sprite's local units here, from
-            // the same world wavelength the sim advances the phase by, which
-            // is what keeps the body's crests fixed on the ground.
+            // wave number uses the same world wavelength as the sim. The
+            // shader converts it with each instance's actual scale, keeping
+            // the body's crests fixed on the ground at every spawn size.
             Vec4 slither_shape[kFamilyCount];
             Vec4 slither_extra[kFamilyCount];
             Vec4 burrow_look[kFamilyCount];
@@ -1729,12 +1835,11 @@ void Renderer::submit_chaff(const sim::ChaffBuffers& chaff, const sim::SpatialHa
             for (u32 f = 0; f < kFamilyCount; ++f) {
                 const auto fam = static_cast<PathogenFamily>(f);
                 const sim::SlitherParams& sl = sim::family_slither(fam);
-                const f32 silhouette = family_visual(fam).silhouette;
-                const f32 k_local = sl.wavelength > math::kEpsilon
-                                        ? math::kTwoPi * silhouette / sl.wavelength
+                const f32 k_world = sl.wavelength > math::kEpsilon
+                                        ? math::kTwoPi / sl.wavelength
                                         : 0.0f;
                 // body_length 0 is how chaff.frag knows this family is not a worm.
-                slither_shape[f] = Vec4{sl.amplitude, k_local, sl.enabled ? sl.body_length : 0.0f,
+                slither_shape[f] = Vec4{sl.amplitude, k_world, sl.enabled ? sl.body_length : 0.0f,
                                         sl.thickness};
                 slither_extra[f] = Vec4{sl.segments, sl.head_amplitude, sl.curl, sl.probe};
                 const sim::BurrowParams& bp = sim::family_burrow(fam);
@@ -1773,7 +1878,16 @@ void Renderer::submit_chaff(const sim::ChaffBuffers& chaff, const sim::SpatialHa
         }
         imp.chaff_vao.bind();
         const u32 region_base_instance = imp.chaff_region * kFamilyCount * per_family_cap;
-        for (u32 f = 0; f < kFamilyCount; ++f) {
+        // Alpha composition is back to front. Worms belong beneath the other
+        // pathogens; their family/buffer indices stay independent of layering.
+        // Spores next: the biggest bodies go under the small ones, which a
+        // spore would otherwise bury.
+        constexpr PathogenFamily draw_order[] = {
+            PathogenFamily::Parasite, PathogenFamily::Spore, PathogenFamily::Virus,
+            PathogenFamily::Bacteria};
+        static_assert(sizeof(draw_order) / sizeof(draw_order[0]) == kFamilyCount);
+        for (const PathogenFamily family : draw_order) {
+            const u32 f = static_cast<u32>(family);
             const u32 n = counts[f];   // live agents plus this family's corpses
             if (n == 0) continue;
             const u32 base_instance = region_base_instance + f * per_family_cap;
@@ -2141,8 +2255,8 @@ void Renderer::submit_fields(const sim::DamageField* fields, usize count) {
             inst.rotation = 0.0f;
             inst.arc_cos = -1.0f;
             // Circle fields split by lifetime. A persistent circle is a steady
-            // aura; a timed one is a Histamine Flare or authored burst and
-            // should read like a brief nova.
+            // aura; a timed one is an authored burst and should read like a
+            // brief nova.
             inst.shape_id = (f.lifetime <= 0.0f) ? 4u : 0u;
             break;
         }
@@ -2156,8 +2270,7 @@ void Renderer::submit_fields(const sim::DamageField* fields, usize count) {
         // its array slot) keeps a bank of towers from breathing in lockstep,
         // same rationale as ChaffInstance::anim_phase.
         //
-        // Burst (lifetime > 0, one-shot Histamine Flare / Complement Cascade
-        // style effects): DamageField only exposes *remaining* lifetime, not
+        // Burst (lifetime > 0, one-shot Complement Cascade style effects): DamageField only exposes *remaining* lifetime, not
         // elapsed or total duration, so a true spawn-flash can't be
         // reconstructed here. Instead the burst starts bright and fades as it
         // approaches expiry, which reads correctly as "the nova is ending"
@@ -2314,6 +2427,89 @@ void Renderer::submit_toxin_shots(const std::vector<sim::ToxinShot>& shots) {
     }
     imp.projectile_fence.signal(imp.projectile_region);
     imp.projectile_region = (imp.projectile_region + 1) % kInstanceRegions;
+    stats_.submit_ms += timer.elapsed_ms();
+}
+
+void Renderer::submit_harpoons(const std::vector<sim::HarpoonLine>& lines,
+                               const sim::ChaffBuffers& chaff) {
+    if (!ready_ || !impl_ || lines.empty()) return;
+    Impl& imp = *impl_;
+    WallClock timer;
+    imp.harpoon_fence.wait(imp.harpoon_region);
+    HarpoonGpuInstance* base = imp.harpoon_instances.mapped_as<HarpoonGpuInstance>() +
+        static_cast<usize>(imp.harpoon_region) * imp.max_harpoon_instances;
+    const f32 alpha = math::saturate(imp.alpha);
+    u32 drawn = 0;
+    for (const sim::HarpoonLine& line : lines) {
+        if (drawn >= imp.max_harpoon_instances) break;
+        if (line.reach <= 0.0f) continue;   // still drawing, or fully reeled in
+        const auto fam = static_cast<PathogenFamily>(line.family < kFamilyCount ? line.family : 0u);
+        const sim::HarpoonParams& hp = sim::family_harpoon(fam);
+        // The sim's ends, interpolated with the bodies they join.
+        Vec2 a = line.prev_origin + (line.origin - line.prev_origin) * alpha;
+        const Vec2 b = line.prev_anchor + (line.anchor - line.prev_anchor) * alpha;
+        const f32 sim_span = math::max(math::length(line.anchor - line.origin), 1e-3f);
+        // A live shooter's hose grows out of its SPRITE's spout: interpolated,
+        // lifted off the floor, turned and posed exactly as chaff draws it.
+        // A severed hose stays where it fell.
+        const usize s = line.severed ? sim::ChaffBuffers::npos : chaff.resolve(line.shooter);
+        f32 root_radius = 0.0f;
+        f32 scale = family_visual(fam).silhouette;
+        if (s != sim::ChaffBuffers::npos) {
+            const Vec2 p{chaff.prev_pos_x[s] + (chaff.pos_x[s] - chaff.prev_pos_x[s]) * alpha,
+                         chaff.prev_pos_y[s] + (chaff.pos_y[s] - chaff.prev_pos_y[s]) * alpha};
+            scale *= chaff.size_scale[s];
+            const f32 h = chaff.body_heading[s] - (1.0f - alpha) * chaff.body_heading_delta[s];
+            const SporeMouth mouth = spore_mouth(chaff.harpoon_anim[s]);
+            a = p + Vec2{0.0f, kChaffLiftFrac * scale} + Vec2{std::cos(h), std::sin(h)} * (mouth.x * scale);
+            root_radius = mouth.radius * scale;
+        }
+        const f32 span = math::length(b - a);
+
+        HarpoonGpuInstance inst{};
+        inst.ax = a.x;
+        inst.ay = a.y;
+        inst.bx = b.x;
+        inst.by = b.y;
+        inst.reach = math::saturate(line.reach / sim_span) * span;
+        inst.thickness = hp.thickness;
+        // The sim clocks advance a tick at a time; carry them through the
+        // frame so the wave travels smoothly at any frame rate.
+        const f32 frame = alpha * kFixedDt;
+        inst.age = math::max(line.age, 0.0f) + frame;
+        inst.seed = static_cast<f32>((line.seed * 2654435761u) & 0xFFFFu) * (math::kTwoPi / 65536.0f);
+        inst.attached = line.attached >= 0.0f ? line.attached + frame : -1.0f;
+        inst.release = line.released >= 0.0f
+                           ? math::saturate((line.released + frame) / math::max(hp.retract_seconds, 1e-3f))
+                           : 0.0f;
+        inst.severed = line.severed ? 1.0f : 0.0f;
+        inst.slug = hp.slug_length;
+        for (u32 k = 0; k < sim::kHarpoonMaxPulses; ++k) inst.pulse[k] = line.pulse[k];
+        inst.whip = hp.whip;
+        inst.sway = hp.sway;
+        inst.wavelength = hp.wavelength;
+        inst.bulge = hp.bulge;
+        inst.wall_rgba8 = pack_rgba8(family_color(fam));
+        inst.fluid_rgba8 = pack_rgba8(hp.fluid_color);
+        inst.root_radius = root_radius;
+        inst.sprite_scale = scale;
+        base[drawn++] = inst;
+    }
+
+    const ShaderProgram prog = imp.shaders.get("harpoon");
+    if (prog.valid() && drawn > 0) {
+        glUseProgram(prog.gl_id);
+        glUniformMatrix4fv(0, 1, GL_FALSE, glm::value_ptr(imp.view_projection));
+        glUniform1f(1, kShadowsEnabled ? 1.0f : 0.0f);
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        imp.harpoon_vao.bind();
+        glDrawArraysInstancedBaseInstance(GL_TRIANGLE_FAN, 0, 4, static_cast<GLsizei>(drawn),
+                                          imp.harpoon_region * imp.max_harpoon_instances);
+        ++stats_.draw_calls;
+    }
+    imp.harpoon_fence.signal(imp.harpoon_region);
+    imp.harpoon_region = (imp.harpoon_region + 1) % kInstanceRegions;
     stats_.submit_ms += timer.elapsed_ms();
 }
 

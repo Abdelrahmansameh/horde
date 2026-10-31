@@ -55,7 +55,10 @@ enum class PathogenFamily : u8 {
     /// Burrowing worm (sim/burrow/Burrow.h): slithers down the lane and, on a
     /// cooldown, dives under the tissue and resurfaces further along it.
     Parasite = 2,
-    Count = 3
+    /// Ranged siege cell (sim/hostile/Harpoon.h): plants itself and fires a
+    /// liquid hose into the biggest friendly in range, pumping toxin down it.
+    Spore = 3,
+    Count = 4
 };
 
 inline constexpr u32 kFamilyCount = static_cast<u32>(PathogenFamily::Count);

@@ -287,7 +287,7 @@ struct ChaffBatchResult {
 };
 
 /// Walks the chaff SoA exactly once. Per agent: one occupancy lookup, one
-/// crossfade split, one 32-byte structured store into the mapped instance
+/// crossfade split, one structured store into the mapped instance
 /// buffer and/or one bilinear splat into the density grid. No allocation, no
 /// per-agent branch on family type, no per-agent draw call.
 ///
@@ -322,7 +322,12 @@ inline ChaffBatchResult build_chaff_batches(const sim::ChaffBuffers& chaff,
     const f32* burrow_anim = chaff.burrow_anim.data();
     const f32* body_heading = chaff.body_heading.data();
     const f32* slither_phase = chaff.slither_phase.data();
+    const f32* body_heading_delta = chaff.body_heading_delta.data();
+    const f32* slither_phase_delta = chaff.slither_phase_delta.data();
+    const f32* slither_curvature = chaff.slither_curvature.data();
+    const f32* slither_curvature_delta = chaff.slither_curvature_delta.data();
     const f32* toxin_spit_pulse = chaff.toxin_spit_pulse.data();
+    const f32* harpoon_anim = chaff.harpoon_anim.data();
     const f32* size_scale = chaff.size_scale.data();
 
     // Per-family cursors into the fixed-stride destination regions.
@@ -483,17 +488,22 @@ inline ChaffBatchResult build_chaff_batches(const sim::ChaffBuffers& chaff,
         // than its velocity, which is the host's and says nothing about it.
         const bool worm = fam_worm[f] && !latched;
         const bool bacteria = f == static_cast<u32>(PathogenFamily::Bacteria);
+        // A spore turns its own body (sim/hostile/Harpoon.h): onto its target
+        // while it fights, lazily after its velocity while it walks.
+        const bool spore = f == static_cast<u32>(PathogenFamily::Spore);
         inst.rotation = latched         ? latch_heading[i]
-                        : worm           ? body_heading[i]
+                        : worm || spore  ? body_heading[i] - (1.0f - alpha) * body_heading_delta[i]
                         : bacteria && toxin_spit_pulse[i] > 0.0f ? body_heading[i]
                         : split_oriented ? std::atan2(split_delta.y, split_delta.x)
                                          : std::atan2(vy[i], vx[i]);
+        inst.curvature = worm ? (slither_curvature[i] -
+                                     (1.0f - alpha) * slither_curvature_delta[i]) * inst.scale : 0.0f;
         Vec4 tint = fam_color[f];
         tint.a = split.instance_alpha;
         inst.tint_rgba8 = pack_rgba8(tint);
         // chaff_flags is a u8 and ChaffInstance::flags is a u32, so the top 24
         // bits were dead. The family id rides in bits 8..15 rather than
-        // widening a frozen 32-byte instance layout: the fragment shader needs
+        // widening the instance layout: the fragment shader needs
         // to know which pathogen it is drawing to pick a silhouette, and
         // inferring it from the tint would tie shape to colour and break the
         // "these are separate channels" rule this file's header states.
@@ -523,7 +533,7 @@ inline ChaffBatchResult build_chaff_batches(const sim::ChaffBuffers& chaff,
         const f32 crowd_norm = math::saturate(local_occ * inv_crowd_full[f]);
         const u32 crowd_bits = static_cast<u32>(crowd_norm * 255.0f + 0.5f) << 16;
         // The hit flash claims the last free byte of the instance's flags word,
-        // bits 24..31, rather than widening a 32-byte layout that chaff.vert
+        // bits 24..31, rather than widening the layout that chaff.vert
         // mirrors attribute for attribute. Eight bits is plenty: this is a mix
         // weight on a sprite that covers under a dozen pixels, and the value it
         // quantizes is already fading past it at ~1/7 per tick.
@@ -560,7 +570,7 @@ inline ChaffBatchResult build_chaff_batches(const sim::ChaffBuffers& chaff,
         // bits pass as they always did.
         constexpr u32 kRendererOwnedBits = kVisualSplitActive | kVisualSplitNegativeHalf;
         // The latched bit goes back in at bit 15, the top of the family byte,
-        // which kFamilyCount (2) leaves empty: the family mask in chaff.frag
+        // which kFamilyCount (4) leaves empty: the family mask in chaff.frag
         // (CHAFF_FAMILY_MASK) stops short of it. Mirrored by FLAG_LATCHED.
         constexpr u32 kVisualLatched = 1u << 15;
         // A burrowing worm's kHidden is the burrow's, and the burrow draws
@@ -574,7 +584,8 @@ inline ChaffBatchResult build_chaff_batches(const sim::ChaffBuffers& chaff,
         // A shared phase is as important as a shared local frame: at frame
         // zero the two complementary masks must reconstruct ONE capsid, not
         // two different spiky outlines drawn over each other.
-        inst.anim_phase = worm        ? math::max(slither_phase[i], 0.0f)
+        inst.anim_phase = worm        ? math::max(slither_phase[i], 0.0f) -
+                                           (1.0f - alpha) * slither_phase_delta[i]
                           : splitting ? params.time * vis.tempo * math::kTwoPi
                                       : offset + params.time * vis.tempo * math::kTwoPi;
         // The pad carries the family wobble -- or, for a passenger, the throb
@@ -586,11 +597,14 @@ inline ChaffBatchResult build_chaff_batches(const sim::ChaffBuffers& chaff,
         // A worm's pad is its burrow phase: 2 * burrow_state + progress, the
         // progress held under 1 so the state survives the floor() that
         // chaff.frag decodes it with (worm_burrow_mode()). Bacteria use the
-        // same pad for a brief recoil pulse when a toxin shot leaves.
+        // same pad for a brief recoil pulse when a toxin shot leaves; a
+        // spore for its harpoon beat, packed the worm's way by the sim
+        // (2 * harpoon_state + progress, see spore_pose() in chaff.frag).
         inst.pad = latched ? offset + params.time * throb_params.rate * math::kTwoPi
                    : worm  ? 2.0f * static_cast<f32>(burrow_state[i]) +
                                  math::clamp(burrow_anim[i], 0.0f, 0.999f)
                    : bacteria ? toxin_spit_pulse[i]
+                   : spore    ? harpoon_anim[i]
                            : vis.wobble;
     }
 

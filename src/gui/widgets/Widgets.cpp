@@ -93,25 +93,19 @@ Button::Button(std::string id, const ShapeDesc& s) : Panel(std::move(id), s) { i
 void Button::shake() { shake_.kick(420.0f); }
 
 void Button::on_event(Event& e) {
-    Gui* g = gui();
     switch (e.type) {
-        case EventType::Enter:
-            if (enabled && g != nullptr) g->play(UiSound::Hover);
-            break;
         case EventType::Click:
             if (e.button == PointerButton::Right) {
                 if (on_right_click) on_right_click();
                 e.handled = true;
                 break;
             }
-            if (g != nullptr) g->play(UiSound::Click);
             if (on_click) on_click();
             e.handled = true;
             break;
         case EventType::Deny:
             if (e.button != PointerButton::Left) break;
             shake();
-            if (g != nullptr) g->play(UiSound::Deny);
             if (on_deny) on_deny();
             e.handled = true;
             break;

@@ -58,6 +58,12 @@ struct HudSpawnPoint {
     Vec2 direction{1.0f, 0.0f};
 };
 
+/// A destination, with the path's outward direction at its exit.
+struct HudOrganPoint {
+    Vec2 world{0.0f, 0.0f};
+    Vec2 direction{1.0f, 0.0f};  ///< Unit direction in world coordinates.
+};
+
 /// A tower on the board.
 struct HudTower {
     EntityId id{};
@@ -81,7 +87,7 @@ struct HudModel {
     // ---- Organ ----
     f32 integrity01 = 1.0f;
     /// Actual destinations the enemy must be kept from reaching.
-    std::vector<Vec2> organ_points;
+    std::vector<HudOrganPoint> organ_points;
 
     // ---- Economy ----
     u32 atp = 0;
@@ -94,10 +100,9 @@ struct HudModel {
     f32 prep_total = 0.0f;        ///< Length of this prep, for the countdown ring.
     bool all_waves_complete = false;
     bool auto_start = false;      ///< Prep ends by itself when its timer runs out.
-    /// The wave the player should prepare for: the upcoming one in Prep, the
-    /// next one while a wave is on.
+    /// The upcoming wave's composition during preparation.
     HudWavePreview preview;
-    /// Every possible entrance; enemy counts belong to the wave panel.
+    /// Every possible entrance, independent of enemy counts.
     std::vector<HudSpawnPoint> spawn_points;
 
     // ---- Board ----
@@ -116,9 +121,9 @@ const char* tower_display_name(TowerType t);
 const char* tower_icon(TowerType t);
 /// Widget id ("neutrophil", "cytotoxic_t"): the dock card is "hud/dock/<id>".
 const char* tower_id(TowerType t);
-/// Widget id ("cascade", "histamine", "fever", "clot").
+/// Widget id ("cascade", "fever", "clot").
 const char* ability_id_name(game::AbilityId id);
-/// Short name under an ability cell ("Cascade", "Histamine", "Fever", "Clot").
+/// Short name under an ability cell ("Cascade", "Fever", "Clot").
 const char* ability_short_name(game::AbilityId id);
 const char* ability_icon(game::AbilityId id);
 /// Theme colour name for an ability's tint.

@@ -52,9 +52,9 @@ ui::HudWavePreview preview_of(const game::WaveDef& w, u32 number) {
 }
 
 /// Vessel points run toward the objective. Use the closest segment on the
-/// entrance's lane so offscreen and sideways entrances retain their direction.
-Vec2 spawn_direction(const game::LevelDef* level, const sim::SimWorld& world,
-                     Vec2 position, const std::string& lane_id) {
+/// entrance's lane so its marker retains the path's direction.
+Vec2 path_direction(const game::LevelDef* level, const sim::SimWorld& world,
+                    Vec2 position, const std::string& lane_id) {
     Vec2 direction{0.0f, 0.0f};
     f32 best_d2 = std::numeric_limits<f32>::max();
     if (level != nullptr) {
@@ -72,6 +72,50 @@ Vec2 spawn_direction(const game::LevelDef* level, const sim::SimWorld& world,
                 if (distance2 < best_d2) {
                     best_d2 = distance2;
                     direction = math::normalize_safe(d);
+                }
+            }
+        }
+    }
+    if (math::length_sq(direction) <= math::kEpsilon) {
+        direction = math::normalize_safe(world.flow().sample(position));
+    }
+    return math::length_sq(direction) > math::kEpsilon ? direction : Vec2{1.0f, 0.0f};
+}
+
+/// Follow the arriving path through its exit. A vessel crossing an organ can
+/// be a collector joining several exits, so its nearest segment is not a
+/// reliable indication of which way enemies leave the playable path.
+Vec2 organ_direction(const game::LevelDef* level, const sim::SimWorld& world, Vec2 position) {
+    Vec2 direction{0.0f, 0.0f};
+    f32 best_d2 = std::numeric_limits<f32>::max();
+    const auto consider = [&](Vec2 endpoint, Vec2 tangent) {
+        if (math::length_sq(tangent) <= math::kEpsilon * math::kEpsilon) return;
+        const f32 distance2 = math::length_sq(position - endpoint);
+        if (distance2 < best_d2) {
+            best_d2 = distance2;
+            direction = math::normalize_safe(tangent);
+        }
+    };
+    if (level != nullptr) {
+        for (const game::SquadPathDef& path : level->squad_paths) {
+            if (path.points.size() < 2) continue;
+            const Vec2 endpoint = path.points.back();
+            for (usize i = path.points.size() - 1; i > 0; --i) {
+                const Vec2 tangent = endpoint - path.points[i - 1];
+                if (math::length_sq(tangent) <= math::kEpsilon * math::kEpsilon) continue;
+                consider(endpoint, tangent);
+                break;
+            }
+        }
+        if (math::length_sq(direction) <= math::kEpsilon) {
+            for (const game::Vessel& vessel : level->vessels) {
+                if (vessel.points.size() < 2) continue;
+                const Vec2 endpoint = vessel.points.back().position;
+                for (usize i = vessel.points.size() - 1; i > 0; --i) {
+                    const Vec2 tangent = endpoint - vessel.points[i - 1].position;
+                    if (math::length_sq(tangent) <= math::kEpsilon * math::kEpsilon) continue;
+                    consider(endpoint, tangent);
+                    break;
                 }
             }
         }
@@ -384,12 +428,14 @@ ui::HudModel make_hud_model(const HudSources& src, const ui::HudScreen& screen, 
     m.integrity01 = math::saturate(snap.objective_integrity / 100.0f);
     const auto organs = world.ecs().registry().view<const sim::comp::Objective, const sim::comp::Transform>();
     for (const entt::entity entity : organs) {
-        m.organ_points.push_back(organs.get<const sim::comp::Transform>(entity).position);
+        const Vec2 position = organs.get<const sim::comp::Transform>(entity).position;
+        m.organ_points.push_back(ui::HudOrganPoint{position, organ_direction(src.level, world, position)});
     }
     if (m.organ_points.empty() && src.level != nullptr) {
         m.organ_points.reserve(src.level->objectives.size());
         for (const game::ObjectivePoint& organ : src.level->objectives) {
-            m.organ_points.push_back(organ.position);
+            m.organ_points.push_back(ui::HudOrganPoint{
+                organ.position, organ_direction(src.level, world, organ.position)});
         }
     }
 
@@ -406,27 +452,24 @@ ui::HudModel make_hud_model(const HudSources& src, const ui::HudScreen& screen, 
     m.wave_count = static_cast<u32>(table.size());
     m.wave_number = ws.wave_index + 1;
     m.phase_time_remaining = ws.phase_time_remaining;
-    // During prep the upcoming wave is the one to prepare for; once it is on,
-    // the next one is.
+    // Composition is a planning aid shown between rounds.
     if (ws.phase == game::WavePhase::Prep && ws.wave_index < table.size()) {
         m.prep_total = table[ws.wave_index].prep_time;
         m.preview = preview_of(table[ws.wave_index], ws.wave_index + 1);
-    } else if (const game::WaveDef* next = src.waves->next_wave()) {
-        m.preview = preview_of(*next, ws.wave_index + 2);
     }
     const auto& spawn_points = world.spawn_points();
     if (!spawn_points.empty()) {
         m.spawn_points.reserve(spawn_points.size());
         for (const sim::SpawnPointRuntime& spawn : spawn_points) {
             m.spawn_points.push_back(ui::HudSpawnPoint{
-                spawn.position, spawn_direction(src.level, world, spawn.position, spawn.lane_id)});
+                spawn.position, path_direction(src.level, world, spawn.position, spawn.lane_id)});
         }
     } else if (src.level != nullptr) {
         m.spawn_points.reserve(src.level->spawn_points.size());
         const game::LevelLoader loader;
         for (const game::SpawnPoint& spawn : src.level->spawn_points) {
             m.spawn_points.push_back(ui::HudSpawnPoint{
-                spawn.position, spawn_direction(src.level, world, spawn.position,
+                spawn.position, path_direction(src.level, world, spawn.position,
                     loader.resolve_spawn_point_lane_id(*src.level, spawn))});
         }
     }
@@ -505,6 +548,22 @@ game::GymResult run_ui_command(const UiDriver& d, const std::vector<std::string>
         const bool ok = sub == "click" ? d.gui->click(tok[2]) : d.gui->hover(tok[2]);
         if (!ok) return fail("no visible widget at '" + tok[2] + "' (try: ui dump)");
         return okay(sub + " " + tok[2]);
+    }
+    if (sub == "drag") {
+        if (tok.size() != 5) return fail("usage: ui drag <path> <x> <y>   (absolute logical px)");
+        char* x_end = nullptr;
+        char* y_end = nullptr;
+        const Vec2 destination{std::strtof(tok[3].c_str(), &x_end), std::strtof(tok[4].c_str(), &y_end)};
+        if (x_end == tok[3].c_str() || *x_end != '\0' || y_end == tok[4].c_str() || *y_end != '\0' ||
+            !std::isfinite(destination.x) || !std::isfinite(destination.y)) {
+            return fail("usage: ui drag <path> <x> <y>   (finite absolute logical px)");
+        }
+        if (!d.gui->drag(tok[2], destination)) {
+            return fail("cannot drag '" + tok[2] + "': target must be visible and interactive, with a clear "
+                        "grab point and movement over 4 logical px (try: ui dump)");
+        }
+        if (d.pointer != nullptr) *d.pointer = destination;
+        return okay("dragged " + tok[2] + " to " + tok[3] + "," + tok[4]);
     }
     if (sub == "pointer") {
         if (d.pointer == nullptr) return fail("ui pointer only works in --screenshot --ui (use the mouse)");

@@ -143,7 +143,8 @@
         { "family": "virus", "count": 150, "duration": 10, "spawn_point_id": "p_nerve" },
         { "family": "bacteria", "count": 150, "duration": 10, "spawn_point_id": "p_mucosa" },
         { "family": "parasite", "count": 22, "start_time": 0.5, "duration": 10, "spawn_point_id": "p_mucosa" },
-        { "family": "virus", "count": 150, "start_time": 4, "duration": 8, "spawn_point_id": "p_lymph" }
+        { "family": "virus", "count": 150, "start_time": 4, "duration": 8, "spawn_point_id": "p_lymph" },
+        { "family": "spore", "count": 4, "start_time": 3, "duration": 6, "spawn_point_id": "p_lymph" }
       ]
     },
     {
@@ -182,7 +183,9 @@
         { "family": "parasite", "count": 60, "start_time": 0.5, "duration": 8, "spawn_point_id": "p_vein" },
         { "family": "virus", "count": 400, "duration": 8, "spawn_point_id": "p_nerve" },
         { "family": "bacteria", "count": 400, "duration": 8, "spawn_point_id": "p_mucosa" },
-        { "family": "parasite", "count": 60, "start_time": 0.5, "duration": 8, "spawn_point_id": "p_mucosa" }
+        { "family": "parasite", "count": 60, "start_time": 0.5, "duration": 8, "spawn_point_id": "p_mucosa" },
+        { "family": "spore", "count": 6, "start_time": 2, "duration": 6, "spawn_point_id": "p_nerve" },
+        { "family": "spore", "count": 6, "start_time": 2, "duration": 6, "spawn_point_id": "p_mucosa" }
       ]
     },
     {

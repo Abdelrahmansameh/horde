@@ -104,14 +104,14 @@ TEST_CASE_METHOD(immune::test::BalanceConfigIsolation, "shared balance setup pre
     buy_with_parents(meta, TreeNode::BoneMarrowReserve, base.meta);
     buy_with_parents(meta, TreeNode::EfficientClearance, base.meta);
     buy_with_parents(meta, TreeNode::MacrophageRoot, base.meta);
-    buy_with_parents(meta, TreeNode::HistamineUnlock, base.meta);
+    buy_with_parents(meta, TreeNode::FeverUnlock, base.meta);
     const auto upgraded = make_run_tuning(base, meta);
     const auto repeated = make_run_tuning(base, meta);
     CHECK(upgraded.config.towers.mechanics[neutrophil].shooter.reload_seconds < base.towers.mechanics[neutrophil].shooter.reload_seconds);
     CHECK(upgraded.config.economy.starting_atp > base.economy.starting_atp);
     CHECK(upgraded.config.economy.atp_per_density > base.economy.atp_per_density);
     CHECK((upgraded.tree.tower_mask & (1u << static_cast<u32>(TowerType::Macrophage))) != 0);
-    CHECK((upgraded.tree.ability_mask & (1u << static_cast<u32>(AbilityId::HistamineFlare))) != 0);
+    CHECK((upgraded.tree.ability_mask & (1u << static_cast<u32>(AbilityId::FeverResponse))) != 0);
     CHECK(repeated.config.economy.starting_atp == upgraded.config.economy.starting_atp);
     CHECK(repeated.config.towers.mechanics[neutrophil].shooter.round_damage == upgraded.config.towers.mechanics[neutrophil].shooter.round_damage);
     CHECK(repeated.config.towers.mechanics[neutrophil].shooter.reload_seconds == upgraded.config.towers.mechanics[neutrophil].shooter.reload_seconds);
@@ -242,8 +242,10 @@ TEST_CASE_METHOD(immune::test::BalanceConfigIsolation, "shared balance run resul
     fixture.world.tick();
     const auto snapshot = fixture.world.snapshot();
     const auto result = collect_run_result(fixture.world, fixture.waves, false);
-    CHECK(snapshot.chaff_killed_total == 9);
-    CHECK(result.chaff_killed_total == 3);
+    // One kill, one leak and one out-of-bounds removal per family; only the
+    // kills count as the run's.
+    CHECK(snapshot.chaff_killed_total == 3u * kFamilyCount);
+    CHECK(result.chaff_killed_total == kFamilyCount);
     CHECK_FALSE(result.won);
     CHECK(result.waves_cleared == 0);
     for (u32 f = 0; f < kFamilyCount; ++f) {

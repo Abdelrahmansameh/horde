@@ -148,7 +148,6 @@ Firing Cycle.
 | Ability unlock | Parent | Children (all max 3, weight 120) |
 | --- | --- | --- |
 | Complement Cascade Burst | Cytotoxic T root | Cooldown Reduction: -10% baseline cooldown/level; Chain Links: +2 hops/level from default eight |
-| Histamine Flare | Goblet Cell root | Cooldown Reduction: -10%/level; Radius: +12% baseline radius/level |
 | Fever Response | Macrophage root | Cooldown Reduction: -10%/level; Healing Strength: +25% baseline healing magnitude/level |
 | Fibrin Clot | Fibroblast root | Cooldown Reduction: -10%/level; Barrier Duration: +20% baseline lifetime/level |
 
@@ -185,9 +184,9 @@ applicable lines can multiply one another. All cell stat lines use weight
 | Cell Stamina | Attach Speed | 3 | +9 base cell HP and +10% speed |
 | Cell Resilience | Search Radius | 4 | +10 cell HP |
 
-**Apoptosis Trigger**, parent Cytotoxic T root: finishing a chaff host creates a
-radius-10 pulse with total center-density damage 1.2; the latcher also receives a 1.5 named-damage
-multiplier. There is no named campaign target today. Resilience adds 10 base HP
+**Rapid Pursuit**, parent Cytotoxic T root: doubles the cell's movement speed
+(after Stamina). It replaced Lytic Rupture's kill pulse, which was too strong;
+the save key `cytotoxic.capstone` is unchanged. Resilience adds 10 base HP
 per rank, then Stamina adds 9 HP per rank. Emergency Reserves multiplies
 the resulting health along with every other cell's health.
 
@@ -234,10 +233,9 @@ it does not restore the old permanent marked-target mechanic.
 | Reinforce Rate | Scar Health | 3 | +30% HP restored per completed reinforcement |
 | Inflammation | Scar Health | 3 | Scars create inflamed zones with radius `scar.half_extents.x + 8` (14 with the default half length); allied cell damage and shooter reload speed there gain +10%; weight 150 |
 
-**Inflammatory Scarring**, parent Fibroblast root: standing scars deal base
-contact damage at rate 8, reaching 0.8 beyond their faces. The current effect
-deals damage; it does not add the slow
-promised by some older design prose.
+**Fibrotic Bulwark**, parent Fibroblast root: doubles scar half length and
+half width (after Scar Size). It replaced Inflammatory Scarring's contact
+damage, which was too strong; the save key `fibroblast.capstone` is unchanged.
 
 ## Applying purchases to a run
 

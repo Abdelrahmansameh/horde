@@ -51,6 +51,7 @@ inline constexpr config::EnumEntry kFamilyEnum[] = {
     {"virus", static_cast<i64>(PathogenFamily::Virus)},
     {"bacteria", static_cast<i64>(PathogenFamily::Bacteria)},
     {"parasite", static_cast<i64>(PathogenFamily::Parasite)},
+    {"spore", static_cast<i64>(PathogenFamily::Spore)},
     {nullptr, 0},
 };
 

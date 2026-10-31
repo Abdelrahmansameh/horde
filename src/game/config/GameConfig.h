@@ -369,6 +369,10 @@ struct FamilyConfig {
     sim::BurrowParams burrow{};
     /// The drawn worm body and its travelling wave (sim/burrow/Burrow.h).
     sim::SlitherParams slither{};
+    /// The liquid hose fired into a friendly cell and pumped full of toxin
+    /// (sim/hostile/Harpoon.h). Off for every family but the Spore. Reused
+    /// verbatim for the same no-mirror reason as `hit_flash`.
+    sim::HarpoonParams harpoon{};
 };
 
 /// Shared melee shape every elite starts from.

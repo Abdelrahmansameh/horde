@@ -17,7 +17,7 @@ rules are not current requirements. This inventory was audited on 2026-10-06.
 | Simulation | Fixed 60 Hz, SoA chaff, ECS framework, flow/spatial/squad/hostile/fluid/scar systems | [Simulation](docs/SIMULATION.md) |
 | Rendering | GL 4.5 instancing, procedural tissue/species/VFX, camera and screenshot output | [Rendering](docs/RENDERING.md) |
 | UI | Custom retained player GUI; title/tree/campaign/HUD/pause/results; ImGui developer tools | [UI framework](docs/UI_FRAMEWORK.md) |
-| Audio/platform | SDL window/input/file lookup and runtime synthesized sound/music | [Audio and platform](docs/AUDIO_PLATFORM.md) |
+| Platform | SDL window/input/file lookup | [Platform](docs/PLATFORM.md) |
 | Tuning | Six strict gameplay files, live registry/reload, separate UI theme | [Configuration](docs/CONFIGURATION.md) |
 | Content tools | In-game editor, document validation/writer, CLI checks/formatting, level preview | [Level editor](docs/LEVEL_EDITOR.md), [Tools](docs/TOOLS.md) |
 | Verification | Catch2, GL tests, sim scripts, benchmarks | [Testing](docs/TESTING.md) |

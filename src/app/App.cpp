@@ -54,8 +54,6 @@ bool App::init(const Options& options) {
         return false;
     }
 
-    audio::AudioConfig ac;
-    audio_.init(ac);
     input_.bind_defaults();
     if (!dev_ui_.init(window_, input_)) {
         IMMUNE_LOG_ERROR("HUD init failed (ImGui/SDL2/GL3 backend setup)");
@@ -70,18 +68,6 @@ bool App::init(const Options& options) {
         return false;
     }
     for (const std::string& e : gui_.icons().errors()) IMMUNE_LOG_WARN("%s", e.c_str());
-    gui_.on_sound = [this](gui::UiSound s) {
-        audio::AudioEvent ev;
-        ev.position = camera_.center();
-        switch (s) {
-            case gui::UiSound::Hover: ev.id = audio::SoundId::UiClick; ev.gain = 0.18f; ev.pitch = 1.6f; break;
-            case gui::UiSound::Click: ev.id = audio::SoundId::UiClick; ev.gain = 0.7f; break;
-            case gui::UiSound::Deny: ev.id = audio::SoundId::UiInvalid; ev.gain = 0.8f; break;
-            case gui::UiSound::Open: ev.id = audio::SoundId::UiClick; ev.gain = 0.5f; ev.pitch = 1.2f; break;
-            case gui::UiSound::Close: ev.id = audio::SoundId::UiClick; ev.gain = 0.5f; ev.pitch = 0.85f; break;
-        }
-        audio_.post(ev);
-    };
     hud_screen_ = std::make_unique<ui::HudScreen>(gui_);
     hud_screen_->set_visible(false);
     front_ = std::make_unique<ui::FrontEnd>(gui_);
@@ -236,10 +222,7 @@ void App::apply_menu_result(const ui::MenuResult& r) {
         if (res == game::MetaProgression::PurchaseResult::Ok) {
             IMMUNE_LOG_INFO("Strengthen Immunity: bought %s (now level %u)",
                             game::tree_node(node).key, static_cast<unsigned>(meta_.level(node)));
-            audio_.post(audio::AudioEvent{audio::SoundId::TowerPlace, camera_.center()});
             save_meta();
-        } else {
-            audio_.post(audio::AudioEvent{audio::SoundId::UiInvalid, camera_.center()});
         }
         break;
     }
@@ -697,7 +680,6 @@ void App::shutdown() {
     hud_screen_.reset();
     gui_.shutdown();
     dev_ui_.shutdown();
-    audio_.shutdown();
     renderer_.shutdown();
     window_.destroy();
     jobs_.reset();
@@ -885,9 +867,6 @@ void App::apply_intents(const std::vector<ui::Intent>& intents) {
                     action.tower = in.tower_type; action.position = in.world_position; action.quantity = count;
                     balance_recording_.append(action);
                 }
-                audio_.post(audio::AudioEvent{count > 0 ? audio::SoundId::TowerPlace
-                                                       : audio::SoundId::UiInvalid,
-                                               in.world_position});
                 break;
             }
             case ui::IntentKind::CastAbility: {
@@ -897,9 +876,6 @@ void App::apply_intents(const std::vector<ui::Intent>& intents) {
                     action.tick = sim_.tick_index(); action.kind = game::balance::ActionKind::CastAbility;
                     action.ability = in.ability_id; action.position = in.world_position;
                     balance_recording_.append(action);
-                }
-                if (!cast) {
-                    audio_.post(audio::AudioEvent{audio::SoundId::UiInvalid, in.world_position});
                 }
                 break;
             }
@@ -1206,6 +1182,7 @@ void App::render_frame() {
                             sim_.damage().rendered_fields().size());
     renderer_.submit_projectiles(sim_.projectiles());
     renderer_.submit_toxin_shots(sim_.hostile().toxin_shots());
+    renderer_.submit_harpoons(sim_.hostile().harpoons(), sim_.chaff());
     renderer_.submit_swarmers(sim_.swarmers());
     // After the other matter passes and before the additive particle layer.
     // The fluid is opaque-ish stuff that has to occlude the agents it has
@@ -1330,11 +1307,6 @@ int App::run() {
         camera_.set_viewport(window_.width(), window_.height());
         renderer_.resize(window_.width(), window_.height());
         render_frame();
-
-        const sim::SimSnapshot snap = sim_.snapshot();
-        audio_.update(camera_.center(),
-                      snap.total_density > 0.0f ? 1.0f : 0.0f,
-                      static_cast<f32>(clock_.frame_delta()));
 
         profiler_.record(prof_key::kFrameTotal, frame.elapsed_ms());
     }

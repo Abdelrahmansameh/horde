@@ -56,6 +56,7 @@
 #include "core/JobSystem.h"
 #include "core/Math.h"
 #include "core/Rng.h"
+#include "sim/hostile/Harpoon.h"  // the hose's toxin colour
 #include "sim/swarm/Swarmers.h"   // kSwarmerEventBit
 
 #include <cmath>
@@ -140,7 +141,8 @@ Vec4 family_tint(PathogenFamily f) {
     switch (f) {
     case PathogenFamily::Virus:       return Vec4{0.85f, 0.55f, 1.00f, 1.0f};
     case PathogenFamily::Bacteria:    return Vec4{0.58f, 1.00f, 0.62f, 1.0f};
-    case PathogenFamily::Parasite:    return Vec4{0.95f, 0.70f, 0.45f, 1.0f};
+    case PathogenFamily::Parasite:    return Vec4{0.78f, 0.64f, 1.00f, 1.0f};
+    case PathogenFamily::Spore:       return Vec4{1.00f, 0.86f, 0.44f, 1.0f};
     case PathogenFamily::Count:
     default:                          return Vec4{1.00f, 1.00f, 1.00f, 1.0f};
     }
@@ -1756,6 +1758,76 @@ void ParticleSystem::emit_for_event(const sim::CombatEvent& event) {
             m.lifetime = pcg_range(rs, 0.6f, 1.0f);
             m.drag = 1.5f;
             push(m, 0.03f * static_cast<f32>(k));
+        }
+        break;
+    }
+
+    // -----------------------------------------------------------------------
+    // HarpoonPulse — a spore's hose hit a cell (sim/hostile/Harpoon.h). Wet,
+    // in the TOXIN's colour, like PathogenLatch: what the player has to read
+    // is "something is being pumped into my cell". `direction` points from
+    // the spore into the cell, so the spatter squirts back out of the wound,
+    // fanned along the membrane. magnitude 0 is the tip biting in, a small
+    // splat; a slug arriving (magnitude = its damage) bursts bigger, with a
+    // flash on the membrane where the hit lands.
+    // -----------------------------------------------------------------------
+    case sim::CombatEventType::HarpoonPulse: {
+        const sim::HarpoonParams& hp = sim::family_harpoon(event.target_family);
+        const Vec4 toxin = hp.fluid_color;
+        const Vec4 wall = family_death_vfx(event.target_family).color;
+        const bool slug = event.magnitude > 0.0f;
+        const Vec2 out = dir * -1.0f;
+        const f32 r = math::max(event.radius, 0.5f);
+
+        ParticleSpawnParams s;
+        s.kind = ParticleKind::Spark;
+        s.blend = BlendMode::Additive;
+        s.position = event.origin;
+        s.color = mix4(toxin, Vec4{1.0f, 1.0f, 1.0f, 1.0f}, 0.25f);
+        s.size = r * (slug ? 0.9f : 0.45f);
+        s.lifetime = slug ? 0.16f : 0.1f;
+        s.drag = 6.0f;
+        push(s);
+
+        ParticleSpawnParams ring;
+        ring.kind = ParticleKind::Ring;
+        ring.blend = BlendMode::AlphaBlend;
+        ring.position = event.origin;
+        ring.color = Vec4{toxin.r, toxin.g, toxin.b, slug ? 0.55f : 0.35f};
+        ring.size = r * (slug ? 0.9f : 0.5f);
+        ring.end_scale = 2.2f;
+        ring.lifetime = slug ? 0.22f : 0.14f;
+        push(ring);
+
+        const u32 drops = slug ? 9u : 4u;
+        for (u32 k = 0; k < drops; ++k) {
+            ParticleSpawnParams g;
+            g.kind = ParticleKind::Globule;
+            g.blend = BlendMode::AlphaBlend;
+            g.position = event.origin + Vec2{pcg_signed(rs), pcg_signed(rs)} * (r * 0.15f);
+            g.velocity = rotate_by(out, pcg_range(rs, -1.25f, 1.25f)) * pcg_range(rs, 4.0f, slug ? 14.0f : 8.0f);
+            g.color = k % 3u == 0u ? Vec4{wall.r, wall.g, wall.b, 0.95f}
+                                   : Vec4{toxin.r, toxin.g, toxin.b, 0.95f};
+            g.size = pcg_range(rs, 0.28f, slug ? 0.6f : 0.4f);
+            g.lifetime = pcg_range(rs, 0.25f, 0.45f);
+            g.drag = 5.5f;
+            g.rotation = pcg_range(rs, 0.0f, math::kTwoPi);
+            g.spin = pcg_signed(rs) * 3.0f;
+            g.shape = 0.25f;
+            g.end_scale = 0.4f;
+            push(g, 0.01f * static_cast<f32>(k % 3u));
+        }
+        if (slug) {
+            ParticleSpawnParams m;
+            m.kind = ParticleKind::Mist;
+            m.blend = BlendMode::AlphaBlend;
+            m.position = event.origin;
+            m.velocity = out * 1.5f;
+            m.color = Vec4{toxin.r, toxin.g, toxin.b, 0.35f};
+            m.size = r * 0.8f;
+            m.lifetime = 0.4f;
+            m.drag = 3.0f;
+            push(m, 0.02f);
         }
         break;
     }

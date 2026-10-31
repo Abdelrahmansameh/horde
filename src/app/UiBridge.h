@@ -96,7 +96,7 @@ ui::TreeModel make_screenshot_tree_model(ScreenshotTree progress);
 /// into the campaign.
 ui::FrontModel make_screenshot_front_model(const game::LevelDef& level, const std::string& current_level_path);
 
-/// `ui dump | click <path> | hover <path> | pointer <x> <y> | select <n> |
+/// `ui dump | click <path> | drag <path> <x> <y> | hover <path> | pointer <x> <y> | select <n> |
 /// cancel | level <n> | screen <name> | tree <new|sample|full> | scale <f>`
 /// -- tokens as the gym tokenized them, tokens[0] == "ui".
 game::GymResult run_ui_command(const UiDriver& d, const std::vector<std::string>& tokens);

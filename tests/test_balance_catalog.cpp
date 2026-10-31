@@ -111,9 +111,10 @@ TEST_CASE_METHOD(immune::test::BalanceConfigIsolation, "balance catalog reports 
             CHECK(found);
         }
         if (key == "cytotoxic.capstone") {
-            const auto& rules = node["rank_effects"][0]["rules"]["unit_capstones"]["cytotoxic_t"];
-            CHECK(rules["kill_pulse_radius"].get<f32>() > 0.0f);
-            CHECK(rules["named_damage_mult"].get<f32>() > 1.0f);
+            bool found = false;
+            for (const auto& change : node["rank_effects"][0]["config_changes"])
+                if (change["path"] == std::string("towers.") + tower_type_name(TowerType::CytotoxicT) + ".swarm.speed") found = true;
+            CHECK(found);
         }
     }
 }

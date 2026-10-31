@@ -63,9 +63,8 @@ second. It follows the target while attached and can find another target when
 the previous one dies. Its baseline attach radius is 0.55. Directly deployed
 free latchers have bodies; once riding a host they stop pushing other cells.
 
-Drain damage does not require a projectile or damage field. Apoptosis Trigger
-adds a nearby chaff pulse when the cell finishes a host and increases drain
-against named threats. A persistent cell is not consumed with its first kill.
+Drain damage does not require a projectile or damage field. Rapid Pursuit
+doubles the cell's movement speed. A persistent cell is not consumed with its first kill.
 
 ## Macrophage: pseudopods and swallowing
 
@@ -88,7 +87,13 @@ releasing legacy tower.
 ## Goblet Cell: a consumed mucus delivery
 
 A Goblet Cell pursues an eligible target and consumes itself in a mucus splash
-on engagement or after its one-second chase limit. It does not deal baseline
+on engagement or after its one-second chase limit, provided an untreated enemy
+is within splash range. Otherwise it keeps pursuing. It skips enemies with an
+active mucus slow, including splashes another Goblet Cell has just triggered,
+and drops its current target if that enemy becomes coated. Coated enemies become
+eligible again once their slow expires. Incidental body contact follows the
+same rule; on lifetime expiry, a cell only splashes if an untreated enemy is
+within splash range, otherwise it dissolves. It does not deal baseline
 burst damage. The splash emits 200 fluid droplets at speed 20, with radius 5
 and 5.6-second droplet lifetime. Wet coverage slows targets; the baseline slow
 factor 0.12 means retaining 12% of movement speed, and the timed slow lasts
@@ -161,7 +166,7 @@ about the disc's area ([swarmer.vert](../assets/shaders/swarmer.vert)).
 marks flow for rebake, and gives the wall a Health component. Baseline lifetime
 zero means no timed expiration. Hostile damage can destroy it, after which
 its carved cells are restored. Inflammation buffs nearby allied cells and
-shooter reloads; Inflammatory Scarring adds contact damage around the wall.
+shooter reloads; Fibrotic Bulwark doubles the wall's length and width.
 
 Collagen blocks only enemies. Friendly cells can deploy inside it, acquire and
 attack enemies across it, and pass through it with their projectiles. Their

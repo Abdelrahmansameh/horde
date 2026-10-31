@@ -5,7 +5,6 @@
 #include "gui/core/Gui.h"
 #include "gui/widgets/Builders.h"
 #include "platform/Input.h"
-#include "render/Renderer.h"
 #include "ui/HudFormat.h"
 #include "ui/hud/HudParts.h"
 
@@ -24,10 +23,12 @@ namespace {
 /// Pick radius for click-to-select, in world units: towers have no per-type
 /// pick radius, and this matches the placement spacing validate() enforces.
 constexpr f32 kTowerPickRadius = 2.5f;
-/// Below this the organ is critical: the canvas's red panel and banner.
+/// Below this the organ integrity panel uses its critical colors.
 constexpr f32 kCriticalIntegrity = 0.25f;
 /// How long "Wave N cleared" stays up.
 constexpr f32 kToastSeconds = 3.0f;
+/// UI avoidance must not detach an entrance or exit from its location.
+constexpr f32 kMapMarkerMaxShift = 180.0f;
 
 Panel& panel(Widget& parent, std::string id, const ShapeDesc& shape) {
     return parent.emplace<Panel>(std::move(id), shape);
@@ -42,34 +43,50 @@ void place_map_marker(Widget& marker, Vec2 at, Vec2 direction, Vec2 vp, std::vec
                     math::clamp(p.y, margin.y, math::max(vp.y - margin.y, margin.y))};
     };
     const Vec2 preferred = clamp(at);
-    const auto clear = [&](Vec2 p) {
+    const auto overlap = [&](Vec2 p) {
         const Vec2 padding = half + Vec2{8.0f, 8.0f};
         const Rect bounds{p - padding, p + padding};
-        return std::none_of(occupied.begin(), occupied.end(),
-                            [&](const Rect& r) { return bounds.overlaps(r); });
+        f32 area = 0.0f;
+        for (const Rect& r : occupied) {
+            const f32 width = math::max(0.0f, math::min(bounds.max.x, r.max.x) -
+                                               math::max(bounds.min.x, r.min.x));
+            const f32 height = math::max(0.0f, math::min(bounds.max.y, r.max.y) -
+                                                math::max(bounds.min.y, r.min.y));
+            area += width * height;
+        }
+        return area;
     };
     Vec2 position = preferred;
-    if (!clear(position)) {
+    f32 least_overlap = overlap(position);
+    if (least_overlap > 0.0f) {
         // Clear positions lie on panel edges or their intersections.
-        // Favor staying on the entrance's lane or the organ's bearing,
+        // Favor staying along the entrance or exit's path direction,
         // allowing small sideways adjustments around nearby panel corners.
-        std::vector<f32> xs{preferred.x, margin.x, vp.x - margin.x};
-        std::vector<f32> ys{preferred.y, margin.y, vp.y - margin.y};
+        std::vector<f32> xs{preferred.x, margin.x, vp.x - margin.x,
+                            preferred.x - kMapMarkerMaxShift, preferred.x + kMapMarkerMaxShift};
+        std::vector<f32> ys{preferred.y, margin.y, vp.y - margin.y,
+                            preferred.y - kMapMarkerMaxShift, preferred.y + kMapMarkerMaxShift};
         for (const Rect& r : occupied) {
             xs.push_back(r.min.x - half.x - 9.0f);
             xs.push_back(r.max.x + half.x + 9.0f);
             ys.push_back(r.min.y - half.y - 9.0f);
             ys.push_back(r.max.y + half.y + 9.0f);
         }
-        f32 nearest = gui::kUnbounded;
+        f32 nearest = 0.0f;
         const Vec2 side{-direction.y, direction.x};
         for (f32 x : xs) for (f32 y : ys) {
-            const Vec2 candidate = clamp(Vec2{x, y});
-            const Vec2 shift = candidate - preferred;
+            Vec2 shift = clamp(Vec2{x, y}) - preferred;
+            const f32 length = math::length(shift);
+            if (length > kMapMarkerMaxShift) shift *= kMapMarkerMaxShift / length;
+            const Vec2 candidate = preferred + shift;
             const f32 along = shift.x * direction.x + shift.y * direction.y;
             const f32 across = shift.x * side.x + shift.y * side.y;
             const f32 distance = along * along + 16.0f * across * across;
-            if (distance < nearest && clear(candidate)) {
+            const f32 area = overlap(candidate);
+            // If every nearby spot is blocked, reduce overlap within the cap
+            // instead of moving the marker across the map to find open space.
+            if (area < least_overlap || (area == least_overlap && distance < nearest)) {
+                least_overlap = area;
                 nearest = distance;
                 position = candidate;
             }
@@ -82,11 +99,6 @@ void place_map_marker(Widget& marker, Vec2 at, Vec2 direction, Vec2 vp, std::vec
 } // namespace
 
 HudScreen::HudScreen(Gui& gui) : gui_(gui) {
-    // Pathogen colours are owned by the renderer; never duplicate them.
-    Theme& th = gui_.theme();
-    th.set_color("family_virus", render::family_color(PathogenFamily::Virus));
-    th.set_color("family_bacteria", render::family_color(PathogenFamily::Bacteria));
-    th.set_color("family_parasite", render::family_color(PathogenFamily::Parasite));
     build();
 }
 
@@ -120,16 +132,6 @@ void HudScreen::build() {
     popup_layer_root_ = &gui_.layer(LayerId::Popup).emplace<Widget>("inspect");
     full(*popup_layer_root_);
 
-    // ---- Critical vignette (under everything else in the HUD) ----
-    // The canvas's radialGradient has r="72%" of the screen box, so its full
-    // strength lies beyond the screen edge: 144% of the viewport, centred.
-    vignette_ = &panel(*hud_, "vignette", th.shape("vignette.critical"));
-    anchor(*vignette_, Vec2{0.5f, 0.5f}, Vec2{0.5f, 0.5f});
-    vignette_->layout.width = Size::pct(1.44f);
-    vignette_->layout.height = Size::pct(1.44f);
-    vignette_->blocks_pointer = false;
-    vignette_->visible = false;
-
     // ---- Organ integrity (top-left, 470x112) ----
     organ_ = &panel(*hud_, "organ", th.shape("membrane.host"));
     anchor(*organ_, Vec2{0, 0}, Vec2{0, 0}, Vec2{18, 16});
@@ -144,15 +146,6 @@ void HudScreen::build() {
     fixed_size(*organ_bar_, 300, 26);
     organ_bar_->blocks_pointer = false;
     organ_bar_->set_level(1.0f, 0.0f);
-
-    // ---- "Organ failing" (top-centre) ----
-    critical_banner_ = &panel(*hud_, "failing", th.shape("pill.critical"));
-    anchor(*critical_banner_, Vec2{0.5f, 0}, Vec2{0.5f, 0}, Vec2{0, 26});
-    critical_banner_->layout.padding = Insets{70, 16, 70, 18};
-    critical_banner_->layout.axis = Axis::Stack;
-    critical_banner_->layout.align = Align::Center;
-    text(*critical_banner_, "text", "Organ failing", th.text("banner_critical"));
-    critical_banner_->visible = false;
 
     // ---- Prep banner and the wave-cleared toast (top-centre) ----
     prep_banner_ = &panel(*hud_, "prep", th.shape("membrane.player"));
@@ -226,36 +219,9 @@ void HudScreen::build() {
     controls_[3]->on_click = [this] { push(Intent{IntentKind::ToggleAutoStart}); };
     controls_[4]->on_click = [this] { push(Intent{IntentKind::OpenMenu}); };
 
-    // ---- Next-wave panel (top-right, 380 wide) ----
-    wave_panel_ = &panel(*hud_, "wave", th.shape("membrane.host"));
-    anchor(*wave_panel_, Vec2{1, 0}, Vec2{1, 0}, Vec2{-18, 88});
-    wave_panel_->layout.width = Size::px(380);
-    wave_panel_->layout.padding = Insets{22, 18, 22, 22};
-    wave_panel_->layout.gap = 9;
-    wave_panel_->layout.align = Align::Stretch;
-    Widget& header = row(*wave_panel_, 0, Align::Start);
-    header.layout.justify = Justify::SpaceBetween;
-    Widget& titles = column(header, 0);
-    text(titles, "label", "Next", th.text("label"));
-    wave_title_ = &text(titles, "title", "Wave 1", th.text("wave_title"));
-    wave_total_ = &text(header, "total", "0", th.text("wave_total"));
-    for (usize i = 0; i < kFamilyCount; ++i) {
-        wave_rows_[i] = &wave_panel_->emplace<WaveRow>(gui_, "row" + std::to_string(i));
-    }
-    elite_row_ = &panel(*wave_panel_, "elite", th.shape("pill.elite"));
-    elite_row_->layout.axis = Axis::Row;
-    elite_row_->layout.align = Align::Center;
-    elite_row_->layout.gap = 10;
-    elite_row_->layout.padding = Insets{4, 4, 12, 4};
-    Widget& ebox = stack(*elite_row_, Align::Center);
-    fixed_size(ebox, 44, 40);
-    icon(ebox, "icon", "marker_elite", 42);
-    Label& elite_label = text(*elite_row_, "label", "Elite", th.text("elite"));
-    elite_label.layout.grow = 1;
-    elite_count_ = &text(*elite_row_, "count", "", th.text("elite_count"));
-
     // ---- Build dock (left, draggable) ----
-    dock_ = &hud_->emplace<DragPanel>("dock", th.shape("membrane.player"));
+    dock_ = &hud_->emplace<BuildDock>("dock", th.shape("membrane.player"));
+    dock_->clip_children = true;
     anchor(*dock_, Vec2{0, 0.5f}, Vec2{0, 0.5f}, Vec2{18, 70});
     dock_->layout.axis = Axis::Column;
     dock_->layout.align = Align::Start;
@@ -273,16 +239,12 @@ void HudScreen::build() {
         card.on_click = [this, t] { arm_tower(armed_tower_ == t ? TowerType::Count : t); };
         cards_[static_cast<usize>(t)] = &card;
     }
+    dock_->dockable = true;
 
-    // ---- Abilities (bottom-right, 464x156) ----
-    abilities_ = &panel(*hud_, "abilities", th.shape("membrane.player"));
+    // ---- Abilities (bottom-right, draggable and dockable like the build dock) ----
+    abilities_ = &hud_->emplace<AbilityBar>("abilities", th.shape("membrane.player"));
     anchor(*abilities_, Vec2{1, 1}, Vec2{1, 1}, Vec2{-18, -16});
-    abilities_->layout.height = Size::px(156);
-    abilities_->layout.axis = Axis::Row;
-    abilities_->layout.align = Align::Center;
-    abilities_->layout.gap = 14;
-    abilities_->layout.padding = Insets{20, 10, 20, 10};
-    static constexpr const char* kAbilityKeys[game::kAbilityCount] = {"Q", "W", "E", "R"};
+    static constexpr const char* kAbilityKeys[game::kAbilityCount] = {"Q", "W", "E"};
     for (u32 i = 0; i < game::kAbilityCount; ++i) {
         const auto id = static_cast<game::AbilityId>(i);
         AbilityCell& cell = abilities_->emplace<AbilityCell>(gui_, id, kAbilityKeys[i]);
@@ -294,18 +256,18 @@ void HudScreen::build() {
     hint_ = &hud_->emplace<HintPill>(gui_, "hint");
     anchor(*hint_, Vec2{0.5f, 1}, Vec2{0.5f, 1}, Vec2{-100, -24});
     hint_->visible = false;
+    dock_->dock_obstacles = {organ_, prep_banner_, toast_, hud_->find("controls"), abilities_, hint_};
+    abilities_->dock_obstacles = {organ_, prep_banner_, toast_, hud_->find("controls"), dock_, hint_};
     cursor_cost_ = &panel(*hud_, "cursor_cost", th.shape("pill"));
     cursor_cost_->layout.position = Position::Anchored;
     cursor_cost_->layout.axis = Axis::Row;
     cursor_cost_->layout.align = Align::Center;
-    cursor_cost_->layout.gap = 6;
-    cursor_cost_->layout.padding = Insets{14, 7, 16, 7};
+    cursor_cost_->layout.gap = 3;
+    cursor_cost_->layout.padding = Insets{6, 3, 6, 3};
     cursor_cost_->blocks_pointer = false;
-    Icon& coin = icon(*cursor_cost_, "atp", "atp", 24);
+    Icon& coin = icon(*cursor_cost_, "atp", "atp", 16);
     coin.anim_transform = Affine2::rotate(-0.2f);
     cursor_cost_value_ = &text(*cursor_cost_, "value", "", th.text("cursor_cost"));
-    icon(*cursor_cost_, "arrow", "glyph_arrow", 18);
-    cursor_cost_left_ = &text(*cursor_cost_, "left", "", th.text("cursor_left"));
     cursor_cost_->visible = false;
 
     // ---- World overlays ----
@@ -422,13 +384,10 @@ void HudScreen::sync(const HudModel& m, Vec2 world_cursor) {
     const u32 seed = static_cast<u32>(organ_->shape.wobble_seed);
     organ_->shape = th.shape(critical ? "membrane.critical" : "membrane.host");
     organ_->shape.wobble_seed = static_cast<f32>(seed);
-    critical_banner_->visible = critical;
-    vignette_->visible = critical;
 
     // ---- Waves ----
     const bool prep = m.phase == HudWavePhase::Prep && !m.all_waves_complete;
     prep_banner_->visible = prep;
-    critical_banner_->visible = critical && !prep;
     if (prep) {
         prep_wave_->set_text("Wave " + std::to_string(m.wave_number));
     }
@@ -440,22 +399,6 @@ void HudScreen::sync(const HudModel& m, Vec2 world_cursor) {
     last_phase_ = m.phase;
     last_wave_number_ = m.wave_number;
     toast_->visible = gui_.time() < toast_until_;
-
-    const HudWavePreview& pv = m.preview;
-    wave_panel_->visible = pv.valid;
-    if (pv.valid) {
-        wave_title_->set_text("Wave " + std::to_string(pv.wave_number));
-        wave_total_->set_text(std::to_string(pv.total));
-        std::vector<HudFamilyCount> fams = pv.families;
-        std::stable_sort(fams.begin(), fams.end(),
-                         [](const HudFamilyCount& a, const HudFamilyCount& b) { return a.count > b.count; });
-        for (usize i = 0; i < wave_rows_.size(); ++i) {
-            wave_rows_[i]->visible = i < fams.size() && fams[i].count > 0;
-            if (wave_rows_[i]->visible) wave_rows_[i]->sync(fams[i], pv.total);
-        }
-        elite_row_->visible = pv.elites > 0;
-        elite_count_->set_text("\xC3\x97" + std::to_string(pv.elites));
-    }
 
     // ---- Clock controls ----
     const bool paused = m.time_scale <= 0.0f;
@@ -494,6 +437,15 @@ void HudScreen::sync(const HudModel& m, Vec2 world_cursor) {
     } else {
         hint_->visible = false;
     }
+    // Keep the placement instructions above a bottom rail so selecting a cell
+    // never covers the compact controls that selected it.
+    f32 hint_lift = 24.0f;
+    for (DragPanel* rail : {static_cast<DragPanel*>(dock_), static_cast<DragPanel*>(abilities_)}) {
+        if (!rail->visible || rail->dock_edge() != DockEdge::Bottom) continue;
+        hint_lift = math::max(hint_lift, DragPanel::kPeek + (rail->measure(gui_.viewport()).y -
+                                                             DragPanel::kPeek + 8.0f) * rail->reveal() + 8.0f);
+    }
+    hint_->layout.offset.y = -hint_lift;
 
     sync_world(m, world_cursor);
 }
@@ -553,7 +505,8 @@ void HudScreen::sync_world(const HudModel& m, Vec2 world_cursor) {
 
     // Placement ghost.
     const bool placing = has_build_cursor() && m.placement.active;
-    ghost_ring_->visible = placing;
+    // ui_theme.json numbers.placement_range_ring: 0 hides the range ring.
+    ghost_ring_->visible = placing && th.number("placement_range_ring", 1.0f) > 0.5f;
     ghost_icon_->visible = placing;
     cursor_cost_->visible = false;
     if (placing) {
@@ -570,11 +523,13 @@ void HudScreen::sync_world(const HudModel& m, Vec2 world_cursor) {
         ghost_icon_->grayscale = !m.placement.valid;
         // The price tag that follows the pointer (off the UI only).
         if (!gui_.wants_pointer()) {
+            const bool affordable = m.atp >= card.cost;
+            const ShapeDesc& pill = th.shape("pill");
+            cursor_cost_->shape.fill = affordable ? pill.fill : th.color("critical_cytoplasm");
+            cursor_cost_->shape.stroke = affordable ? pill.stroke : th.color("critical");
+            cursor_cost_value_->style.color = affordable ? th.text("cursor_cost").color : th.color("critical");
             cursor_cost_->visible = true;
-            cursor_cost_value_->set_text("\xE2\x88\x92" + std::to_string(card.cost));
-            const i64 left = static_cast<i64>(m.atp) - static_cast<i64>(card.cost);
-            cursor_cost_left_->set_text(left >= 0 ? std::to_string(left) + " left"
-                                                  : std::to_string(-left) + " short");
+            cursor_cost_value_->set_text(std::to_string(card.cost) + " / " + std::to_string(m.atp));
             const Vec2 p = gui_.pointer();
             const Vec2 size = cursor_cost_->measure(gui_.viewport());
             cursor_cost_->layout.offset = Vec2{p.x - size.x - 34.0f, p.y - size.y * 0.5f - 44.0f};
@@ -618,8 +573,7 @@ void HudScreen::sync_world(const HudModel& m, Vec2 world_cursor) {
     // than last frame's rects. Top and side entrances must remain readable.
     std::vector<Rect> occupied;
     for (Widget* w : {static_cast<Widget*>(organ_), hud_->find("controls"),
-                       static_cast<Widget*>(prep_banner_), static_cast<Widget*>(critical_banner_),
-                       static_cast<Widget*>(toast_), static_cast<Widget*>(wave_panel_),
+                       static_cast<Widget*>(prep_banner_), static_cast<Widget*>(toast_),
                        static_cast<Widget*>(dock_), static_cast<Widget*>(abilities_)}) {
         if (w == nullptr || !w->visible) continue;
         const Vec2 size = w->measure(vp);
@@ -627,19 +581,21 @@ void HudScreen::sync_world(const HudModel& m, Vec2 world_cursor) {
                          Vec2{w->layout.pivot.x * size.x, w->layout.pivot.y * size.y} + w->layout.offset;
         occupied.push_back(Rect{pos, pos + size});
     }
-    // Organs are persistent destinations, including when they lie beyond the
-    // camera. Give their distinct heart badges priority over prep entrances.
+    // Preparation arrows show both ends of the path, including offscreen
+    // destinations. Exits get placement priority over entrances.
     for (usize i = 0; i < m.organ_points.size(); ++i) {
         if (i == organ_markers_.size()) {
             organ_markers_.push_back(&world_->emplace<OrganMarker>(gui_, "organ" + std::to_string(i)));
         }
         OrganMarker& marker = *organ_markers_[i];
-        marker.visible = !m.all_waves_complete && m.phase != HudWavePhase::Complete;
+        const HudOrganPoint& organ = m.organ_points[i];
+        marker.visible = prep;
+        marker.preparing = prep;
         if (!marker.visible) continue;
-        const Vec2 projected = gui_.project(m.organ_points[i]);
-        Vec2 bearing = math::normalize_safe(projected - vp * 0.5f);
-        if (math::length_sq(bearing) <= math::kEpsilon) bearing = Vec2{0.0f, 1.0f};
-        place_map_marker(marker, projected, bearing, vp, occupied);
+        const Vec2 projected = gui_.project(organ.world);
+        marker.direction = math::normalize_safe(gui_.project(organ.world + organ.direction) - projected);
+        if (math::length_sq(marker.direction) <= math::kEpsilon) marker.direction = Vec2{1.0f, 0.0f};
+        place_map_marker(marker, projected, marker.direction, vp, occupied);
     }
     for (usize i = 0; i < m.spawn_points.size(); ++i) {
         if (i == spawn_markers_.size()) {
@@ -667,8 +623,6 @@ void HudScreen::handle_input(const platform::InputState& in, Vec2 world_cursor, 
 
     // Pulses and timers that run whether or not anything was pressed.
     const f32 t = gui_.time();
-    critical_banner_->opacity = loop::pulse_opacity(t);
-    vignette_->opacity = loop::pulse_opacity(t);
     atp_icon_->anim_transform = Affine2::scale(loop::beat_scale(t));
 
     if (visible_ && !in.ui_capture_keyboard()) {
@@ -683,22 +637,16 @@ void HudScreen::handle_input(const platform::InputState& in, Vec2 world_cursor, 
             BuildCard* card = cards_[static_cast<usize>(ty)];
             if (!card->visible) continue;
             if (card->enabled) arm_tower(armed_tower_ == ty ? TowerType::Count : ty);
-            else {
-                card->shake();
-                gui_.play(gui::UiSound::Deny);
-            }
+            else card->shake();
         }
         static constexpr Action kCast[game::kAbilityCount] = {Action::CastAbility1, Action::CastAbility2,
-                                                               Action::CastAbility3, Action::CastAbility4};
+                                                               Action::CastAbility3};
         for (u32 i = 0; i < game::kAbilityCount; ++i) {
             if (!in.action_pressed(kCast[i])) continue;
             AbilityCell* cell = ability_cells_[i];
             if (!cell->visible) continue;
             if (cell->button->enabled) press_ability(static_cast<game::AbilityId>(i));
-            else {
-                cell->button->shake();
-                gui_.play(gui::UiSound::Deny);
-            }
+            else cell->button->shake();
         }
     }
 

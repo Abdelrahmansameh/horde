@@ -20,7 +20,8 @@ Hand-authored icons live beside the extracted ones and are left alone:
 glyph_arrow.svg (the canvas's "->" came from a browser fallback font; the
 game's fonts have no arrows), and glyph_plus.svg, glyph_minus.svg and
 glyph_recenter.svg (the skill tree's zoom buttons, which the canvas's
-fixed-size Tree artboard never had).
+fixed-size Tree artboard never had), and pathogen_parasite.svg (the game's
+tapered lavender worm replaces the canvas's older brown drawing).
 
 Usage:  python tools/extract_icons.py [--check]
   --check  fail (exit 1) if the committed icons differ from a fresh extraction
@@ -44,19 +45,19 @@ TREE_NAMES = {
     "a_cascade": "ability_complement_cascade",
     "a_clot": "ability_fibrin_clot",
     "a_fever": "ability_fever_response",
-    "a_histamine": "ability_histamine_flare",
     "t_neutrophil": "tower_neutrophil",
     "t_cytotoxic_t": "tower_cytotoxic_t",
     "t_macrophage": "tower_macrophage",
     "t_goblet_cell": "tower_goblet_cell",
     "t_fibroblast": "tower_fibroblast",
 }
+# Glyphs the canvas still draws for content the game has since removed.
+RETIRED = {"a_histamine"}
 
 # Icons identified by the label printed right after them in the HUD and Kit.
 LABELLED = [
     (re.compile(r"^Bacteria\b"), "pathogen_bacteria"),
     (re.compile(r"^Virus(es)?\b"), "pathogen_virus"),
-    (re.compile(r"^Parasites?\b"), "pathogen_parasite"),
     (re.compile(r"^Elite\b"), "marker_elite"),
     (re.compile(r"^Memory cells?\b"), "memory_cell"),
     (re.compile(r"^Antibod(y|ies)\b"), "antibody"),
@@ -124,6 +125,8 @@ def extract() -> dict[str, str]:
     tree = (CANVAS / "Tree.dc.html").read_text(encoding="utf-8")
     for m in re.finditer(r'<svg style="display: \{\{d\.show\.([a-z_]+)\}\}[^>]*>(.*?)</svg>', tree, re.S):
         key, body = m.group(1), m.group(2)
+        if key in RETIRED:
+            continue
         transform, inner = strip_outer_group(body)
         name = TREE_NAMES.get(key, f"stat_{key}")
         if "translate(-32 -32)" in transform:

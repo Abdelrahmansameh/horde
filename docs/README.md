@@ -39,7 +39,7 @@ overrides and permanent upgrades. Source and data take precedence over prose.
 | Module dependencies, app states, core services, and shared level session | [Architecture](ARCHITECTURE.md) |
 | Tick ordering, chaff, ECS, fields, movement, damage, and capacities | [Simulation](SIMULATION.md) |
 | Draw passes, shaders, camera, instance data, visual effects, and LOD | [Rendering](RENDERING.md) |
-| Window/platform, input, file lookup, and synthesized sound | [Audio and platform](AUDIO_PLATFORM.md) |
+| Window/platform, input, and file lookup | [Platform](PLATFORM.md) |
 | Tuning schemas, registry, reload, dumps, and config hashes | [Configuration](CONFIGURATION.md) |
 | Retained widgets, models, screens, events, theme, and GUI rendering | [UI framework](UI_FRAMEWORK.md) |
 | Asset folders, licenses, generators, and visual reference workflow | [Assets](ASSETS.md) |
@@ -53,7 +53,7 @@ the relevant headers and point to tests; they are not copies of every function.
 |---|---|
 | `src/app/` | [Architecture](ARCHITECTURE.md), [Building](BUILDING.md), [UI](UI_FRAMEWORK.md) |
 | `src/core/` | [Core services](ARCHITECTURE.md#core-services), [Simulation](SIMULATION.md) |
-| `src/platform/` | [Audio and platform](AUDIO_PLATFORM.md), [Assets](ASSETS.md) |
+| `src/platform/` | [Platform](PLATFORM.md), [Assets](ASSETS.md) |
 | `src/config/`, `src/game/config/` | [Configuration](CONFIGURATION.md) |
 | `src/game/session/`, `src/game/wave/` | [Gameplay](GAMEPLAY.md), [Architecture](ARCHITECTURE.md) |
 | `src/game/towers/` | [Immune cells](IMMUNE_CELLS.md) |
@@ -71,7 +71,6 @@ the relevant headers and point to tests; they are not copies of every function.
 | `src/sim/damage/`, `src/sim/projectile/`, `src/sim/fluid/` | [Simulation](SIMULATION.md), [Immune cells](IMMUNE_CELLS.md) |
 | `src/sim/CombatEvents.h` | [Rendering](RENDERING.md) |
 | `src/render/`, `src/vfx/`, `assets/shaders/` | [Rendering](RENDERING.md) |
-| `src/audio/` | [Audio and platform](AUDIO_PLATFORM.md) |
 | `src/gui/` | [UI framework](UI_FRAMEWORK.md) |
 | `src/ui/hud/`, `src/ui/front/`, `src/ui/Intent.h`, `src/ui/Menu.h` | [UI framework](UI_FRAMEWORK.md) |
 | `src/ui/editor/`, `src/ui/GymPanel.*`, `src/ui/DevUi.*` | [Level editor](LEVEL_EDITOR.md), [Gym](GYM.md), [UI](UI_FRAMEWORK.md) |

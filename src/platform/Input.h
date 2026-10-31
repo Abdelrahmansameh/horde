@@ -33,9 +33,9 @@ enum class Action : u8 {
     ToggleProgressionCheats,
     SelectTower1, SelectTower2, SelectTower3, SelectTower4,
     SelectTower5, SelectTower6, SelectTower7, SelectTower8,
-    /// The four active abilities, in game::AbilityId order (the HUD's
-    /// Q W E R keycaps).
-    CastAbility1, CastAbility2, CastAbility3, CastAbility4,
+    /// The active abilities, in game::AbilityId order (the HUD's Q W E
+    /// keycaps).
+    CastAbility1, CastAbility2, CastAbility3,
     Screenshot,
     Quit,
     Count

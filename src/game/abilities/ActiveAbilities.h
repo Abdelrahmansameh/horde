@@ -2,7 +2,7 @@
 // FROZEN CONTRACT. Owner: Wave 4C. New module (DESIGN.md §5.6).
 //
 // RATIONALE
-// Three cooldown-gated, player-triggered, screen-changing tools, deliberately
+// Cooldown-gated, player-triggered, screen-changing tools, deliberately
 // separate from towers: no placement, no per-target selection beyond an
 // optional world-space point. They exist to rescue a moment a pure
 // tower-and-economy response can't handle -- an amplifier or a one-time
@@ -10,16 +10,16 @@
 // (multiple waves, not multiple seconds) are load-bearing: choosing *when* to
 // spend one is meant to be a real decision.
 //
-// Complement Cascade Burst and Histamine Flare both resolve through the
-// existing, already-implemented DamageField/DamageSystem contract (sim/damage)
-// -- this module never touches chaff or towers directly, it only submits
-// fields, exactly like a tower's Combat-phase system does. Fever Response is
+// Complement Cascade Burst resolves through the existing, already-implemented
+// DamageField/DamageSystem contract (sim/damage) -- this module never touches
+// chaff or towers directly for it, it only submits a field, exactly like a
+// tower's Combat-phase system does. Fever Response is
 // the one ability that reaches into the ECS directly (see .cpp) rather than
 // through a damage field, since "buff every tower" has no damage-field
 // equivalent; it does so by reading/writing the already-public comp::Tower
 // component, the same access pattern the renderer and HUD already use.
 //
-// Fibrin Clot (added after the three above) is the one ability with a
+// Fibrin Clot (added after the two above) is the one ability with a
 // footprint: it carves a fixed-size bar out of the tissue mask for a few
 // seconds, the way a tower's footprint does permanently, so the horde has to
 // squeeze past it and towers on either side get a longer look. Still no
@@ -36,10 +36,9 @@ namespace immune::game {
 
 enum class AbilityId : u8 {
     ComplementCascadeBurst = 0,
-    HistamineFlare = 1,
-    FeverResponse = 2,
-    FibrinClot = 3,
-    Count = 4,
+    FeverResponse = 1,
+    FibrinClot = 2,
+    Count = 3,
 };
 
 inline constexpr u32 kAbilityCount = static_cast<u32>(AbilityId::Count);
@@ -49,18 +48,17 @@ inline constexpr u32 kAbilityCount = static_cast<u32>(AbilityId::Count);
 struct AbilityDef {
     const char* name = "";
     f32 cooldown_seconds = 60.0f;
-    /// Complement/Histamine: the DamageField's radius and kill_rate.
+    /// Complement: the DamageField's (per-link) radius and kill_rate.
     f32 radius = 20.0f;
     f32 kill_rate = 40.0f;
-    /// Histamine only: how long the nova field persists (Complement resolves
-    /// as an instant chain, per DamageField.h's Chain shape semantics).
+    /// Clot only: how long the bar stands (Complement resolves as an instant
+    /// chain, per DamageField.h's Chain shape semantics).
     f32 field_duration = 1.5f;
     /// Fever only: 0.1 times this value is the fraction of each deployed
     /// cell's maximum health restored on cast.
     f32 fever_cooldown_relief = 3.0f;
     /// Clot only: half the bar's length (along the lane's cross-section) and
-    /// half its thickness, in world units. `field_duration` doubles as how
-    /// long the clot stands before it dissolves.
+    /// half its thickness, in world units.
     f32 barrier_half_length = 7.0f;
     f32 barrier_half_width = 1.5f;
     /// Complement only: chain hops (sim::DamageField::chain_links; 0 = the
@@ -95,7 +93,7 @@ public:
 
     /// Which abilities the player owns, as a literal bitmask over AbilityId --
     /// the Strengthen Immunity tree's ability roots (PROGRESSION.md §6). A new
-    /// campaign owns none, so 0 really does mean "none". Defaults to all four,
+    /// campaign owns none, so 0 really does mean "none". Defaults to all of them,
     /// so every world without meta-progression attached (tests, the gym,
     /// headless runs) is unrestricted. cast() refuses a locked one.
     static constexpr u32 kAllAbilitiesMask = (1u << kAbilityCount) - 1u;
@@ -112,8 +110,8 @@ public:
     void register_systems(sim::SimWorld& world);
 
     /// Casts the ability if ready; no-ops (returns false) otherwise. Complement
-    /// Cascade Burst, Histamine Flare and Fibrin Clot use `target_point` (world
-    /// space); Fever Response ignores it. Fibrin Clot additionally refuses
+    /// Cascade Burst and Fibrin Clot use `target_point` (world space); Fever
+    /// Response ignores it. Fibrin Clot additionally refuses
     /// (returns false, cooldown untouched) a point off the tissue or one where
     /// the bar would wall the lane off completely -- see .cpp for why a
     /// temporary full block is not allowed either.

@@ -172,6 +172,55 @@ TEST_CASE("Labels size to their text and wrap to the offered width", "[gui][core
     gui.frame(at(Vec2{-10, -10}), 0.0f);
 }
 
+TEST_CASE("Before-layout hooks see current input and move hit regions before pointer picking", "[gui][core]") {
+    class LayoutProbe : public Probe {
+    public:
+        explicit LayoutProbe(std::string id) : Probe(std::move(id)) {}
+        Vec2 next_offset{200, 100};
+        Vec2 observed_pointer{0, 0};
+        bool observed_present = false;
+        f32 observed_dt = 0.0f;
+        int calls = 0;
+        void before_layout(f32 dt) override {
+            ++calls;
+            observed_dt = dt;
+            observed_pointer = gui()->pointer();
+            observed_present = gui()->pointer_present();
+            layout.offset = next_offset;
+        }
+    };
+
+    Gui gui;
+    auto& moving = gui.layer(LayerId::Hud).emplace<LayoutProbe>("moving");
+    moving.layout.position = Position::Anchored;
+    moving.layout.width = moving.layout.height = Size::px(80);
+    auto& hidden = gui.layer(LayerId::Hud).emplace<LayoutProbe>("hidden");
+    hidden.visible = false;
+    auto& hidden_child = hidden.emplace<LayoutProbe>("child");
+
+    gui.frame(at(Vec2{220, 130}), 0.125f);
+    CHECK(moving.calls == 1);
+    CHECK(moving.observed_dt == Approx(0.125f));
+    CHECK(moving.observed_pointer == Vec2{220, 130});
+    CHECK(moving.observed_present);
+    CHECK(moving.rect().min == Vec2{200, 100});
+    CHECK(gui.hovered_widget() == &moving);
+    CHECK(hidden.calls == 0);
+    CHECK(hidden_child.calls == 0);
+
+    moving.next_offset = Vec2{400, 200};
+    gui.frame(press(Vec2{420, 230}), 0.02f);
+    CHECK(moving.calls == 2);
+    CHECK(moving.observed_dt == Approx(0.02f));
+    CHECK(moving.observed_pointer == Vec2{420, 230});
+    CHECK(moving.rect().min == Vec2{400, 200});
+    CHECK(gui.pressed_widget() == &moving);
+    CHECK(moving.count(EventType::Down) == 1);
+    gui.frame(release(Vec2{420, 230}), 0.02f);
+    CHECK(moving.calls == 3);
+    CHECK(moving.count(EventType::Click) == 1);
+}
+
 TEST_CASE("Pointer: hover, click, capture and drag route to the right widget", "[gui][core]") {
     Gui& gui = shared_gui();
     gui.set_viewport(Vec2{1920, 1080});
@@ -219,6 +268,113 @@ TEST_CASE("Pointer: hover, click, capture and drag route to the right widget", "
     gui.frame(at(Vec2{-10, -10}), 0.0f);
 }
 
+TEST_CASE("Pointer: release-frame travel completes a flick without clicking", "[gui][core]") {
+    Gui gui;
+    auto& probe = gui.layer(LayerId::Hud).emplace<Probe>("flick");
+    probe.layout.position = Position::Anchored;
+    probe.layout.width = probe.layout.height = Size::px(100);
+    CHECK_FALSE(gui.pointer_present());
+    gui.frame(press(Vec2{50, 50}), 0.016f);
+    CHECK(gui.pointer_present());
+    int expected_drags = 1;
+    Vec2 expected_delta{40, 10};
+    SECTION("movement appears only on release") {
+        gui.frame(release(Vec2{90, 60}), 0.016f);
+    }
+    SECTION("release includes the final segment of an existing drag") {
+        gui.frame(hold(Vec2{70, 50}), 0.016f);
+        gui.frame(release(Vec2{90, 60}), 0.016f);
+        expected_drags = 2;
+    }
+    CHECK(probe.count(EventType::DragStart) == 1);
+    CHECK(probe.count(EventType::Drag) == expected_drags);
+    CHECK(probe.count(EventType::DragEnd) == 1);
+    CHECK(probe.dragged == expected_delta);
+    CHECK(probe.count(EventType::Click) == 0);
+    CHECK(probe.count(EventType::Deny) == 0);
+    CHECK(gui.pressed_widget() == nullptr);
+    std::vector<EventType> interactions;
+    for (EventType type : probe.seen) {
+        if (type != EventType::Enter && type != EventType::Leave) interactions.push_back(type);
+    }
+    std::vector<EventType> expected = {EventType::Down, EventType::DragStart, EventType::Drag};
+    if (expected_drags == 2) expected.push_back(EventType::Drag);
+    expected.push_back(EventType::Up);
+    expected.push_back(EventType::DragEnd);
+    CHECK(interactions == expected);
+
+    // Coordinates can remain over the widget while tools capture the input.
+    PointerInput absent = at(Vec2{90, 60});
+    absent.present = false;
+    gui.frame(absent, 0.016f);
+    CHECK_FALSE(gui.pointer_present());
+    CHECK(gui.pointer() == Vec2{90, 60});
+}
+
+TEST_CASE("Drag automation settles layout and routes captured pointer events without a click", "[gui][core]") {
+    Gui gui;
+    Widget& root = gui.layer(LayerId::Hud).emplace<Widget>("drag_root");
+    root.layout.position = Position::Anchored;
+    root.layout.offset = Vec2{100, 100};
+    auto& probe = root.emplace<Probe>("probe");
+    probe.layout.width = probe.layout.height = Size::px(80);
+    auto& other = gui.layer(LayerId::Hud).emplace<Probe>("other");
+    other.layout.position = Position::Anchored;
+    other.layout.offset = Vec2{700, 100};
+    other.layout.width = other.layout.height = Size::px(80);
+    gui.frame(at(Vec2{-10, -10}), 0.0f);
+    REQUIRE(gui.hover("other"));
+    root.layout.offset = Vec2{200, 150};  // Not laid out yet.
+
+    REQUIRE(gui.drag("drag_root/probe", Vec2{420, 330}));
+    CHECK(probe.dragged == Vec2{180, 140});
+    CHECK(gui.pointer() == Vec2{420, 330});
+    CHECK(gui.pressed_widget() == nullptr);
+    CHECK(probe.count(EventType::Click) == 0);
+    CHECK(other.count(EventType::Down) == 0);
+    std::vector<EventType> interactions;
+    for (EventType type : probe.seen) {
+        if (type != EventType::Enter && type != EventType::Leave) interactions.push_back(type);
+    }
+    const std::vector<EventType> expected = {EventType::Down, EventType::DragStart, EventType::Drag,
+                                           EventType::Up, EventType::DragEnd};
+    CHECK(interactions == expected);
+
+    // Disabled cards can still initiate a drag without producing a Deny.
+    probe.enabled = false;
+    REQUIRE(gui.drag("drag_root/probe", Vec2{600, 440}));
+    CHECK(probe.count(EventType::DragEnd) == 2);
+    CHECK(probe.count(EventType::Deny) == 0);
+}
+
+TEST_CASE("Drag automation rejects hidden, blocked and noninteractive targets", "[gui][core]") {
+    Gui gui;
+    Widget& root = gui.layer(LayerId::Hud).emplace<Widget>("drag_root");
+    root.layout.position = Position::Anchored;
+    root.layout.offset = Vec2{100, 100};
+    auto& probe = root.emplace<Probe>("probe");
+    probe.layout.width = probe.layout.height = Size::px(80);
+    CHECK_FALSE(gui.drag("missing", Vec2{400, 300}));
+    CHECK_FALSE(gui.drag("drag_root", Vec2{400, 300}));
+    root.visible = false;
+    CHECK_FALSE(gui.drag("drag_root/probe", Vec2{400, 300}));
+    root.visible = true;
+    root.accepts_pointer = false;
+    CHECK_FALSE(gui.drag("drag_root/probe", Vec2{400, 300}));
+    root.accepts_pointer = true;
+    CHECK_FALSE(gui.drag("drag_root/probe", Vec2{142, 140}));
+    CHECK(probe.count(EventType::Down) == 0);
+
+    auto& blocker = gui.layer(LayerId::Modal).emplace<Probe>("blocker");
+    blocker.layout.position = Position::Anchored;
+    blocker.layout.offset = Vec2{100, 100};
+    blocker.layout.width = blocker.layout.height = Size::px(80);
+    CHECK_FALSE(gui.drag("drag_root/probe", Vec2{400, 300}));
+    CHECK(probe.count(EventType::Down) == 0);
+    CHECK(blocker.count(EventType::Down) == 0);
+    CHECK(gui.pressed_widget() == nullptr);
+}
+
 TEST_CASE("Panels block the world by their shape; upper layers win", "[gui][core]") {
     Gui& gui = shared_gui();
     gui.set_viewport(Vec2{1920, 1080});
@@ -250,8 +406,6 @@ TEST_CASE("Panels block the world by their shape; upper layers win", "[gui][core
 TEST_CASE("Buttons click, deny with a shake, and spring on hover", "[gui][core]") {
     Gui& gui = shared_gui();
     gui.set_viewport(Vec2{1920, 1080});
-    std::vector<UiSound> sounds;
-    gui.on_sound = [&](UiSound s) { sounds.push_back(s); };
     Button& b = gui.layer(LayerId::Hud).emplace<Button>("grow", gui.theme().shape("button.primary"));
     b.layout.position = Position::Anchored;
     b.layout.anchor = Vec2{0.5f, 0.5f};
@@ -274,16 +428,12 @@ TEST_CASE("Buttons click, deny with a shake, and spring on hover", "[gui][core]"
     CHECK(denies == 1);
     gui.frame(at(c), 0.03f);
     CHECK(b.anim_transform.tx != 0.0f);  // shaking
-    CHECK(sounds.front() == UiSound::Hover);
-    CHECK(std::count(sounds.begin(), sounds.end(), UiSound::Click) == 1);
-    CHECK(std::count(sounds.begin(), sounds.end(), UiSound::Deny) == 1);
 
     CHECK_FALSE(gui.click("nope"));
     const std::string d = gui.dump();
     CHECK(d.find("grow") != std::string::npos);
     CHECK(d.find("disabled") != std::string::npos);
 
-    gui.on_sound = nullptr;
     gui.layer(LayerId::Hud).remove(b);
     gui.frame(at(Vec2{-10, -10}), 0.0f);
 }

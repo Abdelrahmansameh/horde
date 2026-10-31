@@ -223,11 +223,10 @@ TEST_CASE("cell unlocks remain independent and capstones end their branch", "[me
     }
 }
 
-TEST_CASE("active abilities grow directly from their four related cell unlocks", "[meta][tree]") {
+TEST_CASE("active abilities grow directly from their three related cell unlocks", "[meta][tree]") {
     struct Placement { TreeNode ability, parent, branch; };
     const Placement placements[] = {
         {TreeNode::ComplementUnlock, TreeNode::CytotoxicRoot, TreeNode::CytotoxicRoot},
-        {TreeNode::HistamineUnlock, TreeNode::GobletRoot, TreeNode::GobletRoot},
         {TreeNode::FeverUnlock, TreeNode::MacrophageRoot, TreeNode::MacrophageRoot},
         {TreeNode::ClotUnlock, TreeNode::FibroblastRoot, TreeNode::FibroblastRoot},
     };
@@ -414,15 +413,21 @@ TEST_CASE("capstones turn on their mechanics", "[meta][tree]") {
                 {TreeNode::GobletCapstone, 1}, {TreeNode::FibroblastRoot, 1},
                 {TreeNode::FibroblastCapstone, 1}}),
         cfg);
-    const CapstoneParams& cyto = cfg.towers.mechanics[static_cast<u32>(TowerType::CytotoxicT)].capstone;
-    REQUIRE(cyto.kill_pulse_radius == Catch::Approx(10.0f));
-    REQUIRE(cyto.kill_pulse_damage == Catch::Approx(1.2f));
-    REQUIRE(cyto.named_damage_mult > 1.0f);
+    const GameConfig base = default_game_config();
+    const u32 ct = static_cast<u32>(TowerType::CytotoxicT);
+    REQUIRE(cfg.towers.mechanics[ct].swarm.speed ==
+            Catch::Approx(base.towers.mechanics[ct].swarm.speed * 2.0f));
+    REQUIRE(cfg.towers.mechanics[ct].capstone.kill_pulse_radius == 0.0f);
+    const u32 fb = static_cast<u32>(TowerType::Fibroblast);
+    REQUIRE(cfg.towers.mechanics[fb].builder.scar_half_length ==
+            Catch::Approx(base.towers.mechanics[fb].builder.scar_half_length * 2.0f));
+    REQUIRE(cfg.towers.mechanics[fb].builder.scar_half_width ==
+            Catch::Approx(base.towers.mechanics[fb].builder.scar_half_width * 2.0f));
     REQUIRE(cfg.towers.mechanics[static_cast<u32>(TowerType::Macrophage)].capstone.heal_per_kill > 0.0f);
     REQUIRE(cfg.towers.mechanics[static_cast<u32>(TowerType::Neutrophil)].shooter.round_damage ==
             Catch::Approx(default_game_config().towers.mechanics[static_cast<u32>(TowerType::Neutrophil)].shooter.round_damage * 1.25f));
     REQUIRE(fx.immunity.contagion_radius > 0.0f);
-    REQUIRE(fx.immunity.scar_contact_rate > 0.0f);
+    REQUIRE(fx.immunity.scar_contact_rate == 0.0f);
     REQUIRE(fx.tower_mask == TowerSystem::kAllTowersMask);
 }
 
@@ -467,10 +472,10 @@ TEST_CASE("a locked ability refuses to cast", "[meta][tree][abilities]") {
     abilities.load_defaults();
     abilities.register_systems(f.world);
     abilities.set_unlocked(0u);
-    REQUIRE_FALSE(abilities.cast(f.world, AbilityId::HistamineFlare, Vec2{20.0f, 10.0f}));
-    REQUIRE(abilities.ready(AbilityId::HistamineFlare)); // no cooldown spent
-    abilities.set_unlocked(1u << static_cast<u32>(AbilityId::HistamineFlare));
-    REQUIRE(abilities.cast(f.world, AbilityId::HistamineFlare, Vec2{20.0f, 10.0f}));
+    REQUIRE_FALSE(abilities.cast(f.world, AbilityId::ComplementCascadeBurst, Vec2{20.0f, 10.0f}));
+    REQUIRE(abilities.ready(AbilityId::ComplementCascadeBurst)); // no cooldown spent
+    abilities.set_unlocked(1u << static_cast<u32>(AbilityId::ComplementCascadeBurst));
+    REQUIRE(abilities.cast(f.world, AbilityId::ComplementCascadeBurst, Vec2{20.0f, 10.0f}));
 }
 
 TEST_CASE("Fever's Buff Duration keeps every tower reloading faster after the burst", "[meta][tree][abilities]") {

@@ -124,6 +124,12 @@ void Gui::dispatch(Event e, Widget* target) {
     for (Widget* w = target; w != nullptr && !e.handled; w = w->parent()) w->on_event(e);
 }
 
+void Gui::before_layout_tree(Widget& w, f32 dt) {
+    if (!w.visible) return;
+    w.before_layout(dt);
+    for (usize i = 0; i < w.children().size(); ++i) before_layout_tree(*w.children()[i], dt);
+}
+
 void Gui::update_tree(Widget& w, f32 dt) {
     if (!w.visible) return;
     w.update(dt);
@@ -134,17 +140,19 @@ void Gui::update_tree(Widget& w, f32 dt) {
 void Gui::frame(const PointerInput& in, f32 dt) {
     time_ += dt;
 
+    const bool moved = in.present && math::length_sq(in.pos - pointer_) > 0.25f;
+    if (moved) forced_hover_ = nullptr;
+    pointer_ = in.pos;
+    pointer_present_ = in.present;
+
     // ---- Layout ---------------------------------------------------------------
+    for (auto& l : layers_) before_layout_tree(*l, dt);
     for (auto& l : layers_) {
         l->measure(viewport_);
         l->arrange(Rect{Vec2{0.0f, 0.0f}, viewport_});
     }
 
     // ---- Pointer ----------------------------------------------------------------
-    const bool moved = in.present && math::length_sq(in.pos - pointer_) > 0.25f;
-    if (moved) forced_hover_ = nullptr;
-    pointer_ = in.pos;
-
     Widget* picked = nullptr;
     if (forced_hover_ != nullptr) {
         picked = forced_hover_;
@@ -179,7 +187,9 @@ void Gui::frame(const PointerInput& in, f32 dt) {
         dragging_ = false;
         dispatch(Event{EventType::Down, pointer_}, press_target_);
     }
-    if (press_target_ != nullptr && in.down[kLeft]) {
+    // A fast flick can move between the press and release frames without a
+    // held frame. Route that final travel before ending capture as well.
+    if (press_target_ != nullptr && (in.down[kLeft] || in.released[kLeft])) {
         if (!dragging_ && math::length(pointer_ - press_origin_) > kDragThreshold) {
             dragging_ = true;
             dispatch(Event{EventType::DragStart, pointer_}, press_target_);
@@ -275,6 +285,50 @@ bool Gui::hover(std::string_view path) {
     Widget* w = find(path);
     if (w == nullptr || !w->visible) return false;
     forced_hover_ = w;
+    return true;
+}
+
+bool Gui::drag(std::string_view path, Vec2 destination) {
+    if (!std::isfinite(destination.x) || !std::isfinite(destination.y) || press_target_ != nullptr) return false;
+    auto available = [](const Widget* w) {
+        if (w == nullptr || !w->interactive) return false;
+        for (const Widget* p = w; p != nullptr; p = p->parent()) {
+            if (!p->visible || !p->accepts_pointer) return false;
+        }
+        return true;
+    };
+    if (!available(find(path))) return false;
+
+    // Settle updates and their layout changes before choosing the grab point.
+    // An earlier synthetic hover must not override the actual hit test.
+    forced_hover_ = nullptr;
+    PointerInput input;
+    input.pos = pointer_;
+    input.present = false;
+    frame(input, 0.0f);
+    for (auto& l : layers_) {
+        l->measure(viewport_);
+        l->arrange(Rect{Vec2{0.0f, 0.0f}, viewport_});
+    }
+    Widget* w = find(path);
+    if (!available(w)) return false;
+    const Vec2 start = w->center();
+    if (math::length(destination - start) <= kDragThreshold) return false;
+    input.pos = start;
+    input.present = true;
+    frame(input, 0.0f);
+    if (hover_target_ == nullptr || !is_ancestor_or_self(w, hover_target_)) return false;
+
+    input.pressed[0] = input.down[0] = true;
+    frame(input, 0.0f);
+    input.pressed[0] = false;
+    input.pos = destination;
+    frame(input, 0.0f);
+    input.down[0] = false;
+    input.released[0] = true;
+    frame(input, 0.0f);
+    input.released[0] = false;
+    frame(input, 0.0f);  // Arrange changes made by DragEnd before drawing.
     return true;
 }
 

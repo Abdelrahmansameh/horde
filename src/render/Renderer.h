@@ -46,6 +46,7 @@ class TissueMask;
 class DistanceField;
 class ProjectileBuffers;
 struct ToxinShot;
+struct HarpoonLine;
 class SwarmerBuffers;
 class FluidBuffers;
 struct DamageField;
@@ -62,7 +63,8 @@ class Camera;
 
 /// Global switch for every drop shadow the renderer draws: the chaff sprite's
 /// contact shadow (chaff.frag), the named-agent and tower shadows
-/// (entity.frag) and the swarmer shadows (swarmer.frag). Uploaded to those
+/// (entity.frag), the swarmer shadows (swarmer.frag) and the spore hose's
+/// (harpoon.frag). Uploaded to those
 /// programs as `u_shadows` every frame, so flipping it here is the whole
 /// change; nothing else in the pipeline knows shadows exist.
 inline constexpr bool kShadowsEnabled = false;
@@ -79,6 +81,8 @@ struct RendererDesc {
     /// cloud size is set; this only has to clear the equilibrium a full board
     /// of maxed T-cells reaches.
     u32 max_swarmer_instances = 49152;
+    /// Spore hoses drawn per frame; matches HostileTuning::max_harpoons.
+    u32 max_harpoon_instances = 1024;
     /// Cosmetic particles drawable per blend mode per frame. Sized for the
     /// Gunner's "continuous stream" brief; this is the single biggest instance
     /// buffer in the renderer and is expected to run near full at high tiers.
@@ -117,7 +121,7 @@ struct RendererDesc {
 
 /// Per-instance vertex attributes. This layout is mirrored exactly in
 /// assets/shaders/chaff.vert — changing it is a contract change.
-/// 32 bytes: one instance per half cache line, 10k instances = 320 KB/frame.
+/// 36 bytes; the final float transports the worm's curved backbone.
 struct ChaffInstance {
     f32 x, y;          ///< world position
     f32 scale;
@@ -126,7 +130,9 @@ struct ChaffInstance {
     u32 flags;         ///< chaff_flags mirror; shader drives marked/slowed tells
     f32 anim_phase;    ///< per-agent animation offset, kills visual lockstep
     f32 pad;
+    f32 curvature = 0.0f; ///< Worm backbone curvature in local sprite units.
 };
+static_assert(sizeof(ChaffInstance) == 36, "chaff.vert must mirror the instance stride");
 
 struct EntityInstance {
     f32 x, y;
@@ -281,7 +287,7 @@ public:
     void submit_entities(const sim::EcsWorld& ecs);
 
     /// Damage/AoE fields as fluid shader effects (DESIGN.md §8.5): toxin clouds,
-    /// histamine blooms, antibody tides, complement lightning.
+    /// antibody tides, complement lightning.
     void submit_fields(const sim::DamageField* fields, usize count);
 
     /// The Goblet Cell's live mucus (sim/fluid/Fluid.h), surfaced as a real
@@ -313,6 +319,14 @@ public:
     /// that follow them are particles, submitted separately below.
     void submit_projectiles(const sim::ProjectileBuffers& projectiles);
     void submit_toxin_shots(const std::vector<sim::ToxinShot>& shots);
+
+    /// Every live spore hose (sim/hostile/Harpoon.h), one instanced draw. The
+    /// nozzle end is read off the shooter in `chaff`, interpolated and lifted
+    /// exactly as its sprite is, so the hose leaves the drawn body rather
+    /// than the sim point under it. After the chaff pass, so it reads over
+    /// the crowd it crosses; before swarmers, so its tip goes in under the
+    /// membrane of the cell it bites.
+    void submit_harpoons(const std::vector<sim::HarpoonLine>& lines, const sim::ChaffBuffers& chaff);
 
     /// Every tower's live swarmers (sim/swarm/Swarmers.h). Its own pass rather
     /// than part of submit_projectiles: a round is a streaked slug and a

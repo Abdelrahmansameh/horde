@@ -45,8 +45,8 @@ BACT = "#EDF263"
 BACT_D = "#8E8F1A"
 VIRUS = "#3CD46C"
 VIRUS_D = "#15672F"
-PARA = "#8A5226"
-PARA_D = "#3B200C"
+PARA = "#AD75F5"
+PARA_D = "#57347A"
 GOLD = "#F2B233"
 GOLD_D = "#8A5A00"
 RED = "#D7263D"
@@ -187,7 +187,7 @@ def virus_inner(cx, cy, s=1.0, crown=False):
 def parasite_inner(cx, cy, s=1.0):
     d = "M-24 10c6-20 14 8 22-8s14 6 24-12"
     return (f'<g transform="translate({cx} {cy}) scale({s})"><path d="{d}" stroke="{PARA_D}" stroke-width="15"/>'
-            f'<path d="{d}" stroke="{PARA}" stroke-width="10"/><path d="{d}" stroke="#C07A45" stroke-width="2.5" stroke-dasharray="3 6"/>'
+            f'<path d="{d}" stroke="{PARA}" stroke-width="10"/><path d="{d}" stroke="#E4D3FF" stroke-width="2.5" stroke-dasharray="3 6"/>'
             f'<circle cx="22" cy="-10" r="2.4" fill="{PARA_D}"/></g>')
 
 

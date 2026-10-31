@@ -169,7 +169,8 @@ TEST_CASE("per-family counters reconcile damage deaths leaks bounds and survivor
     fixture.init();
     const u32 initial_atp = fixture.economy.atp();
     for (u32 family = 0; family < kFamilyCount; ++family) {
-        const f32 y = 34.0f + 6.0f * static_cast<f32>(family);
+        // One row per family, every row's first agent inside the field.
+        const f32 y = 31.0f + 6.0f * static_cast<f32>(family);
         for (const Vec2 position : {Vec2{30.0f, y}, Vec2{116.0f, y},
                                     Vec2{-100.0f, y}, Vec2{70.0f, y}}) {
             sim::ChaffSpawnParams spawn;
@@ -184,10 +185,12 @@ TEST_CASE("per-family counters reconcile damage deaths leaks bounds and survivor
     field.kill_rate = 600.0f;
     fixture.world.damage().submit(field);
     REQUIRE(step_level(fixture.systems()) == SessionOutcome::InProgress);
-    REQUIRE(fixture.world.last_damage_stats().density_removed == Catch::Approx(3.0f));
-    // Only the three damage kills pay: 1 ATP per density, doubled by this
-    // level's income multiplier. Leaks and out-of-bounds despawns pay nothing.
-    REQUIRE(fixture.economy.atp() == initial_atp + 6);
+    REQUIRE(fixture.world.last_damage_stats().density_removed ==
+            Catch::Approx(static_cast<f32>(kFamilyCount)));
+    // Only the damage kills (one per family) pay: 1 ATP per density, doubled
+    // by this level's income multiplier. Leaks and out-of-bounds despawns pay
+    // nothing.
+    REQUIRE(fixture.economy.atp() == initial_atp + 2u * kFamilyCount);
 
     const auto snapshot = fixture.world.snapshot();
     u64 retired = 0;
@@ -239,7 +242,11 @@ TEST_CASE("a serial session repeats waves deployment and economy from the same s
     }
     REQUIRE(first.economy.snapshot().total_spent > 0);
     REQUIRE(first.economy.snapshot().total_earned > 777);
+    // Every family the wave sends arrived in full; the rest sent none.
     const auto snapshot = first.world.snapshot();
+    u32 expected[kFamilyCount] = {};
+    for (const WaveDef& wave : first.level.waves)
+        for (const SpawnEntry& e : wave.spawns) expected[static_cast<u32>(e.family)] += e.count;
     for (u32 family = 0; family < kFamilyCount; ++family)
-        REQUIRE(snapshot.chaff_spawned_by_family[family] == 10);
+        REQUIRE(snapshot.chaff_spawned_by_family[family] == expected[family]);
 }

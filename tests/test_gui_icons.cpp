@@ -22,7 +22,7 @@ TEST_CASE("Every extracted icon parses into drawable shapes", "[gui][icons]") {
     }
     // The ones the HUD and tree depend on by name.
     for (const char* name : {"tower_neutrophil", "tower_cytotoxic_t", "tower_macrophage", "tower_goblet_cell",
-                             "tower_fibroblast", "ability_complement_cascade", "ability_histamine_flare",
+                             "tower_fibroblast", "ability_complement_cascade",
                              "ability_fever_response", "ability_fibrin_clot", "pathogen_virus",
                              "pathogen_bacteria", "pathogen_parasite", "marker_elite", "atp", "memory_cell",
                              "antibody", "glyph_pause", "glyph_menu", "glyph_back", "glyph_play"}) {

@@ -2,7 +2,7 @@
 //
 // Only one state is "live" at a time and transitions are explicit, so the
 // headless modes can construct exactly the state they need (InLevel) without
-// dragging menus, audio devices, or a window along.
+// dragging menus or a window along.
 #pragma once
 
 #include "core/Types.h"

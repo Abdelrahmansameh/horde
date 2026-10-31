@@ -91,7 +91,7 @@ bool parse_i64(const std::string& s, i64& out) {
 // of each family name across the whole project.
 // ---------------------------------------------------------------------------
 
-const char* const kFamilyNames[kFamilyCount] = {"virus", "bacteria", "parasite"};
+const char* const kFamilyNames[kFamilyCount] = {"virus", "bacteria", "parasite", "spore"};
 
 const char* family_name(PathogenFamily f) {
     const u32 i = static_cast<u32>(f);
@@ -113,7 +113,6 @@ bool parse_ability(const std::string& s, AbilityId& out) {
         out = AbilityId::ComplementCascadeBurst;
         return true;
     }
-    if (s == "histamine" || s == "flare") { out = AbilityId::HistamineFlare; return true; }
     if (s == "fever") { out = AbilityId::FeverResponse; return true; }
     if (s == "clot" || s == "fibrin" || s == "barrier") { out = AbilityId::FibrinClot; return true; }
     return false;
@@ -334,14 +333,14 @@ const std::vector<GymCommandInfo>& command_table() {
          "Lay a Fibroblast wall, set every standing wall's integrity, or mend them the way a builder does."},
         {"sell", "[all]", "Sell the last-placed tower, or every tower."},
         {"fire", "", "Clear every placed tower's cooldown so it releases a volley next tick."},
-        {"cast", "<complement|histamine|fever|clot> [at <x,y|cursor>]", "Cast a player ability."},
+        {"cast", "<complement|fever|clot> [at <x,y|cursor>]", "Cast a player ability."},
         {"ready", "", "Clear every ability cooldown."},
         {"atp", "<amount|+amount>", "Set or add ATP."},
         {"wave", "[start|next|status|<index>]",
          "Skip prep, jump waves, or print the director's state."},
         {"integrity", "<0-100>",
          "Set the organ's integrity (a critical-state HUD without losing a run)."},
-        {"ui", "dump | click <path> | hover <path> | pointer <x> <y> | select <n> | cancel",
+        {"ui", "dump | click <path> | drag <path> <x> <y> | hover <path> | pointer <x> <y> | select <n> | cancel",
          "Drive the game UI by widget path, e.g. ui click hud/dock/neutrophil."},
         {"field", "<radius> <kill_rate> [duration] [at <x,y|cursor>]",
          "Submit a raw damage field. Tests aggregate damage in isolation."},
@@ -904,11 +903,11 @@ GymResult cmd_fire(GymContext& ctx) {
 GymResult cmd_cast(GymContext& ctx, const std::vector<std::string>& tok) {
     if (ctx.world == nullptr) return fail("no world in this context");
     if (ctx.abilities == nullptr) return fail("no ability system in this context");
-    if (tok.size() < 2) return fail("usage: cast <complement|histamine|fever|clot> [at ...]");
+    if (tok.size() < 2) return fail("usage: cast <complement|fever|clot> [at ...]");
 
     AbilityId id = AbilityId::ComplementCascadeBurst;
     if (!parse_ability(lower(tok[1]), id)) {
-        return fail("unknown ability '" + tok[1] + "' (complement, histamine, fever, clot)");
+        return fail("unknown ability '" + tok[1] + "' (complement, fever, clot)");
     }
 
     usize i = 2;

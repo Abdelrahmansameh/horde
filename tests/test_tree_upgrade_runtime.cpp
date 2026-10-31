@@ -340,46 +340,6 @@ TEST_CASE_METHOD(immune::test::BalanceConfigIsolation, "each vitality and stamin
     }
 }
 
-TEST_CASE_METHOD(immune::test::BalanceConfigIsolation, "apoptosis collateral reaches a nearby live enemy after its host dies",
-                 "[balance][meta][tree][upgrade-runtime][apoptosis]") {
-    for (const bool shipped_contact : {false, true}) {
-        for (const bool capstone : {false, true}) {
-            TreeLevels levels;
-            levels[TreeNode::NeutrophilRoundDamage] = 1;
-            levels[TreeNode::CytotoxicRoot] = 1;
-            levels[TreeNode::CytotoxicCapstone] = capstone ? 1u : 0u;
-            auto base = shipped();
-            // Test both a fixed prescribed victim (deferred scheduling) and real
-            // shipped body contact, which settles packed viruses farther apart.
-            if (!shipped_contact)
-                base.enemies.families[static_cast<u32>(PathogenFamily::Virus)].chaff.contact_stiffness = 0;
-            RuntimeFixture fixture(base, levels);
-            fixture.cell(TowerType::CytotoxicT);
-            fixture.virus({45.4f,40});
-            fixture.virus({47.0f,40});
-            fixture.virus({70.0f,40}); // outside the pulse and current acquisition
-            u32 raised = 0;
-            while (fixture.world.tick_index() < 120 && fixture.world.snapshot().chaff_killed_by_family[0] == 0) {
-                fixture.world.tick();
-                raised += fixture.world.swarmer_system().last_stats().kill_pulses;
-            }
-            REQUIRE(fixture.world.snapshot().chaff_killed_by_family[0] == 1);
-            REQUIRE(raised == (capstone ? 1u : 0u));
-            // The field is submitted after field damage this tick. It must
-            // survive upkeep and actually hit the collateral on the next tick.
-            fixture.world.tick();
-            CAPTURE(shipped_contact, capstone);
-            CHECK(fixture.world.snapshot().chaff_killed_by_family[0] == (capstone ? 2u : 1u));
-            f64 burst_applied = 0;
-            for (const auto& bucket : fixture.world.combat_metrics().buckets())
-                if (bucket.source == sim::CombatDamageSource::Burst) burst_applied += bucket.totals.density_removed;
-            CHECK(burst_applied == Catch::Approx(capstone ? 0.6 : 0.0));
-            CHECK(fixture.world.combat_metrics().totals().damage.density_removed ==
-                  Catch::Approx(fixture.world.snapshot().chaff_killed_by_family[0] * 0.6).margin(0.08));
-        }
-    }
-}
-
 TEST_CASE_METHOD(immune::test::BalanceConfigIsolation, "starter replenishment increases real shots and ordinary chaff kills without inflating damage",
                  "[balance][meta][tree][upgrade-runtime]") {
     const auto baseline = magazine_throughput(0);

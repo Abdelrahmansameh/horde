@@ -155,56 +155,114 @@ bool BurrowSystem::score_exit(const BurrowParams& bp, Vec2 from, f32 from_cost, 
     return true;
 }
 
+void BurrowSystem::update_slither(ChaffBuffers& chaff, const FlowField& flow, f32 dt) {
+    if (!active_ || dt <= 0.0f) return;
+    // Heading noise must not become an instantaneous bend of the whole body.
+    const f32 heading_response = 1.0f - std::exp(-dt / 0.10f);
+    const f32 bend_response = 1.0f - std::exp(-dt / 0.20f);
+    for (usize i = 0; i < chaff.count(); ++i) {
+        const u32 f = chaff.family[i] < kFamilyCount ? chaff.family[i] : 0u;
+        const SlitherParams& sp = tuning_.slither[f];
+        if (!sp.enabled || (chaff.flags[i] & chaff_flags::kPendingKill) != 0) continue;
+        const Vec2 p{chaff.pos_x[i], chaff.pos_y[i]};
+        const Vec2 displacement = p - Vec2{chaff.prev_pos_x[i], chaff.prev_pos_y[i]};
+        const f32 distance = math::length(displacement);
+        const f32 speed = distance / dt;
+        if (chaff.slither_phase[i] < 0.0f) {
+            u32 h = chaff.generation[i] * 2654435761u;
+            h ^= h >> 15u;
+            chaff.slither_phase[i] = static_cast<f32>(h & 0xFFFFu) * (kSlitherPhasePeriod / 65536.0f);
+            Vec2 dir = displacement;
+            if (math::length_sq(dir) <= math::kEpsilon) dir = flow.sample(p);
+            if (math::length_sq(dir) <= math::kEpsilon) dir = {chaff.vel_x[i], chaff.vel_y[i]};
+            chaff.body_heading[i] = math::length_sq(dir) > math::kEpsilon ? std::atan2(dir.y, dir.x) : 0.0f;
+        }
+        const bool was_reversing = chaff.slither_phase_delta[i] < 0.0f;
+        chaff.body_heading_delta[i] = 0.0f;
+        chaff.slither_phase_delta[i] = 0.0f;
+        chaff.slither_curvature_delta[i] = 0.0f;
+        const bool frozen = (chaff.flags[i] & (chaff_flags::kHidden | chaff_flags::kLatched)) != 0;
+        // The first dive frame still includes this tick's final surface step.
+        // Later burrow frames and bodies carried by cells hold their pose.
+        const bool starting_dive = chaff.burrow_state[i] == burrow_state::kDiving &&
+                                   chaff.burrow_anim[i] == 0.0f;
+        if (frozen && !starting_dive) continue;
+        const f32 old_heading = chaff.body_heading[i];
+        const f32 old_curvature = chaff.slither_curvature[i];
+        f32 travel_heading = std::atan2(displacement.y, displacement.x);
+        const f32 heading_error = std::fabs(wrap_angle(travel_heading - old_heading));
+        const bool reverse = heading_error > 0.75f * math::kPi ||
+                             (was_reversing && heading_error > 0.5f * math::kPi);
+        if (speed > sp.min_speed) {
+            // Only a clearly backwards shove runs the track in reverse. A
+            // near-perpendicular turn must not alternate between +/-90deg.
+            if (reverse) travel_heading = wrap_angle(travel_heading + math::kPi);
+            const f32 sign = reverse ? -1.0f : 1.0f;
+            // Estimate the endpoint tangent with the already filtered bend;
+            // feeding last tick's raw turn back here amplified steering noise.
+            const f32 want = travel_heading + 0.5f * old_curvature * sign * distance;
+            const f32 step = math::max(sp.turn_rate, 0.0f) * dt;
+            const f32 turn = math::clamp(wrap_angle(want - old_heading) * heading_response, -step, step);
+            chaff.body_heading_delta[i] = turn;
+            chaff.body_heading[i] = wrap_angle(old_heading + turn);
+        }
+        const f32 turn = chaff.body_heading_delta[i];
+        const f32 half_turn = 0.5f * turn;
+        // Actual distance, not its projection onto a lagging heading: that
+        // projection approaches zero on turns and made turn/distance explode.
+        const f32 signed_distance = reverse ? -distance : distance;
+        const f32 arc = std::fabs(half_turn) > 1e-4f
+                            ? signed_distance * half_turn / std::sin(half_turn) : signed_distance;
+        if (speed > sp.min_speed && std::fabs(arc) > 1e-5f) {
+            const f32 half_body = tuning_.body_half_length[f] > 0.0f
+                                     ? tuning_.body_half_length[f] * chaff.size_scale[i]
+                                     : 0.5f * math::max(sp.wavelength, 1.0f);
+            const f32 max_curvature = 0.6f / half_body;
+            const f32 target = math::clamp(turn / arc, -max_curvature, max_curvature);
+            const f32 wave = std::fabs(sp.amplitude * sp.head_amplitude) +
+                             0.5f * std::fabs(sp.curl) + std::fabs(sp.probe);
+            const f32 max_side = wave * 2.0f * half_body / math::max(sp.body_length, 0.01f);
+            // Bound how far a bend change can move either end, including its
+            // sideways wave offset. A tiny root step cannot swing the head by
+            // metres. Cap the budget during large external position corrections.
+            const f32 gain = half_body * (0.5f * half_body + max_side);
+            const f32 budget = 0.25f * math::min(distance, math::max(sp.wavelength, 1.0f) * dt);
+            const f32 limit = budget / math::max(gain, 1e-5f);
+            const f32 change = math::clamp((target - old_curvature) * bend_response, -limit, limit);
+            chaff.slither_curvature_delta[i] = change;
+            chaff.slither_curvature[i] = old_curvature + change;
+        }
+        const f32 idle = sp.min_speed > 0.0f
+                             ? 1.0f - math::smoothstep01(speed / sp.min_speed)
+                             : (distance <= 1e-6f ? 1.0f : 0.0f);
+        const f32 per_unit = sp.wavelength > math::kEpsilon ? math::kTwoPi / sp.wavelength : 0.0f;
+        const f32 advance = arc * per_unit + idle * sp.idle_rate * math::kTwoPi * dt;
+        chaff.slither_phase_delta[i] = advance;
+        f32 phase = std::fmod(chaff.slither_phase[i] + advance, kSlitherPhasePeriod);
+        if (phase < 0.0f) phase += kSlitherPhasePeriod;
+        chaff.slither_phase[i] = phase;
+    }
+}
+
 BurrowStats BurrowSystem::update(ChaffBuffers& chaff, const FlowField& flow,
                                  const DistanceField& sdf, const TissueMask& mask,
                                  const SpatialHash& hash, const std::vector<BurrowThreat>& threats,
-                                 Rng& rng, f32 dt, const Rect& play_area) {
+                                 Rng& rng, f32 dt, const Rect& play_area, bool animate) {
     BurrowStats stats{};
     if (!active_ || dt <= 0.0f) return stats;
+    if (animate) update_slither(chaff, flow, dt);
 
     const usize n = chaff.count();
     for (usize i = 0; i < n; ++i) {
         const u32 f = chaff.family[i] < kFamilyCount ? chaff.family[i] : 0u;
         const BurrowParams& bp = tuning_.burrow[f];
-        const SlitherParams& sp = tuning_.slither[f];
-        if (!bp.enabled && !sp.enabled) continue;
+        if (!bp.enabled) continue;
         u8& flags = chaff.flags[i];
         if ((flags & chaff_flags::kPendingKill) != 0) continue;
 
         const Vec2 p{chaff.pos_x[i], chaff.pos_y[i]};
-        const Vec2 v{chaff.vel_x[i], chaff.vel_y[i]};
-        u8& state = chaff.burrow_state[i];
-
-        // ---- Slither (cosmetic) ---------------------------------------------
-        // First sight: a per-agent phase so a horde does not undulate in
-        // lockstep, and a heading already facing down the lane so a fresh
-        // spawn does not visibly swing round from +x.
-        if (sp.enabled && chaff.slither_phase[i] < 0.0f) {
-            u32 h = chaff.generation[i] * 2654435761u;
-            h ^= h >> 15u;
-            chaff.slither_phase[i] = static_cast<f32>(h & 0xFFFFu) * (math::kTwoPi / 65536.0f);
-            Vec2 dir = flow.sample(p);
-            if (math::length_sq(dir) <= math::kEpsilon) dir = v;
-            chaff.body_heading[i] =
-                math::length_sq(dir) > math::kEpsilon ? std::atan2(dir.y, dir.x) : 0.0f;
-        }
         const bool frozen = (flags & (chaff_flags::kHidden | chaff_flags::kLatched)) != 0;
-        if (sp.enabled && !frozen) {
-            const f32 speed = math::length(v);
-            const f32 per_unit = sp.wavelength > math::kEpsilon ? math::kTwoPi / sp.wavelength : 0.0f;
-            f32 ph = chaff.slither_phase[i] + speed * dt * per_unit + sp.idle_rate * math::kTwoPi * dt;
-            ph = std::fmod(ph, math::kTwoPi);
-            chaff.slither_phase[i] = ph;
-            if (speed > sp.min_speed) {
-                const f32 want = std::atan2(v.y, v.x);
-                const f32 diff = wrap_angle(want - chaff.body_heading[i]);
-                const f32 step = sp.turn_rate * dt;
-                chaff.body_heading[i] =
-                    wrap_angle(chaff.body_heading[i] + math::clamp(diff, -step, step));
-            }
-        }
-
-        if (!bp.enabled) continue;
+        u8& state = chaff.burrow_state[i];
 
         // ---- Burrow state machine ---------------------------------------------
         f32& timer = chaff.burrow_timer[i];
@@ -310,6 +368,9 @@ BurrowStats BurrowSystem::update(ChaffBuffers& chaff, const FlowField& flow,
                 if (math::length_sq(fwd) > math::kEpsilon) {
                     chaff.body_heading[i] = std::atan2(fwd.y, fwd.x);
                 }
+                chaff.body_heading_delta[i] = 0.0f;
+                chaff.slither_curvature[i] = 0.0f;
+                chaff.slither_curvature_delta[i] = 0.0f;
                 state = burrow_state::kUnderground;
                 timer = math::max(bp.underground_duration, dt);
                 chaff.burrow_anim[i] = 0.0f;

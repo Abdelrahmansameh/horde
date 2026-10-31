@@ -24,7 +24,7 @@ $immuneTests = "$env:LOCALAPPDATA\horde-build\windows-release\bin\immune_tests.e
 
 The default `all` wrapper configures, builds, and runs CTest. [tests/CMakeLists.txt](../tests/CMakeLists.txt) gathers `test_*.cpp`, links one executable with `Catch2::Catch2WithMain`, discovers individual cases at test time, and sets the repository root as their working directory. Direct invocations need that same directory for level/config/render assets. For the debug preset, use `ctest --preset windows-debug -C Debug` after building `Debug`.
 
-Use `immune_tests.exe --list-tests` or `--list-tags` to inspect the current suite. A quoted Catch2 expression can select a tag or test-name pattern. Useful tags include `[core]`, `[sim]`, `[chaff]`, `[determinism]`, `[level]`, `[editor]`, `[gym]`, `[towers]`, `[deployment]`, `[swarm]`, `[abilities]`, `[meta]`, `[render]`, `[gui]`, and `[audio]`; verify names in the suite before treating a tag as coverage of an entire feature.
+Use `immune_tests.exe --list-tests` or `--list-tags` to inspect the current suite. A quoted Catch2 expression can select a tag or test-name pattern. Useful tags include `[core]`, `[sim]`, `[chaff]`, `[determinism]`, `[level]`, `[editor]`, `[gym]`, `[towers]`, `[deployment]`, `[swarm]`, `[abilities]`, `[meta]`, `[render]`, and `[gui]`; verify names in the suite before treating a tag as coverage of an entire feature.
 
 Run focused tests while iterating and the full required suite before handing off a system change. For a documentation-only change, check documented names, paths, examples, and links; compilation is only necessary if source or build configuration also changed. Record failing test names and actual output rather than preserving old claims about a fixed number of baseline failures.
 
@@ -155,6 +155,33 @@ Use `--focus x,y --view-height H` to review a small feature at useful scale. A w
 
 For shader edits, read stderr for `compile failed` and review the PNG. A build or simulation test cannot prove a shader compiled successfully at runtime. Record executable, level file, seed, threads, tick, config, setup commands, and the actual observed image when reporting visual verification.
 
+Parasite slither has a dedicated `[slither]` test group. It compiles the actual
+`worm_path` GLSL function into a compute shader and measures the normal drift
+of the overlapping ground track between frames, divided by distance travelled
+(the worm equivalent of foot sliding). The sweep includes slow and fast travel,
+spawn-size extremes and phase wrap boundaries. Separate cases check the path
+tangent, curved backbone and simulation-to-render interpolation. The render
+fixture writes a close-up contact sheet to `%TEMP%/render_verify_slither_track.png`;
+set `IMMUNE_SLITHER_CAPTURE` to choose another output. To measure an earlier
+shader with its original clock and sizing, set `IMMUNE_SLITHER_BASELINE` to a
+saved fragment shader before running the group. Baseline metrics are diagnostic
+output, not assertions on the replacement shader.
+Set `IMMUNE_SLITHER_FRAMES` to a directory to capture 60 renderer frames at
+the shipped speed for an animation preview. The rendered pixel check isolates
+each size so neighbouring bodies cannot contaminate its centreline measurement.
+Head-cap checks sample the production `sdf_worm` on the outward semicircle
+across wave phases, sizes, backbone bends and burrow shifts. They check the
+radius inside, on and outside the nose, catching the angled cutoff caused by
+rounding along the sprite's x axis instead of the head tangent.
+
+`[slither-live]` runs actual gym and campaign navigation with shipped tuning,
+single parasites, dense groups and an authored wave. It measures the endpoint
+motion caused solely by tick-to-tick bend changes and checks render pose
+continuity at interpolation boundaries. Use `IMMUNE_SLITHER_LIVE_OUT` for
+CSV/JSON traces and `IMMUNE_SLITHER_LIVE_FRAMES` for 120 live-world renderer
+frames. Ideal straight or circular motion alone cannot detect steering-noise
+amplification, so retain these real-level checks when changing the animation.
+
 ## Content and performance checks
 
 ```powershell
@@ -194,4 +221,4 @@ The benchmark attempts a hidden GL context for real render submission. If contex
 
 ## Reproducibility limits
 
-Keep the executable revision, level, tuning, seed, commands, and thread count fixed. Prefer `--threads 1` for scripted comparisons. [Flow-field rebakes](../src/sim/SimWorld.cpp) have a wall-clock budget, so geometry-changing scenarios can depend on whether work completes within that budget. Run repeated baselines before calling a changed result a regression; do not infer exact determinism from seed alone. Cosmetic VFX and audio are outside the sim-state hash.
+Keep the executable revision, level, tuning, seed, commands, and thread count fixed. Prefer `--threads 1` for scripted comparisons. [Flow-field rebakes](../src/sim/SimWorld.cpp) have a wall-clock budget, so geometry-changing scenarios can depend on whether work completes within that budget. Run repeated baselines before calling a changed result a regression; do not infer exact determinism from seed alone. Cosmetic VFX are outside the sim-state hash.

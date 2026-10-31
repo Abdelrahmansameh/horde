@@ -233,8 +233,6 @@ add_library(immune_ui STATIC src/ui/DevUi.cpp src/ui/Fonts.cpp
 target_link_libraries(immune_ui PUBLIC immune_core immune_platform immune_render immune_game immune_gui
   PRIVATE imgui::imgui)
 
-add_library(immune_audio STATIC src/audio/Audio.cpp)
-target_link_libraries(immune_audio PUBLIC immune_core PRIVATE ${IMMUNE_SDL2_TARGET})
 
 add_library(immune_app STATIC
   src/app/App.cpp
@@ -246,7 +244,7 @@ add_library(immune_app STATIC
   src/app/Modes.cpp
   src/app/UiBridge.cpp)
 target_link_libraries(immune_app PUBLIC
-  immune_core immune_platform immune_sim immune_render immune_game immune_ui immune_audio
+  immune_core immune_platform immune_sim immune_render immune_game immune_ui
   nlohmann_json::nlohmann_json)
 
 # ---------------------------------------------------------------------------

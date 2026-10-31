@@ -24,6 +24,7 @@ from the renderer wall clock. The interactive world draw order is:
 | 3 | ECS entities | `entity.vert/frag`: named agents, barriers/scars and legacy tower bodies/overlays |
 | 4 | Damage-field snapshot | `field.vert/frag`: circle/rect/cone/chain visualizations |
 | 5 | Friendly rounds, then hostile toxin shots | `projectile.vert/frag`: real simulated shots |
+| 5b | Spore harpoons | `harpoon.vert/frag`: each live hose, rooted in the spout of the shooter's interpolated, lifted, posed sprite and shaded as its membrane; over the crowd, under the cell it bites; shadow behind `kShadowsEnabled` |
 | 6 | Swarmers | `swarmer.vert/frag`: deployed cells and legacy released units, arms/latches/build state |
 | 7 | Fluid thickness and surface composite | `fluid.vert/frag`, `fluid_composite.vert/frag`: real mucus particles reconstructed as liquid |
 | 8 | Cosmetic particles | `particle.vert/frag`: additive first, then alpha blend |
@@ -54,8 +55,10 @@ Current defaults in `RendererDesc` are:
   does not automatically resize every render stream.
 
 Header comments retain historical counts and measurements. Current family and
-roster counts come from `kFamilyCount` / `kTowerTypeCount`; there are three
-pathogen families and five immune-cell types. Historical submission timings are
+roster counts come from `kFamilyCount` / `kTowerTypeCount`; there are four
+pathogen families and five immune-cell types. Chaff batches draw back to
+front as Parasite, Spore, Virus, Bacteria, so the biggest bodies sit under
+the small ones. Historical submission timings are
 examples from particular hardware, not guaranteed costs for every build.
 
 ## Camera and interpolation
@@ -151,6 +154,16 @@ and bounded concave fillets. Its sign contributes to the sim mask at load;
 the sim clearance field remains a mask-based EDT. Runtime clot/scar bars alter
 walkability/flow while leaving that static clearance/geometry field alone.
 Their own entities/effects draw the runtime obstruction.
+
+Tissue edges use pixel-sized shader coverage (`fwidth` and `smoothstep`);
+the window does not request MSAA and there is no whole-frame AA pass.
+Smooth coverage depends on a smooth source contour. The geometry bake locates
+subtexel crossings with marching squares and measures distances to continuous
+contour segments through a bounding-volume tree. Distancing to isolated points
+instead produces scallops in circular walls and their colored offset bands,
+which pixel coverage cannot remove. The tree is built and queried at level
+load, with no additional per-frame rendering work. The `[render_sdf]` tests
+cover shifted circles, offset bands, fillets and agreement with the sim mask.
 
 Decor arrays must outlive draw use. The smooth-SDF texture cache keys include
 its backing pointer, so replacing/editing a preview needs the existing dirty/

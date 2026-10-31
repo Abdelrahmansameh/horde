@@ -111,9 +111,10 @@ void EnemyRoster::load_defaults() {
     };
     // DESIGN.md §6 table. Names mirror the sim-test schema's family strings
     // (docs/AGENT_BRIEF.md): "virus" "bacteria" "parasite".
-    set(PathogenFamily::Virus, "virus", SpeedTier::Fast, 0.6f);
+    set(PathogenFamily::Virus, "virus", SpeedTier::Fast, 0.9f);
     set(PathogenFamily::Bacteria, "bacteria", SpeedTier::Fast, 0.9f);
     set(PathogenFamily::Parasite, "parasite", SpeedTier::Normal, 1.6f);
+    set(PathogenFamily::Spore, "spore", SpeedTier::Slow, 3.0f);
 
     // Behaviour switches, straight off the frozen header's table: Virus
     // replicates. Bacteria is a plain chaff family with no behaviour of its
@@ -278,6 +279,18 @@ EnemyConfig& mutable_enemy_config() {
             parasite.replication_rate = 0.0f;
             // Worms pass over and under the horde rather than jostling it.
             parasite.collides = false;
+
+            // The spore is a plump body that fills more of its sprite than a
+            // bacterium's rod does, and keeps a wider berth.
+            FamilyChaffParams& spore =
+                seed.families[static_cast<u32>(PathogenFamily::Spore)].chaff;
+            spore = FamilyChaffParams{};
+            spore.radius_from_silhouette = 0.4f;
+            spore.separation_strength = 7.0f;
+            spore.alignment_radius = 7.0f;
+            spore.alignment_strength = 4.0f;
+            spore.pressure_threshold = 4.0f;
+            spore.replication_rate = 0.0f;
         }
 
         // The parasite's whole identity: it burrows and it slithers. Seeded
@@ -290,6 +303,14 @@ EnemyConfig& mutable_enemy_config() {
             parasite.burrow.enabled = true;
             parasite.slither = sim::SlitherParams{};
             parasite.slither.enabled = true;
+        }
+
+        // The spore's whole identity: the harpoon. The struct defaults are
+        // the shipped numbers; every other family keeps it off.
+        {
+            FamilyConfig& spore = seed.families[static_cast<u32>(PathogenFamily::Spore)];
+            spore.harpoon = sim::HarpoonParams{};
+            spore.harpoon.enabled = true;
         }
 
         // How each family fights back (sim/hostile). The virus is the
@@ -338,6 +359,19 @@ EnemyConfig& mutable_enemy_config() {
             parasite.latch_ease_power = 0.0f;
             parasite.aura_dps = 0.0f;
             parasite.aura_radius = 0.0f;
+            // The spore fights with its harpoon alone (below): no latch, no
+            // aura, no toxin pellets.
+            sim::HostileFamilyParams& spore = seed.families[static_cast<u32>(PathogenFamily::Spore)].attack;
+            spore.latch_dps = 0.0f;
+            spore.latch_reach = 0.0f;
+            spore.latch_cap_swarmer = 0u;
+            spore.latch_cap_tower = 0u;
+            spore.latch_cap_scar = 0u;
+            spore.latch_speed = 0.0f;
+            spore.latch_ease_distance = 0.0f;
+            spore.latch_ease_power = 0.0f;
+            spore.aura_dps = 0.0f;
+            spore.aura_radius = 0.0f;
         }
         return seed;
     }();
@@ -355,7 +389,10 @@ bool enemy_config_applied() { return g_enemy_config_applied; }
 sim::HostileTuning hostile_tuning(const HostileGlobals& globals) {
     sim::HostileTuning t;
     const EnemyConfig& cfg = mutable_enemy_config();
-    for (u32 i = 0; i < kFamilyCount; ++i) t.family[i] = cfg.families[i].attack;
+    for (u32 i = 0; i < kFamilyCount; ++i) {
+        t.family[i] = cfg.families[i].attack;
+        t.harpoon[i] = cfg.families[i].harpoon;
+    }
     t.enabled = globals.enabled;
     t.max_attackers = globals.max_attackers;
     t.max_latch_events = globals.max_latch_events;
@@ -413,6 +450,9 @@ void apply_enemy_config(EnemyRoster& roster, const EnemyConfig& cfg) {
         // its own through burrow_tuning() below.
         sim::set_family_burrow(family, cfg.families[i].burrow);
         sim::set_family_slither(family, cfg.families[i].slither);
+        // The hose's look, for the renderer; the sim takes its own copy
+        // through hostile_tuning() above.
+        sim::set_family_harpoon(family, cfg.families[i].harpoon);
     }
 
     roster.load_defaults();

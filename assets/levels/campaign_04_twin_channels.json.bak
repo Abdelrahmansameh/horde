@@ -1,0 +1,183 @@
+{
+  "schema": 2,
+  "name": "campaign_04_twin_channels",
+  "display_name": "Twin Channels",
+  "description": "Two vessels run side by side, pinched at different points, before merging at the organ.",
+  "difficulty": 4,
+  "tags": ["campaign"],
+  "region": "capillary",
+  "world": { "min": [68, 0], "max": [535.92, 277.2], "cell_size": 0.75 },
+  "camera": { "center": [267.96, 138.6], "view_height": 301.5, "min_view_height": 229.14, "max_view_height": 301.5 },
+  "economy": { "starting_atp": 410 },
+  "vessels": [
+    {
+      "id": "lane_a",
+      "points": [
+        { "p": [-160, 198], "w": 85.8 },
+        { "p": [52.8, 198], "w": 85.8 },
+        { "p": [85.8, 198], "w": 85.8 },
+        { "p": [115.5, 198], "w": 48.84 },
+        { "p": [135.3, 198], "w": 48.84 },
+        { "p": [165, 198], "w": 85.8 },
+        { "p": [264, 198], "w": 85.8 },
+        { "p": [303.6, 198], "w": 85.8 },
+        { "p": [333.3, 198], "w": 48.84 },
+        { "p": [353.1, 198], "w": 48.84 },
+        { "p": [382.8, 198], "w": 85.8 },
+        { "p": [448.8, 198], "w": 85.8 },
+        { "p": [505.56, 198], "w": 72.6 }
+      ]
+    },
+    {
+      "id": "lane_b",
+      "vessel_type": "vein",
+      "points": [
+        { "p": [-160, 79.2], "w": 85.8 },
+        { "p": [85.8, 79.2], "w": 85.8 },
+        { "p": [118.8, 79.2], "w": 85.8 },
+        { "p": [148.5, 79.2], "w": 48.84 },
+        { "p": [168.3, 79.2], "w": 48.84 },
+        { "p": [198, 79.2], "w": 85.8 },
+        { "p": [297, 79.2], "w": 85.8 },
+        { "p": [389.4, 79.2], "w": 85.8 },
+        { "p": [419.1, 79.2], "w": 48.84 },
+        { "p": [438.9, 79.2], "w": 48.84 },
+        { "p": [468.6, 79.2], "w": 85.8 },
+        { "p": [488.4, 79.2], "w": 85.8 },
+        { "p": [505.56, 79.2], "w": 72.6 }
+      ]
+    },
+    {
+      "id": "merge",
+      "lane_id": "lane_a",
+      "points": [
+        { "p": [505.56, 66], "w": 60.72 },
+        { "p": [505.56, 138.6], "w": 60.72 },
+        { "p": [505.56, 211.2], "w": 60.72 }
+      ]
+    },
+    {
+      "id": "efferent_exit",
+      "lane_id": "lane_a",
+      "points": [
+        { "p": [505.56, 138.6], "w": 60.72 },
+        { "p": [560, 138.6], "w": 60.72 },
+        { "p": [640, 138.6], "w": 60.72 },
+        { "p": [680, 138.6], "w": 60.72 }
+      ]
+    }
+  ],
+  "obstacles": [
+    { "id": "dia_a", "shape": "box", "pos": [264, 198], "half_extents": [13.2, 13.2], "rotation": 45 },
+    { "id": "dia_b1", "shape": "box", "pos": [92.4, 79.2], "half_extents": [13.2, 13.2], "rotation": 45 },
+    { "id": "dia_b2", "shape": "box", "pos": [310.2, 79.2], "half_extents": [13.2, 13.2], "rotation": 45 }
+  ],
+  "spawn_points": [
+    { "id": "p_a", "pos": [-25, 198], "radius": 21.12, "lane_id": "lane_a" },
+    { "id": "p_b", "pos": [-24, 79.2], "radius": 21.12, "lane_id": "lane_b" }
+  ],
+  "objectives": [
+    { "id": "organ", "pos": [578.75, 138.6], "half_extents": [6.6, 99.84] }
+  ],
+  "placement_zones": [
+    { "min": [0, 0], "max": [535.92, 277.2] },
+    { "min": [99, 158.4], "max": [158.4, 237.6], "concentrated": true, "priority": 2 },
+    { "min": [316.8, 158.4], "max": [369.6, 237.6], "concentrated": true, "priority": 2 },
+    { "min": [132, 39.6], "max": [184.8, 118.8], "concentrated": true, "priority": 2 },
+    { "min": [402.6, 39.6], "max": [455.4, 118.8], "concentrated": true, "priority": 2 },
+    { "min": [455.4, 39.6], "max": [535.92, 237.6], "concentrated": true, "priority": 2.5 }
+  ],
+  "squad_paths": [
+    { "id": "upper_island_dorsal", "lane_id": "lane_a", "points": [[-125, 198], [85.8, 198], [125, 198], [190, 198], [235, 215], [264, 228], [300, 215], [344, 198], [430, 198], [505.56, 198], [505.56, 138.6], [660, 138.6]] },
+    { "id": "upper_island_ventral", "lane_id": "lane_a", "points": [[-125, 198], [85.8, 198], [125, 198], [190, 198], [235, 180], [264, 166], [300, 181], [344, 198], [430, 198], [505.56, 198], [505.56, 138.6], [660, 138.6]] },
+    { "id": "lower_islands_dorsal", "lane_id": "lane_b", "points": [[-125, 79.2], [55, 90], [92.4, 110], [126, 94], [160, 79.2], [235, 79.2], [278, 95], [310.2, 112], [353, 95], [428, 79.2], [505.56, 79.2], [505.56, 138.6], [660, 138.6]] },
+    { "id": "lower_islands_ventral", "lane_id": "lane_b", "points": [[-125, 79.2], [55, 69], [92.4, 48], [126, 65], [160, 79.2], [235, 79.2], [278, 63], [310.2, 47], [353, 63], [428, 79.2], [505.56, 79.2], [505.56, 138.6], [660, 138.6]] }
+  ],
+  "waves": [
+    {
+      "name": "campaign_04_twin_channels_wave_1",
+      "prep_time": 11,
+      "atp_reward": 60,
+      "spawns": [
+        { "family": "virus", "count": 130, "duration": 3.277, "spawn_point_id": "p_a", "squad_size": 60, "squad_paths": ["upper_island_dorsal"] },
+        { "family": "virus", "count": 130, "start_time": 0.886, "duration": 3.277, "spawn_point_id": "p_b", "squad_size": 60, "squad_paths": ["lower_islands_dorsal"] }
+      ]
+    },
+    {
+      "name": "campaign_04_twin_channels_wave_2",
+      "prep_time": 10.3,
+      "atp_reward": 88,
+      "spawns": [
+        { "family": "bacteria", "count": 76, "duration": 2.594, "spawn_point_id": "p_a", "squad_size": 60, "squad_paths": ["upper_island_ventral"] },
+        { "family": "virus", "count": 168, "start_time": 0.69, "duration": 2.594, "spawn_point_id": "p_b", "squad_size": 60, "squad_paths": ["lower_islands_ventral"] },
+        { "family": "virus", "count": 168, "start_time": 3.844, "duration": 2.594, "spawn_point_id": "p_a", "squad_size": 60, "squad_paths": ["upper_island_dorsal"] },
+        { "family": "bacteria", "count": 76, "start_time": 4.534, "duration": 2.594, "spawn_point_id": "p_b", "squad_size": 60, "squad_paths": ["lower_islands_dorsal"] }
+      ]
+    },
+    {
+      "name": "campaign_04_twin_channels_wave_3",
+      "prep_time": 9.6,
+      "atp_reward": 116,
+      "spawns": [
+        { "family": "parasite", "count": 29, "duration": 2.765, "spawn_point_id": "p_a", "squad_size": 60, "squad_paths": ["upper_island_dorsal"] },
+        { "family": "virus", "count": 239, "start_time": 0.724, "duration": 2.765, "spawn_point_id": "p_b", "squad_size": 60, "squad_paths": ["lower_islands_dorsal"] },
+        { "family": "virus", "count": 239, "start_time": 4.015, "duration": 2.765, "spawn_point_id": "p_a", "squad_size": 60, "squad_paths": ["upper_island_ventral"] },
+        { "family": "bacteria", "count": 107, "start_time": 4.738, "duration": 2.765, "spawn_point_id": "p_b", "squad_size": 60, "squad_paths": ["lower_islands_ventral"] },
+        { "family": "bacteria", "count": 107, "start_time": 8.029, "duration": 2.765, "spawn_point_id": "p_a", "squad_size": 60, "squad_paths": ["upper_island_dorsal"] },
+        { "family": "parasite", "count": 29, "start_time": 8.753, "duration": 2.765, "spawn_point_id": "p_b", "squad_size": 60, "squad_paths": ["lower_islands_dorsal"] }
+      ]
+    },
+    {
+      "name": "campaign_04_twin_channels_wave_4",
+      "prep_time": 8.9,
+      "atp_reward": 144,
+      "spawns": [
+        { "family": "virus", "count": 327, "duration": 2.988, "spawn_point_id": "p_a", "squad_size": 60, "squad_paths": ["upper_island_ventral"] },
+        { "family": "bacteria", "count": 147, "start_time": 0.77, "duration": 2.988, "spawn_point_id": "p_b", "squad_size": 60, "squad_paths": ["lower_islands_ventral"] },
+        { "family": "bacteria", "count": 147, "start_time": 4.238, "duration": 2.988, "spawn_point_id": "p_a", "squad_size": 60, "squad_paths": ["upper_island_dorsal"] },
+        { "family": "parasite", "count": 39, "start_time": 5.008, "duration": 2.988, "spawn_point_id": "p_b", "squad_size": 60, "squad_paths": ["lower_islands_dorsal"] },
+        { "family": "parasite", "count": 39, "start_time": 8.476, "duration": 2.988, "spawn_point_id": "p_a", "squad_size": 60, "squad_paths": ["upper_island_ventral"] },
+        { "family": "virus", "count": 326, "start_time": 9.247, "duration": 2.988, "spawn_point_id": "p_b", "squad_size": 60, "squad_paths": ["lower_islands_ventral"] }
+      ]
+    },
+    {
+      "name": "campaign_04_twin_channels_wave_5",
+      "prep_time": 8.2,
+      "atp_reward": 172,
+      "spawns": [
+        { "family": "bacteria", "count": 188, "duration": 3.121, "spawn_point_id": "p_a", "squad_size": 60, "squad_paths": ["upper_island_dorsal"] },
+        { "family": "parasite", "count": 50, "start_time": 0.794, "duration": 3.121, "spawn_point_id": "p_b", "squad_size": 60, "squad_paths": ["lower_islands_dorsal"] },
+        { "family": "parasite", "count": 50, "start_time": 4.371, "duration": 3.121, "spawn_point_id": "p_a", "squad_size": 60, "squad_paths": ["upper_island_ventral"] },
+        { "family": "virus", "count": 417, "start_time": 5.166, "duration": 3.121, "spawn_point_id": "p_b", "squad_size": 60, "squad_paths": ["lower_islands_ventral"] },
+        { "family": "virus", "count": 417, "start_time": 8.742, "duration": 3.121, "spawn_point_id": "p_a", "squad_size": 60, "squad_paths": ["upper_island_dorsal"] },
+        { "family": "bacteria", "count": 188, "start_time": 9.537, "duration": 3.121, "spawn_point_id": "p_b", "squad_size": 60, "squad_paths": ["lower_islands_dorsal"] }
+      ]
+    },
+    {
+      "name": "campaign_04_twin_channels_wave_6",
+      "prep_time": 7.5,
+      "atp_reward": 200,
+      "spawns": [
+        { "family": "parasite", "count": 61, "duration": 3.211, "spawn_point_id": "p_a", "squad_size": 60, "squad_paths": ["upper_island_ventral"] },
+        { "family": "virus", "count": 510, "start_time": 0.805, "duration": 3.211, "spawn_point_id": "p_b", "squad_size": 60, "squad_paths": ["lower_islands_ventral"] },
+        { "family": "virus", "count": 510, "start_time": 4.461, "duration": 3.211, "spawn_point_id": "p_a", "squad_size": 60, "squad_paths": ["upper_island_dorsal"] },
+        { "family": "bacteria", "count": 230, "start_time": 5.266, "duration": 3.211, "spawn_point_id": "p_b", "squad_size": 60, "squad_paths": ["lower_islands_dorsal"] },
+        { "family": "bacteria", "count": 230, "start_time": 8.923, "duration": 3.211, "spawn_point_id": "p_a", "squad_size": 60, "squad_paths": ["upper_island_ventral"] },
+        { "family": "parasite", "count": 61, "start_time": 9.728, "duration": 3.211, "spawn_point_id": "p_b", "squad_size": 60, "squad_paths": ["lower_islands_ventral"] }
+      ]
+    },
+    {
+      "name": "campaign_04_twin_channels_wave_7",
+      "prep_time": 6.8,
+      "atp_reward": 228,
+      "spawns": [
+        { "family": "virus", "count": 605, "duration": 3.269, "spawn_point_id": "p_a", "squad_size": 60, "squad_paths": ["upper_island_dorsal"] },
+        { "family": "bacteria", "count": 272, "start_time": 0.807, "duration": 3.269, "spawn_point_id": "p_b", "squad_size": 60, "squad_paths": ["lower_islands_dorsal"] },
+        { "family": "bacteria", "count": 272, "start_time": 4.519, "duration": 3.269, "spawn_point_id": "p_a", "squad_size": 60, "squad_paths": ["upper_island_ventral"] },
+        { "family": "parasite", "count": 73, "start_time": 5.327, "duration": 3.269, "spawn_point_id": "p_b", "squad_size": 60, "squad_paths": ["lower_islands_ventral"] },
+        { "family": "parasite", "count": 73, "start_time": 9.039, "duration": 3.269, "spawn_point_id": "p_a", "squad_size": 60, "squad_paths": ["upper_island_dorsal"] },
+        { "family": "virus", "count": 605, "start_time": 9.846, "duration": 3.269, "spawn_point_id": "p_b", "squad_size": 60, "squad_paths": ["lower_islands_dorsal"] }
+      ]
+    }
+  ]
+}

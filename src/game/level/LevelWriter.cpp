@@ -263,6 +263,7 @@ const char* family_name(PathogenFamily f) {
     case PathogenFamily::Virus: return "virus";
     case PathogenFamily::Bacteria: return "bacteria";
     case PathogenFamily::Parasite: return "parasite";
+    case PathogenFamily::Spore: return "spore";
     default: return "virus";
     }
 }

@@ -61,7 +61,7 @@ parallel work predictably and use independent RNG streams as the subsystem
 requires. Avoid shared floating-point accumulation dependent on scheduling.
 
 The simulation advances with `Tick`/`kFixedDt`; player actions arrive as
-explicit requests. Cosmetic particle/audio randomness must not perturb gameplay
+explicit requests. Cosmetic particle randomness must not perturb gameplay
 RNG or simulation state.
 
 Do not promise bit-identical runs on every machine or thread count. Chaff RNG
@@ -109,7 +109,7 @@ C++20, MSVC `/W4 /permissive-`, and vcpkg manifest dependencies are the current
 baseline. Build outside OneDrive through the provided presets. Do not suppress
 warnings globally or vendor dependencies without a concrete project reason.
 
-Runtime world art and audio are procedural. Authored JSON, GLSL `.vert/.frag`,
+Runtime world art is procedural. Authored JSON, GLSL `.vert/.frag`,
 SVG UI assets, and OFL-licensed UI fonts are committed. Keep the font license
 with distributions. Existing documentation reference images are not runtime
 assets. Captures, generated reports, and experiments belong in ignored scratch

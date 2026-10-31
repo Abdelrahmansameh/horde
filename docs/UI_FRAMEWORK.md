@@ -72,13 +72,14 @@ combines that with ImGui mouse capture. ImGui keyboard capture also prevents
 typing console commands from selecting cells or firing abilities. SDL input
 latches action/button edges so short taps between frames can still be consumed.
 
-`Gui::find`, `click`, `hover`, and `dump` use widget paths. The gym's `ui`
+`Gui::find`, `click`, `drag`, `hover`, and `dump` use widget paths. The gym's `ui`
 command exposes them through [UiBridge::run_ui_command](../src/app/UiBridge.cpp).
 
 ```text
 ui dump
 ui click hud/dock/neutrophil
 ui hover hud/dock/neutrophil
+ui drag hud/dock 0 600
 ui cancel
 ```
 
@@ -91,18 +92,34 @@ See [Gym](GYM.md) for screenshot-only pointer/front-screen fixture commands.
 
 ## Current player screens
 
-The HUD shows integrity, ATP/income, current/next wave composition, preparation
-and critical banners, unlocked deployment cards, ability cooldown cells, speed,
+The HUD shows integrity, ATP/income, the preparation banner,
+unlocked deployment cards, ability cooldown cells, speed,
 pause, auto-start, and menu controls. Cell cards respect both permanent unlocks
-and a level's allowed types. World overlays include placement range/ghosts,
+and a level's allowed types. Low integrity changes the health panel's colors.
+World overlays include placement range/ghosts,
 target reticles, and count-free enemy entrance markers at every spawn point.
-Entrance chevrons follow the lane direction during preparation and hide when
-the round starts. Distinct heart badges mark the organs to defend and remain
-visible during combat. Both avoid HUD panels and stay on screen for offscreen
-locations. Enemy composition and counts belong to the top-right wave panel.
+Entrance chevrons point into the lane and matching organ chevrons point out
+along the exit. Both appear only during preparation.
+Dragging the build menu against a screen edge starts sliding it offscreen at
+its original width and height. The exposed strip shows only unit icons, in
+their usual order, with unavailable units dimmed and outlined in a soft warning
+color; an unaffordable click gives brief tint feedback. Names and ATP costs remain
+in tooltips. Drag the strip inward to open it and outward to close it; hovering
+does not move the drawer. Held drags follow the pointer, and quick released
+flicks finish the slide. The drawer keeps its chosen open or closed state.
+Pull an open drawer six logical pixels farther inward to move it freely; slow
+pointer movements accumulate toward this release distance. The initial menu stays
+floating until dragged toward an edge.
+The ability panel moves and docks the same way. On the left or right edge it
+stands on end as a column; docked on any edge its cells shrink to icons in
+the exposed strip, keycaps and names hidden, and still cast when clicked.
+Markers stay on screen for offscreen locations and
+avoid HUD panels, with at most 180 logical pixels of movement from their
+viewport-clamped positions. When the nearby area is blocked, they minimize
+overlap within that limit so they stay close to the path they mark.
 
 Number keys follow **dock order**, not `TowerType` enum order: Neutrophil,
-Cytotoxic T, Macrophage, Goblet Cell, Fibroblast. Q/W/E/R select the four
+Cytotoxic T, Macrophage, Goblet Cell, Fibroblast. Q/W/E select the three
 abilities; Fever fires immediately because it needs no target. Hold placement
 uses render/UI time and the configured interval, with no accumulated backlog;
 Shift requests up to ten cells per pulse. Escape/right click cancel armed

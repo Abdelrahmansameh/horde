@@ -4,6 +4,7 @@
 #include "gui/core/Gui.h"
 #include "gui/draw/DrawList.h"
 #include "gui/widgets/Builders.h"
+#include "render/Renderer.h"
 
 #include <cmath>
 #include <cstdio>
@@ -41,7 +42,6 @@ const char* tower_id(TowerType t) {
 const char* ability_id_name(game::AbilityId id) {
     switch (id) {
         case game::AbilityId::ComplementCascadeBurst: return "cascade";
-        case game::AbilityId::HistamineFlare: return "histamine";
         case game::AbilityId::FeverResponse: return "fever";
         case game::AbilityId::FibrinClot: return "clot";
         default: break;
@@ -64,7 +64,6 @@ const char* tower_icon(TowerType t) {
 const char* ability_short_name(game::AbilityId id) {
     switch (id) {
         case game::AbilityId::ComplementCascadeBurst: return "Cascade";
-        case game::AbilityId::HistamineFlare: return "Histamine";
         case game::AbilityId::FeverResponse: return "Fever";
         case game::AbilityId::FibrinClot: return "Clot";
         default: break;
@@ -75,7 +74,6 @@ const char* ability_short_name(game::AbilityId id) {
 const char* ability_icon(game::AbilityId id) {
     switch (id) {
         case game::AbilityId::ComplementCascadeBurst: return "ability_complement_cascade";
-        case game::AbilityId::HistamineFlare: return "ability_histamine_flare";
         case game::AbilityId::FeverResponse: return "ability_fever_response";
         case game::AbilityId::FibrinClot: return "ability_fibrin_clot";
         default: break;
@@ -86,7 +84,6 @@ const char* ability_icon(game::AbilityId id) {
 const char* ability_color(game::AbilityId id) {
     switch (id) {
         case game::AbilityId::ComplementCascadeBurst: return "ability_complement";
-        case game::AbilityId::HistamineFlare: return "ability_histamine";
         case game::AbilityId::FeverResponse: return "ability_fever";
         case game::AbilityId::FibrinClot: return "ability_clot";
         default: break;
@@ -99,6 +96,7 @@ const char* family_display_name(PathogenFamily f, bool plural) {
         case PathogenFamily::Virus: return plural ? "Viruses" : "Virus";
         case PathogenFamily::Bacteria: return "Bacteria";
         case PathogenFamily::Parasite: return plural ? "Parasites" : "Parasite";
+        case PathogenFamily::Spore: return plural ? "Spores" : "Spore";
         case PathogenFamily::Count: break;
     }
     return "?";
@@ -109,6 +107,7 @@ const char* family_icon(PathogenFamily f) {
         case PathogenFamily::Virus: return "pathogen_virus";
         case PathogenFamily::Bacteria: return "pathogen_bacteria";
         case PathogenFamily::Parasite: return "pathogen_parasite";
+        case PathogenFamily::Spore: return "pathogen_spore";
         case PathogenFamily::Count: break;
     }
     return "";
@@ -177,29 +176,438 @@ Tag::Tag(Gui& g, std::string id, std::string value) : Panel(std::move(id), g.the
 
 DragPanel::DragPanel(std::string id, const ShapeDesc& s) : Panel(std::move(id), s) { interactive = true; }
 
+namespace {
+f32 inward_motion(DockEdge edge, Vec2 movement) {
+    switch (edge) {
+        case DockEdge::Left: return movement.x;
+        case DockEdge::Right: return -movement.x;
+        case DockEdge::Top: return movement.y;
+        case DockEdge::Bottom: return -movement.y;
+        case DockEdge::None: return 0.0f;
+    }
+    return 0.0f;
+}
+
+constexpr f32 kDockReach = 28.0f;
+// The on-screen margin, which is also the spacing rails keep from obstacles.
+constexpr f32 kEdgeGap = 8.0f;
+
+// A docked panel at rest, which another panel's drag may push along its rail.
+DragPanel* pushable(Widget* w) {
+    auto* panel = dynamic_cast<DragPanel*>(w);
+    if (panel == nullptr || !panel->visible || panel->dragging() || panel->dock_edge() == DockEdge::None) return nullptr;
+    return panel;
+}
+
+bool apart(const Rect& a, const Rect& b) {
+    return a.max.x <= b.min.x || b.max.x <= a.min.x || a.max.y <= b.min.y || b.max.y <= a.min.y;
+}
+}
+
 void DragPanel::on_event(Event& e) {
-    if (e.type != EventType::Drag) return;
-    layout.offset += e.delta;
-    clamp_on_screen();
-    e.handled = true;
+    if (gui() == nullptr) return;
+    if (e.type == EventType::Down) {
+        motion_.clear();
+        record_motion();
+        undocked_from_ = DockEdge::None;
+        undock_pull_ = 0.0f;
+        newly_docked_ = false;
+        dragging_ = false;
+        // Pause the slide at its grab point while the pointer owns it.
+        press_reveal_target_ = reveal_.target();
+        reveal_.snap(reveal());
+        entry_.snap(entry_.value());
+    } else if (e.type == EventType::DragStart) {
+        dragging_ = true;
+    } else if (e.type == EventType::Up && !dragging_) {
+        reveal_.set_target(press_reveal_target_);
+        entry_.set_target(0.0f);
+    } else if (e.type == EventType::Drag) {
+        if (edge_ != DockEdge::None) {
+            const f32 inward = inward_motion(edge_, e.delta);
+            const f32 distance = slide_distance();
+            const f32 amount = reveal() + (undock_pull_ + inward) / distance;
+            constexpr f32 kUndockPull = 6.0f;
+            if (amount > 1.0f + kUndockPull / distance) {
+                const Vec2 position = layout_rect().min;
+                Vec2 movement = e.delta;
+                // Include the small pull held at full exposure so the freed
+                // panel catches up with the pointer without losing travel.
+                switch (edge_) {
+                    case DockEdge::Left: movement.x += undock_pull_; break;
+                    case DockEdge::Right: movement.x -= undock_pull_; break;
+                    case DockEdge::Top: movement.y += undock_pull_; break;
+                    case DockEdge::Bottom: movement.y -= undock_pull_; break;
+                    case DockEdge::None: break;
+                }
+                undocked_from_ = edge_;
+                dock(DockEdge::None);
+                move_to(position + movement);
+                clamp_on_screen();
+            } else {
+                // Preserve excess inward travel across pointer updates. The
+                // reveal spring is clamped, but a slow pull must still release.
+                undock_pull_ = math::max(0.0f, (amount - 1.0f) * distance);
+                const bool vertical = edge_ == DockEdge::Left || edge_ == DockEdge::Right;
+                const Vec2 slide = limit_push(layout_rect(), vertical ? Vec2{0.0f, e.delta.y} : Vec2{e.delta.x, 0.0f});
+                dock_along_ += vertical ? slide.y : slide.x;
+                if (std::fabs(inward) > 0.0f) {
+                    reveal_.snap(math::saturate(amount));
+                    if (inward > 0.0f) newly_docked_ = false;
+                }
+                pin_to_edge();
+            }
+        } else {
+            layout.offset += limit_push(layout_rect(), e.delta);
+            clamp_on_screen();
+            if (dockable) {
+                const DockEdge edge = nearest_edge(motion_velocity());
+                if (edge != DockEdge::None) dock(edge);
+            }
+        }
+        record_motion();
+        input_layout_changed_ = true;
+        e.handled = true;
+    } else if (e.type == EventType::DragEnd) {
+        // A throw is how the panel was moving, not where the pointer went: a
+        // panel held against an edge or another panel has no velocity.
+        const Vec2 velocity = motion_velocity();
+        if (dockable && edge_ == DockEdge::None) {
+            const DockEdge edge = nearest_edge(velocity, 0.12f, true);
+            if (edge != DockEdge::None) dock(edge);
+        }
+        if (edge_ != DockEdge::None) {
+            const f32 speed = inward_motion(edge_, velocity);
+            const bool opening = !newly_docked_ && (std::fabs(speed) > 450.0f ? speed > 0.0f : reveal() > 0.5f);
+            reveal_.set_target(opening ? 1.0f : 0.0f);
+            entry_.set_target(0.0f);
+            reveal_.kick(math::clamp(speed / slide_distance(), -8.0f, 8.0f));
+        }
+        dragging_ = false;
+        input_layout_changed_ = true;
+        e.handled = true;
+    }
+}
+
+void DragPanel::before_layout(f32 dt) {
+    if (gui() == nullptr) return;
+    if (edge_ == DockEdge::None) {
+        reveal_.snap(1.0f);
+        entry_.snap(0.0f);
+        clamp_on_screen();
+        return;
+    }
+    reveal_.update(dt);
+    entry_.update(dt);
+    if (reveal_.settled()) reveal_.snap(reveal_.target());
+    if (entry_.settled()) entry_.snap(entry_.target());
+    pin_to_edge();
 }
 
 void DragPanel::update(f32 dt) {
     Panel::update(dt);
-    clamp_on_screen();
+    // A captured drag changes layout after picking; settle its geometry in the
+    // same frame. Uncaptured animation is applied before layout and picking.
+    if (input_layout_changed_ && gui() != nullptr) arrange(layout_rect());
+    input_layout_changed_ = false;
 }
 
-/// The offset is relative to the anchor point, so the limits are the distances
-/// from the panel's current rect to each screen edge.
+f32 DragPanel::slide_distance() {
+    const Vec2 s = measure(gui()->viewport());
+    return math::max(1.0f, (edge_ == DockEdge::Left || edge_ == DockEdge::Right ? s.x : s.y) - kPeek + 8.0f);
+}
+
+DockEdge DragPanel::nearest_edge(Vec2 movement, f32 projection, bool release) {
+    const Rect r = layout_rect();
+    const Vec2 vp = gui()->viewport();
+    const f32 distances[] = {r.min.x, vp.x - r.max.x, r.min.y, vp.y - r.max.y};
+    const DockEdge edges[] = {DockEdge::Left, DockEdge::Right, DockEdge::Top, DockEdge::Bottom};
+    f32 nearest = kDockReach;
+    DockEdge edge = DockEdge::None;
+    for (usize i = 0; i < 4; ++i) {
+        const f32 toward = -inward_motion(edges[i], movement);
+        if (edges[i] == undocked_from_) {
+            // Carrying the panel clear of the edge it left re-arms that edge.
+            if (distances[i] <= kDockReach) continue;
+            undocked_from_ = DockEdge::None;
+        }
+        // A panel resting on an edge (held by the screen clamp) docks there
+        // even while it slides along it, or is let go after a sideways move.
+        const bool resting = distances[i] <= kEdgeGap + 0.5f;
+        if (toward < 0.0f ? !(release && resting) : (toward == 0.0f && !resting)) continue;
+        const f32 distance = distances[i] - (toward > 450.0f ? math::min(toward * projection, 160.0f) : 0.0f);
+        if (distance < nearest) {
+            nearest = distance;
+            edge = edges[i];
+        }
+    }
+    return edge;
+}
+
+Rect DragPanel::layout_rect() {
+    const Vec2 s = measure(gui()->viewport());
+    const Rect host{Vec2{0.0f, 0.0f}, gui()->viewport()};
+    const Vec2 at = host.min + Vec2{layout.anchor.x * host.size().x, layout.anchor.y * host.size().y};
+    const Vec2 pos = at - Vec2{layout.pivot.x * s.x, layout.pivot.y * s.y} + layout.offset;
+    return Rect{pos, pos + s};
+}
+
+void DragPanel::move_to(Vec2 position) {
+    layout.offset += position - layout_rect().min;
+}
+
 void DragPanel::clamp_on_screen() {
     if (gui() == nullptr) return;
     const Vec2 vp = gui()->viewport();
-    const Rect r = rect();
-    if (r.size().x <= 0.0f) return;
+    const Rect r = layout_rect();
     constexpr f32 kMargin = 8.0f;
-    Vec2& o = layout.offset;
-    o.x += math::max(kMargin - r.min.x, 0.0f) - math::max(r.max.x - (vp.x - kMargin), 0.0f);
-    o.y += math::max(kMargin - r.min.y, 0.0f) - math::max(r.max.y - (vp.y - kMargin), 0.0f);
+    move_to(Vec2{math::clamp(r.min.x, kMargin, math::max(kMargin, vp.x - r.size().x - kMargin)),
+                 math::clamp(r.min.y, kMargin, math::max(kMargin, vp.y - r.size().y - kMargin))});
+}
+
+namespace {
+constexpr f32 kMotionWindow = 0.08f;
+}
+
+void DragPanel::record_motion() {
+    const f32 now = gui()->time();
+    motion_.push_back(MotionSample{now, layout_rect().min});
+    // Keep one sample from before the window as its baseline.
+    while (motion_.size() > 2 && motion_[1].time <= now - kMotionWindow) motion_.erase(motion_.begin());
+}
+
+Vec2 DragPanel::motion_velocity() {
+    if (motion_.empty()) return Vec2{0.0f, 0.0f};
+    const f32 now = gui()->time();
+    const MotionSample* base = &motion_.front();
+    for (const MotionSample& s : motion_) {
+        if (s.time <= now - kMotionWindow) base = &s;
+    }
+    return (layout_rect().min - base->pos) / math::max(now - base->time, 1.0f / 60.0f);
+}
+
+Vec2 DragPanel::limit_push(Rect from, Vec2 delta) {
+    const Vec2 vp = gui()->viewport();
+    const Vec2 gap{kEdgeGap, kEdgeGap};
+    for (Widget* w : dock_obstacles) {
+        DragPanel* other = pushable(w);
+        if (other == nullptr) continue;
+        const Rect to{from.min + delta, from.max + delta};
+        const Rect body{other->rect().min - gap, other->rect().max + gap};
+        if (apart(to, body)) continue;
+        const DockEdge edge = other->dock_edge();
+        const int along = edge == DockEdge::Left || edge == DockEdge::Right ? 1 : 0;
+        const int across = 1 - along;
+        if (from.max[along] > body.min[along] && from.min[along] < body.max[along]) {
+            // Pressing onto it toward its edge: stop at its face, or hold
+            // still if already over it, rather than squeezing it aside.
+            if (edge == DockEdge::Left || edge == DockEdge::Top) {
+                delta[across] = math::max(delta[across], math::min(0.0f, body.max[across] - from.min[across]));
+            } else {
+                delta[across] = math::min(delta[across], math::max(0.0f, body.min[across] - from.max[across]));
+            }
+            continue;
+        }
+        // Beside it: entering its rail pushes it along, until the far end of
+        // the edge leaves it no room.
+        Rect rail = body;
+        if (edge == DockEdge::Left) rail.max.x = kPeek + kEdgeGap;
+        if (edge == DockEdge::Right) rail.min.x = vp.x - kPeek - kEdgeGap;
+        if (edge == DockEdge::Top) rail.max.y = kPeek + kEdgeGap;
+        if (edge == DockEdge::Bottom) rail.min.y = vp.y - kPeek - kEdgeGap;
+        if (apart(to, rail)) continue;
+        const f32 length = other->rect().size()[along];
+        const f32 last = math::max(kEdgeGap, vp[along] - length - kEdgeGap);
+        if (delta[along] > 0.0f) {
+            delta[along] = math::min(delta[along], math::max(0.0f, last - kEdgeGap - from.max[along]));
+        } else if (delta[along] < 0.0f) {
+            delta[along] = math::max(delta[along], math::min(0.0f, 2.0f * kEdgeGap + length - from.min[along]));
+        }
+    }
+    return delta;
+}
+
+void DragPanel::pin_to_edge(bool settle) {
+    clamp_on_screen();
+    const Rect r = layout_rect();
+    Vec2 pos = r.min;
+    const f32 exposure = reveal();
+    switch (edge_) {
+        case DockEdge::Left: pos.x = kPeek - r.size().x + slide_distance() * exposure; break;
+        case DockEdge::Right: pos.x = gui()->viewport().x - kPeek - slide_distance() * exposure; break;
+        case DockEdge::Top: pos.y = kPeek - r.size().y + slide_distance() * exposure; break;
+        case DockEdge::Bottom: pos.y = gui()->viewport().y - kPeek - slide_distance() * exposure; break;
+        case DockEdge::None: return;
+    }
+    // Choose the nearest clear stretch of the edge. In a crowded viewport,
+    // minimize covered area while keeping the whole rail within reach.
+    const bool vertical = edge_ == DockEdge::Left || edge_ == DockEdge::Right;
+    const f32 length = vertical ? r.size().y : r.size().x;
+    const f32 limit = math::max(8.0f, (vertical ? gui()->viewport().y : gui()->viewport().x) - length - 8.0f);
+    const f32 desired = dock_along_;
+    std::vector<f32> candidates{desired, 8.0f, limit};
+    std::vector<Rect> obstacles;
+    for (Widget* w : dock_obstacles) {
+        if (w == nullptr || !w->visible) continue;
+        // A dragged rail moves through docked panels; they give way along
+        // their own edges (limit_push keeps that from squeezing them).
+        if (!settle && dragging_ && pushable(w) != nullptr) continue;
+        Rect obstacle = w->rect();
+        obstacle.min -= Vec2{8.0f, 8.0f};
+        obstacle.max += Vec2{8.0f, 8.0f};
+        obstacles.push_back(obstacle);
+        candidates.push_back((vertical ? obstacle.min.y : obstacle.min.x) - length);
+        candidates.push_back(vertical ? obstacle.max.y : obstacle.max.x);
+    }
+    f32 best_overlap = gui::kUnbounded;
+    f32 best_distance = gui::kUnbounded;
+    f32 best = desired;
+    for (f32 candidate : candidates) {
+        candidate = math::clamp(candidate, 8.0f, limit);
+        const Vec2 start = vertical ? Vec2{pos.x, candidate} : Vec2{candidate, pos.y};
+        Rect rail{start, start + r.size()};
+        // Reserve the same edge strip throughout a slide, so opening does not
+        // teleport the drawer sideways to chase changing collision bounds.
+        if (edge_ == DockEdge::Left) { rail.min.x = 0.0f; rail.max.x = kPeek; }
+        if (edge_ == DockEdge::Right) { rail.min.x = gui()->viewport().x - kPeek; rail.max.x = gui()->viewport().x; }
+        if (edge_ == DockEdge::Top) { rail.min.y = 0.0f; rail.max.y = kPeek; }
+        if (edge_ == DockEdge::Bottom) { rail.min.y = gui()->viewport().y - kPeek; rail.max.y = gui()->viewport().y; }
+        f32 overlap = 0.0f;
+        for (const Rect& obstacle : obstacles) {
+            overlap += math::max(0.0f, math::min(rail.max.x, obstacle.max.x) - math::max(rail.min.x, obstacle.min.x)) *
+                       math::max(0.0f, math::min(rail.max.y, obstacle.max.y) - math::max(rail.min.y, obstacle.min.y));
+        }
+        const f32 distance = std::fabs(candidate - desired);
+        if (overlap < best_overlap || (overlap == best_overlap && distance < best_distance)) {
+            best_overlap = overlap;
+            best_distance = distance;
+            best = candidate;
+        }
+    }
+    dock_along_ = best;
+    if (vertical) pos.y = best;
+    else pos.x = best;
+    pos += entry_offset_ * entry_.value();
+    move_to(pos);
+}
+
+void DragPanel::dock(DockEdge edge) {
+    const Vec2 position = layout_rect().min;
+    edge_ = edge;
+    dock_changed(edge);
+    undock_pull_ = 0.0f;
+    if (on_dock_changed) on_dock_changed(edge);
+    reveal_.snap(1.0f);
+    if (edge != DockEdge::None) reveal_.set_target(0.0f);
+    entry_offset_ = Vec2{0.0f, 0.0f};
+    entry_.snap(0.0f);
+    dock_along_ = edge == DockEdge::Left || edge == DockEdge::Right ? position.y : position.x;
+    newly_docked_ = edge != DockEdge::None;
+    layout.anchor = layout.pivot = Vec2{edge == DockEdge::Right ? 1.0f : 0.0f,
+                                       edge == DockEdge::Bottom ? 1.0f : 0.0f};
+    move_to(position);
+    if (edge != DockEdge::None) {
+        pin_to_edge(true);
+        // Retain both coordinates of the release frame, including any offset
+        // needed to find a free stretch beside another HUD panel.
+        entry_offset_ = position - layout_rect().min;
+        entry_.snap(1.0f);
+        entry_.set_target(0.0f);
+        pin_to_edge(true);
+    }
+    input_layout_changed_ = true;
+}
+
+Vec2 BuildDock::content_size(Vec2 available) {
+    Widget* atp = find("atp");
+    const bool shown = atp != nullptr && atp->visible;
+    if (atp != nullptr) atp->visible = true;
+    const Vec2 result = Panel::content_size(available);
+    if (atp != nullptr) atp->visible = shown;
+    return result;
+}
+
+void BuildDock::arrange_children(Rect inner) {
+    const f32 exposure = dock_edge() == DockEdge::None ? 1.0f : reveal();
+    Widget* atp = find("atp");
+    if (atp != nullptr) atp->visible = true;
+    std::vector<BuildCard*> cards;
+    for (const auto& child : children()) {
+        if (auto* card = dynamic_cast<BuildCard*>(child.get()); card != nullptr && card->visible) {
+            card->set_reveal(exposure);
+            cards.push_back(card);
+        }
+    }
+    Panel::arrange_children(inner);
+    if (atp != nullptr) {
+        atp->visible = exposure > 0.001f;
+        atp->opacity = exposure;
+    }
+    if (dock_edge() == DockEdge::None) return;
+    const bool vertical = dock_edge() == DockEdge::Left || dock_edge() == DockEdge::Right;
+    const f32 length = cards.empty() ? 0.0f : static_cast<f32>(cards.size()) * 56.0f +
+                                                static_cast<f32>(cards.size() - 1) * 4.0f;
+    for (usize i = 0; i < cards.size(); ++i) {
+        BuildCard& card = *cards[i];
+        const Rect full = card.rect();
+        Vec2 pos;
+        if (vertical) {
+            pos = Vec2{dock_edge() == DockEdge::Left ? rect().max.x - 64.0f : rect().min.x + 8.0f,
+                       full.center().y - 28.0f};
+        } else {
+            pos = Vec2{rect().center().x - length * 0.5f + static_cast<f32>(i) * 60.0f,
+                       dock_edge() == DockEdge::Top ? rect().max.y - 64.0f : rect().min.y + 8.0f};
+        }
+        card.arrange(Rect{math::lerp(pos, full.min, exposure),
+                          math::lerp(pos + Vec2{56.0f, 56.0f}, full.max, exposure)});
+    }
+}
+
+// ---- Ability bar -----------------------------------------------------------------------
+
+AbilityBar::AbilityBar(std::string id, const ShapeDesc& s) : DragPanel(std::move(id), s) {
+    layout.align = Align::Center;
+    layout.gap = 14.0f;
+    clip_children = true;
+    dockable = true;
+    dock_changed(DockEdge::None);
+}
+
+void AbilityBar::dock_changed(DockEdge edge) {
+    // Standing on end along a side keeps the docked rail as long as the
+    // cells need; across the top or bottom the row already is.
+    const bool side = edge == DockEdge::Left || edge == DockEdge::Right;
+    layout.axis = side ? Axis::Column : Axis::Row;
+    layout.width = side ? Size::px(156.0f) : Size::fit();
+    layout.height = side ? Size::fit() : Size::px(156.0f);
+    layout.padding = side ? Insets{10.0f, 20.0f, 10.0f, 20.0f} : Insets{20.0f, 10.0f, 20.0f, 10.0f};
+}
+
+void AbilityBar::arrange_children(Rect inner) {
+    const f32 exposure = dock_edge() == DockEdge::None ? 1.0f : reveal();
+    std::vector<AbilityCell*> cells;
+    for (const auto& child : children()) {
+        if (auto* cell = dynamic_cast<AbilityCell*>(child.get()); cell != nullptr && cell->visible) {
+            cell->set_reveal(exposure);
+            cells.push_back(cell);
+        }
+    }
+    Panel::arrange_children(inner);
+    if (dock_edge() == DockEdge::None) return;
+    const bool vertical = dock_edge() == DockEdge::Left || dock_edge() == DockEdge::Right;
+    for (AbilityCell* cell : cells) {
+        const Rect full = cell->rect();
+        Vec2 pos;
+        if (vertical) {
+            pos = Vec2{dock_edge() == DockEdge::Left ? rect().max.x - 64.0f : rect().min.x + 8.0f,
+                       full.center().y - 28.0f};
+        } else {
+            pos = Vec2{full.center().x - 28.0f,
+                       dock_edge() == DockEdge::Top ? rect().max.y - 64.0f : rect().min.y + 8.0f};
+        }
+        cell->arrange(Rect{math::lerp(pos, full.min, exposure),
+                           math::lerp(pos + Vec2{56.0f, 56.0f}, full.max, exposure)});
+    }
 }
 
 // ---- Build card ------------------------------------------------------------------------
@@ -217,10 +625,12 @@ BuildCard::BuildCard(Gui& g, TowerType t, u32 slot)
     badge_ = &emplace<Badge>(g, "key", std::to_string(slot + 1));
     icon_ = &icon(*this, "icon", tower_icon(t), 54.0f);
     Widget& names = column(*this, 1.0f, Align::Start);
+    names_ = &names;
     names.layout.grow = 1.0f;
     name_ = &text(names, "name", tower_display_name(t), th.text("card_name"));
     short_ = &text(names, "short", "", th.text("card_short"));
     Widget& cost = row(*this, 2.0f, Align::Center);
+    price_ = &cost;
     Icon& coin = icon(cost, "atp", "atp", 22.0f);
     coin.anim_transform = Affine2::rotate(-0.14f);
     cost_ = &text(cost, "cost", "0", th.text("card_cost"));
@@ -230,6 +640,9 @@ BuildCard::BuildCard(Gui& g, TowerType t, u32 slot)
 }
 
 void BuildCard::sync(const HudTowerCard& c, u32 atp, bool armed) {
+    card_ = c;
+    atp_ = atp;
+    armed_ = armed;
     const Theme& th = gui_.theme();
     visible = c.unlocked;
     const bool affordable = atp >= c.cost;
@@ -252,7 +665,74 @@ void BuildCard::sync(const HudTowerCard& c, u32 atp, bool armed) {
         short_->visible = false;
         tooltip.clear();
     }
-    nudge = armed ? Vec2{14.0f, 0.0f} : Vec2{0.0f, 0.0f};
+    if (compact_) {
+        tooltip = std::string(tower_display_name(type)) + " | " + std::to_string(c.cost) + " ATP";
+        if (!c.allowed) tooltip += " | Not on this level";
+        else if (!affordable) tooltip += " | Need " + std::to_string(c.cost - atp) + " more ATP";
+    }
+    nudge = armed && !compact_ ? Vec2{14.0f, 0.0f} : Vec2{0.0f, 0.0f};
+    sync_availability_style();
+}
+
+void BuildCard::sync_availability_style() {
+    const Theme& th = gui_.theme();
+    disabled_shape = th.shape("card.short");
+    icon_->opacity = 1.0f;
+    if (!compact_ || atp_ >= card_.cost) deny_tint_.snap(0.0f);
+    if (!compact_ || enabled) return;
+
+    // A quiet warm edge and a dimmer silhouette separate unavailable icons
+    // from affordable cells without adding anything to the compact strip.
+    const f32 feedback = deny_tint_.value();
+    const Color warm = th.color("critical_cytoplasm");
+    const Color warning = th.color("invalid");
+    disabled_shape.fill = mix(disabled_shape.fill, warm, 0.24f + feedback * 0.24f);
+    disabled_shape.fill2 = mix(disabled_shape.fill2, warm, 0.36f + feedback * 0.32f);
+    disabled_shape.stroke = mix(disabled_shape.stroke, warning, 0.48f + feedback * 0.30f);
+    disabled_shape.rim = with_alpha(warning, 0.32f + feedback * 0.22f);
+    icon_->opacity = 0.64f + feedback * 0.14f;
+}
+
+void BuildCard::on_event(Event& e) {
+    if (e.type == EventType::Deny && e.button == PointerButton::Left &&
+        compact_ && atp_ < card_.cost) {
+        deny_tint_.snap(1.0f);
+        deny_tint_.start(0.0f, 0.28f, Ease::OutCubic);
+        sync_availability_style();
+    }
+    Button::on_event(e);
+}
+
+void BuildCard::update(f32 dt) {
+    Button::update(dt);
+    deny_tint_.update(dt);
+    sync_availability_style();
+}
+
+void BuildCard::set_compact(bool compact) {
+    set_reveal(compact ? 0.0f : 1.0f);
+}
+
+void BuildCard::set_reveal(f32 exposure) {
+    const bool compact = exposure < 0.999f;
+    const bool changed = compact_ != compact;
+    compact_ = compact;
+    reveal_ = exposure;
+    const f32 details = math::saturate((exposure - 0.45f) / 0.55f);
+    badge_->visible = names_->visible = price_->visible = details > 0.001f;
+    badge_->opacity = names_->opacity = price_->opacity = details;
+    clip_children = compact;
+    hover_scale = compact ? 1.02f : 1.04f;
+    if (changed) sync(card_, atp_, armed_);
+}
+
+void BuildCard::arrange_children(Rect inner) {
+    Panel::arrange_children(inner);
+    if (reveal_ >= 0.999f) return;
+    const Rect full = icon_->rect();
+    const Vec2 pos = rect().center() - Vec2{22.0f, 22.0f};
+    icon_->arrange(Rect{math::lerp(pos, full.min, reveal_),
+                        math::lerp(pos + Vec2{44.0f, 44.0f}, full.max, reveal_)});
 }
 
 // ---- Ability cell ----------------------------------------------------------------------
@@ -266,6 +746,7 @@ AbilityCell::AbilityCell(Gui& g, game::AbilityId id, std::string key)
     layout.gap = 4.0f;
 
     Widget& cell = stack(*this, Align::Center, "cell");
+    cell_ = &cell;
     fixed_size(cell, 96.0f, 96.0f);
 
     const Color accent = th.color(ability_color(id));
@@ -292,6 +773,7 @@ AbilityCell::AbilityCell(Gui& g, game::AbilityId id, std::string key)
     tag_->visible = false;
 
     Widget& keys = row(*this, 5.0f, Align::Center);
+    keys_ = &keys;
     keys.emplace<KeyCap>(g, "key", std::move(key));
     name_ = &text(keys, "name", ability_short_name(id), th.text("ability_name"));
 }
@@ -312,6 +794,30 @@ void AbilityCell::sync(const HudAbility& a, bool armed) {
     halo_->visible = a.ready;
     tag_->visible = armed;
     button->tooltip = a.ready ? "" : std::string(game::ability_name(ability)) + " is recharging";
+}
+
+void AbilityCell::set_reveal(f32 exposure) {
+    reveal_ = exposure;
+    const f32 details = math::saturate((exposure - 0.45f) / 0.55f);
+    keys_->visible = details > 0.001f;
+    keys_->opacity = details;
+}
+
+void AbilityCell::arrange_children(Rect inner) {
+    Widget::arrange_children(inner);
+    if (reveal_ >= 0.999f) return;
+    // Docked: the fluid cell, its halo and glyph shrink about this widget's
+    // centre, which the bar has already moved into the exposed strip.
+    const Vec2 c = rect().center();
+    const auto shrink = [&](Widget& w, f32 compact) {
+        const Rect full = w.rect();
+        const Vec2 half{compact * 0.5f, compact * 0.5f};
+        w.arrange(Rect{math::lerp(c - half, full.min, reveal_), math::lerp(c + half, full.max, reveal_)});
+    };
+    shrink(*cell_, 56.0f);
+    shrink(*halo_, 62.0f);
+    shrink(*button, 54.0f);
+    shrink(*glyph_, 34.0f);
 }
 
 void AbilityCell::update(f32) {
@@ -349,13 +855,11 @@ WaveRow::WaveRow(Gui& g, std::string id) : Widget(std::move(id)), gui_(g) {
 }
 
 void WaveRow::sync(const HudFamilyCount& f, u32 total) {
-    const Theme& th = gui_.theme();
     icon_->name = family_icon(f.family);
     name_->set_text(family_display_name(f.family, true));
     count_->set_text("\xC3\x97" + std::to_string(f.count));
-    static constexpr const char* kFamilyColor[kFamilyCount] = {"family_virus", "family_bacteria",
-                                                               "family_parasite"};
-    bar_->shape.liquid = th.color(kFamilyColor[static_cast<u32>(f.family)]);
+    // Read the current palette so a tuning reload also updates the wave bars.
+    bar_->shape.liquid = render::family_color(f.family);
     bar_->set_level(total > 0 ? static_cast<f32>(f.count) / static_cast<f32>(total) : 0.0f);
 }
 
@@ -374,7 +878,7 @@ SpawnMarker::SpawnMarker(Gui& g, std::string id)
 void SpawnMarker::draw_self(DrawList& dl) {
     const Theme& th = gui_.theme();
     // A soft breathing rim uses the same warm accent as the wave UI. The
-    // badge stays still, keeping the actual entrance easy to locate.
+    // badge stays still, keeping the path endpoint easy to locate.
     ShapeDesc halo;
     halo.kind = ShapeKind::Ellipse;
     halo.center = center();
@@ -389,8 +893,8 @@ void SpawnMarker::draw_self(DrawList& dl) {
                        ? math::normalize_safe(direction) : Vec2{1.0f, 0.0f};
     const Vec2 side{-d.y, d.x};
     const auto at = [&](f32 x, f32 y) { return center() + d * x + side * y; };
-    // Small arrivals feeding into two rounded, inward-facing chevrons;
-    // the symbol describes an entrance without promising a pathogen or count.
+    // Small dots feed into two rounded chevrons along the path direction,
+    // describing its flow without promising a pathogen or count.
     for (f32 y : {-5.0f, 5.0f}) {
         ShapeDesc dot;
         dot.kind = ShapeKind::Ellipse;
@@ -408,31 +912,7 @@ void SpawnMarker::draw_self(DrawList& dl) {
 // ---- Organ destination ----------------------------------------------------------------------
 
 OrganMarker::OrganMarker(Gui& g, std::string id)
-    : Panel(std::move(id), g.theme().shape("organ.destination")), gui_(g) {
-    layout.position = Position::Anchored;
-    layout.pivot = Vec2{0.5f, 0.5f};
-    fixed_size(*this, 76.0f, 76.0f);
-    shape_inset = Insets::all(7.0f);
-    blocks_pointer = false;
-    accepts_pointer = false;
-}
-
-void OrganMarker::draw_self(DrawList& dl) {
-    Panel::draw_self(dl);
-    const Theme& th = gui_.theme();
-    const auto at = [&](f32 x, f32 y) { return center() + Vec2{x, y}; };
-    Path heart;
-    heart.move_to(at(0, 17))
-        .cubic_to(at(-5, 12), at(-19, 3), at(-19, -6))
-        .cubic_to(at(-19, -19), at(-5, -21), at(0, -11))
-        .cubic_to(at(5, -21), at(19, -19), at(19, -6))
-        .cubic_to(at(19, 3), at(5, 12), at(0, 17)).close();
-    for (const auto& contour : heart.contours()) dl.fill_polygon(contour.points, th.color("blood"));
-    heart.stroke(dl, StrokeStyle{2.5f, th.color("plum")});
-    const Vec2 pulse[] = {at(-12, -1), at(-8, -1), at(-5, -6), at(0, 5),
-                          at(4, -5), at(7, -1), at(12, -1)};
-    dl.stroke_polyline(pulse, false, StrokeStyle{2.5f, th.color("cytoplasm")});
-}
+    : SpawnMarker(g, std::move(id)) {}
 
 // ---- Range ring -----------------------------------------------------------------------------
 

@@ -15,8 +15,8 @@
 namespace immune::game::balance {
 namespace {
 using json = config::Json;
-constexpr const char* family_names[] = {"virus", "bacteria", "parasite"};
-constexpr const char* ability_keys[] = {"complement", "histamine", "fever", "clot"};
+constexpr const char* family_names[] = {"virus", "bacteria", "parasite", "spore"};
+constexpr const char* ability_keys[] = {"complement", "fever", "clot"};
 
 json observed_economy(const Economy& economy) {
     const auto e = economy.snapshot();

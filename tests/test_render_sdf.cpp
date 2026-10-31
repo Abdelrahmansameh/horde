@@ -15,6 +15,7 @@
 #include <cmath>
 #include <cstdio>
 #include <string>
+#include <vector>
 
 using namespace immune;
 using namespace immune::game;
@@ -61,6 +62,87 @@ const char* kElbow = R"JSON({
 
 } // namespace
 
+TEST_CASE("render sdf: contour redistancing preserves an oblique plane", "[render_sdf]") {
+    constexpr i32 w = 17, h = 13;
+    constexpr f32 cell = 0.5f;
+    const f32 inv_length = 1.0f / std::sqrt(5.0f);
+    // The first plane passes through grid vertices; the second crosses edges
+    // at arbitrary subcell positions. Both must retain their exact distance.
+    for (const f32 shift : {0.0f, 0.37f}) {
+        std::vector<f32> field(static_cast<usize>(w * h));
+        for (i32 y = 0; y < h; ++y) {
+            for (i32 x = 0; x < w; ++x) {
+                field[static_cast<usize>(y * w + x)] =
+                    cell * (static_cast<f32>(2 * x + y - 20) - shift) * inv_length;
+            }
+        }
+        const std::vector<f32> before = field;
+        resample_to_contour(field, w, h, cell);
+        u32 checked = 0;
+        for (i32 y = 0; y < h; ++y) {
+            for (i32 x = 0; x < w; ++x) {
+                const usize i = static_cast<usize>(y * w + x);
+                // Compare against the infinite plane only where its closest
+                // point lies inside the finite contour represented by the grid.
+                const f32 d = before[i] / cell;
+                const f32 qx = static_cast<f32>(x) - 2.0f * inv_length * d;
+                const f32 qy = static_cast<f32>(y) - inv_length * d;
+                if (qx < 0.25f || qx > static_cast<f32>(w) - 1.25f ||
+                    qy < 0.25f || qy > static_cast<f32>(h) - 1.25f) continue;
+                INFO("shift = " << shift << ", texel = " << x << ", " << y);
+                CHECK(field[i] == Approx(before[i]).margin(cell * 1e-4f));
+                ++checked;
+            }
+        }
+        REQUIRE(checked > 50);
+    }
+}
+
+TEST_CASE("render sdf: contourless fields keep a finite signed fallback", "[render_sdf]") {
+    constexpr f32 cell = 0.3f;
+    for (const IVec2 size : {IVec2{1, 1}, IVec2{5, 7}}) {
+        for (const f32 sign : {-1.0f, 1.0f}) {
+            std::vector<f32> field(static_cast<usize>(size.x * size.y), sign * 2.0f);
+            resample_to_contour(field, size.x, size.y, cell);
+            for (const f32 d : field) CHECK(d == Approx(sign * cell));
+        }
+    }
+}
+
+TEST_CASE("render sdf: one dimensional contours retain interpolated distances", "[render_sdf]") {
+    constexpr f32 cell = 0.25f;
+    for (const IVec2 size : {IVec2{1, 4}, IVec2{4, 1}}) {
+        for (const f32 crossing : {1.0f, 1.3f}) {
+            std::vector<f32> field;
+            for (i32 i = 0; i < 4; ++i) field.push_back((static_cast<f32>(i) - crossing) * cell);
+            const std::vector<f32> before = field;
+            resample_to_contour(field, size.x, size.y, cell);
+            for (usize i = 0; i < field.size(); ++i) {
+                CHECK(field[i] == Approx(before[i]).margin(cell * 1e-5f));
+            }
+        }
+    }
+}
+
+TEST_CASE("render sdf: saddle contours are finite and symmetric under sign inversion", "[render_sdf]") {
+    const std::vector<f32> saddles[] = {{1.0f, -2.0f, -3.0f, 4.0f},
+                                      {4.0f, -1.0f, -2.0f, 3.0f},
+                                      {1.0f, -1.0f, -1.0f, 1.0f}};
+    for (const std::vector<f32>& original : saddles) {
+        std::vector<f32> field = original;
+        std::vector<f32> inverted = original;
+        for (f32& d : inverted) d = -d;
+        resample_to_contour(field, 2, 2, 0.5f);
+        resample_to_contour(inverted, 2, 2, 0.5f);
+        for (usize i = 0; i < field.size(); ++i) {
+            CHECK(std::isfinite(field[i]));
+            CHECK(std::isfinite(inverted[i]));
+            CHECK(field[i] * original[i] > 0.0f);
+            CHECK(inverted[i] == Approx(-field[i]).margin(1e-6f));
+        }
+    }
+}
+
 TEST_CASE("render sdf: a straight wall is a straight, unit-gradient distance", "[render_sdf]") {
     const LevelDef def = load(kStraight);
     const RenderSdf sdf = bake_render_sdf(def);
@@ -101,6 +183,49 @@ TEST_CASE("render sdf: a vessel reaching the edge runs off the grid", "[render_s
     // Whereas a vessel that ends inside the world keeps its cap.
     const RenderSdf capped = bake_render_sdf(load(kStraight));
     CHECK(capped.sample(Vec2{-30.0f, 50.0f}) < -10.0f);
+}
+
+TEST_CASE("render sdf: circular islands keep smooth wall and offset contours", "[render_sdf]") {
+    // The wall shader draws both the zero contour and bands offset from it.
+    // Distancing to isolated contour points can leave the wall nearly right
+    // while scalloping those bands by a visible fraction of a grid cell.
+    // Move the same circle through the grid so symmetry cannot hide that.
+    const Vec2 shifts[] = {{0.13f, 0.27f}, {0.41f, 0.83f}, {0.77f, 0.09f}};
+    constexpr f32 radius = 4.0f;
+    constexpr f32 cell = 0.5f;
+    constexpr i32 angular_samples = 512;
+    constexpr f32 tau = 6.28318530718f;
+
+    for (const Vec2 shift : shifts) {
+        LevelDef def = load(kStraight);
+        const Vec2 center = Vec2{100.0f, 50.0f} + shift * cell;
+        ObstacleDef island;
+        island.id = "circle";
+        island.shape = ObstacleShape::Disc;
+        island.position = center;
+        island.radius = radius;
+        def.obstacles.push_back(island);
+
+        RenderSdfDesc desc;
+        desc.min_cell_frac = 1.0f;
+        const RenderSdf sdf = bake_render_sdf(def, desc);
+        REQUIRE(sdf.valid());
+        REQUIRE(sdf.cell_size == Approx(cell));
+        INFO("circle center = " << center.x << ", " << center.y);
+
+        for (i32 band = -2; band <= 2; ++band) {
+            const f32 target = static_cast<f32>(band) * cell;
+            f32 max_err = 0.0f;
+            for (i32 i = 0; i < angular_samples; ++i) {
+                const f32 angle = tau * static_cast<f32>(i) / static_cast<f32>(angular_samples);
+                const Vec2 direction{std::cos(angle), std::sin(angle)};
+                const Vec2 p = center + direction * (radius + target);
+                max_err = std::fmax(max_err, std::fabs(sdf.sample(p) - target));
+            }
+            INFO("offset = " << target << ", maximum distance error = " << max_err);
+            CHECK(max_err < cell * 0.06f);
+        }
+    }
 }
 
 TEST_CASE("render sdf: the inside of a bend is filleted to the round radius", "[render_sdf]") {

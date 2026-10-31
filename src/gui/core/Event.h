@@ -33,7 +33,4 @@ struct Event {
     bool handled = false;
 };
 
-/// Sounds the UI asks the game to play; app/ maps them onto audio::SoundId.
-enum class UiSound : u8 { Hover, Click, Deny, Open, Close };
-
 } // namespace immune::gui

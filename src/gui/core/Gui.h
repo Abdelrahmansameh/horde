@@ -123,11 +123,17 @@ public:
     Widget* pressed_widget() const { return press_target_; }
     bool is_hovered(const Widget* w) const;
     Vec2 pointer() const { return pointer_; }
+    /// False while pointer input is outside the window or captured by tools.
+    bool pointer_present() const { return pointer_present_; }
 
     // ---- Automation --------------------------------------------------------------
     /// Synthesizes a full press+release on the widget at `path` (gym
     /// `ui.click`, tests). False if it is missing or invisible.
     bool click(std::string_view path);
+    /// Drags from the widget's centre to an absolute logical-pixel position
+    /// through the normal pointer frames. False for hidden, blocked or
+    /// noninteractive widgets, or a movement below the drag threshold.
+    bool drag(std::string_view path, Vec2 destination);
     /// Pretends the pointer rests on `path` until the next real input.
     bool hover(std::string_view path);
     /// One line per visible widget: path, rect, flags. For `ui.dump`.
@@ -141,17 +147,13 @@ public:
     const Theme& theme() const { return theme_; }
     f32 time() const { return time_; }
 
-    std::function<void(UiSound)> on_sound;
-    void play(UiSound s) {
-        if (on_sound) on_sound(s);
-    }
-
     /// Destroys a removed widget at the end of the frame (safe mid-dispatch).
     void retire(std::unique_ptr<Widget> w) { retired_.push_back(std::move(w)); }
 
 private:
     Widget* pick(Widget& w, Vec2 p);
     void dispatch(Event e, Widget* target);
+    void before_layout_tree(Widget& w, f32 dt);
     void update_tree(Widget& w, f32 dt);
     void update_tooltip(f32 dt);
 
@@ -174,6 +176,7 @@ private:
     Projection projection_;
 
     Vec2 pointer_{-1.0f, -1.0f};
+    bool pointer_present_ = false;
     Widget* hover_target_ = nullptr;
     Widget* press_target_ = nullptr;
     Vec2 press_origin_{0.0f, 0.0f};

@@ -45,16 +45,16 @@ TEST_CASE("casting an ability starts its cooldown and blocks recast until it ela
     ActiveAbilitySystem abilities;
     abilities.load_defaults();
 
-    REQUIRE(abilities.cast(world, AbilityId::HistamineFlare, Vec2{50.0f, 50.0f}));
-    REQUIRE_FALSE(abilities.ready(AbilityId::HistamineFlare));
-    REQUIRE_FALSE(abilities.cast(world, AbilityId::HistamineFlare, Vec2{50.0f, 50.0f}));
+    REQUIRE(abilities.cast(world, AbilityId::ComplementCascadeBurst, Vec2{50.0f, 50.0f}));
+    REQUIRE_FALSE(abilities.ready(AbilityId::ComplementCascadeBurst));
+    REQUIRE_FALSE(abilities.cast(world, AbilityId::ComplementCascadeBurst, Vec2{50.0f, 50.0f}));
 
-    const f32 total = abilities.def(AbilityId::HistamineFlare).cooldown_seconds;
+    const f32 total = abilities.def(AbilityId::ComplementCascadeBurst).cooldown_seconds;
     abilities.tick(total - 0.01f);
-    REQUIRE_FALSE(abilities.ready(AbilityId::HistamineFlare));
+    REQUIRE_FALSE(abilities.ready(AbilityId::ComplementCascadeBurst));
     abilities.tick(0.02f);
-    REQUIRE(abilities.ready(AbilityId::HistamineFlare));
-    REQUIRE(abilities.cast(world, AbilityId::HistamineFlare, Vec2{50.0f, 50.0f}));
+    REQUIRE(abilities.ready(AbilityId::ComplementCascadeBurst));
+    REQUIRE(abilities.cast(world, AbilityId::ComplementCascadeBurst, Vec2{50.0f, 50.0f}));
 }
 
 TEST_CASE("abilities have independent cooldowns", "[abilities]") {
@@ -64,11 +64,11 @@ TEST_CASE("abilities have independent cooldowns", "[abilities]") {
 
     REQUIRE(abilities.cast(world, AbilityId::ComplementCascadeBurst, Vec2{10.0f, 10.0f}));
     REQUIRE_FALSE(abilities.ready(AbilityId::ComplementCascadeBurst));
-    REQUIRE(abilities.ready(AbilityId::HistamineFlare));
     REQUIRE(abilities.ready(AbilityId::FeverResponse));
+    REQUIRE(abilities.ready(AbilityId::FibrinClot));
 }
 
-TEST_CASE("Complement Cascade Burst and Histamine Flare submit a real DamageField",
+TEST_CASE("Complement Cascade Burst submits a real DamageField",
           "[abilities][damage]") {
     SimWorld world = make_world();
     ActiveAbilitySystem abilities;
@@ -79,11 +79,6 @@ TEST_CASE("Complement Cascade Burst and Histamine Flare submit a real DamageFiel
     REQUIRE(world.damage().fields().size() == 1);
     REQUIRE(world.damage().fields()[0].shape == FieldShape::Chain);
     REQUIRE(world.damage().fields()[0].origin.x == 20.0f);
-
-    abilities.cast(world, AbilityId::HistamineFlare, Vec2{30.0f, 30.0f});
-    REQUIRE(world.damage().fields().size() == 2);
-    REQUIRE(world.damage().fields()[1].shape == FieldShape::Circle);
-    REQUIRE(world.damage().fields()[1].lifetime > 0.0f);
 }
 
 TEST_CASE("Fever Response relieves every placed tower's current cooldown, and only that",

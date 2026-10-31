@@ -207,7 +207,12 @@ void populate_scenario(sim::SimWorld& world, const BenchScenario& s) {
         sim::ChaffSpawnParams p;
         p.position = Vec2{rng.range_f(b.min.x, b.max.x), rng.range_f(b.min.y, b.max.y)};
         p.velocity = rng.unit_disc() * 2.0f;
-        p.family = static_cast<PathogenFamily>(i % kFamilyCount);
+        // The horde families only, round-robin. The Spore is a rare siege
+        // unit, not crowd: a quarter of ten thousand of them is no workload
+        // the game sends, and it would make every bench since the Parasite
+        // landed incomparable with the ones before it.
+        constexpr u32 kBenchFamilies = static_cast<u32>(PathogenFamily::Spore);
+        p.family = static_cast<PathogenFamily>(i % kBenchFamilies);
         p.density = 1.0f;
         world.chaff().spawn(p);
     }
@@ -217,7 +222,7 @@ void populate_scenario(sim::SimWorld& world, const BenchScenario& s) {
 /// snapshot keys below and by the metric names read_metric() accepts, so a
 /// script's assertion and the report it reads spell a family identically.
 const char* family_key(u32 f) {
-    static const char* kNames[kFamilyCount] = {"virus", "bacteria", "parasite"};
+    static const char* kNames[kFamilyCount] = {"virus", "bacteria", "parasite", "spore"};
     return f < kFamilyCount ? kNames[f] : "unknown";
 }
 
@@ -620,7 +625,7 @@ int run_sim_test(const Options& opt) {
                 const std::string fname = a.value("family", std::string("virus"));
                 for (u32 f = 0; f < kFamilyCount; ++f) {
                     // Family names mirror EnemyRoster::load_defaults.
-                    static const char* names[kFamilyCount] = {"virus", "bacteria", "parasite"};
+                    static const char* names[kFamilyCount] = {"virus", "bacteria", "parasite", "spore"};
                     if (fname == names[f]) fam = static_cast<PathogenFamily>(f);
                 }
                 const auto pos = a.value("pos", std::vector<f32>{0.0f, 0.0f});
@@ -1022,6 +1027,8 @@ int run_screenshot(const Options& opt) {
     renderer.submit_fields(world.damage().rendered_fields().data(),
                            world.damage().rendered_fields().size());
     renderer.submit_projectiles(world.projectiles());
+    renderer.submit_toxin_shots(world.hostile().toxin_shots());
+    renderer.submit_harpoons(world.hostile().harpoons(), world.chaff());
     renderer.submit_swarmers(world.swarmers());
     renderer.submit_fluid(world.fluid(), world.fluid_system().draw_radius());
     particles.build_instances(vfx::BlendMode::Additive, pinst);

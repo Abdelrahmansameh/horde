@@ -298,6 +298,14 @@ public:
     /// means "not yet initialized" (spawn default).
     std::vector<f32> body_heading;
     std::vector<f32> slither_phase;
+    /// Signed tick changes let the renderer interpolate through angle/phase
+    /// wraps and even multi-cycle steps without guessing the shortest arc.
+    std::vector<f32> body_heading_delta;
+    std::vector<f32> slither_phase_delta;
+    /// Filtered cosmetic backbone curvature, radians per world unit. Frozen
+    /// for burrows; its signed tick change shares position's render alpha.
+    std::vector<f32> slither_curvature;
+    std::vector<f32> slither_curvature_delta;
 
     /// Bacterial toxin magazine. A negative cooldown is an uninitialized
     /// spawn; reload is -1 while ready and 0..1 while rounds reform.
@@ -306,6 +314,22 @@ public:
     std::vector<f32> toxin_reload;
     /// Cosmetic recoil; body_heading holds the most recent shot direction.
     std::vector<f32> toxin_spit_pulse;
+
+    /// The Spore's harpoon (sim/hostile/Harpoon.h), shooter half. `state` is a
+    /// harpoon_state value and `timer` that state's clock; `scan` counts down
+    /// to the next target search (negative: not yet staggered) and `sighted`
+    /// says the last search found something in range. Sim state, hashed.
+    std::vector<u8>  harpoon_state;
+    std::vector<f32> harpoon_timer;
+    std::vector<f32> harpoon_scan;
+    std::vector<u8>  harpoon_sighted;
+    /// PURELY COSMETIC, like burrow_anim: 2 * harpoon_state + progress through
+    /// it (progress held under 1), for the body's draw/recoil/pump animation.
+    std::vector<f32> harpoon_anim;
+    /// Fraction of its top speed this agent is giving up, 0..1. The chaff
+    /// kernel scales its speed by (1 - hold); the harpoon plants a spore with
+    /// it while it fights. 0 for everything else. Sim state (it moves bodies).
+    std::vector<f32> hold;
 
     /// Per-agent body size multiplier around 1, rolled once at spawn from the
     /// family's size jitter (sim/SizeJitter.h) and kept for life. Scales the

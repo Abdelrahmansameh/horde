@@ -167,6 +167,7 @@ void SimWorld::init(const SimDesc& desc, JobSystem* jobs) {
 
 void SimWorld::tick(Profiler* profiler) {
     combat_metrics_.set_tick(tick_);
+    f64 burrow_ms = 0.0;
     // Retirements this tick that were NOT the player's doing. Filled by the
     // chaff pass below and consumed at compaction, where the only thing known
     // about a retiring agent is that it is retiring.
@@ -230,9 +231,9 @@ void SimWorld::tick(Profiler* profiler) {
         build_burrow_threats();
         last_burrow_stats_ =
             burrow_.update(chaff_, flow_, sdf_, tissue_, spatial_, burrow_threats_, rng_, kFixedDt,
-                           desc_.world_bounds);
+                           desc_.world_bounds, false);
         burrows_total_ += last_burrow_stats_.dives;
-        if (profiler) profiler->record(prof_key::kBurrow, t.elapsed_ms());
+        burrow_ms = t.elapsed_ms();
     }
 
     // 3. ECS systems (named agents, towers).
@@ -269,7 +270,7 @@ void SimWorld::tick(Profiler* profiler) {
     // fluid by the time the fluid solver below runs.
     build_named_targets();
     const SwarmerStats swarmer_stats =
-        swarmer_system_.update(swarmers_, chaff_, spatial_, named_targets_, &sdf_, &flow_, desc_.sim_bounds,
+        swarmer_system_.update(swarmers_, chaff_, spatial_, named_targets_, &sdf_, &flow_, desc_.world_bounds,
                                rng_, kFixedDt, &combat_events_);
     apply_swarmer_effects();
 
@@ -386,6 +387,14 @@ void SimWorld::tick(Profiler* profiler) {
     }
     damage_.clear_transient(kFixedDt);
 
+    // Final cosmetic motion includes swarmer body-blocks and cell pulls, which
+    // happen after navigation. Gameplay burrowing stays before damage above.
+    if (burrow_.active()) {
+        WallClock t;
+        burrow_.update_slither(chaff_, flow_, kFixedDt);
+        if (profiler) profiler->record(prof_key::kBurrow, burrow_ms + t.elapsed_ms());
+    }
+
     // 6. Budgeted incremental flow-field rebake.
     if (flow_.has_pending_rebake()) {
         if (desc_.deterministic_rebakes) flow_.rebake_pending(tissue_);
@@ -486,6 +495,16 @@ u64 SimWorld::state_hash() const {
         mix(chaff_.toxin_reload.data(), n * sizeof(f32));
         // Body size moves bodies (contact, walls, swarmer reach).
         mix(chaff_.size_scale.data(), n * sizeof(f32));
+        // The spore's harpoon clocks decide when it plants and fires. Only
+        // folded in when there is a spore, so a world without one hashes
+        // exactly as it did before the family existed.
+        if (chaff_.family_count(PathogenFamily::Spore) > 0) {
+            mix(chaff_.harpoon_state.data(), n * sizeof(u8));
+            mix(chaff_.harpoon_timer.data(), n * sizeof(f32));
+            mix(chaff_.harpoon_scan.data(), n * sizeof(f32));
+            mix(chaff_.harpoon_sighted.data(), n * sizeof(u8));
+            mix(chaff_.hold.data(), n * sizeof(f32));
+        }
     }
     // Swarmers steer, choose and kill, so where they are and what they hold
     // is gameplay state; positions plus targets are enough to catch a
@@ -552,6 +571,23 @@ u64 SimWorld::state_hash() const {
         mix(&shot.target_index, sizeof(u32));
         mix(&shot.target_generation, sizeof(u32));
         mix(&shot.target_tower, sizeof(bool));
+    }
+    // Live spore hoses: their slugs in flight are damage still to land.
+    // Skipped when there are none, for the same reason as the chaff streams.
+    if (!hostile_.harpoons().empty()) {
+        const usize harpoon_count = hostile_.harpoons().size();
+        mix(&harpoon_count, sizeof(harpoon_count));
+        for (const HarpoonLine& line : hostile_.harpoons()) {
+            mix(&line.shooter.generation, sizeof(u32));
+            mix(&line.target_index, sizeof(u32));
+            mix(&line.target_generation, sizeof(u32));
+            mix(&line.target_tower, sizeof(bool));
+            mix(&line.reach, sizeof(f32));
+            mix(&line.released, sizeof(f32));
+            mix(&line.next_pulse, sizeof(f32));
+            mix(&line.pulses_fired, sizeof(u8));
+            mix(line.pulse, sizeof(line.pulse));
+        }
     }
     // Squad anchors steer agents, so a determinism assertion that ignored them
     // would not be checking the squad layer at all. state_hash() is folded in
@@ -675,6 +711,7 @@ void SimWorld::build_named_targets() {
         t.health = hp.current;
         if (const auto* mk = registry.try_get<comp::Marked>(e)) t.damage_multiplier = mk->damage_multiplier;
         if (registry.all_of<comp::Slowed>(e)) t.damage_multiplier *= immunity_.slowed_damage_mult;
+        if (const auto* slow = registry.try_get<comp::Slowed>(e)) t.mucus_slowed = slow->remaining > 0.0f;
         t.family = static_cast<u8>(view.get<const comp::NamedAgent>(e).family);
         named_targets_.add(t);
     }

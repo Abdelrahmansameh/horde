@@ -1,5 +1,5 @@
 {
-  "_comment": "UI design tokens (src/gui/style/Theme.h), taken from the design canvas docs/ui-concepts/canvas. Colours: #RRGGBB, #RRGGBBAA, a colour name, or name@alpha. Pathogen family colours are set at runtime from render::family_color and are not listed here. Hot-reloaded in play.",
+  "_comment": "UI design tokens (src/gui/style/Theme.h), taken from the design canvas docs/ui-concepts/canvas. Colours: #RRGGBB, #RRGGBBAA, a colour name, or name@alpha. Pathogen family colours come directly from render::family_color and are not listed here. Hot-reloaded in play.",
   "colors": {
     "plum": "#4E1638",
     "ink": "#2B1030",
@@ -22,7 +22,6 @@
     "locked_ink": "#6B5E78",
     "shadow": "#28001447",
     "ability_complement": "#F2B233",
-    "ability_histamine": "#E0559A",
     "ability_fever": "#F26A3D",
     "ability_clot": "#D7334A",
     "muted": "#7D6590",
@@ -238,12 +237,6 @@
       "line_height": 1.0,
       "color": "ink"
     },
-    "banner_critical": {
-      "font": "fredoka-600",
-      "size": 28,
-      "line_height": 1.0,
-      "color": "critical"
-    },
     "toast": {
       "font": "fredoka-600",
       "size": 24,
@@ -277,15 +270,10 @@
     },
     "cursor_cost": {
       "font": "fredoka-600",
-      "size": 20,
+      "size": 16,
       "line_height": 1.0,
       "color": "ink",
       "tabular": true
-    },
-    "cursor_left": {
-      "font": "nunito-800",
-      "size": 14,
-      "color": "ink_soft"
     },
     "world_count": {
       "font": "fredoka-600",
@@ -611,12 +599,6 @@
       "dash_length": 14,
       "dash_gap": 10
     },
-    "vignette.critical": {
-      "kind": "radial",
-      "fill": "#FF2A4A00",
-      "fill2": "#FF2A4A8C",
-      "radial_inner": 0.55
-    },
     "tooltip": {
       "kind": "box",
       "radius": 14,
@@ -664,11 +646,6 @@
       "bulge": 1.5,
       "wobble_amp": 0.5,
       "wobble_speed": 0.6
-    },
-    "pill.critical": {
-      "base": "pill",
-      "fill": "critical_cytoplasm",
-      "stroke": "critical_membrane"
     },
     "pill.gold": {
       "base": "pill",
@@ -893,6 +870,7 @@
   },
   "numbers": {
     "tooltip_delay": 0.45,
+    "placement_range_ring": 0,
     "hover_scale": 1.04,
     "press_scale": 0.95
   }

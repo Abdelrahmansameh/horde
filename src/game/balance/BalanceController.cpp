@@ -937,8 +937,7 @@ std::vector<Action> BalanceController::decide(const ControllerView& view) {
             const f32 threshold = params_.policy == Policy::Tactical ? 12.0f : 24.0f;
             if (best_pressure >= threshold) {
                 cast.position = target;
-                if (available(AbilityId::HistamineFlare)) { cast.ability = AbilityId::HistamineFlare; have_cast = true; }
-                else if (available(AbilityId::ComplementCascadeBurst)) { cast.ability = AbilityId::ComplementCascadeBurst; have_cast = true; }
+                if (available(AbilityId::ComplementCascadeBurst)) { cast.ability = AbilityId::ComplementCascadeBurst; have_cast = true; }
                 else if (params_.policy == Policy::Tactical && available(AbilityId::FibrinClot)) {
                     cast.ability = AbilityId::FibrinClot;
                     cast.position += math::normalize_safe(view.world.flow().sample(target)) * 5.0f;

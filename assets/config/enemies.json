@@ -194,6 +194,33 @@
         "thickness": 0.03,
         "segments": 48.0,
         "min_speed": 0.25
+      },
+      "harpoon": {
+        "enabled": false,
+        "range": 44.0,
+        "windup": 0.45,
+        "extend_speed": 150.0,
+        "pulses": 0,
+        "pulse_damage": 84.0,
+        "pulse_interval": 0.26,
+        "pulse_speed": 70.0,
+        "reload": 6.0,
+        "retry": 0.25,
+        "break_range": 56.0,
+        "hold": 1.0,
+        "retract_seconds": 0.3,
+        "thickness": 0.27,
+        "bulge": 3.0,
+        "slug_length": 2.2,
+        "whip": 1.4,
+        "sway": 0.35,
+        "wavelength": 9.0,
+        "fluid_color": [
+          1.0,
+          0.93,
+          0.62,
+          1.0
+        ]
       }
     },
     "virus": {
@@ -203,7 +230,7 @@
         "latch_cap_scar": 40,
         "latch_cap_swarmer": 3,
         "latch_cap_tower": 16,
-        "latch_dps": 2.0,
+        "latch_dps": 4.0,
         "latch_ease_distance": 1.2,
         "latch_ease_power": 3.0,
         "latch_reach": 5.0,
@@ -217,7 +244,7 @@
         "toxin_reload_seconds": 1.2
       },
       "behavior": {
-        "base_density": 0.6,
+        "base_density": 0.9,
         "replicates": true
       },
       "chaff": {
@@ -381,6 +408,33 @@
         "thickness": 0.03,
         "segments": 48.0,
         "min_speed": 0.25
+      },
+      "harpoon": {
+        "enabled": false,
+        "range": 44.0,
+        "windup": 0.45,
+        "extend_speed": 150.0,
+        "pulses": 0,
+        "pulse_damage": 84.0,
+        "pulse_interval": 0.26,
+        "pulse_speed": 70.0,
+        "reload": 6.0,
+        "retry": 0.25,
+        "break_range": 56.0,
+        "hold": 1.0,
+        "retract_seconds": 0.3,
+        "thickness": 0.27,
+        "bulge": 3.0,
+        "slug_length": 2.2,
+        "whip": 1.4,
+        "sway": 0.35,
+        "wavelength": 9.0,
+        "fluid_color": [
+          1.0,
+          0.93,
+          0.62,
+          1.0
+        ]
       }
     },
     "parasite": {
@@ -445,9 +499,9 @@
         "bloom_size": 1.8,
         "bloom_speed": 2.6,
         "color": [
-          0.55,
-          0.3,
-          0.15,
+          0.68,
+          0.46,
+          0.96,
           1.0
         ],
         "core_life": 0.08,
@@ -503,9 +557,9 @@
       "speed_tier": "normal",
       "visual": {
         "color": [
-          0.55,
-          0.3,
-          0.15,
+          0.68,
+          0.46,
+          0.96,
           1.0
         ],
         "silhouette": 9.0,
@@ -568,6 +622,247 @@
         "thickness": 0.03,
         "segments": 48.0,
         "min_speed": 0.25
+      },
+      "harpoon": {
+        "enabled": false,
+        "range": 44.0,
+        "windup": 0.45,
+        "extend_speed": 150.0,
+        "pulses": 0,
+        "pulse_damage": 84.0,
+        "pulse_interval": 0.26,
+        "pulse_speed": 70.0,
+        "reload": 6.0,
+        "retry": 0.25,
+        "break_range": 56.0,
+        "hold": 1.0,
+        "retract_seconds": 0.3,
+        "thickness": 0.27,
+        "bulge": 3.0,
+        "slug_length": 2.2,
+        "whip": 1.4,
+        "sway": 0.35,
+        "wavelength": 9.0,
+        "fluid_color": [
+          1.0,
+          0.93,
+          0.62,
+          1.0
+        ]
+      }
+    },
+    "spore": {
+      "attack": {
+        "aura_dps": 0.0,
+        "aura_radius": 0.0,
+        "latch_cap_scar": 0,
+        "latch_cap_swarmer": 0,
+        "latch_cap_tower": 0,
+        "latch_dps": 0.0,
+        "latch_ease_distance": 0.0,
+        "latch_ease_power": 0.0,
+        "latch_reach": 0.0,
+        "latch_speed": 0.0,
+        "toxin_damage": 0.0,
+        "toxin_range": 0.0,
+        "toxin_speed": 20.0,
+        "toxin_interval": 1.2,
+        "toxin_hit_radius": 0.6,
+        "toxin_magazine_size": 1,
+        "toxin_reload_seconds": 1.2
+      },
+      "behavior": {
+        "base_density": 3.0,
+        "replicates": false
+      },
+      "chaff": {
+        "alignment_radius": 7.0,
+        "alignment_strength": 4.0,
+        "contact_spacing": 2.0,
+        "contact_stiffness": 1.0,
+        "crowd_relief": 0.7,
+        "drift_bias": 0.0,
+        "pressure_gain": 0.12,
+        "pressure_max": 4.0,
+        "pressure_threshold": 4.0,
+        "radius_from_silhouette": 0.4,
+        "size_jitter": 0.25,
+        "replication_rate": 0.0,
+        "separation_radius_mul": 2.4,
+        "separation_strength": 7.0,
+        "wall_restitution": 0.15,
+        "wall_splash": 0.75,
+        "collides": true
+      },
+      "death_vfx": {
+        "bit_buoyancy": -5.0,
+        "bit_count": 34,
+        "bit_drag": 6.5,
+        "bit_life_max": 0.3,
+        "bit_life_min": 0.16,
+        "bit_scatter": 0.9,
+        "bit_size_max": 0.42,
+        "bit_size_min": 0.22,
+        "bit_speed_max": 24.0,
+        "bit_speed_min": 10.0,
+        "bit_spin": 6.0,
+        "bloom_alpha": 0.38,
+        "bloom_count": 2,
+        "bloom_life": 0.18,
+        "bloom_rise": 0.8,
+        "bloom_size": 1.8,
+        "bloom_speed": 2.6,
+        "color": [
+          1.0,
+          0.904,
+          0.202,
+          1.0
+        ],
+        "core_life": 0.08,
+        "core_size": 1.0,
+        "core_white": 0.35,
+        "enabled": true,
+        "inherit_velocity": 0.25,
+        "ring_alpha": 0.22,
+        "ring_life": 0.12,
+        "ring_size": 1.6,
+        "scale": 1.4,
+        "style": "burst"
+      },
+      "hit_flash": {
+        "color": [
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "curve": 1.8,
+        "death_linger": 0.09,
+        "duration": 0.12,
+        "enabled": true,
+        "gain": 1.0,
+        "min_fraction": 0.02,
+        "retrigger": "highest",
+        "scale_punch": 0.0,
+        "strength": 0.9
+      },
+      "replication_split": {
+        "duration": 0.22,
+        "enabled": true,
+        "pull_ease": 1.0,
+        "reveal_distance": 0.6,
+        "reveal_ease": 1.0,
+        "seam_softness": 0.035,
+        "separation_distance": 1.0
+      },
+      "latch_throb": {
+        "enabled": true,
+        "glow": 0.15,
+        "probe": 0.3,
+        "rate": 1.1,
+        "ripple": 0.02,
+        "slosh": 0.09,
+        "squash": 0.12,
+        "stream": 0.7,
+        "throb": 0.06,
+        "wave": 0.07,
+        "wave_count": 1.5
+      },
+      "speed_tier": "slow",
+      "visual": {
+        "color": [
+          0.99,
+          0.76,
+          0.17,
+          1.0
+        ],
+        "silhouette": 6.4,
+        "tempo": 0.8,
+        "wobble": 0
+      },
+      "burrow": {
+        "enabled": false,
+        "cooldown": 5.0,
+        "cooldown_jitter": 1.5,
+        "dive_duration": 1.2,
+        "underground_duration": 1.4,
+        "telegraph_duration": 0.6,
+        "emerge_duration": 1.0,
+        "retry_delay": 0.5,
+        "min_range": 14.0,
+        "max_range": 42.0,
+        "cone_half_angle": 55.0,
+        "candidate_count": 16,
+        "min_progress": 8.0,
+        "goal_standoff": 30.0,
+        "wall_clearance": 2.0,
+        "edge_margin": 8.0,
+        "progress_weight": 1.0,
+        "tower_weight": 100.0,
+        "tower_range_scale": 1.0,
+        "crowd_weight": 2.0,
+        "crowd_radius": 6.0,
+        "leave_squad": true,
+        "wound_radius": 0.11,
+        "puncture_radius": 0.04,
+        "ripple_count": 3.0,
+        "ripple_width": 0.012,
+        "ripple_reach": 0.16,
+        "sink_fraction": 0.75,
+        "subsurface": 0.0,
+        "tissue_color": [
+          0.9,
+          0.46,
+          0.51,
+          0.85
+        ],
+        "wound_color": [
+          0.45,
+          0.1,
+          0.18,
+          1.0
+        ]
+      },
+      "slither": {
+        "enabled": false,
+        "wavelength": 8.0,
+        "idle_rate": 0.25,
+        "turn_rate": 4.0,
+        "amplitude": 0.1,
+        "head_amplitude": 1.4,
+        "curl": 0.18,
+        "probe": 0.05,
+        "body_length": 0.975,
+        "thickness": 0.03,
+        "segments": 48.0,
+        "min_speed": 0.25
+      },
+      "harpoon": {
+        "enabled": true,
+        "range": 44.0,
+        "windup": 0.45,
+        "extend_speed": 150.0,
+        "pulses": 0,
+        "pulse_damage": 84.0,
+        "pulse_interval": 0.26,
+        "pulse_speed": 70.0,
+        "reload": 6.0,
+        "retry": 0.25,
+        "break_range": 56.0,
+        "hold": 1.0,
+        "retract_seconds": 0.3,
+        "thickness": 0.27,
+        "bulge": 3.0,
+        "slug_length": 2.2,
+        "whip": 1.4,
+        "sway": 0.35,
+        "wavelength": 9.0,
+        "fluid_color": [
+          1.0,
+          0.93,
+          0.62,
+          1.0
+        ]
       }
     }
   },

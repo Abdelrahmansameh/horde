@@ -39,8 +39,7 @@ public:
     bool has_text(std::string_view name) const { return texts_.count(std::string(name)) != 0; }
     bool has_shape(std::string_view name) const { return shapes_.count(std::string(name)) != 0; }
 
-    /// Sets a colour at runtime (e.g. the pathogen family colours, which are
-    /// owned by render::family_color and must not be duplicated in the JSON).
+    /// Sets a colour token at runtime without changing the authored JSON.
     void set_color(std::string_view name, Color c) { colors_[std::string(name)] = c; }
 
     /// Resolves a colour expression ("#hex", "name", "name@alpha").

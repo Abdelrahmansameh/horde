@@ -6,7 +6,7 @@
 // springy hover, the deny shake, the sloshing liquid and the transitions cheap
 // to write.
 //
-// Every frame Gui runs: layout (measure + arrange) → input dispatch →
+// Every frame Gui runs: before_layout(dt) → layout (measure + arrange) → input dispatch →
 // update(dt) → draw. Layout is recomputed every frame: a HUD is a few hundred
 // widgets, and a fresh layout is simpler than dirty tracking and always right.
 #pragma once
@@ -96,6 +96,9 @@ public:
     bool pressed() const;
 
     // ---- Hooks for subclasses ----------------------------------------------
+    /// Prepares layout-affecting state before measuring and pointer picking.
+    /// Gui has already stored this frame's pointer position and presence.
+    virtual void before_layout(f32) {}
     /// Size of the content (excluding padding) for Auto sizing. Default:
     /// the flow children laid out along `layout.axis`.
     virtual Vec2 content_size(Vec2 available);

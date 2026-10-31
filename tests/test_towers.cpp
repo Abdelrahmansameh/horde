@@ -960,42 +960,38 @@ TEST_CASE("a distant Macrophage factory cannot damage before its unit arrives",
                          TowerType::Macrophage) == 1);
 }
 
-TEST_CASE("a bomber whose lifetime runs out detonates where it stands", "[towers][combat][bomber]") {
-    // Every detonating kind. Spawned straight into the store with nothing to
-    // go at, so the only way it can end is by expiring -- and expiring must
-    // leave the effect behind, not fizzle.
-    for (const TowerType type : {TowerType::GobletCell}) {
-        INFO("tower " << tower_type_name(type));
+TEST_CASE("a spent goblet cell only splashes when it can coat an untreated enemy",
+          "[towers][combat][mucus][bomber]") {
+    for (const bool useful_target : {false, true}) {
+        INFO("untreated enemy nearby: " << useful_target);
         SimWorld world = make_world();
         TowerSystem ts;
         ts.register_systems(world);
 
-        const u16 slot = swarmer_profile_slot(type);
-        world.swarmers().set_profile(slot, swarmer_profile(type));
+        const u16 slot = swarmer_profile_slot(TowerType::GobletCell);
+        SwarmerProfile profile = swarmer_profile(TowerType::GobletCell);
+        profile.lifetime = kFixedDt * 0.5f;
+        world.swarmers().set_profile(slot, profile);
         SwarmerSpawnParams p;
         p.position = kRoomCenterLeft;
         p.profile = slot;
         p.seed = 77u;
         REQUIRE(world.swarmers().spawn(p));
-
-        const f32 lifetime = swarmer_profile(type).lifetime;
-        const int ticks = static_cast<int>(lifetime / kFixedDt) + 5;
-        for (int i = 0; i < ticks; ++i) step_combat(world);
-        REQUIRE(world.swarmers().count() == 0);
-        REQUIRE(count_events(world, CombatEventType::Explosion, type) == 1);
-        const CombatEvent* boom = first_event(world, CombatEventType::Explosion, type);
-        REQUIRE(math::length(boom->origin - kRoomCenterLeft) < 2.0f);
-
-        // ...and the effect is real, in whichever store it belongs to.
-        switch (tower_kind(type)) {
-        case SwarmerKind::Bomber: {
-            bool found = false;
-            for (const DamageField& f : world.damage().fields()) found = found || f.shape == FieldShape::Circle;
-            REQUIRE(found);
-            break;
+        if (useful_target) {
+            spawn_one(world, kRoomCenterLeft + Vec2{profile.splash_radius * 0.5f, 0.0f});
         }
-        case SwarmerKind::MucusBomber: REQUIRE(world.fluid().count() > 0); break;
-        default: FAIL("not a detonating kind"); break;
+
+        step_combat(world);
+        REQUIRE(world.swarmers().count() == 0);
+        REQUIRE(count_events(world, CombatEventType::Explosion, TowerType::GobletCell) ==
+                (useful_target ? 1 : 0));
+        if (useful_target) {
+            const CombatEvent* boom = first_event(world, CombatEventType::Explosion, TowerType::GobletCell);
+            REQUIRE(boom != nullptr);
+            REQUIRE(math::length(boom->origin - kRoomCenterLeft) < 2.0f);
+            REQUIRE(world.fluid().count() > 0);
+        } else {
+            REQUIRE(world.fluid().count() == 0);
         }
     }
 }
@@ -1096,6 +1092,59 @@ TEST_CASE("mucus coverage slows named enemies without reducing health",
     REQUIRE(slow.remaining > 0.0f);
     REQUIRE(slow.factor == Catch::Approx(0.08f));
     REQUIRE_FALSE(world.ecs().registry().all_of<comp::Marked>(entity));
+}
+
+TEST_CASE("goblet cells redirect from named enemies with active mucus and return after it expires",
+          "[towers][combat][mucus][named][targeting]") {
+    SimWorld world = make_world();
+    TowerSystem ts;
+    ts.register_systems(world);
+    const Vec2 coated_at{16.0f, 10.0f};
+    const EntityId coated = spawn_named(world, coated_at);
+    const EntityId fresh = spawn_named(world, Vec2{22.0f, 10.0f});
+    REQUIRE(coated.valid());
+    REQUIRE(fresh.valid());
+
+    FluidJetParams jet;
+    jet.lifetime = 2.0f;
+    jet.damage_per_second = 0.0f;
+    jet.slow_duration = 3.0f;
+    jet.slow_factor = 0.08f;
+    REQUIRE(world.fluid_system().splash(world.fluid(), jet, coated_at, 0.5f, 0.0f, 100) > 0);
+    world.tick();
+    auto& registry = world.ecs().registry();
+    const entt::entity coated_entity = world.ecs().from_id(coated);
+    const entt::entity fresh_entity = world.ecs().from_id(fresh);
+    REQUIRE(registry.all_of<comp::Slowed>(coated_entity));
+    REQUIRE_FALSE(registry.all_of<comp::Slowed>(fresh_entity));
+    world.fluid().clear();
+
+    // Hold the cell still so only eligibility, rather than arrival order,
+    // decides its target across these two real world ticks.
+    const u16 slot = swarmer_profile_slot(TowerType::GobletCell);
+    SwarmerProfile profile = swarmer_profile(TowerType::GobletCell);
+    profile.speed = 0.0f;
+    profile.search_radius = 16.0f;
+    profile.attach_radius = 0.1f;
+    world.swarmers().set_profile(slot, profile);
+    SwarmerSpawnParams cell;
+    cell.position = kRoomCenterLeft;
+    cell.profile = slot;
+    cell.seed = 77u;
+    REQUIRE(world.swarmers().spawn(cell));
+
+    world.tick();
+    REQUIRE(world.swarmers().count() == 1);
+    REQUIRE(world.swarmers().target_named[0] == fresh);
+    REQUIRE(world.swarmer_system().last_stats().detonated == 0);
+
+    registry.get<comp::Slowed>(coated_entity).remaining = kFixedDt * 0.5f;
+    registry.emplace<comp::Slowed>(fresh_entity, comp::Slowed{1.0f, 0.08f, {}});
+    world.tick();
+    REQUIRE_FALSE(registry.all_of<comp::Slowed>(coated_entity));
+    REQUIRE(world.swarmers().count() == 1);
+    REQUIRE(world.swarmers().target_named[0] == coated);
+    REQUIRE(world.swarmer_system().last_stats().detonated == 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -1514,7 +1563,9 @@ TEST_CASE("VISUAL: all five towers release at once, with live swarmers and parti
     }
 
     INFO("live particles: " << particles.live_count() << ", live swarmers: " << world.swarmers().count());
-    REQUIRE(particles.live_count() > 100);
+    // Goblets conserve their bursts while mucus is active, so the particle
+    // count varies with coverage. Verify live effects and their submission.
+    REQUIRE(particles.live_count() > 0);
     REQUIRE(world.swarmers().count() > 0);
 
     render::RendererDesc rd;
@@ -1540,7 +1591,7 @@ TEST_CASE("VISUAL: all five towers release at once, with live swarmers and parti
                  stats.projectile_instances_drawn, stats.vfx_fields_drawn,
                  stats.chaff_instances_drawn, stats.draw_calls);
 
-    REQUIRE(stats.particle_instances_drawn > 100);
+    REQUIRE(stats.particle_instances_drawn == particles.live_count());
     REQUIRE(stats.swarmer_instances_drawn > 0);
 
     // Per-tower close-ups of the SAME instant.

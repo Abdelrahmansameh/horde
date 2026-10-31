@@ -12,11 +12,12 @@
 //           last `telegraph_duration` seconds before the body breaks out.
 //
 //   SLITHER Purely cosmetic. The drawn body is a long worm whose travelling
-//           wave is advanced by distance walked, so its crests stay put on the
-//           ground as the body slides through them -- the way a snake moves,
-//           rather than a wiggling sprite. The heading it is drawn at is turned
-//           toward the velocity at a bounded rate, so a long body swings round
-//           instead of snapping with every shove from the crowd.
+//           wave is advanced by actual signed distance travelled. Every bend
+//           belongs to that travelling track, including the slow curl. A curved
+//           backbone follows turns instead of rotating a straight body around
+//           its centre. Steering/bend filters and a spatial deformation bound
+//           prevent navigation noise from snapping the whole body. Pose, bend
+//           and wave interpolate together between fixed ticks.
 //
 // Both are per-family data (BurrowParams / SlitherParams, enemies.json's
 // "burrow" and "slither" blocks) and every other family ships them disabled,
@@ -119,17 +120,20 @@ struct BurrowParams {
 struct SlitherParams {
     bool enabled = false;
     f32 wavelength = 8.0f;       ///< World units between body-wave crests on the ground.
-    f32 idle_rate = 0.25f;       ///< Wave cycles/sec even when not moving.
+    f32 idle_rate = 0.25f;       ///< Wave cycles/sec only while stationary.
     f32 turn_rate = 4.0f;        ///< Radians/sec the drawn heading follows the velocity.
     f32 amplitude = 0.1f;        ///< Local units of sideways swing.
-    f32 head_amplitude = 1.4f;   ///< Multiple of `amplitude` at the head; >1 swings it wider.
-    f32 curl = 0.18f;            ///< Local units of slow whole-body C-bend on top of the wave.
-    f32 probe = 0.05f;           ///< Local units of the head's own searching sweep.
+    f32 head_amplitude = 1.4f;   ///< Primary wave swing multiplier (legacy config name).
+    f32 curl = 0.18f;            ///< Local units of a longer travelling bend.
+    f32 probe = 0.05f;           ///< Local units of the finer travelling searching wave.
     f32 body_length = 0.975f;    ///< Local units, head to tail (the quad spans about 1.9).
     f32 thickness = 0.03f;       ///< Local half-width at the thickest point.
     f32 segments = 48.0f;        ///< Fine annulation rings along the cuticle.
     f32 min_speed = 0.25f;       ///< Below this (world units/sec) the heading holds.
 };
+
+/// The curl has twice the main wavelength; all shader terms repeat at 4*pi.
+inline constexpr f32 kSlitherPhasePeriod = 12.566370614359172f;
 
 /// Per-family tables the RENDERER reads (sim never does -- it reads its own
 /// copy on BurrowSystem, below, so a config edit cannot change a running sim
@@ -181,7 +185,12 @@ public:
     BurrowStats update(ChaffBuffers& chaff, const FlowField& flow, const DistanceField& sdf,
                        const TissueMask& mask, const SpatialHash& hash,
                        const std::vector<BurrowThreat>& threats, Rng& rng, f32 dt,
-                       const Rect& play_area = Rect{});
+                       const Rect& play_area = Rect{}, bool animate = true);
+
+    /// Cosmetic pose only. SimWorld defers this until every movement and
+    /// combat correction is final, keeping dive immunity in the early pass.
+    /// update() includes it by default for standalone callers.
+    void update_slither(ChaffBuffers& chaff, const FlowField& flow, f32 dt);
 
     /// Scores one candidate exit for an agent standing at `from`, whose
     /// cost-to-goal is `from_cost`. Returns false if the point is not a legal

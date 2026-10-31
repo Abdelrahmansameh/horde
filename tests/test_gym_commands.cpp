@@ -274,15 +274,15 @@ TEST_CASE("tower reports why a placement was refused", "[gym][towers]") {
 
 TEST_CASE("cast consumes an ability and ready refills it", "[gym][abilities]") {
     Harness h;
-    REQUIRE(h.run("cast histamine at 104,66").ok);
-    CHECK_FALSE(h.abilities.ready(AbilityId::HistamineFlare));
+    REQUIRE(h.run("cast complement at 104,66").ok);
+    CHECK_FALSE(h.abilities.ready(AbilityId::ComplementCascadeBurst));
 
-    const GymResult again = h.run("cast histamine at 104,66");
+    const GymResult again = h.run("cast complement at 104,66");
     CHECK_FALSE(again.ok);                       // on cooldown, reported not ignored
 
     REQUIRE(h.run("ready").ok);
-    CHECK(h.abilities.ready(AbilityId::HistamineFlare));
-    CHECK(h.run("cast histamine at 104,66").ok);
+    CHECK(h.abilities.ready(AbilityId::ComplementCascadeBurst));
+    CHECK(h.run("cast complement at 104,66").ok);
 }
 
 TEST_CASE("atp sets and adds", "[gym][economy]") {

@@ -107,7 +107,6 @@ void ActiveAbilitySystem::load_defaults() {
     // DESIGN.md §5.6 values seeded in AbilityConfigApply.cpp).
     static const char* kNames[kAbilityCount] = {
         "Complement Cascade Burst",
-        "Histamine Flare",
         "Fever Response",
         "Fibrin Clot",
     };
@@ -177,17 +176,6 @@ bool ActiveAbilitySystem::cast(sim::SimWorld& world, AbilityId id, Vec2 target_p
             field.kill_rate = d.kill_rate;
             field.lifetime = 0.1f;
             field.chain_links = d.chain_links;
-            world.damage().submit(field);
-            break;
-        }
-        case AbilityId::HistamineFlare: {
-            sim::DamageField field;
-            field.shape = sim::FieldShape::Circle;
-            field.origin = target_point;
-            field.radius = d.radius;
-            field.kill_rate = d.kill_rate;
-            field.falloff = 1.0f; // soft-edged nova, not a hard cutoff
-            field.lifetime = d.field_duration;
             world.damage().submit(field);
             break;
         }
@@ -291,7 +279,6 @@ bool ActiveAbilitySystem::cast(sim::SimWorld& world, AbilityId id, Vec2 target_p
 const char* ability_name(AbilityId id) {
     switch (id) {
         case AbilityId::ComplementCascadeBurst: return "Complement Cascade Burst";
-        case AbilityId::HistamineFlare: return "Histamine Flare";
         case AbilityId::FeverResponse: return "Fever Response";
         case AbilityId::FibrinClot: return "Fibrin Clot";
         case AbilityId::Count: break;

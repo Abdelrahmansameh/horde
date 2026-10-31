@@ -196,7 +196,7 @@ def endurance_level(document: dict, ability: dict) -> tuple[dict, int]:
     level["display_name"] = f"Catalog: {ability['name']} endurance"
     level.pop("win", None)
     templates = level["waves"][0]["spawns"]
-    if ability["key"] in {"complement", "histamine", "clot"}:
+    if ability["key"] in {"complement", "clot"}:
         # A strong supporting army removed the old sparse arrivals before the
         # tactical controller could observe a cast-worthy concentration. Use
         # a compact, non-replicating pulse instead. Three pulses separated by
@@ -332,7 +332,7 @@ def build_experiment(catalog: Catalog, node: dict, level: dict, config_dir: Path
     ability_patch, ability_fixture = paid_ability_context(catalog, node)
     base = lab.merge(base, ability_patch)
     economy_mode = "fixed_wallet"
-    if ability in {"complement", "histamine"}:
+    if ability == "complement":
         base["opening_atp"] = 0
         base["spend_limit"] = 0
         economy_mode = "zero_defense_direct_ability_probe"
@@ -379,7 +379,7 @@ def build_experiment(catalog: Catalog, node: dict, level: dict, config_dir: Path
     if ability_fixture:
         metadata["diagnostic_fixture"] = ability_fixture
         metadata["economy_mode"] = "paid_controlled_ability_diagnostic"
-    if ability in {"complement", "histamine"}:
+    if ability == "complement":
         metadata["diagnostic_fixture"] = {"kind": "isolated_ability_pulses",
             "defensive_wallet": 0, "family": "bacteria", "pulse_count": 3,
             "enemies_per_pulse": 40, "release_seconds": 0.5,
@@ -624,7 +624,7 @@ def self_test(document: dict | None) -> int:
         def test_direct_ability_pulses_share_zero_wallet_and_nonreplicating_pressure(self):
             original = copy.deepcopy(level)
             for target in catalog.nodes.values():
-                if target.get("ability") not in {"complement", "histamine"}:
+                if target.get("ability") != "complement":
                     continue
                 experiment, metadata = build_experiment(catalog, target, level, Path("unused-config"), [101, 202], 600, 18000)
                 base = experiment["base"]

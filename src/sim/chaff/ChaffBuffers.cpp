@@ -49,10 +49,20 @@ void ChaffBuffers::reserve(usize max_agents) {
     burrow_anim.assign(max_agents, 0.0f);
     body_heading.assign(max_agents, 0.0f);
     slither_phase.assign(max_agents, -1.0f);
+    body_heading_delta.assign(max_agents, 0.0f);
+    slither_phase_delta.assign(max_agents, 0.0f);
+    slither_curvature.assign(max_agents, 0.0f);
+    slither_curvature_delta.assign(max_agents, 0.0f);
     toxin_rounds.assign(max_agents, 0u);
     toxin_cooldown.assign(max_agents, -1.0f);
     toxin_reload.assign(max_agents, -1.0f);
     toxin_spit_pulse.assign(max_agents, 0.0f);
+    harpoon_state.assign(max_agents, 0u);
+    harpoon_timer.assign(max_agents, 0.0f);
+    harpoon_scan.assign(max_agents, -1.0f);
+    harpoon_sighted.assign(max_agents, 0u);
+    harpoon_anim.assign(max_agents, 0.0f);
+    hold.assign(max_agents, 0.0f);
     size_scale.assign(max_agents, 1.0f);
     next_generation_ = 1u;   // 0 is the reserved "invalid handle" generation.
     clear();
@@ -87,10 +97,20 @@ void ChaffBuffers::clear() {
         burrow_anim[i] = 0.0f;
         body_heading[i] = 0.0f;
         slither_phase[i] = -1.0f;
+        body_heading_delta[i] = 0.0f;
+        slither_phase_delta[i] = 0.0f;
+        slither_curvature[i] = 0.0f;
+        slither_curvature_delta[i] = 0.0f;
         toxin_rounds[i] = 0u;
         toxin_cooldown[i] = -1.0f;
         toxin_reload[i] = -1.0f;
         toxin_spit_pulse[i] = 0.0f;
+        harpoon_state[i] = 0u;
+        harpoon_timer[i] = 0.0f;
+        harpoon_scan[i] = -1.0f;
+        harpoon_sighted[i] = 0u;
+        harpoon_anim[i] = 0.0f;
+        hold[i] = 0.0f;
         size_scale[i] = 1.0f;
     }
     // Deliberately NOT resetting next_generation_: handles taken before a clear()
@@ -142,10 +162,22 @@ ChaffHandle ChaffBuffers::spawn(const ChaffSpawnParams& p) {
     burrow_anim[i] = 0.0f;
     body_heading[i] = 0.0f;
     slither_phase[i] = -1.0f;
+    body_heading_delta[i] = 0.0f;
+    slither_phase_delta[i] = 0.0f;
+    slither_curvature[i] = 0.0f;
+    slither_curvature_delta[i] = 0.0f;
     toxin_rounds[i] = 0u;
     toxin_cooldown[i] = -1.0f;
     toxin_reload[i] = -1.0f;
     toxin_spit_pulse[i] = 0.0f;
+    // Ready, with the first search staggered by the hostile pass (negative
+    // scan), the same arrangement as the toxin magazine's first cooldown.
+    harpoon_state[i] = 0u;
+    harpoon_timer[i] = 0.0f;
+    harpoon_scan[i] = -1.0f;
+    harpoon_sighted[i] = 0u;
+    harpoon_anim[i] = 0.0f;
+    hold[i] = 0.0f;
     size_scale[i] = p.size_scale > 0.0f
                         ? p.size_scale
                         : spawn_size_scale(generation[i], size_jitter_[static_cast<u32>(p.family)]);
@@ -270,10 +302,20 @@ usize ChaffBuffers::compact(u32* removed_by_family) {
             burrow_anim[i] = burrow_anim[last];
             body_heading[i] = body_heading[last];
             slither_phase[i] = slither_phase[last];
+            body_heading_delta[i] = body_heading_delta[last];
+            slither_phase_delta[i] = slither_phase_delta[last];
+            slither_curvature[i] = slither_curvature[last];
+            slither_curvature_delta[i] = slither_curvature_delta[last];
             toxin_rounds[i] = toxin_rounds[last];
             toxin_cooldown[i] = toxin_cooldown[last];
             toxin_reload[i] = toxin_reload[last];
             toxin_spit_pulse[i] = toxin_spit_pulse[last];
+            harpoon_state[i] = harpoon_state[last];
+            harpoon_timer[i] = harpoon_timer[last];
+            harpoon_scan[i] = harpoon_scan[last];
+            harpoon_sighted[i] = harpoon_sighted[last];
+            harpoon_anim[i] = harpoon_anim[last];
+            hold[i] = hold[last];
             size_scale[i] = size_scale[last];
         }
         --count_;
@@ -298,10 +340,20 @@ usize ChaffBuffers::compact(u32* removed_by_family) {
         burrow_timer[count_] = -1.0f;
         burrow_anim[count_] = 0.0f;
         slither_phase[count_] = -1.0f;
+        body_heading_delta[count_] = 0.0f;
+        slither_phase_delta[count_] = 0.0f;
+        slither_curvature[count_] = 0.0f;
+        slither_curvature_delta[count_] = 0.0f;
         toxin_rounds[count_] = 0u;
         toxin_cooldown[count_] = -1.0f;
         toxin_reload[count_] = -1.0f;
         toxin_spit_pulse[count_] = 0.0f;
+        harpoon_state[count_] = 0u;
+        harpoon_timer[count_] = 0.0f;
+        harpoon_scan[count_] = -1.0f;
+        harpoon_sighted[count_] = 0u;
+        harpoon_anim[count_] = 0.0f;
+        hold[count_] = 0.0f;
         size_scale[count_] = 1.0f;
         // Do not advance i: the swapped-in agent must be tested too.
     }
@@ -348,8 +400,14 @@ void ChaffBuffers::assert_invariants() const {
     assert(burrow_target_x.size() == capacity_ && burrow_target_y.size() == capacity_);
     assert(burrow_anim.size() == capacity_);
     assert(body_heading.size() == capacity_ && slither_phase.size() == capacity_);
+    assert(body_heading_delta.size() == capacity_ && slither_phase_delta.size() == capacity_);
+    assert(slither_curvature.size() == capacity_);
+    assert(slither_curvature_delta.size() == capacity_);
     assert(toxin_rounds.size() == capacity_ && toxin_cooldown.size() == capacity_);
     assert(toxin_reload.size() == capacity_ && toxin_spit_pulse.size() == capacity_);
+    assert(harpoon_state.size() == capacity_ && harpoon_timer.size() == capacity_);
+    assert(harpoon_scan.size() == capacity_ && harpoon_sighted.size() == capacity_);
+    assert(harpoon_anim.size() == capacity_ && hold.size() == capacity_);
     assert(size_scale.size() == capacity_);
     for (usize i = 0; i < count_; ++i) {
         assert((flags[i] & chaff_flags::kAlive) != 0);               // I1

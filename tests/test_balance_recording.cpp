@@ -267,7 +267,7 @@ TEST_CASE_METHOD(immune::test::BalanceConfigIsolation, "player recording preserv
     Action cast;
     cast.kind = ActionKind::CastAbility;
     cast.tick = fixture.world.tick_index();
-    cast.ability = AbilityId::HistamineFlare;
+    cast.ability = AbilityId::ComplementCascadeBurst;
     cast.position = Vec2{40.0f, 40.0f};
     REQUIRE(fixture.abilities.cast(fixture.world, cast.ability, cast.position));
     fixture.recording.append(cast);

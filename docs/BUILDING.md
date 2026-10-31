@@ -73,7 +73,7 @@ cmake --build --preset windows-release --target immune
 cmake --build --preset windows-release --target immune_tests
 ```
 
-[CMakeLists.txt](../CMakeLists.txt) defines `immune`, `immune_tests`, and libraries for `core`, `platform`, `config`, `sim`, `render`, `vfx`, `game`, `gui`, `ui`, `audio`, and `app`. Test sources matching `tests/test_*.cpp` are collected with `CONFIGURE_DEPENDS`; rerun configuration if a new source is not being picked up.
+[CMakeLists.txt](../CMakeLists.txt) defines `immune`, `immune_tests`, and libraries for `core`, `platform`, `config`, `sim`, `render`, `vfx`, `game`, `gui`, `ui`, and `app`. Test sources matching `tests/test_*.cpp` are collected with `CONFIGURE_DEPENDS`; rerun configuration if a new source is not being picked up.
 
 The release executables are in `bin\immune.exe` and `bin\immune_tests.exe` under the release build directory. A Visual Studio build normally adds a configuration directory, such as `bin\Debug\immune.exe`. Required runtime DLLs are copied beside each executable after linking.
 

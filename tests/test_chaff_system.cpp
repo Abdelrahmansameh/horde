@@ -188,6 +188,52 @@ TEST_CASE("kSlowed lowers the effective max speed", "[sim][chaff][movement][flag
     REQUIRE(speed_slowed > 0.0f);
 }
 
+TEST_CASE("a fully held agent stands its ground while a crowd pushes past it",
+          "[sim][chaff][movement][crowd][harpoon]") {
+    // A planted harpoon shooter (`hold` 1) must not be walked forward NOR
+    // shoved forward by the crowd behind it: contact push bypasses max_speed,
+    // so a speed-only hold let the horde carry a spore into the cells it was
+    // sieging. The crowd still gets past, round it.
+    const Rect bounds{Vec2{0.0f, 0.0f}, Vec2{60.0f, 60.0f}};
+    FlowField flow = make_radial_flow(bounds, Vec2{55.0f, 30.0f});
+    DistanceField sdf;
+    SpatialHash hash = make_hash(bounds, 4.0f);
+
+    ChaffBuffers buffers;
+    buffers.reserve(256);
+    ChaffSpawnParams held;
+    held.position = Vec2{30.0f, 30.0f};
+    held.size_scale = 3.0f;   // a big body squarely in the crowd's way
+    buffers.spawn(held);
+    buffers.hold[0] = 1.0f;
+    Rng seed_rng(424242);
+    for (u32 i = 0; i < 80; ++i) {
+        ChaffSpawnParams p;
+        p.position = Vec2{24.0f, 30.0f} + seed_rng.unit_disc() * 4.0f;
+        buffers.spawn(p);
+    }
+
+    ChaffSystem sys;
+    sys.set_tuning(flat_tuning(/*accel*/ 12.0f, /*max_speed*/ 6.0f, /*sep_radius*/ 1.2f,
+                               /*sep_strength*/ 8.0f, /*jitter*/ 0.0f));
+    sys.set_world_bounds(bounds);
+    sys.set_goal(Vec2{55.0f, 30.0f}, Vec2{0.0f, 0.0f});
+
+    Rng rng(11);
+    for (int t = 0; t < 240; ++t) {
+        rebuild(hash, buffers);
+        sys.update(buffers, flow, sdf, TissueMask{}, hash, no_squads(), rng, kFixedDt, nullptr);
+    }
+
+    REQUIRE(buffers.count() == 81);
+    REQUIRE(buffers.pos_x[0] == 30.0f);
+    REQUIRE(buffers.pos_y[0] == 30.0f);
+    usize past = 0;
+    for (usize i = 1; i < buffers.count(); ++i) past += buffers.pos_x[i] > 34.0f ? 1u : 0u;
+    INFO(past << " of 80 got past");
+    REQUIRE(past > 40u);
+}
+
 TEST_CASE("kHidden agents do not move", "[sim][chaff][movement][flags]") {
     const Rect bounds{Vec2{0.0f, 0.0f}, Vec2{50.0f, 50.0f}};
     FlowField flow = make_radial_flow(bounds, Vec2{45.0f, 25.0f});

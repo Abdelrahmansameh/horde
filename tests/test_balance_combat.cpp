@@ -594,7 +594,7 @@ TEST_CASE_METHOD(immune::test::BalanceConfigIsolation, "enabling telemetry on ex
     REQUIRE(result.damage_lifetime.observations == 0);
 }
 
-TEST_CASE_METHOD(immune::test::BalanceConfigIsolation, "real navigation exits and friendly bounds retirement never enter damage TTK",
+TEST_CASE_METHOD(immune::test::BalanceConfigIsolation, "real navigation exits and friendly boundary corrections never enter damage TTK",
           "[balance][combat-metrics][ttk][retirement]") {
     SimWorld world;
     init_world(world, true);
@@ -615,7 +615,7 @@ TEST_CASE_METHOD(immune::test::BalanceConfigIsolation, "real navigation exits an
         REQUIRE(stats.damage_deaths == 0);
         REQUIRE(stats.damage_ttk.observations == 0);
     }
-    SECTION("a cell leaving world bounds has no hostile killer") {
+    SECTION("a cell outside play bounds is recovered alive without damage") {
         SwarmerProfile profile;
         profile.source = TowerType::Neutrophil;
         profile.kind = SwarmerKind::Shooter;
@@ -628,10 +628,12 @@ TEST_CASE_METHOD(immune::test::BalanceConfigIsolation, "real navigation exits an
         world.tick();
         REQUIRE(world.combat_metrics().friendly_lifetimes().size() == 1);
         const auto& stats = world.combat_metrics().friendly_lifetimes()[0].stats;
-        REQUIRE(stats.out_of_bounds == 1);
+        REQUIRE(stats.out_of_bounds == 0);
         REQUIRE(stats.damage_deaths == 0);
         REQUIRE(stats.damage_ttk.observations == 0);
-        REQUIRE(stats.alive == 0);
+        REQUIRE(stats.alive == 1);
+        REQUIRE(world.swarmers().count() == 1);
+        REQUIRE(world.desc().world_bounds.contains(Vec2{world.swarmers().pos_x[0], world.swarmers().pos_y[0]}));
     }
 }
 

@@ -150,7 +150,7 @@ constexpr Field kAbilityFields[] = {
     IMMUNE_CONFIG_FIELD(AbilityTuning, cooldown_seconds, FieldKind::F32, ""),
     IMMUNE_CONFIG_FIELD(AbilityTuning, radius, FieldKind::F32, "Field radius (per-link for the cascade)"),
     IMMUNE_CONFIG_FIELD(AbilityTuning, kill_rate, FieldKind::F32, ""),
-    IMMUNE_CONFIG_FIELD(AbilityTuning, field_duration, FieldKind::F32, "Histamine: nova lifetime; Clot: seconds the bar stands"),
+    IMMUNE_CONFIG_FIELD(AbilityTuning, field_duration, FieldKind::F32, "Clot: seconds the bar stands"),
     IMMUNE_CONFIG_FIELD(AbilityTuning, fever_cooldown_relief, FieldKind::F32, "Fever only: 0.1 times this value is the fraction of maximum cell health restored"),
     IMMUNE_CONFIG_FIELD(AbilityTuning, barrier_half_length, FieldKind::F32, "Clot only: half the bar's length across the lane"),
     IMMUNE_CONFIG_FIELD(AbilityTuning, barrier_half_width, FieldKind::F32, "Clot only: half the bar's thickness"),
@@ -180,13 +180,11 @@ constexpr std::string_view kSimKeys[] = {"schema", "capacities", "globals", "swa
                                         "fluid",  "squads",     "swarmer_collision",
                                         "hostile"};
 constexpr std::string_view kAbilitiesKeys[] = {"schema", "complement_cascade_burst",
-                                               "histamine_flare", "fever_response",
-                                               "fibrin_clot"};
+                                               "fever_response", "fibrin_clot"};
 
 const char* ability_key(AbilityId id) {
     switch (id) {
         case AbilityId::ComplementCascadeBurst: return "complement_cascade_burst";
-        case AbilityId::HistamineFlare: return "histamine_flare";
         case AbilityId::FeverResponse: return "fever_response";
         case AbilityId::FibrinClot: return "fibrin_clot";
         case AbilityId::Count: break;
@@ -543,8 +541,11 @@ GameConfig build_bootstrap_config() {
             // only one of them can be the source, and the body's colour is
             // obviously it. That makes "the death matches the enemy" a property
             // of the generator rather than of somebody remembering.
+            // The spore is the exception: its body is drawn in a different
+            // HUE from its family colour, so its table entry carries the
+            // colour it is drawn in instead (see vfx/DeathVfx.cpp).
             fc.death_vfx = vfx::family_death_vfx(family);
-            fc.death_vfx.color = render::family_color(family);
+            if (family != PathogenFamily::Spore) fc.death_vfx.color = render::family_color(family);
 
             // The hit flash, read out of sim/'s table the same way. Its colour
             // is NOT overwritten from the family colour the way the death
@@ -562,6 +563,8 @@ GameConfig build_bootstrap_config() {
             // Parasite's (and leaves every other family's off).
             fc.burrow = enemy_config().families[i].burrow;
             fc.slither = enemy_config().families[i].slither;
+            // And the Spore's harpoon (every other family's is off).
+            fc.harpoon = enemy_config().families[i].harpoon;
 
             // The two size derivations come from the live enemy config so the
             // bootstrap cannot disagree with what apply_to_tuning() actually

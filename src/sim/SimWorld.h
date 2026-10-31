@@ -19,7 +19,7 @@
 //   1. spatial hash rebuild        [prof: spatial_hash]
 //   1b. squad centroids + anchors  [prof: squad_update]
 //   2. chaff update                [prof: chaff_update]
-//   2b. burrowing + slither        [prof: burrow] (sim/burrow/Burrow.h)
+//   2b. gameplay burrowing        [prof: burrow] (sim/burrow/Burrow.h)
 //   3. ECS systems                 [prof: ecs_tick]
 //   4. damage fields apply
 //   4b. projectiles, swarmers (and what they asked for), slow expiry, fluid
@@ -29,6 +29,7 @@
 //   4f. chaff death events (must be after every damage source and before
 //       compaction — the only window where a dead agent still has a position)
 //   5. chaff compact + despawn accounting
+//   5b. cosmetic slither from final movement (same burrow timing sample)
 //   6. flow-field incremental rebake pump (budgeted)
 //   7. tick counter advance
 #pragma once
@@ -100,11 +101,11 @@ struct SimDesc {
     /// that size) for keeping everything else.
     usize max_chaff_death_events = 512;
     /// The PLAY area: what the camera clamps to and what the level is framed
-    /// by. Nothing in the tick culls against it -- see sim_bounds.
+    /// by. Friendly units stay inside it and ignore enemies outside it.
     Rect world_bounds{Vec2{0.0f, 0.0f}, Vec2{256.0f, 144.0f}};
     /// The rect the simulation actually covers: the spatial hash, the fluid
-    /// grid, and every out-of-bounds retirement test (chaff, projectiles,
-    /// swarmers) use THIS. Levels are allowed to put a spawn point outside the
+    /// grid, and enemy/projectile out-of-bounds retirement use THIS. Levels
+    /// are allowed to put a spawn point outside the
     /// play area so the horde walks in from off-screen, and everything that
     /// touches those agents has to reach that far (game::level_sim_bounds()).
     ///

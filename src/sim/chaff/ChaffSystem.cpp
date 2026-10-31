@@ -668,6 +668,7 @@ ChaffUpdateStats ChaffSystem::update(ChaffBuffers& buffers, const FlowField& flo
     const u16* sqid = buffers.squad_id.data();
     const u8* burrow = buffers.burrow_state.data();
     const f32* slow_factor = buffers.slow_factor.data();
+    const f32* hold = buffers.hold.data();
     const f32* old_px = old_pos_x_.data();
     const f32* old_py = old_pos_y_.data();
     const f32* old_vx = old_vel_x_.data();
@@ -962,13 +963,27 @@ ChaffUpdateStats ChaffSystem::update(ChaffBuffers& buffers, const FlowField& flo
             // the cap exists because of how far an agent moves in a tick, and
             // a wall does not care which term paid for the step.
             {
-                const f32 cap = fp.radius * body_scale;
+                // Ghost families keep social spacing with their own kind,
+                // but a whole-radius correction made long parasites jump
+                // several walking steps when a neighbour surfaced nearby.
+                // Relax that overlap over time; ordinary solid collisions
+                // retain their immediate geometric correction.
+                const f32 cap = fp.collides
+                                    ? fp.radius * body_scale
+                                    : math::min(fp.radius * body_scale,
+                                                0.25f * fp.max_speed * dt);
                 const Vec2 total = nb.contact_push + relief;
                 const f32 mag2 = math::length_sq(total);
                 const Vec2 capped =
                     mag2 > cap * cap ? total * (cap / std::sqrt(mag2)) : total;
-                push_x[i] = capped.x;
-                push_y[i] = capped.y;
+                // A planted harpoon shooter (`hold`, sim/hostile/Harpoon.h)
+                // gives up its share of the un-overlapping with its speed, or
+                // the crowd behind it would shove it forward into the cells it
+                // is sieging. Its neighbours still apply their half, so they
+                // part round it like water round a rock. 0, an exact no-op,
+                // for everything else.
+                push_x[i] = capped.x * (1.0f - hold[i]);
+                push_y[i] = capped.y * (1.0f - hold[i]);
             }
 
             // Crowd pressure amplifies separation rather than adding a
@@ -1028,7 +1043,7 @@ ChaffUpdateStats ChaffSystem::update(ChaffBuffers& buffers, const FlowField& flo
                 // sidestep. None of these corrections accumulate across ticks.
                 constexpr f32 kCrowdVelocityGain = 4.0f;
                 const Vec2 crowd = (v - flow_velocity) * kCrowdVelocityGain;
-                const f32 speed = fp.max_speed * (slowed ? slow_factor[i] : 1.0f);
+                const f32 speed = fp.max_speed * (slowed ? slow_factor[i] : 1.0f) * (1.0f - hold[i]);
                 const f32 along = math::clamp(speed + crowd.x * forward.x + crowd.y * forward.y,
                                               speed * 0.5f, speed);
                 const f32 across = math::clamp(crowd.x * lateral.x + crowd.y * lateral.y,
@@ -1043,8 +1058,10 @@ ChaffUpdateStats ChaffSystem::update(ChaffBuffers& buffers, const FlowField& flo
             vy[i] = v.y;
             // The slow's strength is per agent (ChaffBuffers::slow_factor),
             // written by whatever last slowed it; its expiry is
-            // ChaffBuffers::expire_slows's job, not this kernel's.
-            max_speed_scratch[i] = fp.max_speed * (slowed ? slow_factor[i] : 1.0f);
+            // ChaffBuffers::expire_slows's job, not this kernel's. `hold` is
+            // a planted harpoon shooter (sim/hostile/Harpoon.h); 0, an exact
+            // no-op, for everything else.
+            max_speed_scratch[i] = fp.max_speed * (slowed ? slow_factor[i] : 1.0f) * (1.0f - hold[i]);
 
             if (fp.replication_rate > 0.0f && local_rng.chance(fp.replication_rate * dt)) {
                 replicate_wanted[i] = 1u;

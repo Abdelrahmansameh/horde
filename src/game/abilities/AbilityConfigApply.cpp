@@ -14,8 +14,6 @@ AbilityConfig& mutable_ability_config() {
         // over a short lifetime so it reads as instant.
         seed.ability[static_cast<u32>(AbilityId::ComplementCascadeBurst)] =
             AbilityTuning{90.0f, 6.0f, 120.0f, 1.5f, 3.0f, 7.0f, 1.5f};
-        seed.ability[static_cast<u32>(AbilityId::HistamineFlare)] =
-            AbilityTuning{45.0f, 14.0f, 30.0f, 1.5f, 3.0f, 7.0f, 1.5f};
         // Fever spends no field at all; only the relief figure matters.
         seed.ability[static_cast<u32>(AbilityId::FeverResponse)] =
             AbilityTuning{60.0f, 20.0f, 40.0f, 1.5f, 3.0f, 7.0f, 1.5f};

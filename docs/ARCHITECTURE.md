@@ -8,7 +8,7 @@ describe how the project was assembled, not a separate approval process for
 current contributors.
 
 The engine guides are [SIMULATION.md](SIMULATION.md),
-[RENDERING.md](RENDERING.md), and [AUDIO_PLATFORM.md](AUDIO_PLATFORM.md). Start
+[RENDERING.md](RENDERING.md), and [PLATFORM.md](PLATFORM.md). Start
 from [the documentation index](README.md) for gameplay, content, UI, and tools.
 
 ## Module map
@@ -28,8 +28,7 @@ and GLM. The remaining libraries are:
 | `immune_game` / `src/game` | Levels, waves, deployed cells, abilities, economy, progression, editor, gym, config adapters | core, config, sim, render |
 | `immune_gui` / `src/gui` | Retained widgets, layout, hit testing, SDF drawing, text/icons | core, platform, render |
 | `immune_ui` / `src/ui` | Player screens and developer panels | core, platform, render, game, gui |
-| `immune_audio` / `src/audio` | Procedural synthesis and mixing | core |
-| `immune_app` / `src/app` | Boot, state machine, input routing, wiring, command-line modes | core, platform, sim, render, game, ui, audio |
+| `immune_app` / `src/app` | Boot, state machine, input routing, wiring, command-line modes | core, platform, sim, render, game, ui |
 
 External dependencies include SDL2, glad, GLM, EnTT, nlohmann JSON, Dear ImGui,
 stb, nanosvg, and Catch2. This is a dependency graph, not a single linear chain.
@@ -49,7 +48,7 @@ game rules. Preserve these source boundaries:
 ## Runtime ownership and level lifetime
 
 [App](../src/app/App.h) owns the interactive window, clock, jobs, simulation,
-renderer, audio, UI, game systems, configuration, and progression. Boot loads
+renderer, UI, game systems, configuration, and progression. Boot loads
 configuration, establishes GL-dependent subsystems, and starts the front end.
 See [App.cpp](../src/app/App.cpp) for initialization and teardown order.
 
@@ -57,7 +56,7 @@ See [App.cpp](../src/app/App.cpp) for initialization and teardown order.
 StrengthenImmunity, InLevel, Paused, Editor, LevelComplete, LevelFailed, and
 Quitting states. Only `InLevel` makes `sim_running()` true. The normal frame loop
 polls input, applies pending transitions, consumes fixed ticks while running,
-renders, and updates the audio listener/music state. Pending transitions prevent
+and renders. Pending transitions prevent
 routine changes from destroying a screen during its own update; editor helpers
 also have explicit transition paths.
 

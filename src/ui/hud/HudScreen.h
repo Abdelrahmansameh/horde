@@ -4,12 +4,11 @@
 // (docs/ui-concepts/canvas: Main, Placing, Inspect, Prep, Critical):
 //
 //   top-left     organ integrity panel (turns red and pulses when critical)
-//   top-centre   prep banner ("Send now"), "Wave N cleared" toast,
-//                "Organ failing" banner
-//   top-right    pause / 1x / 2x / menu, then the next-wave panel
+//   top-centre   prep banner ("Send now"), "Wave N cleared" toast
+//   top-right    pause / 1x / 2x / auto-start / menu
 //   bottom       build dock (ATP, then Attack and Control cards), ability cells
 //   world        range rings, placement ghost, aim reticle, tower health pips,
-//                the selected tower's popup, every possible enemy entrance
+//                the selected tower's popup, prep-only entrance / exit arrows
 //
 // The screen owns the HUD's interaction state (armed tower, armed ability,
 // selected tower) — what used to be Hud.cpp's file statics — and reports what
@@ -34,8 +33,9 @@ namespace immune::gui { class Gui; class Widget; class Panel; class Label; class
 namespace immune::ui {
 
 class BuildCard;
+class BuildDock;
 class AbilityCell;
-class WaveRow;
+class AbilityBar;
 class RangeRing;
 class TowerPopup;
 class HintPill;
@@ -104,11 +104,9 @@ private:
     gui::Widget* world_ = nullptr;
     gui::Widget* popup_layer_root_ = nullptr;
 
-    gui::Panel* vignette_ = nullptr;
     gui::Panel* organ_ = nullptr;
     gui::Label* organ_pct_ = nullptr;
     gui::Meter* organ_bar_ = nullptr;
-    gui::Panel* critical_banner_ = nullptr;
 
     gui::Panel* prep_banner_ = nullptr;
     gui::Label* prep_wave_ = nullptr;
@@ -116,24 +114,17 @@ private:
     gui::Label* toast_text_ = nullptr;
 
     std::array<gui::Button*, 5> controls_{};
-    gui::Panel* wave_panel_ = nullptr;
-    gui::Label* wave_title_ = nullptr;
-    gui::Label* wave_total_ = nullptr;
-    std::array<WaveRow*, kFamilyCount> wave_rows_{};
-    gui::Panel* elite_row_ = nullptr;
-    gui::Label* elite_count_ = nullptr;
 
-    gui::Panel* dock_ = nullptr;
+    BuildDock* dock_ = nullptr;
     gui::Icon* atp_icon_ = nullptr;
     gui::Label* atp_value_ = nullptr;
     std::array<BuildCard*, kTowerTypeCount> cards_{};
-    gui::Panel* abilities_ = nullptr;
+    AbilityBar* abilities_ = nullptr;
     std::array<AbilityCell*, game::kAbilityCount> ability_cells_{};
 
     HintPill* hint_ = nullptr;
     gui::Panel* cursor_cost_ = nullptr;
     gui::Label* cursor_cost_value_ = nullptr;
-    gui::Label* cursor_cost_left_ = nullptr;
 
     // World overlays.
     struct TowerOverlay {

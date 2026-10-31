@@ -26,8 +26,8 @@ u64 fingerprint(std::string_view text) {
     return h;
 }
 namespace {
-constexpr const char* families[] = {"virus", "bacteria", "parasite"};
-constexpr const char* ability_keys[] = {"complement", "histamine", "fever", "clot"};
+constexpr const char* families[] = {"virus", "bacteria", "parasite", "spore"};
+constexpr const char* ability_keys[] = {"complement", "fever", "clot"};
 void require(bool ok, const std::string& error) {
     if (!ok) throw std::runtime_error(error);
 }

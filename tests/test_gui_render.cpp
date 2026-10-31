@@ -159,7 +159,7 @@ void build_showcase(DrawList& dl, TextRenderer& text, IconLibrary& icons) {
 
     // 2. Ability cells: cooldown as rising liquid, glyph dimmed until ready.
     ability_cell(dl, icons, text, Vec2{620, 96}, 0xF2B233, 0.35f, "ability_complement_cascade", false, "31s");
-    ability_cell(dl, icons, text, Vec2{730, 96}, 0xE0559A, 1.0f, "ability_histamine_flare", true, nullptr);
+    ability_cell(dl, icons, text, Vec2{730, 96}, 0xE0559A, 1.0f, "ability_complement_cascade", true, nullptr);
     ability_cell(dl, icons, text, Vec2{840, 96}, 0xF26A3D, 0.7f, "ability_fever_response", false, "14s");
     ability_cell(dl, icons, text, Vec2{950, 96}, 0xD7334A, 0.47f, "ability_fibrin_clot", false, "40s");
     // Ready halo: a spinning dashed ring.

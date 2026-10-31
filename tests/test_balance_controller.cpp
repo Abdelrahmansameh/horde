@@ -596,7 +596,7 @@ TEST_CASE_METHOD(immune::test::BalanceConfigIsolation, "balance controller uses 
     params.policy = Policy::Tactical;
     params.weights.fill(0.0f);
     BalanceController controller(params);
-    fixture.abilities.set_unlocked(1u << static_cast<u32>(AbilityId::HistamineFlare));
+    fixture.abilities.set_unlocked(1u << static_cast<u32>(AbilityId::ComplementCascadeBurst));
     fixture.waves.request_early_start();
     fixture.waves.tick(fixture.world, fixture.world.rng(), kFixedDt);
     SECTION("empty board does not waste a cast") {
@@ -614,15 +614,15 @@ TEST_CASE_METHOD(immune::test::BalanceConfigIsolation, "balance controller uses 
         BalanceController ablated(params);
         fixture.spawn(Vec2{100.0f, 50.0f}, 60);
         CHECK(ablated.decide(fixture.view()).empty());
-        CHECK(fixture.abilities.unlocked(AbilityId::HistamineFlare));
-        CHECK(fixture.abilities.ready(AbilityId::HistamineFlare));
+        CHECK(fixture.abilities.unlocked(AbilityId::ComplementCascadeBurst));
+        CHECK(fixture.abilities.ready(AbilityId::ComplementCascadeBurst));
     }
     SECTION("visible horde produces a reproducible legal cast intent") {
         fixture.spawn(Vec2{100.0f, 50.0f}, 60);
         const auto actions = controller.decide(fixture.view());
         REQUIRE(actions.size() == 1);
         CHECK(actions[0].kind == ActionKind::CastAbility);
-        CHECK(actions[0].ability == AbilityId::HistamineFlare);
+        CHECK(actions[0].ability == AbilityId::ComplementCascadeBurst);
         CHECK(fixture.world.desc().world_bounds.contains(actions[0].position));
         CHECK(fixture.abilities.ready(actions[0].ability));
         REQUIRE(fixture.abilities.cast(fixture.world, actions[0].ability, actions[0].position));
@@ -782,7 +782,7 @@ TEST_CASE_METHOD(immune::test::BalanceConfigIsolation, "earned core breach contr
         "campaign_04_twin_channels","campaign_05_ring_road","campaign_06_circuit_board",
         "campaign_07_chevron_sieve","campaign_08_blob_field","campaign_09_funnel_walls"]},
       "tree":{"ability.clot.unlock":1,"ability.complement.unlock":1,"ability.fever.unlock":1,
-        "ability.histamine.unlock":1,"cytotoxic.attach_speed":1,"cytotoxic.drain":1,
+        "cytotoxic.attach_speed":1,"cytotoxic.drain":1,
         "cytotoxic.search":1,"cytotoxic.stamina":1,"cytotoxic.unlock":1,"fibroblast.unlock":1,
         "goblet.slow_duration":1,"goblet.slow_strength":1,"goblet.splash_radius":1,
         "goblet.tower_health":1,"goblet.unlock":1,"goblet.weakness":1,
@@ -840,7 +840,7 @@ TEST_CASE_METHOD(immune::test::BalanceConfigIsolation, "blob field pooling prese
         "campaign_01_first_bend","campaign_02_island_climb","campaign_03_two_chambers",
         "campaign_04_twin_channels","campaign_05_ring_road","campaign_06_circuit_board",
         "campaign_07_chevron_sieve"]},
-      "tree":{"ability.complement.unlock":1,"ability.fever.unlock":1,"ability.histamine.unlock":1,
+      "tree":{"ability.complement.unlock":1,"ability.fever.unlock":1,
         "cytotoxic.unlock":1,"goblet.unlock":1,"hub.bone_marrow_reserve":5,
         "hub.efficient_clearance":5,"hub.elite_response":3,"hub.field_requisition":3,
         "hub.homeostasis":2,"hub.systemic_potency":3,"macrophage.health":1,
@@ -913,7 +913,7 @@ TEST_CASE_METHOD(immune::test::BalanceConfigIsolation, "parallel authored approa
       "progress":{"levels_completed":5,"unlocked_regions":[],"completed_level_ids":[
         "campaign_01_first_bend","campaign_02_island_climb","campaign_03_two_chambers",
         "campaign_04_twin_channels","campaign_05_ring_road"]},
-      "tree":{"ability.fever.unlock":1,"ability.histamine.unlock":1,"goblet.unlock":1,
+      "tree":{"ability.fever.unlock":1,"goblet.unlock":1,
         "hub.bone_marrow_reserve":5,"hub.efficient_clearance":2,"hub.elite_response":2,
         "hub.field_requisition":2,"hub.homeostasis":1,"hub.systemic_potency":1,
         "macrophage.arms":1,"macrophage.captives":3,"macrophage.grab_speed":4,

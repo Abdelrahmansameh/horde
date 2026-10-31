@@ -50,7 +50,7 @@ performance.
 
 ## Important contracts
 
-- Simulation uses fixed 60 Hz time and seeded RNG; visual/audio randomness
+- Simulation uses fixed 60 Hz time and seeded RNG; visual randomness
   stays separate. See [Simulation](SIMULATION.md) for thread/rebake caveats and
   the limited coverage of `state_hash`.
 - Preserve GPU struct/shader layouts, enum order, save keys, and machine-readable
